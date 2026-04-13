@@ -1,0 +1,57 @@
+name: DAM CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin
+          key: ${{ runner.os }}_cargo_rust_${{ hashFiles('dam-rust/**/Cargo.lock') }}
+
+      - name: Install dependencies
+        run: pip install uv && uv pip install --system -e '.[dev,lerobot]'
+
+      - name: Check Format
+        run: ruff format --check dam/ tests/
+
+      - name: Check Linting
+        run: ruff check dam/
+
+      - name: Check Syntax
+        run: |
+          cat << 'EOF' > check.py
+          import ast, glob
+          for f in glob.glob('dam/**/*.py', recursive=True):
+              ast.parse(open(f).read())
+          EOF
+          python check.py
+
+      - name: Build Rust Extension
+        run: |
+          cd dam-rust/dam-py
+          maturin build --release --out dist
+          uv pip install --system dist/*.whl
+
+      - name: Test Import
+        run: python -c 'import dam'
+
+      - name: Validate Stackfile
+        run: |
+          cat << 'EOF' > val.py
+          from dam.config.loader import StackfileLoader
+          StackfileLoader.validate('examples/stackfiles/test.yaml')
+          EOF
+          python val.py

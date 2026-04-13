@@ -1,0 +1,212 @@
+"""Bus tests — verifies the Rust extension (dam_rs) via the canonical dam.bus import.
+
+dam_rs is a mandatory dependency.  If it is not compiled, importing dam.bus
+raises ImportError and every test in this module fails immediately with a clear
+error message (build the extension first).
+
+Run:
+    pytest tests/unit/test_bus_rust.py -v
+"""
+
+import time
+
+from dam.bus import ActionBus, MetricBus, ObservationBus, RiskController, WatchdogTimer
+
+# ── ObservationBus ────────────────────────────────────────────────────────
+
+
+class TestObservationBus:
+    def test_write_read_latest(self):
+        bus = ObservationBus(10)
+        bus.write(b"hello")
+        bus.write(b"world")
+        assert bus.read_latest() == b"world"
+
+    def test_empty_returns_none(self):
+        bus = ObservationBus(10)
+        assert bus.read_latest() is None
+        assert bus.is_empty()
+
+    def test_len(self):
+        bus = ObservationBus(10)
+        bus.write(b"a")
+        bus.write(b"b")
+        assert len(bus) == 2
+        assert bus.len() == 2
+
+    def test_capacity_evicts(self):
+        bus = ObservationBus(3)
+        for i in range(5):
+            bus.write(bytes([i]))
+        assert bus.len() == 3
+        assert bus.read_latest() == bytes([4])
+
+    def test_read_window_chronological(self):
+        bus = ObservationBus(10)
+        for i in range(5):
+            bus.write(bytes([i]))
+        w = bus.read_window(3)
+        assert [bytes([b]) for b in [2, 3, 4]] == w
+
+    def test_read_window_larger_than_buf(self):
+        bus = ObservationBus(10)
+        bus.write(b"x")
+        assert len(bus.read_window(100)) == 1
+
+    def test_capacity_property(self):
+        bus = ObservationBus(42)
+        assert bus.capacity == 42
+
+
+# ── WatchdogTimer ─────────────────────────────────────────────────────────
+
+
+class TestWatchdogTimer:
+    def test_not_emergency_on_create(self):
+        w = WatchdogTimer(500.0)
+        assert not w.is_emergency()
+
+    def test_ping_prevents_emergency(self):
+        w = WatchdogTimer(60.0)
+        w.arm()
+        for _ in range(6):
+            time.sleep(0.012)
+            w.ping()
+        w.disarm()
+        assert not w.is_emergency()
+
+    def test_missed_ping_triggers(self):
+        w = WatchdogTimer(20.0)
+        w.arm()
+        time.sleep(0.100)
+        assert w.is_emergency()
+        w.disarm()
+
+    def test_clear_emergency(self):
+        w = WatchdogTimer(10.0)
+        w.arm()
+        time.sleep(0.060)
+        assert w.is_emergency()
+        w.clear_emergency()
+        assert not w.is_emergency()
+
+    def test_deadline_ms_property(self):
+        w = WatchdogTimer(77.5)
+        assert abs(w.deadline_ms - 77.5) < 1e-6
+
+    def test_elapsed_since_ping(self):
+        w = WatchdogTimer(1000.0)
+        w.ping()
+        time.sleep(0.030)
+        assert w.elapsed_since_ping_ms() >= 20.0
+
+
+# ── RiskController ────────────────────────────────────────────────────────
+
+
+class TestRiskController:
+    def _rc(self):
+        return RiskController(10, 3, 2)
+
+    def test_fresh_is_normal(self):
+        assert self._rc().risk_level() == 0
+
+    def test_rejects_elevate(self):
+        rc = self._rc()
+        rc.record(False, True)
+        rc.record(False, True)
+        assert rc.risk_level() == 1
+
+    def test_emergency_overrides(self):
+        rc = self._rc()
+        rc.trigger_emergency()
+        assert rc.risk_level() == 3
+
+    def test_clear_emergency(self):
+        rc = self._rc()
+        rc.trigger_emergency()
+        rc.clear_emergency()
+        assert not rc.is_emergency()
+
+    def test_stats_dict(self):
+        rc = self._rc()
+        rc.record(True, False)
+        rc.record(False, True)
+        s = rc.stats()
+        assert s["clamp_count"] == 1
+        assert s["reject_count"] == 1
+        assert "risk_level" in s
+        assert "is_emergency" in s
+
+
+# ── MetricBus ─────────────────────────────────────────────────────────────
+
+
+class TestMetricBus:
+    def test_push_latest(self):
+        mb = MetricBus()
+        mb.push("g", 1.5)
+        mb.push("g", 2.5)
+        assert abs(mb.latest("g") - 2.5) < 1e-9
+
+    def test_missing_is_none(self):
+        mb = MetricBus()
+        assert mb.latest("missing") is None
+
+    def test_all_latest(self):
+        mb = MetricBus()
+        mb.push("a", 1.0)
+        mb.push("b", 2.0)
+        all_l = mb.all_latest()
+        assert set(all_l.keys()) == {"a", "b"}
+
+    def test_mean(self):
+        mb = MetricBus()
+        for v in [1.0, 2.0, 3.0, 4.0]:
+            mb.push("g", v)
+        assert abs(mb.mean("g") - 2.5) < 1e-9
+
+    def test_max(self):
+        mb = MetricBus()
+        for v in [3.0, 1.0, 4.0]:
+            mb.push("g", v)
+        assert abs(mb.max("g") - 4.0) < 1e-9
+
+    def test_guard_names(self):
+        mb = MetricBus()
+        mb.push("x", 1.0)
+        mb.push("y", 2.0)
+        assert sorted(mb.guard_names()) == ["x", "y"]
+
+    def test_clear(self):
+        mb = MetricBus()
+        mb.push("g", 42.0)
+        mb.clear()
+        assert mb.latest("g") is None
+
+
+# ── ActionBus ─────────────────────────────────────────────────────────────
+
+
+class TestActionBus:
+    def test_write_read(self):
+        bus = ActionBus(1)
+        bus.write(b"hello")
+        assert bus.read() == b"hello"
+
+    def test_empty_returns_none(self):
+        assert ActionBus(1).read() is None
+
+    def test_overwrite_latest_wins(self):
+        bus = ActionBus(1)
+        bus.write(b"old")
+        bus.write(b"new")
+        assert bus.read() == b"new"
+
+    def test_is_empty(self):
+        bus = ActionBus(1)
+        assert bus.is_empty()
+        bus.write(b"x")
+        assert not bus.is_empty()
+        bus.read()
+        assert bus.is_empty()

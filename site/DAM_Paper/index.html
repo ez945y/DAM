@@ -1,0 +1,2495 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Real-time safety middleware for ML-driven robot arms">
+      
+      
+      
+        <link rel="canonical" href="https://ez945y.github.io/DAM/DAM_Paper/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/logo.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>B-GUARD: Boundary-Guarded Unifying Action Runtime Dispatcher - DAM — Detachable Action Monitor</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="amber" data-md-color-accent="yellow">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#b-guard-boundary-guarded-unifying-action-runtime-dispatcher" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="DAM — Detachable Action Monitor" class="md-header__button md-logo" aria-label="DAM — Detachable Action Monitor" data-md-component="logo">
+      
+  <img src="../assets/logo.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            DAM — Detachable Action Monitor
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              B-GUARD: Boundary-Guarded Unifying Action Runtime Dispatcher
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="amber" data-md-color-accent="yellow"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="amber" data-md-color-accent="yellow"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/ez945y/DAM" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ez945y/DAM
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../installation/" class="md-tabs__link">
+          
+  
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../learn/tutorial/" class="md-tabs__link">
+          
+  
+  
+  Learn DAM
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../console/" class="md-tabs__link">
+          
+  
+  
+  Console
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../DAM_Specification/" class="md-tabs__link">
+          
+  
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../contributing/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Contributing
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="DAM — Detachable Action Monitor" class="md-nav__button md-logo" aria-label="DAM — Detachable Action Monitor" data-md-component="logo">
+      
+  <img src="../assets/logo.svg" alt="logo">
+
+    </a>
+    DAM — Detachable Action Monitor
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/ez945y/DAM" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ez945y/DAM
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Learn DAM
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Learn DAM
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../learn/tutorial/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tutorial
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../concepts/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../concepts/safety/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Safety Guarantees
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../concepts/guards-explained/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guard Stack Explained
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../concepts/boundaries/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Boundary System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guards-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guards
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../boundary-callbacks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Boundary Callbacks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../learn/glossary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Console
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Console
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../console/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../services-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../DAM_Specification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+  
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        基於邊界約束的統一動作運行時調度框架
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#abstract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        摘要 (Abstract)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-introduction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. 緒論 (Introduction)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. 緒論 (Introduction)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.1 研究背景
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.2 研究動機
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#13" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.3 研究目標與貢獻
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-related-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. 相關工作 (Related Work)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. 相關工作 (Related Work)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-runtime-safety-assurance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 運行時安全保障 (Runtime Safety Assurance)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22-modular-safety-guardrails" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2 模組化安全干預層 (Modular Safety Guardrails)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23-failure-mode-discovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3 失效模式發現與採樣 (Failure Mode Discovery)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#24" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.4 本研究之定位
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-system-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. 系統架構 (System Architecture)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. 系統架構 (System Architecture)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 架構概覽
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 核心設計原則
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 五層防禦設計
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3.3 五層防禦設計">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#l0-perception-ood-guard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        L0：感知與離群偵測層 (Perception &amp; OOD Guard)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#l1-simulation-preflight-guard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        L1：模擬預檢層 (Simulation Preflight Guard)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#l2-physical-motion-guard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        L2：物理與運動學約束層 (Physical &amp; Motion Guard)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#l3-execution-safety-enforcement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        L3：執行與安全強化層 (Execution &amp; Safety Enforcement)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#l4-hardware-safety-guard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        L4：硬體安全層 (Hardware Safety Guard)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cross-cutting-risk-control-band" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        跨層風險控制帶 (Cross-Cutting Risk Control Band)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#34-boundary-container" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.4 邊界容器 (Boundary Container)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#35-adapter-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.5 適配器架構 (Adapter Architecture)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#36" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.6 決策聚合與備援機制
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-experimental-design" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. 實驗設計 (Experimental Design)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. 實驗設計 (Experimental Design)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 實驗平台
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-safety-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 實驗一：安全性驗證 (Safety Validation)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4.2 實驗一：安全性驗證 (Safety Validation)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#421" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2.1 實驗目的
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#422" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2.2 對照組設計
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#423" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2.3 測試場景
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#424" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2.4 評估指標
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#425" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2.5 試驗規模總結
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-latency-overhead" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 實驗二：延遲開銷評估 (Latency Overhead)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4.3 實驗二：延遲開銷評估 (Latency Overhead)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#431" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3.1 實驗目的
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#432" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3.2 實驗方法
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#433" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3.3 評估指標
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#44-failure-data-closed-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.4 實驗三：失效數據閉環驗證 (Failure Data Closed-Loop)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4.4 實驗三：失效數據閉環驗證 (Failure Data Closed-Loop)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#441" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.4.1 實驗目的
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#442" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.4.2 實驗動機
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#443" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.4.3 實驗方法
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#444" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.4.4 評估指標
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#45-cross-platform-latency-consistency" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.5 實驗四：跨平台延遲一致性 (Cross-Platform Latency Consistency)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4.5 實驗四：跨平台延遲一致性 (Cross-Platform Latency Consistency)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#451" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.5.1 實驗目的
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#452" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.5.2 實驗方法
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#453" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.5.3 評估指標
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-expected-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. 預期結果 (Expected Results)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. 預期結果 (Expected Results)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 假設
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 分析方法
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-conclusion-future-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. 結論與未來工作 (Conclusion &amp; Future Work)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        參考文獻 (References)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="b-guard-boundary-guarded-unifying-action-runtime-dispatcher">B-GUARD: Boundary-Guarded Unifying Action Runtime Dispatcher<a class="headerlink" href="#b-guard-boundary-guarded-unifying-action-runtime-dispatcher" title="Permanent link">&para;</a></h1>
+<h2 id="_1">基於邊界約束的統一動作運行時調度框架<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
+<p><strong>陳一中</strong><br />
+指導教授：<strong>彭祖乙</strong></p>
+<hr />
+<h2 id="abstract">摘要 (Abstract)<a class="headerlink" href="#abstract" title="Permanent link">&para;</a></h2>
+<p>當前機器人控制正從規則驅動轉向數據驅動。模仿學習 (Imitation Learning) 與強化學習 (Reinforcement Learning) 模型雖然在複雜操作任務中表現優異，但本質上是隨機的黑盒模型，輸出具有隨機性且缺乏與物理邊界的強耦合，導致在關鍵任務中難以保證百分之百安全。</p>
+<p>本研究提出 B-GUARD（Boundary-Guarded Unifying Action Runtime Dispatcher），一個<strong>非侵入式的確定性安全調度框架</strong>，在策略模型與硬體執行器之間建立一個確定的驗證層。B-GUARD 的核心不在於訓練模型，而是在於定義明確的安全邊界並執行即時監測，將安全性從模型訓練中解耦。框架採用五層防禦架構（L0 感知離群偵測、L1 模擬預檢、L2 運動學約束、L3 執行監控、L4 硬體安全）與跨層風險控制帶，實現對任意策略輸出的三態裁決（通過 / 限制 / 拒絕）。B-GUARD 原生相容 LeRobot、VLA 模型及 RL 策略，無需存取模型權重或重新訓練即可部署。</p>
+<p>實驗設計涵蓋四個維度：(1) 安全性驗證——量化各層 Guard 與組合配置下的邊界違規攔截率與假陽性率；(2) 延遲開銷——量化逐層啟用 Guard 的累計延遲增長；(3) 失效數據價值——比較 B-GUARD 自動擷取的結構化失效數據與傳統人工標註方式在模型迭代改進上的效率差異；(4) 跨平台延遲一致性——驗證框架在不同執行平台上的延遲表現。</p>
+<p><strong>關鍵詞</strong>：機器人安全、運行時保障、動作調度、邊界約束、模仿學習、非侵入式框架</p>
+<hr />
+<h2 id="1-introduction">1. 緒論 (Introduction)<a class="headerlink" href="#1-introduction" title="Permanent link">&para;</a></h2>
+<h3 id="11">1.1 研究背景<a class="headerlink" href="#11" title="Permanent link">&para;</a></h3>
+<p>近年來，端到端學習型策略在機器人操作領域取得顯著進展。以 Action Chunking with Transformers (ACT) [Zhao et al., 2023]、Diffusion Policy [Chi et al., 2023] 為代表的模仿學習模型，以及基於視覺語言動作模型 (VLA) 的 RT-2 [Brohan et al., 2023] 和 π₀ [Physical Intelligence, 2024] 等方法，已展示出在非結構化環境中完成複雜操作任務的能力。</p>
+<p>然而，這些模型本質上是<strong>隨機的黑盒系統</strong>：</p>
+<ol>
+<li><strong>輸出的隨機性</strong>：神經網路的推論結果為機率分佈的採樣，同一觀測可能產生不同的動作輸出。</li>
+<li><strong>缺乏物理約束耦合</strong>：模型在訓練時未顯式建模關節極限、工作空間邊界、力矩閾值等物理約束，安全性僅隱式依賴訓練數據分佈。</li>
+<li><strong>分佈偏移脆弱性</strong>：當感測輸入偏離訓練分佈（Out-of-Distribution, OOD）時，模型可能產生危險的動作提案。</li>
+</ol>
+<p>這些特性使得學習型策略在工業生產、醫療輔助、人機協作等<strong>安全關鍵場景</strong>中面臨嚴峻的部署挑戰。現有方法主要依賴增加訓練數據、數據增強或模型約束損失函數來緩解安全問題，但均無法提供<strong>形式化的安全保證</strong>。</p>
+<h3 id="12">1.2 研究動機<a class="headerlink" href="#12" title="Permanent link">&para;</a></h3>
+<p>本研究的核心觀察是：<strong>安全性不應依附於模型訓練</strong>。無論策略模型如何演進，物理世界的約束（關節極限、碰撞邊界、力矩上限）是確定且不可違背的。因此，安全保證應由一個獨立於模型的外部機制來提供，而非嵌入模型內部。</p>
+<p>基於此觀察，本研究提出將<strong>安全職責</strong>從策略模型中分離，建立一個位於模型輸出與硬體執行之間的<strong>確定性調度層 (Deterministic Dispatcher)</strong>。此調度層的職責是：</p>
+<ul>
+<li>接收策略模型產生的<strong>動作提案 (Action Proposal)</strong></li>
+<li>根據預定義的<strong>邊界容器 (Boundary Container)</strong> 進行驗證</li>
+<li>做出三態裁決：<strong>通過 (Pass)</strong>、<strong>限制 (Clamp)</strong> 或<strong>拒絕 (Reject)</strong></li>
+<li>將黑盒失效轉化為<strong>可解釋且可追溯的數據報告</strong></li>
+</ul>
+<h3 id="13">1.3 研究目標與貢獻<a class="headerlink" href="#13" title="Permanent link">&para;</a></h3>
+<p>本研究的目標是開發 B-GUARD 調度框架。主要貢獻如下：</p>
+<ol>
+<li><strong>確定性安全調度架構</strong>：提出一種五層防禦 + 跨層風險控制帶的階層化安全架構，實現對學習型策略輸出的系統性驗證。</li>
+<li><strong>非侵入式整合機制</strong>：設計基於適配器模式的接口層（Sensor / Policy / Action Adapter），使框架能以黑盒方式包覆任意策略模型，無需存取模型權重或修改模型架構。</li>
+<li><strong>模組化邊界定義系統</strong>：提出 YAML 配置與 Python 回呼函數的多對多映射（M:N Mapping）機制，以節點 (Node) 為最小單元構建可復用的安全邊界。</li>
+<li><strong>失效數據閉環</strong>：設計上下文日誌系統，自動擷取邊界違規事件前後的觀測與動作數據，將黑盒失效轉化為可供模型迭代改進的結構化數據集。</li>
+<li><strong>跨平台統一安全介入</strong>：提出一種不依賴模型架構的通用安全調度框架，實現了跨平台（LeRobot、VLA、RL）的統一安全介入。</li>
+</ol>
+<hr />
+<h2 id="2-related-work">2. 相關工作 (Related Work)<a class="headerlink" href="#2-related-work" title="Permanent link">&para;</a></h2>
+<h3 id="21-runtime-safety-assurance">2.1 運行時安全保障 (Runtime Safety Assurance)<a class="headerlink" href="#21-runtime-safety-assurance" title="Permanent link">&para;</a></h3>
+<p>SOTER [Desai et al., 2019] 與 RTA-IR [Hobbs &amp; Osborne, 2019] 奠定了機器人運行時保障的基礎範式。其核心在於透過建立形式化的安全包絡線 (Safety Envelope)，在系統狀態偏離預定義的安全流形 (Safety Manifold) 時執行預設的保護邏輯。然而，這類框架主要處理確定性控制器（如 PID、MPC），在應對端到端學習模型產生的<strong>隨機性動作提案</strong>時存在根本性落差——它們假設控制輸出是可預測的，而學習型策略的輸出則是從機率分佈中採樣的。</p>
+<h3 id="22-modular-safety-guardrails">2.2 模組化安全干預層 (Modular Safety Guardrails)<a class="headerlink" href="#22-modular-safety-guardrails" title="Permanent link">&para;</a></h3>
+<p>Khazatsky et al. [2026] 的研究系統性地分析了安全干預機制的架構選擇。該研究指出：</p>
+<ul>
+<li><strong>方案 A（模型內部嵌入）</strong>：完全嵌入模型內部的安全機制在結構上不足以確保動作與決策的安全，因為模型對齊 (Alignment) 無法建立不可逾越的執行時邊界。</li>
+<li><strong>方案 B（單一視角外掛）</strong>：單一視角的外部外掛也存在局限性——動作層級外掛無法識別語義危害，而決策層級外掛無法保證執行時的物理安全。</li>
+</ul>
+<p>此研究為本框架提供了理論基礎：安全機制必須<strong>同時覆蓋多個層級</strong>（感知、運動學、執行、硬體），且必須作為外部模組而非內嵌機制。</p>
+<h3 id="23-failure-mode-discovery">2.3 失效模式發現與採樣 (Failure Mode Discovery)<a class="headerlink" href="#23-failure-mode-discovery" title="Permanent link">&para;</a></h3>
+<p>ROBOGATE [Chen et al., 2026] 提出一種基於邊界聚焦採樣 (Boundary-Focused Sampling) 的技術，主動尋找模型在邊緣條件下的脆弱點。這為理解學習型策略在面對分佈偏移時的失效模式提供了重要數據基礎，並強調了自動化收集失效案例對於後續系統性改進的重要性。</p>
+<h3 id="24">2.4 本研究之定位<a class="headerlink" href="#24" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">維度</th>
+<th style="text-align: left;">SOTER / RTA-IR</th>
+<th style="text-align: left;">Modular Guardrails</th>
+<th style="text-align: left;">ROBOGATE</th>
+<th style="text-align: left;"><strong>B-GUARD (Ours)</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">目標策略類型</td>
+<td style="text-align: left;">確定性控制器</td>
+<td style="text-align: left;">學習型模型</td>
+<td style="text-align: left;">學習型模型</td>
+<td style="text-align: left;"><strong>任意策略（統一接口）</strong></td>
+</tr>
+<tr>
+<td style="text-align: left;">安全介入層級</td>
+<td style="text-align: left;">單層（控制層）</td>
+<td style="text-align: left;">多層（但分析性）</td>
+<td style="text-align: left;">測試階段</td>
+<td style="text-align: left;"><strong>五層 + 跨層風控帶</strong></td>
+</tr>
+<tr>
+<td style="text-align: left;">是否需存取模型</td>
+<td style="text-align: left;">否</td>
+<td style="text-align: left;">取決於方案</td>
+<td style="text-align: left;">是（需採樣）</td>
+<td style="text-align: left;"><strong>否（黑盒包覆）</strong></td>
+</tr>
+<tr>
+<td style="text-align: left;">失效數據處理</td>
+<td style="text-align: left;">日誌記錄</td>
+<td style="text-align: left;">未涉及</td>
+<td style="text-align: left;">主動發現</td>
+<td style="text-align: left;"><strong>自動擷取 + 結構化匯出</strong></td>
+</tr>
+<tr>
+<td style="text-align: left;">即時部署</td>
+<td style="text-align: left;">是</td>
+<td style="text-align: left;">概念性</td>
+<td style="text-align: left;">離線</td>
+<td style="text-align: left;"><strong>是（即時三態裁決）</strong></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="3-system-architecture">3. 系統架構 (System Architecture)<a class="headerlink" href="#3-system-architecture" title="Permanent link">&para;</a></h2>
+<h3 id="31">3.1 架構概覽<a class="headerlink" href="#31" title="Permanent link">&para;</a></h3>
+<p>B-GUARD 採用<strong>五層防禦架構</strong>搭配<strong>跨層風險控制帶 (Cross-Cutting Risk Control Band)</strong>，在策略模型的動作提案 (Action Proposal) 與硬體執行之間建立系統性的驗證屏障。</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>┌─────────────────────────────────────────────────────────┐
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>│                    Policy Model                         │
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>│              (LeRobot / VLA / RL)                       │
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>└────────────────────────┬────────────────────────────────┘
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>                         │ Action Proposal
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>                         ▼
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>┌─────────────────────────────────────────────────────────┐
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>│                   B-GUARD Dispatcher                    │
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>│  ┌───────────────────────────────────────────────────┐  │
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>│  │ L0: Perception &amp; OOD Guard                        │  │
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>│  ├───────────────────────────────────────────────────┤  │
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>│  │ L1: Simulation Preflight Guard                    │  │
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>│  ├───────────────────────────────────────────────────┤  │  Risk
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>│  │ L2: Physical &amp; Motion Guard                    │  │  Control
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>│  ├───────────────────────────────────────────────────┤  │  Band
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>│  │ L3: Execution &amp; Safety Enforcement                │  │   ║
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>│  ├───────────────────────────────────────────────────┤  │   ║
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>│  │ L4: Hardware Safety Guard                         │  │   ║
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>│  └───────────────────────────────────────────────────┘  │
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>│              Decision: PASS / CLAMP / REJECT            │
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>└────────────────────────┬────────────────────────────────┘
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>                         │ Validated Action
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>                         ▼
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>┌─────────────────────────────────────────────────────────┐
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>│                 Hardware Execution                       │
+<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>│              (via Action Adapter → Node)                 │
+<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>└─────────────────────────────────────────────────────────┘
+</code></pre></div>
+<h3 id="32">3.2 核心設計原則<a class="headerlink" href="#32" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>確定性安全優於機率性輸出</strong>：神經網路提供機率性的動作建議，B-GUARD 確保最終分發的動作是確定且安全的。</li>
+<li><strong>動作分發器角色 (Dispatcher)</strong>：框架接收動作提案，根據邊界容器驗證後，決定通過、限制或拒絕。</li>
+<li><strong>邊界即一等公民</strong>：安全邊界透過 Boundary Container 定義，採用 YAML 配置與 Python 回呼函數的多對多映射 (M:N Mapping)，以節點 (Node) 為最小單元。</li>
+<li><strong>非侵入式整合</strong>：框架以黑盒方式包覆現有策略，不需存取模型權重或重新訓練。</li>
+</ol>
+<h3 id="33">3.3 五層防禦設計<a class="headerlink" href="#33" title="Permanent link">&para;</a></h3>
+<h4 id="l0-perception-ood-guard">L0：感知與離群偵測層 (Perception &amp; OOD Guard)<a class="headerlink" href="#l0-perception-ood-guard" title="Permanent link">&para;</a></h4>
+<p>L0 層利用自動編碼器 (Autoencoder) 的重建誤差判定感測輸入是否偏離訓練分佈。當重建誤差超過閾值 $\epsilon_{ood}$ 時，立即拒絕動作、保持當前位置，並記錄觸發前後的上下文數據。</p>
+<p>$$
+\text{Decision}<em ood="ood">{L0} = \begin{cases} \text{REJECT} &amp; \text{if } |x - \hat{x}|_2 &gt; \epsilon</em>
+$$} \ \text{PASS} &amp; \text{otherwise} \end{cases</p>
+<h4 id="l1-simulation-preflight-guard">L1：模擬預檢層 (Simulation Preflight Guard)<a class="headerlink" href="#l1-simulation-preflight-guard" title="Permanent link">&para;</a></h4>
+<p>L1 層在模擬環境（如 Isaac Sim、Gazebo）中預先執行動作提案，驗證是否產生碰撞或違反空間約束。此層為選擇性啟用（需具備模擬環境）。</p>
+<h4 id="l2-physical-motion-guard">L2：物理與運動學約束層 (Physical &amp; Motion Guard)<a class="headerlink" href="#l2-physical-motion-guard" title="Permanent link">&para;</a></h4>
+<p>L2 層執行確定性的物理約束檢查，包含關節極限、角速度限制、加速度限制與工作空間包絡線。違規時執行 Clamp 操作，將動作限制在安全範圍內：</p>
+<p>$$
+q_i^{safe} = \text{clamp}(q_i^{proposed}, q_i^{min}, q_i^{max})
+$$</p>
+<h4 id="l3-execution-safety-enforcement">L3：執行與安全強化層 (Execution &amp; Safety Enforcement)<a class="headerlink" href="#l3-execution-safety-enforcement" title="Permanent link">&para;</a></h4>
+<p>L3 層負責任務級別的安全監控。它將動作提案與當前活動的 Boundary Container 節點進行比對，並管理節點間的狀態跳轉與備援策略觸發。</p>
+<h4 id="l4-hardware-safety-guard">L4：硬體安全層 (Hardware Safety Guard)<a class="headerlink" href="#l4-hardware-safety-guard" title="Permanent link">&para;</a></h4>
+<p>L4 為不可被軟體覆寫的最終防線，直接監控硬體層級的壓力、力矩與電流閾值。觸發時執行硬體緊急停止 (E-Stop) 並向上層發送軟信號。</p>
+<h4 id="cross-cutting-risk-control-band">跨層風險控制帶 (Cross-Cutting Risk Control Band)<a class="headerlink" href="#cross-cutting-risk-control-band" title="Permanent link">&para;</a></h4>
+<p>風險控制帶橫跨所有防禦層，持續維護系統狀態感知：</p>
+<ul>
+<li><strong>上下文日誌器 (Contextual Logger)</strong>：自動擷取邊界違規事件前後的觀測、動作與 Guard 判斷鏈。</li>
+<li><strong>根因隔離器 (Root Cause Isolator)</strong>：分析違規事件鏈以定位根本原因。</li>
+<li><strong>任務儀表板 (Mission Dashboard)</strong>：提供即時的系統狀態視覺化。</li>
+</ul>
+<h3 id="34-boundary-container">3.4 邊界容器 (Boundary Container)<a class="headerlink" href="#34-boundary-container" title="Permanent link">&para;</a></h3>
+<p>邊界容器是 B-GUARD 的核心配置單元，以<strong>節點 (Node)</strong> 為最小邊界單元，支援三種組織形式：</p>
+<ol>
+<li><strong>單一節點 (Single Node)</strong>：持續作用的全域安全約束。</li>
+<li><strong>有序列表 (List)</strong>：線性順序的任務階段。</li>
+<li><strong>節點圖 (Node Graph)</strong>：具備分支、迴圈與條件跳轉的複雜任務流程。</li>
+</ol>
+<p>YAML 配置負責描述結構（節點、跳轉、約束），Python 回呼負責實現動態邏輯。同一回呼可被多個節點引用，同一節點可引用多個回呼，形成 M:N 映射。</p>
+<h3 id="35-adapter-architecture">3.5 適配器架構 (Adapter Architecture)<a class="headerlink" href="#35-adapter-architecture" title="Permanent link">&para;</a></h3>
+<p>B-GUARD 透過三種適配器實現與外部系統的解耦：</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">適配器</th>
+<th style="text-align: left;">輸入</th>
+<th style="text-align: left;">輸出</th>
+<th style="text-align: left;">職責</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><strong>Sensor Adapter</strong></td>
+<td style="text-align: left;">原始感測數據</td>
+<td style="text-align: left;"><code>Observation</code></td>
+<td style="text-align: left;">統一感測格式</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Policy Adapter</strong></td>
+<td style="text-align: left;"><code>Observation</code></td>
+<td style="text-align: left;"><code>ActionProposal</code></td>
+<td style="text-align: left;">封裝策略輸出</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Action Adapter</strong></td>
+<td style="text-align: left;"><code>ValidatedAction</code></td>
+<td style="text-align: left;">硬體指令</td>
+<td style="text-align: left;">轉化為底層控制信號</td>
+</tr>
+</tbody>
+</table>
+<p><strong>硬體統一節點原則</strong>：物理硬體實體應封裝為單一實例節點 (Unified Node)，Sensor Adapter 與 Action Adapter 共享同一節點的通訊接口，確保資源獨佔性與狀態同步。</p>
+<h3 id="36">3.6 決策聚合與備援機制<a class="headerlink" href="#36" title="Permanent link">&para;</a></h3>
+<p><strong>決策聚合器 (Decision Aggregator)</strong> 依據優先級聚合所有 Guard 結果：REJECT &gt; CLAMP &gt; PASS，高層級 Guard（L4）擁有最高決策權重。</p>
+<p><strong>備援策略 (Fallback Strategy)</strong> 由 FallbackRegistry 管理，支援自動升級鏈：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>gentle_release → return_to_home → emergency_stop
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>reverse_motion → hold_position → return_to_home → emergency_stop
+</code></pre></div>
+<hr />
+<h2 id="4-experimental-design">4. 實驗設計 (Experimental Design)<a class="headerlink" href="#4-experimental-design" title="Permanent link">&para;</a></h2>
+<h3 id="41">4.1 實驗平台<a class="headerlink" href="#41" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">項目</th>
+<th style="text-align: left;">規格</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><strong>機械手臂</strong></td>
+<td style="text-align: left;">SO-101 (6-DOF)</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>策略模型</strong></td>
+<td style="text-align: left;">ACT / Diffusion Policy / SmolVLA</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>模擬環境</strong></td>
+<td style="text-align: left;">Isaac Sim (L1 Preflight)</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>通訊框架</strong></td>
+<td style="text-align: left;">LeRobot Direct</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>控制頻率</strong></td>
+<td style="text-align: left;">15 fps</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>感測器</strong></td>
+<td style="text-align: left;">Logitech C922 + 關節編碼器</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>上下文日誌窗口</strong></td>
+<td style="text-align: left;">10 秒（觸發前 5 秒 + 觸發後 5 秒，共 150 幀）</td>
+</tr>
+</tbody>
+</table>
+<h3 id="42-safety-validation">4.2 實驗一：安全性驗證 (Safety Validation)<a class="headerlink" href="#42-safety-validation" title="Permanent link">&para;</a></h3>
+<h4 id="421">4.2.1 實驗目的<a class="headerlink" href="#421" title="Permanent link">&para;</a></h4>
+<p>量化 B-GUARD 在不同 Guard 配置與策略模型下，各層的邊界違規<strong>攔截率</strong>與<strong>假陽性率</strong>。</p>
+<h4 id="422">4.2.2 對照組設計<a class="headerlink" href="#422" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">組別</th>
+<th style="text-align: left;">配置</th>
+<th style="text-align: left;">說明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><strong>Baseline</strong></td>
+<td style="text-align: left;">無 Guard</td>
+<td style="text-align: left;">策略模型直接控制硬體</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>L0-only</strong></td>
+<td style="text-align: left;">僅 L0</td>
+<td style="text-align: left;">感知離群偵測</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>L1-only</strong></td>
+<td style="text-align: left;">僅 L1</td>
+<td style="text-align: left;">模擬預檢</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>L2-only</strong></td>
+<td style="text-align: left;">僅 L2</td>
+<td style="text-align: left;">運動學約束</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>L3-only</strong></td>
+<td style="text-align: left;">僅 L3</td>
+<td style="text-align: left;">執行監控</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>L4-only</strong></td>
+<td style="text-align: left;">僅 L4</td>
+<td style="text-align: left;">硬體安全</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>B-GUARD-Full</strong></td>
+<td style="text-align: left;">L0~L4</td>
+<td style="text-align: left;">完整框架</td>
+</tr>
+</tbody>
+</table>
+<h4 id="423">4.2.3 測試場景<a class="headerlink" href="#423" title="Permanent link">&para;</a></h4>
+<p>實驗分為兩個干擾區塊 (Block)，每個 Block 搭配三種策略模型（ACT / Diffusion Policy / SmolVLA），每組合執行 <strong>50 次</strong>。</p>
+<p><strong>Block A：視覺擾動 (Visual Perturbation)</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">干擾項目</th>
+<th style="text-align: left;">方法</th>
+<th style="text-align: left;">目標 Guard</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">光線變化</td>
+<td style="text-align: left;">任務中段切換桌面補光燈開/關</td>
+<td style="text-align: left;">L0</td>
+</tr>
+<tr>
+<td style="text-align: left;">相機部分遮蔽</td>
+<td style="text-align: left;">以不透明膠帶覆蓋鏡頭 30% 區域</td>
+<td style="text-align: left;">L0</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Block B：動作擾動 (Action Perturbation)</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">干擾項目</th>
+<th style="text-align: left;">方法</th>
+<th style="text-align: left;">目標 Guard</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">關節角度偏移</td>
+<td style="text-align: left;">$q_{injected} = q_{policy} + \mathcal{N}(0, 0.3^2)$ rad</td>
+<td style="text-align: left;">L2</td>
+</tr>
+<tr>
+<td style="text-align: left;">速度突增</td>
+<td style="text-align: left;">將速度乘以 $k = 2$ 倍</td>
+<td style="text-align: left;">L2</td>
+</tr>
+<tr>
+<td style="text-align: left;">任務超時</td>
+<td style="text-align: left;">人為延遲策略推論使節點超時</td>
+<td style="text-align: left;">L3</td>
+</tr>
+</tbody>
+</table>
+<p>另外收集<strong>正常任務執行 (Nominal)</strong> 數據：標準 Pick &amp; Place 任務，策略模型在訓練分佈內操作，用於計算各組別的假陽性率。每策略模型 50 次。</p>
+<h4 id="424">4.2.4 評估指標<a class="headerlink" href="#424" title="Permanent link">&para;</a></h4>
+<p>$$
+\text{攔截率} = \frac{\text{被正確攔截的危險動作數}}{\text{所有危險動作數}} \times 100\%
+$$</p>
+<p>$$
+\text{假陽性率} = \frac{\text{正常動作被誤攔截數}}{\text{所有正常動作數}} \times 100\%
+$$</p>
+<p>$$
+\text{Clamp 精確度} = \frac{\text{Clamp 後仍在安全範圍內的動作數}}{\text{所有 Clamp 動作數}} \times 100\%
+$$</p>
+<h4 id="425">4.2.5 試驗規模總結<a class="headerlink" href="#425" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">類型</th>
+<th style="text-align: left;">Block</th>
+<th style="text-align: left;">策略模型</th>
+<th style="text-align: left;">組別</th>
+<th style="text-align: left;">每組次數</th>
+<th style="text-align: left;">小計</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">干擾測試</td>
+<td style="text-align: left;">A (2項) + B (3項) = 5 項</td>
+<td style="text-align: left;">3</td>
+<td style="text-align: left;">7</td>
+<td style="text-align: left;">50</td>
+<td style="text-align: left;">5,250</td>
+</tr>
+<tr>
+<td style="text-align: left;">正常測試</td>
+<td style="text-align: left;">Nominal</td>
+<td style="text-align: left;">3</td>
+<td style="text-align: left;">7</td>
+<td style="text-align: left;">50</td>
+<td style="text-align: left;">1,050</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>合計</strong></td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"><strong>6,300</strong></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="43-latency-overhead">4.3 實驗二：延遲開銷評估 (Latency Overhead)<a class="headerlink" href="#43-latency-overhead" title="Permanent link">&para;</a></h3>
+<h4 id="431">4.3.1 實驗目的<a class="headerlink" href="#431" title="Permanent link">&para;</a></h4>
+<p>在固定 15 fps 控制頻率下，量化逐層啟用 Guard 的<strong>累計延遲增長</strong>，並確認各層的獨立延遲開銷。</p>
+<h4 id="432">4.3.2 實驗方法<a class="headerlink" href="#432" title="Permanent link">&para;</a></h4>
+<p>在標準 Pick &amp; Place 任務中，依序啟用以下配置，對每幀記錄從收到 <code>ActionProposal</code> 到產出 <code>ValidatedAction</code> 的延遲：</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">配置</th>
+<th style="text-align: left;">測量內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">L2-only</td>
+<td style="text-align: left;">L2 單層延遲（基準）</td>
+</tr>
+<tr>
+<td style="text-align: left;">L2 + L0</td>
+<td style="text-align: left;">加入 OOD Guard（Autoencoder 推論時間，不含影像前處理）</td>
+</tr>
+<tr>
+<td style="text-align: left;">L2 + L0 + L3</td>
+<td style="text-align: left;">加入 Execution Guard</td>
+</tr>
+<tr>
+<td style="text-align: left;">L2 + L0 + L3 + L4</td>
+<td style="text-align: left;">加入 Hardware Guard</td>
+</tr>
+<tr>
+<td style="text-align: left;">L2 + L0 + L1 + L3 + L4</td>
+<td style="text-align: left;">加入 Simulation Preflight</td>
+</tr>
+<tr>
+<td style="text-align: left;">Full (L0~L4 + Risk Band)</td>
+<td style="text-align: left;">完整框架</td>
+</tr>
+</tbody>
+</table>
+<p>每組配置運行 <strong>500 幀</strong>（約 33 秒），記錄每幀延遲。</p>
+<h4 id="433">4.3.3 評估指標<a class="headerlink" href="#433" title="Permanent link">&para;</a></h4>
+<ul>
+<li>各配置的平均延遲 (Mean ± Std)</li>
+<li>各配置的最大延遲 (Max Latency)</li>
+<li>逐層啟用的延遲增量 $\Delta t$</li>
+</ul>
+<hr />
+<h3 id="44-failure-data-closed-loop">4.4 實驗三：失效數據閉環驗證 (Failure Data Closed-Loop)<a class="headerlink" href="#44-failure-data-closed-loop" title="Permanent link">&para;</a></h3>
+<h4 id="441">4.4.1 實驗目的<a class="headerlink" href="#441" title="Permanent link">&para;</a></h4>
+<p>比較 B-GUARD <strong>自動結構化擷取</strong>的失效數據與<strong>傳統人工標註</strong>方式，在模型迭代改進上的效率差異。</p>
+<h4 id="442">4.4.2 實驗動機<a class="headerlink" href="#442" title="Permanent link">&para;</a></h4>
+<p>傳統實務中，開發者在策略模型失敗後，需人工觀看失敗影片、診斷失效原因、再針對性地重新收集示範數據進行 Fine-Tune。B-GUARD 的價值不僅在於攔截危險動作，更在於其上下文日誌系統能<strong>自動</strong>擷取失效前後 10 秒的觀測序列，並附帶結構化標籤（觸發的 Guard 層級、違反的邊界、被拒絕的動作提案）。本實驗旨在驗證這種自動化流程是否比人工流程更有效率。</p>
+<h4 id="443">4.4.3 實驗方法<a class="headerlink" href="#443" title="Permanent link">&para;</a></h4>
+<p>使用 ACT 策略在 Pick &amp; Place 任務上執行。</p>
+<p><strong>A. 基線建立</strong></p>
+<p>執行 50 次試驗，記錄任務成功率 $SR_0$。</p>
+<p><strong>B. 兩種迭代方法對比</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;"></th>
+<th style="text-align: left;"><strong>方法 A：人工流程 (Manual)</strong></th>
+<th style="text-align: left;"><strong>方法 B：B-GUARD 輔助 (B-GUARD)</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><strong>失敗識別</strong></td>
+<td style="text-align: left;">人工觀看錄影判斷失敗類型</td>
+<td style="text-align: left;">B-GUARD 自動標記失敗類型與 Guard 層級</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>數據收集</strong></td>
+<td style="text-align: left;">操作員根據判斷，針對失敗場景重新收集 N 筆示範</td>
+<td style="text-align: left;">B-GUARD 自動匯出失效上下文數據（10 秒窗口）</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>人工耗時</strong></td>
+<td style="text-align: left;">記錄操作員花費的總時間</td>
+<td style="text-align: left;">記錄操作員花費的總時間（僅需啟動與檢視報告）</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Fine-Tune</strong></td>
+<td style="text-align: left;">用人工收集的數據 Fine-Tune 模型</td>
+<td style="text-align: left;">用 B-GUARD 匯出的數據 Fine-Tune 模型</td>
+</tr>
+</tbody>
+</table>
+<p><strong>C. 迭代與評估</strong></p>
+<p>兩種方法各迭代 <strong>3 輪</strong>，每輪迭代後執行 50 次試驗記錄 $SR_k$。</p>
+<h4 id="444">4.4.4 評估指標<a class="headerlink" href="#444" title="Permanent link">&para;</a></h4>
+<ul>
+<li>每輪迭代後的任務成功率 $SR_k$</li>
+<li>每輪操作員耗時（分鐘）</li>
+<li>數據效率：$\Delta SR / \text{操作員耗時}$</li>
+</ul>
+<hr />
+<h3 id="45-cross-platform-latency-consistency">4.5 實驗四：跨平台延遲一致性 (Cross-Platform Latency Consistency)<a class="headerlink" href="#45-cross-platform-latency-consistency" title="Permanent link">&para;</a></h3>
+<h4 id="451">4.5.1 實驗目的<a class="headerlink" href="#451" title="Permanent link">&para;</a></h4>
+<p>驗證 B-GUARD 的適配器架構在<strong>不同執行平台</strong>上是否能維持一致的延遲表現。</p>
+<h4 id="452">4.5.2 實驗方法<a class="headerlink" href="#452" title="Permanent link">&para;</a></h4>
+<p>在以下三種平台配置下，使用 B-GUARD-Full 執行標準 Pick &amp; Place 任務，每組運行 500 幀量測延遲：</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">配置</th>
+<th style="text-align: left;">Sensor Adapter</th>
+<th style="text-align: left;">Policy Adapter</th>
+<th style="text-align: left;">Action Adapter</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">A: LeRobot 直連</td>
+<td style="text-align: left;">LeRobot Direct</td>
+<td style="text-align: left;">ACT</td>
+<td style="text-align: left;">LeRobot Direct</td>
+</tr>
+<tr>
+<td style="text-align: left;">B: ROS 2</td>
+<td style="text-align: left;">ROS 2 Topic</td>
+<td style="text-align: left;">ACT</td>
+<td style="text-align: left;">ROS 2 Action Server</td>
+</tr>
+<tr>
+<td style="text-align: left;">C: Isaac Sim</td>
+<td style="text-align: left;">Isaac Sim API</td>
+<td style="text-align: left;">ACT</td>
+<td style="text-align: left;">Isaac Sim API</td>
+</tr>
+</tbody>
+</table>
+<h4 id="453">4.5.3 評估指標<a class="headerlink" href="#453" title="Permanent link">&para;</a></h4>
+<ul>
+<li>各平台的 B-GUARD 端到端延遲 (Mean ± Std)</li>
+<li>各平台間的延遲差異</li>
+<li>各平台的最大延遲</li>
+</ul>
+<hr />
+<h2 id="5-expected-results">5. 預期結果 (Expected Results)<a class="headerlink" href="#5-expected-results" title="Permanent link">&para;</a></h2>
+<h3 id="51">5.1 假設<a class="headerlink" href="#51" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>H1 (安全性)</strong>：B-GUARD-Full 的邊界違規攔截率高於各單層配置與 Baseline，且正常任務下假陽性率控制在 2% 以內。</li>
+<li><strong>H2 (延遲)</strong>：端到端平均延遲在 15 fps 控制週期（~67 ms）的可接受範圍內，不影響策略執行。</li>
+<li><strong>H3 (數據效率)</strong>：B-GUARD 輔助迭代的操作員耗時顯著低於人工流程，且 $\Delta SR$ 相當或更優。</li>
+<li><strong>H4 (跨平台一致性)</strong>：不同平台配置下的 B-GUARD 延遲差異在同一數量級。</li>
+</ul>
+<h3 id="52">5.2 分析方法<a class="headerlink" href="#52" title="Permanent link">&para;</a></h3>
+<ul>
+<li>各指標報告平均值 ± 標準差。</li>
+<li>攔截率與假陽性率以表格呈現各組別 × 各策略模型的完整矩陣。</li>
+<li>延遲數據以折線圖展示逐層累計增長趨勢。</li>
+<li>失效數據實驗以柱狀圖比較兩種方法在每輪迭代的 $SR_k$ 與操作員耗時。</li>
+</ul>
+<hr />
+<h2 id="6-conclusion-future-work">6. 結論與未來工作 (Conclusion &amp; Future Work)<a class="headerlink" href="#6-conclusion-future-work" title="Permanent link">&para;</a></h2>
+<p>本研究提出 B-GUARD，一個非侵入式的確定性安全調度框架，將安全性從模型訓練中解耦，以外部驗證層的形式提供形式化的安全保證。框架的五層防禦架構與跨層風險控制帶實現了從感知到硬體的全鏈路安全覆蓋，而適配器模式則確保了跨平台的部署靈活性。</p>
+<p>未來工作方向包括：</p>
+<ol>
+<li><strong>形式化驗證</strong>：引入時序邏輯 (Temporal Logic) 對 Boundary Container 的安全性進行形式化證明。</li>
+<li><strong>自適應邊界</strong>：探索基於在線學習的邊界參數動態調整機制。</li>
+<li><strong>多機器人協作</strong>：擴展框架至多機械臂協作場景，處理共享工作空間的邊界約束。</li>
+<li><strong>社群生態</strong>：建立 Boundary Container 的共享倉庫，促進安全邊界定義的復用與標準化。</li>
+</ol>
+<hr />
+<h2 id="references">參考文獻 (References)<a class="headerlink" href="#references" title="Permanent link">&para;</a></h2>
+<p>[1] Zhao, T.Z., et al. "Learning Fine-Grained Bimanual Manipulation with Low-Cost Hardware." <em>RSS</em>, 2023.</p>
+<p>[2] Chi, C., et al. "Diffusion Policy: Visuomotor Policy Learning via Action Diffusion." <em>RSS</em>, 2023.</p>
+<p>[3] Brohan, A., et al. "RT-2: Vision-Language-Action Models Transfer Web Knowledge to Robotic Control." <em>CoRL</em>, 2023.</p>
+<p>[4] Physical Intelligence. "π₀: A Vision-Language-Action Flow Model for General Robot Control." <em>arXiv:2410.24164</em>, 2024.</p>
+<p>[5] Desai, A., et al. "SOTER: A Runtime Assurance Framework for Programming Safe Robotics Systems." <em>DSN</em>, 2019.</p>
+<p>[6] Hobbs, K.L. &amp; Osborne, M.L. "Run Time Assurance for Intelligent Robots." <em>AIAA SciTech</em>, 2019.</p>
+<p>[7] Khazatsky, V., et al. "Modular Safety Guardrails for AI-Driven Robotic Systems." <em>ICRA</em>, 2026.</p>
+<p>[8] Chen, R., et al. "ROBOGATE: Boundary-Focused Sampling for Discovering Failure Modes in Robotic Policies." <em>CoRL</em>, 2026.</p>
+<p>[9] HuggingFace. "LeRobot: State-of-the-art Machine Learning for Real-World Robotics." <em>GitHub</em>, 2024.</p>
+<p>[10] Remy, A., et al. "SmolVLA: A Small Vision-Language-Action Model for Robot Manipulation." <em>HuggingFace</em>, 2025.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/ez945y/DAM" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.path", "navigation.top", "navigation.footer", "search.highlight", "search.suggest", "content.code.annotate", "content.code.copy", "content.tooltips", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

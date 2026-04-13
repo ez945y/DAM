@@ -1,0 +1,64 @@
+version: "1"
+
+safety:
+  control_frequency_hz: 15
+  no_task_behavior: emergency_stop
+  enforcement_mode: monitor
+
+
+guards:
+  - L0: ood
+  - L1: preflight
+  - L2: motion
+  - L3: execution
+  - L4: hardware
+
+boundaries:
+  ood_detector:
+    layer: L0
+    type: single
+    nodes:
+      - callback: ood_detector
+        timeout_sec: 1
+        fallback: emergency_stop
+  bounds:
+    layer: L2
+    type: single
+    nodes:
+      - callback: workspace
+        timeout_sec: 1
+        fallback: emergency_stop
+        params:
+          bounds: [[-0.4000, 0.4000], [-0.4000, 0.4000], [0.0200, 0.6000]]
+  joint_position_limits:
+    layer: L2
+    type: single
+    nodes:
+      - callback: joint_position_limits
+        fallback: emergency_stop
+        params:
+          upper: [1.8243, 1.7691, 1.6026, 1.8067, 3.0741, 1.7453]
+          lower: [-1.8243, -1.7691, -1.6026, -1.8067, -3.0741, 0]
+  joint_velocity_limit:
+    layer: L2
+    type: single
+    nodes:
+      - callback: joint_velocity_limit
+        timeout_sec: 1
+        fallback: emergency_stop
+        params:
+          max_velocities: [1.5000, 1.5000, 1.5000, 1.5000, 1.5000, 1.5000]
+  hardware_watchdog:
+    layer: L4
+    type: single
+    nodes:
+      - callback: hardware_limit
+        timeout_sec: 0.1
+        fallback: emergency_stop
+        params:
+          max_staleness_ms: 1000
+
+tasks:
+  demo_full_setup:
+    description: "A full 5-layer safety guard configuration (L0-L4: Perception to Monitoring)"
+    boundaries: [ood_detector, bounds, joint_position_limits, joint_velocity_limit, hardware_watchdog]
