@@ -1,0 +1,64 @@
+# ── dam_engine CI / Testing ───────────────────────────────────────────────────
+#
+# All services use docker/Dockerfile with --target tester.
+# Rust CI checks (cargo fmt / clippy / test) are baked into the tester image
+# build itself — they run during `docker compose build` and fail fast if broken.
+#
+# Run from project root:
+#
+#   docker compose -f docker/compose.test.yml run --rm test    # all Python tests
+#   docker compose -f docker/compose.test.yml run --rm lint    # ruff + mypy
+#   docker compose -f docker/compose.test.yml run --rm ci      # build → lint → test
+
+name: dam_engine_test
+
+x-tester-build: &tester-build
+  context: ..
+  dockerfile: docker/Dockerfile
+  target: tester
+  args:
+    EXTRAS: dev
+
+x-tester-base: &tester-base
+  build:
+    <<: *tester-build
+  image: dam_engine:test
+  working_dir: /workspace
+
+services:
+
+  # All Python tests (dam_rs compiled and checked in the builder/tester stages)
+  test:
+    <<: *tester-base
+    command: python3.11 -m pytest tests/ -v --tb=short -m "not hardware and not ros2"
+
+  # Linting: ruff format + ruff check + mypy
+  lint:
+    <<: *tester-base
+    command: >
+      bash -c "
+        echo '── ruff format ──' &&
+        ruff format --check dam/ tests/ &&
+        echo '── ruff check ──' &&
+        ruff check dam/ &&
+        echo '── mypy ──' &&
+        mypy --strict dam/ &&
+        echo '✓ lint passed'
+      "
+
+  # Full CI: build image (Rust checks baked in) → lint → test
+  ci:
+    image: alpine:3.20
+    working_dir: /workspace
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ..:/workspace
+    entrypoint: >
+      sh -c "
+        apk add --no-cache docker-cli docker-compose-plugin 2>/dev/null || true &&
+        echo '━━ [1/2] lint ━━' &&
+        docker compose -f docker/compose.test.yml run --rm lint &&
+        echo '━━ [2/2] test ━━' &&
+        docker compose -f docker/compose.test.yml run --rm test &&
+        echo '✓ ALL CI CHECKS PASSED'
+      "

@@ -1,0 +1,18 @@
+[package]
+name = "dam-py"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "dam_rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3        = { workspace = true }
+parking_lot = { workspace = true }
+
+observation-bus = { path = "../crates/observation-bus" }
+watchdog        = { path = "../crates/watchdog"        }
+risk-controller = { path = "../crates/risk-controller" }
+metric-bus      = { path = "../crates/metric-bus"      }
+action-bus      = { path = "../crates/action-bus"      }

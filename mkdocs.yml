@@ -1,0 +1,105 @@
+site_name: DAM — Detachable Action Monitor
+site_description: Real-time safety middleware for ML-driven robot arms
+site_url: https://ez945y.github.io/DAM/
+repo_url: https://github.com/ez945y/DAM
+repo_name: ez945y/DAM
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: amber
+      accent: yellow
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: amber
+      accent: yellow
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+  logo: assets/logo.svg
+  favicon: assets/logo.svg
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.path
+    - navigation.top
+    - navigation.footer
+    - search.highlight
+    - search.suggest
+    - content.code.annotate
+    - content.code.copy
+    - content.tooltips
+    - toc.follow
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Installation: installation.md
+    - Quick Start: getting-started/quickstart.md
+  - Learn DAM:
+    - Tutorial: learn/tutorial.md
+    - Concepts:
+      - Architecture Overview: concepts/architecture.md
+      - Safety Guarantees: concepts/safety.md
+      - Guard Stack Explained: concepts/guards-explained.md
+      - Boundary System: concepts/boundaries.md
+    - Reference:
+      - Guards: guards-reference.md
+      - Boundary Callbacks: boundary-callbacks.md
+    - Glossary: learn/glossary.md
+  - Console:
+    - Overview: console.md
+    - API Reference: services-api.md
+  - Reference:
+    - Specification: DAM_Specification.md
+  - Contributing: contributing.md
+
+plugins:
+  - search:
+      lang: en
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      title: On this page
+  - pymdownx.highlight:
+      anchor_linenums: true
+      use_pygments: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/ez945y/DAM
+
+extra_css:
+  - assets/extra.css

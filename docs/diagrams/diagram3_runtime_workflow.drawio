@@ -1,0 +1,149 @@
+<mxfile host="Electron" version="29.6.6">
+  <diagram id="dam-injection-cycle" name="Injection Pool &amp; User API">
+    <mxGraphModel grid="1" gridSize="10" pageWidth="1100" pageHeight="820" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Title -->
+        <mxCell id="title" value="DAM — Injection Pool &amp; User-Defined Components" style="text;html=1;fontSize=18;fontStyle=1;fontColor=#E2E8F0;align=center;" vertex="1" parent="1">
+          <mxGeometry x="100" y="16" width="900" height="32" as="geometry" />
+        </mxCell>
+
+        <!-- ── RUNTIME POOL (left) ── -->
+        <mxCell id="runtime_bg" value="" style="rounded=1;fillColor=#78350F;strokeColor=#F59E0B;opacity=60;" vertex="1" parent="1">
+          <mxGeometry x="40" y="70" width="290" height="300" as="geometry" />
+        </mxCell>
+        <mxCell id="runtime_lbl" value="Runtime Pool  [Rust → Python, per cycle]" style="text;html=1;fontSize=13;fontStyle=1;fontColor=#FCD34D;align=left;" vertex="1" parent="1">
+          <mxGeometry x="55" y="78" width="270" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="runtime_items" value="obs&#xa;action  (last ValidatedAction)&#xa;policy  (PolicyAdapter ref)&#xa;simulator  (SimulatorAdapter ref)&#xa;node_bus  (NodeBus ref)&#xa;cycle_id&#xa;trace_id&#xa;timestamp" style="text;html=1;fontSize=13;fontColor=#FEF3C7;align=left;" vertex="1" parent="1">
+          <mxGeometry x="65" y="108" width="250" height="240" as="geometry" />
+        </mxCell>
+
+        <!-- ── CONFIG POOL (right) ── -->
+        <mxCell id="config_bg" value="" style="rounded=1;fillColor=#1E3A8A;strokeColor=#60A5FA;opacity=60;" vertex="1" parent="1">
+          <mxGeometry x="770" y="70" width="290" height="300" as="geometry" />
+        </mxCell>
+        <mxCell id="config_lbl" value="Config Pool  [Stackfile params: block]" style="text;html=1;fontSize=13;fontStyle=1;fontColor=#93C5FD;align=left;" vertex="1" parent="1">
+          <mxGeometry x="785" y="78" width="270" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="config_items" value="limit_rad&#xa;speed_max&#xa;workspace&#xa;cycle_budget_ms&#xa;… (static user params)" style="text;html=1;fontSize=13;fontColor=#BFDBFE;align=left;" vertex="1" parent="1">
+          <mxGeometry x="795" y="108" width="250" height="200" as="geometry" />
+        </mxCell>
+
+        <!-- ── INJECTION POOL (center) ── -->
+        <mxCell id="injection_pool" value="InjectionPool&#xa;merge(config_pool, runtime_pool)&#xa;runtime wins on key collision" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#312E81;strokeColor=#818CF8;fontColor=#E0E7FF;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="390" y="140" width="320" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- ── GUARD RUNTIME (center, below injection) ── -->
+        <mxCell id="guard_rt" value="GuardRuntime&#xa;inspect guard.check() signature → filter kwargs → call check(**kwargs)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1E40AF;strokeColor=#3B82F6;fontColor=#BFDBFE;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="340" y="300" width="420" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- ── USER GUARDS (below guard_rt) ── -->
+        <mxCell id="guards_bg" value="" style="rounded=1;fillColor=#14532D;strokeColor=#4ADE80;opacity=60;" vertex="1" parent="1">
+          <mxGeometry x="100" y="450" width="900" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="guards_lbl" value="User-Defined Guards  (@dam.guard — Python classes)" style="text;html=1;fontSize=13;fontStyle=1;fontColor=#86EFAC;align=left;" vertex="1" parent="1">
+          <mxGeometry x="115" y="458" width="400" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="g_ood" value="OOD Guard&#xa;L0" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#166534;strokeColor=#4ADE80;fontColor=#F0FDF4;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="115" y="486" width="110" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="g_sim" value="Sim Guard&#xa;L1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#166534;strokeColor=#4ADE80;fontColor=#F0FDF4;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="240" y="486" width="110" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="g_kin" value="Motion Guard&#xa;L2" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#166534;strokeColor=#4ADE80;fontColor=#F0FDF4;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="365" y="486" width="110" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="g_exec" value="Execution Guard&#xa;L3" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#166534;strokeColor=#4ADE80;fontColor=#F0FDF4;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="490" y="486" width="110" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="g_hw" value="Hardware Guard&#xa;L4" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#166534;strokeColor=#4ADE80;fontColor=#F0FDF4;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="615" y="486" width="110" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="g_custom" value="Custom Guard&#xa;(user)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#166534;strokeColor=#4ADE80;fontColor=#F0FDF4;fontSize=12;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="740" y="486" width="110" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="g_result_lbl" value="each returns GuardResult { decision · reason · clamp_target }" style="text;html=1;fontSize=11;fontColor=#86EFAC;align=right;" vertex="1" parent="1">
+          <mxGeometry x="560" y="458" width="430" height="22" as="geometry" />
+        </mxCell>
+
+        <!-- ── BOUNDARY SYSTEM (right side) ── -->
+        <mxCell id="boundary_title" value="Boundary &amp; Task System" style="text;html=1;fontSize=13;fontStyle=1;fontColor=#94A3B8;align=left;" vertex="1" parent="1">
+          <mxGeometry x="40" y="632" width="300" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="stackfile_b" value="Stackfile  boundaries: + tasks:" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1C1917;strokeColor=#78716C;fontColor=#D6D3D1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="658" width="230" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="boundary_container" value="BoundaryContainer&#xa;(per Task, swapped on hot reload)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1E3A8A;strokeColor=#60A5FA;fontColor=#BFDBFE;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="310" y="658" width="250" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="boundary_sched" value="BoundaryScheduler&#xa;O(1) task lookup · snapshot/restore" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1E3A8A;strokeColor=#60A5FA;fontColor=#BFDBFE;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="600" y="658" width="250" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="callback_reg" value="CallbackRegistry  (@dam.callback)&#xa;M:N  boundary ↔ Python callbacks" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#14532D;strokeColor=#4ADE80;fontColor=#F0FDF4;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="890" y="658" width="170" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- CycleResult at bottom -->
+        <mxCell id="cycle_result" value="CycleResult  →  validated_action · was_clamped · was_rejected · guard_results · latency_ms · risk_level · trace_id" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#312E81;strokeColor=#818CF8;fontColor=#C7D2FE;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="100" y="760" width="900" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ── ARROWS ── -->
+        <!-- runtime_pool → injection_pool -->
+        <mxCell id="e1" edge="1" source="runtime_bg" target="injection_pool" style="endArrow=block;endFill=1;strokeColor=#F59E0B;strokeWidth=2;" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- config_pool → injection_pool -->
+        <mxCell id="e2" edge="1" source="config_bg" target="injection_pool" style="endArrow=block;endFill=1;strokeColor=#60A5FA;strokeWidth=2;" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- injection_pool → guard_rt -->
+        <mxCell id="e3" edge="1" source="injection_pool" target="guard_rt" style="endArrow=block;endFill=1;strokeColor=#818CF8;strokeWidth=2;" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- guard_rt → guards_bg -->
+        <mxCell id="e4" edge="1" source="guard_rt" target="guards_bg" style="endArrow=block;endFill=1;strokeColor=#4ADE80;strokeWidth=2;" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- guards → cycle_result -->
+        <mxCell id="e5" edge="1" source="guards_bg" target="cycle_result" style="endArrow=block;endFill=1;strokeColor=#818CF8;strokeWidth=2;" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="550" y="590" />
+              <mxPoint x="550" y="760" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <!-- stackfile → boundary_container -->
+        <mxCell id="e6" edge="1" source="stackfile_b" target="boundary_container" style="endArrow=block;endFill=1;strokeColor=#78716C;strokeWidth=2;" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- boundary_container → boundary_sched -->
+        <mxCell id="e7" edge="1" source="boundary_container" target="boundary_sched" style="endArrow=block;endFill=1;strokeColor=#60A5FA;strokeWidth=2;" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- boundary_sched → callback_reg -->
+        <mxCell id="e8" edge="1" source="boundary_sched" target="callback_reg" style="endArrow=block;endFill=1;strokeColor=#4ADE80;strokeWidth=2;" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <!-- boundary_sched feeds into injection pool (config feeds) -->
+        <mxCell id="e9" edge="1" source="boundary_sched" target="guard_rt" style="endArrow=block;endFill=1;strokeColor=#60A5FA;strokeWidth=1;dashed=1;" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="725" y="658" />
+              <mxPoint x="725" y="420" />
+              <mxPoint x="550" y="420" />
+              <mxPoint x="550" y="380" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

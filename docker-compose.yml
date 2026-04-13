@@ -1,0 +1,179 @@
+# ── dam_service — Full Stack ──────────────────────────────────────────────────
+#
+# Production (pre-built runner image, no source volume):
+#   docker compose --profile prod up
+#   → API + simulation runtime: http://localhost:8080
+#   → Console dashboard:        http://localhost:3000
+#   → API docs (Swagger):       http://localhost:8080/docs
+#
+# Development (source volume-mounted for hot-reload):
+#   docker compose --profile dev up
+#
+# Specialty adapters:
+#   docker compose --profile lerobot up -d engine-lerobot
+#   docker compose --profile ros2     up -d engine-ros2
+#
+# Stop everything:
+#   docker compose down
+
+name: dam_service
+
+x-engine-build: &engine-build
+  context: .
+  dockerfile: docker/Dockerfile
+  args:
+    EXTRAS: services,lerobot
+
+x-healthcheck: &healthcheck
+  test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/control/status')"]
+  interval: 5s
+  timeout: 3s
+  retries: 6
+  start_period: 10s
+
+services:
+
+  # ── Python backend — production (runner target; no source volume) ──────────
+  engine:
+    profiles: [prod]
+    build:
+      <<: *engine-build
+      target: runner
+    image: dam_service:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - dam_data:/tmp/dam_data
+    working_dir: /workspace
+    command: python scripts/dev_server.py
+    healthcheck:
+      <<: *healthcheck
+
+  # ── Python backend — dev (runner target + source volume for hot-reload) ────
+  engine-dev:
+    profiles: [dev]
+    build:
+      <<: *engine-build
+      target: runner
+    image: dam_service:dev
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/workspace
+      - dam_data:/tmp/dam_data
+      # Pass through all host devices so USB serial ports and video cameras
+      # are accessible inside the container (required for lerobot hardware).
+      - /dev:/dev
+    privileged: true
+    working_dir: /workspace
+    command: python scripts/dev_server.py
+    # Use a lenient healthcheck: the server starts even when hardware is missing
+    # (degraded mode), so we just check that the port is open.
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/control/status')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+
+  # ── Next.js console — production build ───────────────────────────────────
+  console:
+    profiles: [prod]
+    build:
+      context: ./dam-console
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8080
+      - NEXT_PUBLIC_WS_URL=ws://localhost:8080
+      - DAM_INTERNAL_API_URL=http://engine:8080
+      - DAM_PROJECT_ROOT=/workspace
+    volumes:
+      - .:/workspace
+    depends_on:
+      engine:
+        condition: service_healthy
+
+  # ── Next.js console — hot-reload dev ─────────────────────────────────────
+  console-dev:
+    profiles: [dev]
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ./dam-console:/app
+      - /app/node_modules
+      - .:/workspace
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8080
+      - NEXT_PUBLIC_WS_URL=ws://localhost:8080
+      - DAM_INTERNAL_API_URL=http://engine-dev:8080
+      - DAM_PROJECT_ROOT=/workspace
+      # Next.js must bind to 0.0.0.0 inside the container so the host can reach it
+      - HOSTNAME=0.0.0.0
+      # macOS Docker Desktop uses polling for inotify — required for hot-reload
+      - WATCHPACK_POLLING=true
+      - CHOKIDAR_USEPOLLING=true
+    command: sh -c "npm install && npm run dev -- -H 0.0.0.0"
+    # NOTE: no depends_on — the console starts independently so you can use it
+    # to configure and *start* the backend via "Apply & Restart".
+
+  # ── LeRobot adapter (profile: lerobot) ────────────────────────────────────
+  # Requires: lerobot Python package + USB device passthrough.
+  # Usage: docker compose --profile lerobot up -d engine-lerobot
+
+  engine-lerobot:
+    profiles: [lerobot]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: runner
+      args:
+        EXTRAS: services,lerobot
+    image: dam_service:lerobot
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/workspace
+      - /dev:/dev
+      - dam_data:/tmp/dam_data
+    privileged: true
+    working_dir: /workspace
+    command: python scripts/dev_server.py
+    environment:
+      - DAM_ADAPTER=lerobot
+    healthcheck:
+      <<: *healthcheck
+
+  # ── ROS2 adapter (profile: ros2) ──────────────────────────────────────────
+  # Requires: ROS2 Humble + colcon workspace.
+  # Usage: docker compose --profile ros2 up -d engine-ros2
+
+  engine-ros2:
+    profiles: [ros2]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: runner
+      args:
+        EXTRAS: services,ros2
+    image: dam_service:ros2
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    command: python scripts/dev_server.py
+    environment:
+      - DAM_ADAPTER=ros2
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+    healthcheck:
+      <<: *healthcheck
+
+volumes:
+  dam_data:

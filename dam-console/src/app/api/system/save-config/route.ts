@@ -1,0 +1,23 @@
+/**
+ * POST /api/system/save-config
+ * Writes the YAML stackfile to .dam_stackfile.yaml at the project root.
+ * Called automatically (debounced) whenever the config page YAML changes.
+ */
+import { writeFileSync } from 'fs'
+import path from 'path'
+import { NextRequest, NextResponse } from 'next/server'
+
+const PROJECT_ROOT =
+  process.env.DAM_PROJECT_ROOT ?? path.resolve(process.cwd(), '..')
+
+export async function POST(req: NextRequest) {
+  try {
+    const { yaml } = await req.json() as { yaml?: string }
+    if (!yaml) return NextResponse.json({ ok: false, error: 'No yaml provided' }, { status: 400 })
+    writeFileSync(path.join(PROJECT_ROOT, '.dam_stackfile.yaml'), yaml, 'utf-8')
+    return NextResponse.json({ ok: true })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 })
+  }
+}

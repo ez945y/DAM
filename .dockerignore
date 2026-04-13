@@ -1,0 +1,37 @@
+# Python cache and compiled files
+__pycache__/
+*.pyc
+.mypy_cache/
+.pytest_cache/
+
+# Git repository
+.git/
+
+# Build artifacts
+build/
+dist/
+
+# Node.js and frontend build artifacts
+node_modules/
+dam-console/.next/
+dam-console/.swc/
+dam-rust/target/
+.hypothesis/
+
+venv/
+.venv/
+site/
+
+# IDE and editor files
+.vscode/
+.idea/
+
+# OS generated files
+.DS_Store
+
+# Environment files
+.env
+.env.*
+
+*.log
+*.whl

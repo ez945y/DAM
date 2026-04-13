@@ -1,0 +1,90 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["dam"]
+
+[project]
+name = "dam"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.24",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "scipy>=1.12",
+    "opencv-python>=4.9",
+    "pyserial>=3.5",
+]
+
+[project.optional-dependencies]
+# ── Development tools ─────────────────────────────────────────────────────
+dev = [
+    "ruff>=0.4",
+    "mypy>=1.8",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "hypothesis>=6.100",
+    "maturin>=1.0,<2.0",
+]
+
+# ── Optional adapters (install only what you need) ─────────────────────────
+# Policy inference + MCAP logging
+torch = [
+    "torch>=2.0",
+    "mcap>=1.1",
+]
+
+# SO-ARM101 / Koch hardware via lerobot
+# lerobot[feetech] includes the Feetech servo driver required by SO-ARM101.
+# pin provides pinocchio Python bindings used by LeRobotSourceAdapter for FK.
+lerobot = [
+    "lerobot[feetech]",
+    "pin>=2.6",
+]
+
+# ROS2 — rclpy is NOT on PyPI; it is installed by the ROS2 distro setup script.
+# Install ROS2 Humble/Iron first, then `source /opt/ros/<distro>/setup.bash`.
+# This extras group is intentionally empty; listing it here documents the intent
+# and allows `pip install dam[ros2]` to succeed without error in non-ROS envs.
+# Additional pure-Python ROS2 utilities that ARE on PyPI:
+ros2 = [
+    "transforms3d>=0.4",   # quaternion / rotation math used by ROS2 adapter
+]
+
+# REST API + WebSocket console
+services = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "httpx>=0.27",   # async test client for FastAPI
+    "datasets>=2.16", # HuggingFace datasets for OOD
+]
+
+# Everything (CI matrix / dev-full service)
+full = [
+    "dam[dev,torch,lerobot,services]",
+]
+
+[tool.ruff]
+target-version = 'py312'
+line-length = 100
+
+[tool.ruff.lint]
+select = ['E', 'F', 'I', 'UP', 'B', 'SIM']
+ignore = ['B027', 'B023', 'B904', 'E402', 'E501', 'F401', 'SIM115']
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "hardware: requires real hardware (deselect with '-m not hardware')",
+    "slow: slow tests",
+    "property: property-based tests using Hypothesis",
+    "ros2: requires rclpy / ROS2 installation",
+]
