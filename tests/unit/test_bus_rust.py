@@ -143,6 +143,8 @@ class TestRiskController:
 
 
 class TestMetricBus:
+    # ── Legacy API (backward compat) ──────────────────────────────────────
+
     def test_push_latest(self):
         mb = MetricBus()
         mb.push("g", 1.5)
@@ -182,6 +184,110 @@ class TestMetricBus:
         mb = MetricBus()
         mb.push("g", 42.0)
         mb.clear()
+        assert mb.latest("g") is None
+
+    # ── push_guard — per-guard with layer info ────────────────────────────
+
+    def test_push_guard_updates_per_guard_latest(self):
+        mb = MetricBus()
+        mb.push_guard("joint_limit", 2, 1.5)
+        mb.push_guard("joint_limit", 2, 3.0)
+        assert abs(mb.latest("joint_limit") - 3.0) < 1e-9
+
+    def test_push_guard_multiple_guards_and_layers(self):
+        mb = MetricBus()
+        mb.push_guard("ood", 0, 2.0)
+        mb.push_guard("motion", 2, 1.0)
+        mb.push_guard("workspace", 2, 1.5)
+        assert set(mb.guard_names()) >= {"ood", "motion", "workspace"}
+
+    # ── push_stage — pipeline stages ──────────────────────────────────────
+
+    def test_push_stage_appears_in_snapshot_stages(self):
+        mb = MetricBus()
+        mb.push_stage("source", 1.1)
+        mb.push_stage("policy", 3.2)
+        mb.push_stage("total", 5.0)
+        snap = mb.snapshot()
+        assert abs(snap["stages"]["source"] - 1.1) < 1e-9
+        assert abs(snap["stages"]["policy"] - 3.2) < 1e-9
+        assert abs(snap["stages"]["total"] - 5.0) < 1e-9
+
+    def test_push_stage_updates_on_second_call(self):
+        mb = MetricBus()
+        mb.push_stage("source", 1.0)
+        mb.push_stage("source", 2.5)
+        snap = mb.snapshot()
+        assert abs(snap["stages"]["source"] - 2.5) < 1e-9
+
+    # ── commit_cycle + layer aggregation ──────────────────────────────────
+
+    def test_layers_empty_before_commit(self):
+        mb = MetricBus()
+        mb.push_guard("g", 2, 1.0)
+        snap = mb.snapshot()
+        # Layer history is empty until first commit_cycle().
+        assert snap["layers"] == {}
+
+    def test_commit_cycle_publishes_layer_sums(self):
+        mb = MetricBus()
+        mb.push_guard("joint_limit", 2, 1.5)
+        mb.push_guard("workspace", 2, 2.0)
+        mb.push_guard("ood", 0, 3.0)
+        mb.commit_cycle()
+        snap = mb.snapshot()
+        assert abs(snap["layers"]["L2"] - 3.5) < 1e-9  # 1.5 + 2.0
+        assert abs(snap["layers"]["L0"] - 3.0) < 1e-9
+
+    def test_commit_cycle_resets_accumulator(self):
+        """Second cycle with no guards → layer sum should be 0."""
+        mb = MetricBus()
+        mb.push_guard("g", 1, 5.0)
+        mb.commit_cycle()
+        mb.commit_cycle()  # no guards this cycle
+        snap = mb.snapshot()
+        assert abs(snap["layers"]["L1"] - 0.0) < 1e-9
+
+    def test_layer_key_format_is_L_prefixed(self):
+        mb = MetricBus()
+        mb.push_guard("g", 4, 1.0)
+        mb.commit_cycle()
+        snap = mb.snapshot()
+        assert "L4" in snap["layers"]
+
+    # ── snapshot — guards field ────────────────────────────────────────────
+
+    def test_snapshot_guards_reflects_push_guard(self):
+        mb = MetricBus()
+        mb.push_guard("velocity_guard", 2, 0.8)
+        snap = mb.snapshot()
+        assert abs(snap["guards"]["velocity_guard"] - 0.8) < 1e-9
+
+    def test_snapshot_guards_reflects_push(self):
+        mb = MetricBus()
+        mb.push("legacy_guard", 1.2)
+        snap = mb.snapshot()
+        assert abs(snap["guards"]["legacy_guard"] - 1.2) < 1e-9
+
+    # ── snapshot — structure ───────────────────────────────────────────────
+
+    def test_snapshot_returns_all_three_keys(self):
+        mb = MetricBus()
+        snap = mb.snapshot()
+        assert set(snap.keys()) == {"stages", "layers", "guards"}
+
+    # ── clear wipes everything ────────────────────────────────────────────
+
+    def test_clear_removes_stages_and_layers(self):
+        mb = MetricBus()
+        mb.push_guard("g", 2, 1.0)
+        mb.push_stage("source", 1.0)
+        mb.commit_cycle()
+        mb.clear()
+        snap = mb.snapshot()
+        assert snap["stages"] == {}
+        assert snap["layers"] == {}
+        assert snap["guards"] == {}
         assert mb.latest("g") is None
 
 

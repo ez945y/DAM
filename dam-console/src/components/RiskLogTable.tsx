@@ -1,11 +1,180 @@
 'use client'
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { api } from '@/lib/api'
 import { RiskBadge } from '@/components/RiskBadge'
-import type { RiskEvent, RiskLevel, RiskLogStats } from '@/lib/types'
+import type { PerfSnapshot, GuardStatus, RiskEvent, RiskLevel, RiskLogStats } from '@/lib/types'
 import { Download, ChevronRight, ChevronDown, Activity, Shield, Hash, Clock } from 'lucide-react'
 
+// ── Perf breakdown widget (pipeline + guard layers only) ──────────────────
+
+const STAGE_COLORS: Record<string, string> = {
+  source: '#6366F1', policy: '#F59E0B', guards: '#10B981', sink: '#3B82F6',
+}
+const STAGE_LABELS: Record<string, string> = {
+  source: 'Source', policy: 'Policy', guards: 'Guards', sink: 'Sink',
+}
+const STAGE_ORDER = ['source', 'policy', 'guards', 'sink'] as const
+
+const LAYER_META: Record<string, { label: string; color: string }> = {
+  L0: { label: 'L0 OOD',       color: '#A78BFA' },
+  L1: { label: 'L1 Preflight', color: '#34D399' },
+  L2: { label: 'L2 Motion',    color: '#10B981' },
+  L3: { label: 'L3 Execution', color: '#6EE7B7' },
+  L4: { label: 'L4 Hardware',  color: '#F87171' },
+}
+
+/** Human-readable labels for raw latency_ms keys emitted by the runtime. */
+const LATENCY_KEY_LABELS: Record<string, string> = {
+  obs:      'Source (Read)',
+  policy:   'Policy (Predict)',
+  validate: 'Guards (Safety Checks)',
+  sink:     'Sink (Dispatch)',
+  total:    'Total',
+  source:   'Source (Read)',
+  guards:   'Guards (Safety Checks)',
+}
+
+function PerfDetail({ perf, totalMs }: { perf: PerfSnapshot; totalMs: number }) {
+  const maxStage = Math.max(...STAGE_ORDER.map(s => perf.stages[s] ?? 0), 0.001)
+  const layerKeys = Object.keys(perf.layers ?? {}).sort()
+
+  return (
+    <div className="space-y-3">
+      {/* Pipeline stages */}
+      <div className="space-y-1.5">
+        <p className="text-[9px] font-bold text-dam-orange uppercase tracking-widest">Pipeline Stages</p>
+        {STAGE_ORDER.map(s => {
+          const ms = perf.stages[s] ?? 0
+          const pct = totalMs > 0 ? (ms / totalMs) * 100 : 0
+          const barW = totalMs > 0 ? (ms / Math.max(totalMs, maxStage)) * 100 : 0
+          return (
+            <div key={s} className="flex items-center gap-2">
+              <span className="w-14 text-[10px] text-dam-muted shrink-0">{STAGE_LABELS[s]}</span>
+              <div className="flex-1 h-2 bg-dam-surface-1 rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{ width: `${barW}%`, background: STAGE_COLORS[s] }}
+                />
+              </div>
+              <span className="w-16 text-right font-mono text-[10px] text-dam-text">
+                {ms.toFixed(1)} ms
+              </span>
+              <span className="w-8 text-right font-mono text-[9px] text-dam-muted">
+                {pct.toFixed(0)}%
+              </span>
+            </div>
+          )
+        })}
+        <div className="flex items-center gap-2 border-t border-dam-border/30 pt-1 mt-1">
+          <span className="w-14 text-[10px] font-bold text-dam-muted shrink-0">Total</span>
+          <div className="flex-1" />
+          <span className="w-16 text-right font-mono text-[10px] font-bold text-dam-orange">
+            {totalMs.toFixed(1)} ms
+          </span>
+          <span className="w-8" />
+        </div>
+      </div>
+
+      {/* Guard layers */}
+      {layerKeys.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-[9px] font-bold text-dam-orange uppercase tracking-widest">Guard Layers</p>
+          {layerKeys.map(k => {
+            const ms = perf.layers[k] ?? 0
+            const barW = totalMs > 0 ? (ms / totalMs) * 100 : 0
+            const meta = LAYER_META[k]
+            return (
+              <div key={k} className="flex items-center gap-2">
+                <span className="w-14 text-[10px] text-dam-muted shrink-0">
+                  {meta?.label ?? k}
+                </span>
+                <div className="flex-1 h-2 bg-dam-surface-1 rounded-full overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all"
+                    style={{ width: `${barW}%`, background: meta?.color ?? '#6B6B6B' }}
+                  />
+                </div>
+                <span className="w-16 text-right font-mono text-[10px] text-dam-text">
+                  {ms.toFixed(1)} ms
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Expandable guard result item ──────────────────────────────────────────
+
+function GuardResultItem({
+  g,
+  guardLatencyMs,
+}: {
+  g: GuardStatus
+  guardLatencyMs?: number
+}) {
+  const [open, setOpen] = useState(false)
+  const decColor =
+    g.decision === 'PASS'   ? 'text-dam-green'  :
+    g.decision === 'CLAMP'  ? 'text-dam-blue'   :
+    g.decision === 'FAULT'  ? 'text-dam-red'    : 'text-dam-orange'
+
+  return (
+    <div
+      className="group/item bg-dam-surface-3 border border-dam-border rounded hover:border-dam-blue/30 transition-colors overflow-hidden"
+    >
+      {/* Header row — always visible, click to expand */}
+      <div
+        className="flex items-center gap-2 p-2 cursor-pointer select-none"
+        onClick={() => setOpen(v => !v)}
+      >
+        <span className="text-dam-muted/50 shrink-0">
+          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        </span>
+        <span className="text-[10px] bg-dam-surface-1 px-1 rounded border border-dam-border text-dam-muted shrink-0">
+          {g.layer}
+        </span>
+        <span className="text-xs font-bold text-dam-text font-mono flex-1 truncate">{g.name}</span>
+        {guardLatencyMs !== undefined && (
+          <span className="text-[9px] font-mono text-dam-muted shrink-0 ml-1">
+            {guardLatencyMs.toFixed(1)} ms
+          </span>
+        )}
+        <span className={`text-[10px] font-bold px-1.5 rounded-sm shrink-0 ${decColor}`}>
+          {g.decision}
+        </span>
+      </div>
+
+      {/* Expanded: full reason + latency detail */}
+      {open && (
+        <div className="border-t border-dam-border/40 px-3 pb-2 pt-1.5 space-y-1 bg-black/20">
+          {g.reason ? (
+            <p className="text-[11px] text-dam-muted font-mono leading-relaxed whitespace-pre-wrap">
+              {g.reason}
+            </p>
+          ) : (
+            <p className="text-[11px] text-dam-muted/50 italic">Safety check passed — no violation details.</p>
+          )}
+          {guardLatencyMs !== undefined && (
+            <p className="text-[10px] text-dam-muted/60 font-mono pt-1 border-t border-dam-border/20">
+              Guard execution time: <span className="text-dam-text">{guardLatencyMs.toFixed(2)} ms</span>
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Main table component ──────────────────────────────────────────────────
+
 export function RiskLogTable() {
+  const searchParams = useSearchParams()
+  const targetCycleId = searchParams ? Number(searchParams.get('cycle_id') ?? '') || null : null
+
   const [events, setEvents] = useState<RiskEvent[]>([])
   const [stats, setStats] = useState<RiskLogStats | null>(null)
   const [loading, setLoading] = useState(false)
@@ -17,6 +186,8 @@ export function RiskLogTable() {
     limit: 200,
   })
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set())
+  const highlightRef = useRef<HTMLTableRowElement | null>(null)
+  const didAutoExpand = useRef(false)
 
   const toggleExpand = (key: string) => {
     setExpandedKeys(prev => {
@@ -50,7 +221,7 @@ export function RiskLogTable() {
   useEffect(() => {
     const sync = () => {
       const saved = localStorage.getItem('dam_live_refresh')
-      setAutoRefresh(saved !== 'false') // default to true
+      setAutoRefresh(saved !== 'false')
     }
     sync()
     window.addEventListener('dam_live_refresh_change', sync)
@@ -63,35 +234,51 @@ export function RiskLogTable() {
     if (!autoRefresh) return
     const timer = setInterval(() => void load(true), 1000)
     return () => clearInterval(timer)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRefresh, filters])
 
-  // Grouping logic: collapse consecutive identical results
+  // Grouping logic: collapse consecutive identical results.
+  // allCycleIds tracks every cycle_id inside a group for deep-link matching.
   const groupEvents = (raw: RiskEvent[]) => {
     if (raw.length === 0) return []
-    const groups: (RiskEvent & { count: number })[] = []
-    
+    const groups: (RiskEvent & { count: number; allCycleIds: number[] })[] = []
     for (const ev of raw) {
       if (groups.length === 0) {
-        groups.push({ ...ev, count: 1 })
+        groups.push({ ...ev, count: 1, allCycleIds: [ev.cycle_id] })
         continue
       }
-      
       const last = groups[groups.length - 1]
-      const isSame = 
+      const isSame =
         last.risk_level === ev.risk_level &&
         last.was_rejected === ev.was_rejected &&
         last.was_clamped === ev.was_clamped &&
         last.fallback_triggered === ev.fallback_triggered
-      
       if (isSame) {
         last.count++
-        // Keep the first (newest) event's display fields intact; just increment count
+        last.allCycleIds.push(ev.cycle_id)
       } else {
-        groups.push({ ...ev, count: 1 })
+        groups.push({ ...ev, count: 1, allCycleIds: [ev.cycle_id] })
       }
     }
     return groups
   }
+
+  // Auto-expand + scroll to target cycle when URL param is set.
+  // Searches allCycleIds so deep-links work even when the target is grouped.
+  useEffect(() => {
+    if (!targetCycleId || didAutoExpand.current || events.length === 0) return
+    const grouped = groupEvents(events)
+    const idx = grouped.findIndex(g => g.allCycleIds.includes(targetCycleId))
+    if (idx === -1) return
+    const g = grouped[idx]
+    const key = `${idx}:${g.risk_level}-${g.was_rejected}-${g.was_clamped}-${g.fallback_triggered ?? ''}`
+    setExpandedKeys(prev => new Set(prev).add(key))
+    didAutoExpand.current = true
+    setTimeout(() => {
+      highlightRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 150)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetCycleId, events])
 
   const groupedEvents = groupEvents(events)
 
@@ -126,7 +313,7 @@ export function RiskLogTable() {
           <option value="CRITICAL">≥ CRITICAL</option>
           <option value="EMERGENCY">EMERGENCY only</option>
         </select>
-        
+
         <div className="h-6 w-px bg-dam-border/40 mx-1" />
 
         <label className="flex items-center gap-1.5 text-xs text-dam-muted cursor-pointer">
@@ -196,12 +383,18 @@ export function RiskLogTable() {
             ) : groupedEvents.map((e, i) => {
               const groupKey = `${i}:${e.risk_level}-${e.was_rejected}-${e.was_clamped}-${e.fallback_triggered ?? ''}`
               const isExpanded = expandedKeys.has(groupKey)
+              const isTarget = targetCycleId !== null && e.cycle_id === targetCycleId
               return (
                 <React.Fragment key={groupKey}>
                   <tr
+                    ref={isTarget ? highlightRef : undefined}
                     onClick={() => toggleExpand(groupKey)}
                     className={`hover:bg-dam-surface-2/60 transition-colors group cursor-pointer border-l-2 ${
-                      isExpanded ? 'bg-dam-surface-2 border-dam-blue' : 'border-transparent'
+                      isTarget
+                        ? 'bg-dam-blue/5 border-dam-blue animate-pulse-once'
+                        : isExpanded
+                          ? 'bg-dam-surface-2 border-dam-blue'
+                          : 'border-transparent'
                     }`}
                   >
                     <td className="px-4 py-3 text-center text-dam-muted">
@@ -232,7 +425,7 @@ export function RiskLogTable() {
                     </td>
                     <td className="px-4 py-3 font-mono text-dam-muted">{e.latency_ms['total']?.toFixed(1) ?? '—'}<span className="text-[9px] opacity-60">ms</span></td>
                   </tr>
-                  
+
                   {isExpanded && (
                     <tr className="bg-dam-surface-2/40 animate-in slide-in-from-top-1 duration-200">
                       <td colSpan={8} className="px-8 py-4 border-l-2 border-dam-blue">
@@ -244,32 +437,18 @@ export function RiskLogTable() {
                           </div>
 
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            {/* Guard Decisions List (The "Wireshark Packet details") */}
+                            {/* Guard Enforcement Details — includes per-guard latency */}
                             <div className="space-y-2">
                               <h4 className="flex items-center gap-2 text-xs font-bold text-dam-blue uppercase tracking-wider mb-2">
                                 <Shield size={14} /> Guard Enforcement Details
                               </h4>
                               <div className="space-y-1.5">
-                                {e.guard_results && e.guard_results.length > 0 ? e.guard_results.map((g, i) => (
-                                  <div key={i} className="group/item flex flex-col p-2 bg-dam-surface-3 border border-dam-border rounded hover:border-dam-blue/30 transition-colors">
-                                    <div className="flex items-center justify-between">
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-[10px] bg-dam-surface-1 px-1 rounded border border-dam-border text-dam-muted">{g.layer}</span>
-                                        <span className="text-xs font-bold text-dam-text font-mono">{g.name}</span>
-                                      </div>
-                                      <span className={`text-[10px] font-bold px-1.5 rounded-sm ${
-                                        g.decision === 'PASS' ? 'text-dam-green' : 
-                                        g.decision === 'CLAMP' ? 'text-dam-blue' : 'text-dam-orange'
-                                      }`}>
-                                        {g.decision}
-                                      </span>
-                                    </div>
-                                    <div className="mt-1 pl-1 border-l border-dam-border/60 ml-2">
-                                      <p className="text-[11px] text-dam-muted font-mono leading-relaxed whitespace-pre-wrap">
-                                        {g.reason || 'Safety check passed.'}
-                                      </p>
-                                    </div>
-                                  </div>
+                                {e.guard_results && e.guard_results.length > 0 ? e.guard_results.map((g, gi) => (
+                                  <GuardResultItem
+                                    key={gi}
+                                    g={g}
+                                    guardLatencyMs={e.perf?.guards?.[g.name]}
+                                  />
                                 )) : (
                                   <p className="text-xs text-dam-muted italic">No specific guard results logged.</p>
                                 )}
@@ -281,18 +460,33 @@ export function RiskLogTable() {
                               <h4 className="flex items-center gap-2 text-xs font-bold text-dam-orange uppercase tracking-wider mb-2">
                                 <Activity size={14} /> Frame Processing Latency
                               </h4>
-                              <div className="space-y-1 p-2 bg-dam-surface-3 border border-dam-border rounded font-mono">
-                                {Object.entries(e.latency_ms).sort((a,b) => b[1] - a[1]).map(([k, v]) => (
-                                  <div key={k} className="flex items-center justify-between text-[11px] py-0.5 border-b border-dam-border/20 last:border-0">
-                                    <span className="text-dam-muted">{k}</span>
-                                    <span className={k === 'total' ? 'text-dam-orange font-bold' : 'text-dam-text'}>
-                                      {v.toFixed(3)} ms
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
+
+                              {e.perf ? (
+                                <div className="p-3 bg-dam-surface-3 border border-dam-border rounded">
+                                  <PerfDetail
+                                    perf={e.perf}
+                                    totalMs={e.latency_ms['total'] ?? e.perf.stages['total'] ?? 0}
+                                  />
+                                </div>
+                              ) : (
+                                <div className="space-y-1 p-2 bg-dam-surface-3 border border-dam-border rounded font-mono">
+                                  {Object.entries(e.latency_ms).sort((a, b) => {
+                                    if (a[0] === 'total') return 1
+                                    if (b[0] === 'total') return -1
+                                    return b[1] - a[1]
+                                  }).map(([k, v]) => (
+                                    <div key={k} className="flex items-center justify-between text-[11px] py-0.5 border-b border-dam-border/20 last:border-0">
+                                      <span className="text-dam-muted">{LATENCY_KEY_LABELS[k] ?? k}</span>
+                                      <span className={k === 'total' ? 'text-dam-orange font-bold' : 'text-dam-text'}>
+                                        {v.toFixed(1)} ms
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
                               {e.fallback_triggered && (
-                                <div className="mt-4 p-2 bg-dam-orange/10 border border-dam-orange/30 rounded">
+                                <div className="mt-2 p-2 bg-dam-orange/10 border border-dam-orange/30 rounded">
                                   <p className="text-[10px] font-bold text-dam-orange uppercase">Active Fallback</p>
                                   <p className="text-xs text-dam-orange font-mono font-bold mt-1">➔ {e.fallback_triggered}</p>
                                 </div>

@@ -2,9 +2,25 @@
 
 Usage::
 
-    svc = TelemetryService()
+    # Wire up once at runtime construction:
+    svc = TelemetryService(metric_bus=runtime.metric_bus, cycle_budget_ms=20.0)
     svc.push(cycle_result)       # call from GuardRuntime loop
+
     # FastAPI integration: mount via create_app()
+
+The ``perf`` key is attached to every ``cycle`` event when a ``MetricBus``
+reference is provided.  Its shape::
+
+    {
+      "stages": {"source": ms, "policy": ms, "guards": ms, "sink": ms, "total": ms},
+      "layers": {"L0": ms, "L2": ms, ...},
+      "guards": {"guard_name": ms, ...},
+      "deadline_ms": 20.0,
+      "slack_ms": 9.2,
+    }
+
+Consumers that do not understand ``perf`` are unaffected — the field is simply
+absent when no MetricBus is wired in.
 """
 
 from __future__ import annotations
@@ -15,15 +31,18 @@ import logging
 import threading
 import time
 from collections import deque
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from dam.types.risk import CycleResult
+
+if TYPE_CHECKING:
+    from dam.bus import MetricBus
 
 logger = logging.getLogger(__name__)
 
 
 def _serialise_cycle(result: CycleResult) -> dict[str, Any]:
-    """Convert CycleResult to a JSON-serialisable dict."""
+    """Convert CycleResult to a JSON-serialisable dict (pure safety data)."""
     guard_statuses = []
     for gr in result.guard_results:
         layer_val = gr.layer.value if hasattr(gr.layer, "value") else int(gr.layer)
@@ -53,26 +72,60 @@ def _serialise_cycle(result: CycleResult) -> dict[str, Any]:
     }
 
 
+def _build_perf(metric_bus: MetricBus, cycle_budget_ms: float) -> dict[str, Any]:
+    """Read a MetricBus snapshot and compute derived fields for the telemetry event."""
+    snap: dict[str, Any] = metric_bus.snapshot()
+    total_ms: float = snap.get("stages", {}).get("total", 0.0)
+    return {
+        **snap,
+        "deadline_ms": cycle_budget_ms,
+        "slack_ms": cycle_budget_ms - total_ms,
+    }
+
+
 class TelemetryService:
     """Thread-safe WebSocket broadcaster.
 
     Push CycleResult objects from the control loop thread.
     WebSocket consumers are registered/deregistered asynchronously.
     A ring buffer (``history_size``) stores recent events for new subscribers.
+
+    Args:
+        history_size:     Number of recent events retained for late subscribers.
+        metric_bus:       Optional reference to the runtime's MetricBus.  When
+                          provided, each cycle event is enriched with a ``perf``
+                          sub-dict containing pipeline-stage, per-layer, and
+                          per-guard latency breakdowns plus deadline/slack values.
+        cycle_budget_ms:  The control-loop cycle budget in milliseconds, used
+                          to compute ``slack_ms``.  Ignored when metric_bus is None.
     """
 
-    def __init__(self, history_size: int = 200) -> None:
+    def __init__(
+        self,
+        history_size: int = 200,
+        metric_bus: MetricBus | None = None,
+        cycle_budget_ms: float = 20.0,
+    ) -> None:
         self._history: deque[dict[str, Any]] = deque(maxlen=history_size)
         self._lock = threading.Lock()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._subscribers: set[Any] = set()  # asyncio.Queue per subscriber
         self._total_pushed: int = 0
+        self._metric_bus = metric_bus
+        self._cycle_budget_ms = cycle_budget_ms
 
     # ── Producer API (called from control loop thread) ───────────────────────
 
     def push(self, result: CycleResult) -> None:
-        """Serialise and broadcast a CycleResult to all WebSocket consumers."""
+        """Serialise and broadcast a CycleResult to all WebSocket consumers.
+
+        When a MetricBus was provided at construction, the event is enriched
+        with a ``perf`` sub-dict before broadcasting.
+        """
         event = _serialise_cycle(result)
+        if self._metric_bus is not None:
+            event["perf"] = _build_perf(self._metric_bus, self._cycle_budget_ms)
+
         with self._lock:
             self._history.append(event)
             self._total_pushed += 1

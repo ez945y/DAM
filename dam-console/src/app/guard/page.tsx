@@ -354,7 +354,7 @@ function NodeForm({
                 <OODTrainer
                   selectedPath={node.params.ood_model_path ?? ''}
                   onSelectMeta={(path, meta) => {
-                    const next = { ...node.params, ood_model_path: path }
+                    const next: Record<string, unknown> = { ...node.params, ood_model_path: path }
                     if (meta.bank_path) next.bank_path = meta.bank_path
                     if (meta.backend) next.backend = meta.backend
                     onChange({ ...node, params: next })

@@ -250,6 +250,17 @@ impl RiskController {
 
 /// Per-guard latency / score metrics store with rolling history.
 ///
+/// Three aggregation tiers:
+///   - Per-guard rolling history (push / push_guard)
+///   - Pipeline-stage timing (push_stage): "source", "policy", "guards", "sink", "total"
+///   - Per-layer guard sums (accumulated via push_guard, committed via commit_cycle)
+///
+/// Typical call sequence per cycle:
+///   1. push_guard(name, layer, ms)  — once per guard
+///   2. push_stage("source", ms) … push_stage("total", ms)
+///   3. commit_cycle()
+///   4. snapshot() → dict for telemetry broadcast
+///
 /// Constructor: ``MetricBus()``
 #[pyclass]
 struct MetricBus {
@@ -265,9 +276,73 @@ impl MetricBus {
         }
     }
 
+    // ── Guard metrics ──────────────────────────────────────────────────────
+
+    /// Record a guard latency (ms) without layer info.  Kept for backward compat;
+    /// prefer ``push_guard`` for new call-sites.
     fn push(&self, guard_name: &str, value: f64) {
         self.inner.push(guard_name, value);
     }
+
+    /// Record a guard latency (ms) and accumulate into the per-layer sum for
+    /// the current cycle.  ``layer`` is the raw ``GuardLayer`` integer value.
+    fn push_guard(&self, guard_name: &str, layer: u8, value_ms: f64) {
+        self.inner.push_guard(guard_name, layer, value_ms);
+    }
+
+    // ── Pipeline stage metrics ─────────────────────────────────────────────
+
+    /// Record a pipeline-stage latency (ms).
+    /// Stage names: ``"source"``, ``"policy"``, ``"guards"``, ``"sink"``, ``"total"``.
+    fn push_stage(&self, stage: &str, value_ms: f64) {
+        self.inner.push_stage(stage, value_ms);
+    }
+
+    // ── Cycle boundary ─────────────────────────────────────────────────────
+
+    /// Atomically commit the current cycle's layer accumulators to history and
+    /// reset them to zero.  Call exactly once per cycle after all push_guard /
+    /// push_stage calls.
+    fn commit_cycle(&self) {
+        self.inner.commit_cycle();
+    }
+
+    // ── Snapshot ───────────────────────────────────────────────────────────
+
+    /// Return a point-in-time snapshot of all metrics as a nested dict::
+    ///
+    ///   {
+    ///     "stages": {"source": ms, "policy": ms, "guards": ms, "sink": ms, "total": ms},
+    ///     "layers": {"L0": ms, "L2": ms, ...},   # only layers with data
+    ///     "guards": {"guard_name": ms, ...},
+    ///   }
+    fn snapshot(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let snap = self.inner.snapshot();
+
+        let stages_d = pyo3::types::PyDict::new_bound(py);
+        for (k, v) in snap.stages {
+            stages_d.set_item(k, v)?;
+        }
+
+        // Layer keys are formatted as "L0", "L1", … matching frontend convention.
+        let layers_d = pyo3::types::PyDict::new_bound(py);
+        for (k, v) in snap.layers {
+            layers_d.set_item(format!("L{k}"), v)?;
+        }
+
+        let guards_d = pyo3::types::PyDict::new_bound(py);
+        for (k, v) in snap.guards {
+            guards_d.set_item(k, v)?;
+        }
+
+        let d = pyo3::types::PyDict::new_bound(py);
+        d.set_item("stages", stages_d)?;
+        d.set_item("layers", layers_d)?;
+        d.set_item("guards", guards_d)?;
+        Ok(d.unbind().into())
+    }
+
+    // ── Legacy read API ────────────────────────────────────────────────────
 
     fn latest(&self, guard_name: &str) -> Option<f64> {
         self.inner.latest(guard_name)

@@ -639,7 +639,7 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
     } else if (section === 'tasks') {
       if (line.startsWith('  ') && !line.startsWith('    ')) {
         const name = trimmed.replace(':', '')
-        const task = { id: name, name, description: '', boundaries: [] }
+        const task: { id: string; name: string; description: string; boundaries: string[] } = { id: name, name, description: '', boundaries: [] }
         tasks.push(task)
         // Look ahead for boundaries
         let j = i + 1

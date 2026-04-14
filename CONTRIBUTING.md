@@ -14,12 +14,24 @@ We welcome contributions from researchers, engineers, students, and anyone passi
 git clone https://github.com/ez945y/DAM.git
 cd DAM
 make setup
+
+# Start the dev server (backend + Next.js hot-reload)
+make dev
 ```
 
 This will:
 - Create a Python virtual environment
 - Compile the Rust extension (`dam-rust`)
 - Install all required dependencies
+
+Other useful commands:
+
+| Command | Purpose |
+|---------|---------|
+| `make dev` | Hot-reload dev server (backend + Next.js) |
+| `make run` | Production mode (build frontend + start backend) |
+| `make test` | Run full test suite |
+| `make docs` | Preview documentation at http://localhost:8002 |
 
 Make sure you have:
 - Python 3.12 or higher

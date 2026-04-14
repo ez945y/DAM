@@ -52,6 +52,7 @@ export function PageShell({ title, subtitle, children }: PageShellProps) {
             onStart={start}
             onStop={stop}
             onEStop={emergencyStop}
+            onReset={reset}
           />
         </div>
       </div>

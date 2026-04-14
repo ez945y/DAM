@@ -45,9 +45,46 @@ Real-time overview of the running DAM runtime.
 | **Risk Gauge** | SVG arc gauge showing current risk level (NORMAL → EMERGENCY) |
 | **Stats cards** | Total cycles, reject count + rate, clamp count, average latency |
 | **Runtime Control** | Start / Pause / Resume / Stop / E-STOP / Reset |
-| **Cycle Latency** | Rolling area chart of the last 60 cycle latencies |
+| **Cycle Latency** | Rolling area chart of the last 60 end-to-end cycle times |
+| **Pipeline Breakdown** | Horizontal stacked bar showing Source / Policy / Guards / Sink split for the latest cycle (requires MetricBus) |
+| **Guard Layers** | Per-layer (L0–L4) guard latency bars for the latest cycle (requires MetricBus) |
+| **Deadline Margin** | Badge next to the latency panel header showing remaining headroom before the cycle budget deadline (green / amber / red) |
 | **Guard Status** | Per-guard table: name, layer, last decision, reason |
 | **Event Log** | Filterable scrolling event log with timestamps |
+
+#### Deadline Margin badge
+
+The **Deadline Margin** badge appears only when the backend `TelemetryService`
+is wired with a `MetricBus` (i.e. `perf` data is present in the WebSocket
+stream). It displays `slack_ms = deadline_ms − total_ms` with three visual states:
+
+| Colour | Condition | Label |
+|--------|-----------|-------|
+| Green  | slack > 30 % of budget | `OK` |
+| Amber  | 10–30 % of budget | `NEAR` |
+| Red    | < 10 % of budget | `TIGHT` |
+| Red    | Negative (over-budget) | `OVER` |
+
+#### Pipeline Breakdown & Guard Layers
+
+These two sub-charts appear inside the **Cycle Latency** panel only when the
+`perf` field is present in the live WebSocket stream.  They use the same data
+source as the `perf.stages` and `perf.layers` fields described in
+[Services API → Telemetry](services-api.md#ws-wstelemetry).
+
+Colour mapping:
+
+| Segment | Colour | Meaning |
+|---------|--------|---------|
+| Source | Indigo | `source.read()` — sensor acquisition |
+| Policy | Amber | `policy.predict()` — model inference |
+| Guards | Emerald | `validate()` — all guard checks combined |
+| Sink | Blue | `sink.apply()` — action dispatch |
+| L0 | Violet | OOD Detection guards |
+| L1 | Green | Preflight Simulation guards |
+| L2 | Emerald | Motion Safety guards |
+| L3 | Light-green | Task Execution guards |
+| L4 | Red | Hardware Monitoring guards |
 
 ### Config `/config`
 
@@ -84,7 +121,12 @@ CRUD interface for the in-memory BoundaryConfigService.
 ## WebSocket stream
 
 The console subscribes to `ws://<host>:8080/ws/telemetry`.
-Each cycle the API pushes a JSON message:
+Each cycle the API pushes a JSON message.
+
+The base fields are always present.  The optional `perf` object is included
+when the backend `TelemetryService` is constructed with a `MetricBus`
+reference — see [Services API → Telemetry](services-api.md#ws-wstelemetry)
+for the full field reference and wiring instructions.
 
 ```json
 {
@@ -95,11 +137,20 @@ Each cycle the API pushes a JSON message:
   "was_clamped": false,
   "risk_level": "NORMAL",
   "fallback_triggered": null,
-  "latency_ms": { "obs": 0.8, "policy": 2.1, "validate": 1.3, "sink": 0.4, "total": 4.6 },
+  "latency_ms": { "obs": 0.8, "policy": 2.1, "validate": 5.4, "sink": 0.4, "total": 8.7 },
   "guard_statuses": [
+    { "name": "OODGuard",    "layer": "L0", "decision": "PASS", "reason": "" },
     { "name": "MotionGuard", "layer": "L2", "decision": "PASS", "reason": "" }
   ],
-  "timestamp": 1700000000.0
+  "timestamp": 1700000000.0,
+
+  "perf": {
+    "stages":  { "source": 0.8, "policy": 2.1, "guards": 5.4, "sink": 0.4, "total": 8.7 },
+    "layers":  { "L0": 2.1, "L2": 2.0, "L4": 1.3 },
+    "guards":  { "OODGuard": 2.1, "MotionGuard": 1.0, "HardwareGuard": 1.3 },
+    "deadline_ms": 20.0,
+    "slack_ms": 11.3
+  }
 }
 ```
 

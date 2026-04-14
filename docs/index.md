@@ -50,9 +50,6 @@ DAM decouples safety from learning. Safety becomes a **modular, swappable stack*
 - **New to DAM?**  
   Start with [Getting Started →](installation.md)
 
-- **Understand the Design**  
-  Explore [Concepts →](concepts/architecture.md)
-
 - **Deploy Your System**  
   Read [Stackfile Guide →](quick-stack.md)
 
@@ -141,30 +138,13 @@ Test policies in simulation, deploy directly to hardware with DAM guardrails. Up
 
 ## Installation & Quickstart
 
-=== "Docker (fastest)"
+```bash
+git clone https://github.com/ez945y/DAM.git && cd DAM
+make setup   # one-time: venv + Rust extension + npm deps
+make run     # start backend + console (http://localhost:3000)
+```
 
-    ```bash
-    git clone https://github.com/ez945y/DAM.git && cd DAM
-    docker compose run --rm dev
-    dam run --stack examples/stackfiles/sim_demo.yaml
-    ```
-
-=== "Python only"
-
-    ```bash
-    pip install "dam[dev]"
-    dam run --stack examples/stackfiles/sim_demo.yaml
-    ```
-
-=== "With Rust data plane"
-
-    ```bash
-    pip install "dam[dev]"
-    cd dam-rust/dam-py && maturin develop --release
-    dam run --stack examples/stackfiles/sim_demo.yaml
-    ```
-
-See [Installation →](installation.md) for detailed steps (ROS 2, LeRobot, etc.)
+`make setup` handles everything automatically — Python environment (via `uv`), Rust extension build (via `maturin`), and frontend dependencies (via `npm`). See [Installation →](installation.md) for prerequisites and hardware-specific setup.
 
 ---
 
@@ -185,13 +165,11 @@ DAM is built on **defense-in-depth** and **fail-safe** principles:
 
 | Topic | Where |
 |-------|-------|
-| **Understand the architecture** | [Concepts: Architecture →](concepts/architecture.md) |
-| **Learn about safety guarantees** | [Concepts: Safety →](concepts/safety.md) |
-| **Deep dive into guards** | [Concepts: Guard Stack →](concepts/guards-explained.md) |
-| **Boundaries and constraints** | [Concepts: Boundary System →](concepts/boundaries.md) |
-| **Deploy with Stackfiles** | [Quick Start →](quick-stack.md) |
+| **Deploy with Stackfiles** | [Stackfile Guide →](quick-stack.md) |
 | **Monitor your system** | [Console Guide →](console.md) |
 | **Control via API** | [Services API →](services-api.md) |
+| **Guards reference** | [Guards Reference →](guards-reference.md) |
+| **Boundary callbacks** | [Boundary Callbacks →](boundary-callbacks.md) |
 | **Contribute** | [Contributing →](contributing.md) |
 
 ---
@@ -209,11 +187,10 @@ DAM is built on **defense-in-depth** and **fail-safe** principles:
 
 Based on your role, here's where to start:
 
-- **I want to get running fast** → [Quick Start (2 min)](getting-started/quickstart.md)
-- **I want to understand the design** → [Architecture Overview](concepts/architecture.md)
-- **I want a complete learning path** → [Full Tutorial (2–3 hours)](learn/tutorial.md)
-- **I need to ensure safety** → [Safety Guarantees](concepts/safety.md)
-- **I'm deploying to hardware** → [Installation Guide](installation.md)
+- **I want to get running fast** → [Installation →](installation.md)
+- **I want to deploy a stack** → [Stackfile Guide →](quick-stack.md)
+- **I want to monitor in real-time** → [Console Guide →](console.md)
+- **I'm deploying to hardware** → [Installation — Hardware Support →](installation.md#hardware-support-so-arm101-lerobot)
 
 ---
 

@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
-import type { CycleEvent, LogEntry, TelemetrySnapshot } from '@/lib/types'
+import type { CycleEvent, LogEntry, PerfSnapshot, TelemetrySnapshot } from '@/lib/types'
 
 const MAX_LATENCY = 60
 const MAX_EVENTS = 1000
@@ -17,8 +17,10 @@ const gBuffer = {
   totalFaults: 0,
 }
 let gLatestCycle: CycleEvent | null = null
+let gLatestPerf: PerfSnapshot | null = null
 let gEvents: LogEntry[] = []
 let gLatency: number[] = []
+let gLatencyCycleIds: number[] = []
 const gLastLogged = new Map<string, number>()
 let gCycleTimes: number[] = []
 let gRejectTimes: number[] = []
@@ -33,9 +35,11 @@ export const resetGlobalState = () => {
   gBuffer.totalClamps = 0
   gBuffer.totalFaults = 0
   gLatestCycle = null
+  gLatestPerf = null
   gEvents = []
   gGuardMap = {}
   gLatency = []
+  gLatencyCycleIds = []
   gCycleTimes = []
   gRejectTimes = []
   gClampTimes = []
@@ -47,6 +51,8 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
     lastCycle: gLatestCycle,
     guardMap: { ...gGuardMap },
     latencyHistory: [...gLatency],
+    latencyCycleIds: [...gLatencyCycleIds],
+    latestPerf: gLatestPerf,
     totalCycles: gBuffer.totalCycles,
     totalRejects: gBuffer.totalRejects,
     totalClamps: gBuffer.totalClamps,
@@ -109,7 +115,7 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
       
       if (!isOnlineMsg) {
         gEvents = [{
-          type: 'info',
+          type: 'info' as const,
           message: 'System Online — Monitoring safety pipeline...',
           timestamp: Date.now() / 1000
         }, ...gEvents].slice(0, MAX_EVENTS)
@@ -125,9 +131,10 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
         const now = Date.now()
 
         gLatestCycle = cycle
+        if (cycle.perf != null) gLatestPerf = cycle.perf
         gBuffer.totalCycles++
         gCycleTimes.push(now)
-        
+
         if (cycle.was_rejected) {
           gBuffer.totalRejects++
           gRejectTimes.push(now)
@@ -163,15 +170,18 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
         }
 
         gLatency = [...gLatency, cycle.latency_ms['total'] || 0].slice(-MAX_LATENCY)
+        gLatencyCycleIds = [...gLatencyCycleIds, cycle.cycle_id].slice(-MAX_LATENCY)
       } catch (err) { console.error(err) }
     }
 
     ws.onclose = () => {
       wsRef.current = null
       gWsConnected = false
-      // Clear latency history on disconnect so the chart doesn't show stale data.
+      // Clear live metrics on disconnect so charts don't show stale data.
       gLatency = []
-      setState(s => ({ ...s, connected: false, latencyHistory: [] }))
+      gLatencyCycleIds = []
+      gLatestPerf = null
+      setState(s => ({ ...s, connected: false, latencyHistory: [], latencyCycleIds: [], latestPerf: null }))
       timerRef.current = setTimeout(connect, 3000)
     }
   }, [])
@@ -193,6 +203,8 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
         lastCycle: gLatestCycle,
         guardMap: { ...gGuardMap },
         latencyHistory: [...gLatency],
+        latencyCycleIds: [...gLatencyCycleIds],
+        latestPerf: gLatestPerf,
         totalCycles: gBuffer.totalCycles,
         totalRejects: gBuffer.totalRejects,
         totalClamps: gBuffer.totalClamps,

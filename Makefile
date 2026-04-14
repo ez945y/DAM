@@ -2,8 +2,10 @@
 #
 # Quick start:
 #   make setup   ← run once after cloning
-#   make run     ← start backend + frontend
+#   make dev     ← hot-reload dev server (backend + Next.js dev)
+#   make run     ← production mode (build frontend + start backend)
 #   make test    ← run the full test suite
+#   make docs    ← preview documentation (mkdocs serve)
 #
 # CI jobs (GitHub Actions):
 #   make ci-lint           ← ruff format + lint
@@ -11,12 +13,11 @@
 #   make ci-import         ← build Rust + import
 #   make ci-stackfile     ← validate stackfile
 #
-# Docker alternative: see docker-compose.yml
-.PHONY: setup run test test-py test-rs test-ui lint build-rs clean help ci-lint ci-syntax ci-import ci-stackfile
+.PHONY: setup dev run docs test test-py test-rs test-ui lint build-rs clean help ci-lint ci-syntax ci-import ci-stackfile
 
 # Ensure scripts are executable before every target that uses them
 _chmod:
-	@chmod +x scripts/setup.sh scripts/run.sh scripts/test.sh
+	@chmod +x scripts/setup.sh scripts/run.sh scripts/run_prod.sh scripts/test.sh
 
 setup: _chmod   ## First-time setup: Python venv (uv) + Rust extension (maturin) + npm
 	@bash scripts/setup.sh
@@ -27,8 +28,16 @@ setup-lerobot: _chmod   ## Setup with lerobot hardware support (SO-ARM101 + came
 build-rs: _chmod   ## Rebuild Rust extension only (dam_rs via maturin)
 	@bash scripts/setup.sh --rust-only
 
-run: _chmod   ## Start backend + frontend (follows .dam_stackfile.yaml config)
+dev: _chmod   ## Dev mode: hot-reload backend + Next.js dev server
 	@BACKEND_SCRIPT=scripts/dam_host.py bash scripts/run.sh
+
+run: _chmod   ## Production mode: build frontend (static) + start backend
+	@bash scripts/run_prod.sh
+
+docs:   ## Preview documentation locally at http://127.0.0.1:8002/DAM/
+	@export PATH="$$HOME/.local/bin:$$HOME/.cargo/bin:/opt/homebrew/bin:$$PATH"; \
+	 uv pip install --python .venv/bin/python mkdocs mkdocs-material pymdown-extensions --quiet
+	@.venv/bin/mkdocs serve --dev-addr 127.0.0.1:8002
 
 test: _chmod   ## Run all tests + linters (Python, Rust, frontend)
 	@bash scripts/test.sh
@@ -53,7 +62,7 @@ help:   ## Show this help message
 	@echo "  DAM — local development targets"
 	@echo ""
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
-		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
+		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 
 # CI targets (mirrors GitHub Actions)
