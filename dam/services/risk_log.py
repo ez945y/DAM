@@ -25,6 +25,10 @@ class RiskEvent:
     fallback_triggered: str | None
     guard_results: list[dict[str, Any]] = field(default_factory=list)
     latency_ms: dict[str, float] = field(default_factory=dict)
+    # Optional MetricBus snapshot captured at cycle boundary.
+    # Present when TelemetryService is wired with a MetricBus reference.
+    # Shape: {"stages": {...}, "layers": {...}, "guards": {...}}
+    perf: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -49,8 +53,15 @@ class RiskLogService:
 
     # ── Recording ─────────────────────────────────────────────────────────────
 
-    def record(self, result: Any) -> None:
-        """Record a CycleResult object."""
+    def record(self, result: Any, perf: dict[str, Any] | None = None) -> None:
+        """Record a CycleResult object.
+
+        Args:
+            result: ``CycleResult`` from the guard runtime.
+            perf:   Optional MetricBus snapshot (``metric_bus.snapshot()``) captured
+                    at the same cycle boundary.  When provided it is stored verbatim
+                    and exposed via the API for per-guard and per-layer latency display.
+        """
         guard_summaries = [
             {
                 "name": gr.guard_name,
@@ -73,6 +84,7 @@ class RiskLogService:
             fallback_triggered=result.fallback_triggered,
             guard_results=guard_summaries,
             latency_ms=dict(result.latency_ms),
+            perf=perf,
         )
         with self._lock:
             self._next_id += 1

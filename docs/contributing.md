@@ -15,6 +15,9 @@ git remote add upstream https://github.com/ez945y/DAM.git
 # One-time setup
 make setup
 
+# Start the dev server (backend + Next.js hot-reload)
+make dev
+
 # Create feature branch off `dev`
 git checkout -b issue/42
 ```
@@ -84,7 +87,7 @@ test(guard): add regression for velocity clamping
 
 ## Adding Guards
 
-Guards enforce safety constraints. See [Guard Stack Explained](learn/tutorial.md) for theory.
+Guards enforce safety constraints. See [Guards Reference](guards-reference.md) for the full guard layer specification.
 
 ### Skeleton
 

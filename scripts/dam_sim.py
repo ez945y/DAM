@@ -319,7 +319,6 @@ def main() -> None:
     register_all()          # Register built-in boundary callbacks
     register_guard_classes()  # Register built-in guard classes (ood, motion, execution, hardware)
 
-    telemetry = TelemetryService(history_size=500)
     risk_log  = RiskLogService()
     boundary  = BoundaryConfigService()
     control   = RuntimeControlService()
@@ -327,6 +326,17 @@ def main() -> None:
 
     # In Sim mode, we skip hardware validation and go straight to simulation
     runtime = _build_runtime()
+
+    # Derive cycle budget from stackfile config so slack_ms is accurate.
+    _cycle_budget_ms = 1000.0 / getattr(runtime, "_control_frequency_hz", 10.0)
+
+    # Wire TelemetryService with the runtime's MetricBus so every cycle event
+    # includes the `perf` breakdown (pipeline stages + guard layers + per-guard).
+    telemetry = TelemetryService(
+        history_size=500,
+        metric_bus=getattr(runtime, "_metric_bus", None),
+        cycle_budget_ms=_cycle_budget_ms,
+    )
 
     # Patch step() to forward results to TelemetryService
     _orig_step = runtime.step
@@ -338,7 +348,11 @@ def main() -> None:
         if not result.active_boundaries:
             result.active_boundaries = list(getattr(runtime, "_active_container_names", []))
         telemetry.push(result)
-        risk_log.record(result)
+        # Capture perf snapshot at the same cycle boundary as the cycle result
+        # so per-guard latencies are aligned with this cycle's guard execution.
+        _metric_bus = getattr(runtime, "_metric_bus", None)
+        perf_snap = _metric_bus.snapshot() if _metric_bus is not None else None
+        risk_log.record(result, perf=perf_snap)
         return result
 
     runtime.step = _instrumented_step

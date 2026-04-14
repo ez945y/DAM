@@ -105,6 +105,91 @@ class TestTelemetryService:
         hist = svc.get_history()
         assert hist[-1]["type"] == "custom"
 
+    # ── perf enrichment via MetricBus ──────────────────────────────────────
+
+    def _make_metric_bus_stub(
+        self,
+        stages: dict | None = None,
+        layers: dict | None = None,
+        guards: dict | None = None,
+    ):
+        """Return a minimal object that satisfies the MetricBus.snapshot() contract."""
+        from unittest.mock import MagicMock
+
+        mb = MagicMock()
+        mb.snapshot.return_value = {
+            "stages": stages
+            or {"source": 1.0, "policy": 2.0, "guards": 3.0, "sink": 0.5, "total": 6.5},
+            "layers": layers or {"L2": 3.0},
+            "guards": guards or {"motion_guard": 1.5},
+        }
+        return mb
+
+    def test_push_without_metric_bus_has_no_perf_key(self):
+        svc = TelemetryService()  # no metric_bus
+        svc.push(_make_cycle_result(0))
+        event = svc.get_history()[-1]
+        assert "perf" not in event
+
+    def test_push_with_metric_bus_adds_perf_key(self):
+        mb = self._make_metric_bus_stub()
+        svc = TelemetryService(metric_bus=mb, cycle_budget_ms=20.0)
+        svc.push(_make_cycle_result(0))
+        event = svc.get_history()[-1]
+        assert "perf" in event
+
+    def test_perf_contains_expected_sub_keys(self):
+        mb = self._make_metric_bus_stub()
+        svc = TelemetryService(metric_bus=mb, cycle_budget_ms=20.0)
+        svc.push(_make_cycle_result(0))
+        perf = svc.get_history()[-1]["perf"]
+        assert "stages" in perf
+        assert "layers" in perf
+        assert "guards" in perf
+        assert "deadline_ms" in perf
+        assert "slack_ms" in perf
+
+    def test_perf_deadline_and_slack_computed_correctly(self):
+        mb = self._make_metric_bus_stub(stages={"total": 8.0})
+        svc = TelemetryService(metric_bus=mb, cycle_budget_ms=20.0)
+        svc.push(_make_cycle_result(0))
+        perf = svc.get_history()[-1]["perf"]
+        assert abs(perf["deadline_ms"] - 20.0) < 1e-9
+        assert abs(perf["slack_ms"] - 12.0) < 1e-9  # 20 - 8
+
+    def test_perf_negative_slack_when_over_budget(self):
+        mb = self._make_metric_bus_stub(stages={"total": 25.0})
+        svc = TelemetryService(metric_bus=mb, cycle_budget_ms=20.0)
+        svc.push(_make_cycle_result(0))
+        perf = svc.get_history()[-1]["perf"]
+        assert perf["slack_ms"] < 0
+
+    def test_perf_stages_data_matches_metric_bus(self):
+        expected_stages = {"source": 1.1, "policy": 3.2, "guards": 5.8, "sink": 0.7, "total": 10.8}
+        mb = self._make_metric_bus_stub(stages=expected_stages)
+        svc = TelemetryService(metric_bus=mb, cycle_budget_ms=20.0)
+        svc.push(_make_cycle_result(0))
+        perf = svc.get_history()[-1]["perf"]
+        for k, v in expected_stages.items():
+            assert abs(perf["stages"][k] - v) < 1e-9
+
+    def test_perf_does_not_pollute_cycle_result(self):
+        """CycleResult object must not be modified by TelemetryService."""
+        mb = self._make_metric_bus_stub()
+        svc = TelemetryService(metric_bus=mb, cycle_budget_ms=20.0)
+        result = _make_cycle_result(0)
+        original_latency = dict(result.latency_ms)
+        svc.push(result)
+        assert result.latency_ms == original_latency
+        assert not hasattr(result, "perf")
+
+    def test_snapshot_called_once_per_push(self):
+        mb = self._make_metric_bus_stub()
+        svc = TelemetryService(metric_bus=mb, cycle_budget_ms=20.0)
+        for _ in range(3):
+            svc.push(_make_cycle_result(0))
+        assert mb.snapshot.call_count == 3
+
 
 # ── RiskLogService ────────────────────────────────────────────────────────────
 

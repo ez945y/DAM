@@ -467,7 +467,9 @@ class GuardRuntime:
 
                 _t = time.perf_counter()
                 result = g.check(**_filter_kwargs(g.check, kwargs))
-                self._metric_bus.push(g.get_name(), (time.perf_counter() - _t) * 1000.0)
+                self._metric_bus.push_guard(
+                    g.get_name(), g.get_layer().value, (time.perf_counter() - _t) * 1000.0
+                )
             except Exception as e:
                 result = GuardResult.fault(e, "guard_code", g.get_name(), g.get_layer())
                 logger.error("Guard '%s' raised exception: %s", g.get_name(), e)
@@ -539,7 +541,7 @@ class GuardRuntime:
                 result = g.check(**_filter_kwargs(g.check, kwargs))
                 _t_elapsed = time.perf_counter() - _t_start
 
-                self._metric_bus.push(g.get_name(), _t_elapsed * 1000.0)
+                self._metric_bus.push_guard(g.get_name(), g.get_layer().value, _t_elapsed * 1000.0)
 
                 # ── Global Computation Watchdog ──
                 if node_timeout is not None and _t_elapsed > node_timeout:
@@ -586,7 +588,7 @@ class GuardRuntime:
                 result = g.check(**_filter_kwargs(g.check, kwargs))
                 _t_elapsed = time.perf_counter() - _t_start
 
-                self._metric_bus.push(g.get_name(), _t_elapsed * 1000.0)
+                self._metric_bus.push_guard(g.get_name(), g.get_layer().value, _t_elapsed * 1000.0)
 
                 # ── Global Computation Watchdog ──
                 if node_timeout is not None and _t_elapsed > node_timeout:
@@ -673,6 +675,16 @@ class GuardRuntime:
 
         risk = self._compute_risk()
         self._cycle_id += 1
+
+        # ── Push pipeline-stage timing and commit layer aggregates ──────────
+        # Deliberately placed after all guard execution so the MetricBus holds
+        # a complete picture before commit_cycle() finalises the layer history.
+        self._metric_bus.push_stage("source", (t_obs - t_start) * 1000.0)
+        self._metric_bus.push_stage("policy", (t_policy - t_obs) * 1000.0)
+        self._metric_bus.push_stage("guards", (t_validate - t_policy) * 1000.0)
+        self._metric_bus.push_stage("sink", (t_sink - t_validate) * 1000.0)
+        self._metric_bus.push_stage("total", (t_sink - t_start) * 1000.0)
+        self._metric_bus.commit_cycle()
 
         return CycleResult(
             cycle_id=self._cycle_id - 1,

@@ -113,6 +113,7 @@ echo -e "  API:     ${CYAN}http://localhost:8080${NC}"
 echo -e "  Swagger: ${CYAN}http://localhost:8080/docs${NC}"
 [[ -d dam-console/node_modules ]] && \
 echo -e "  Console: ${CYAN}http://localhost:3000${NC}"
+echo -e "  Docs:    run ${GREEN}make docs${NC} in another terminal → http://127.0.0.1:8002/DAM/"
 echo -e "${GREEN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "  Press ${YELLOW}Ctrl+C${NC} to stop all services."
 echo ""

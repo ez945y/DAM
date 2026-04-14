@@ -1,4 +1,24 @@
 export type RiskLevel = 'NORMAL' | 'ELEVATED' | 'CRITICAL' | 'EMERGENCY'
+
+/**
+ * Point-in-time performance snapshot attached to each `cycle` WebSocket event
+ * when the backend MetricBus is wired into TelemetryService.
+ *
+ * All latency values are in milliseconds.
+ */
+export interface PerfSnapshot {
+  /** Pipeline-stage breakdown: source / policy / guards / sink / total */
+  stages:      Record<string, number>
+  /** Per-layer guard latency sums for the last committed cycle.
+   *  Keys are "L0" … "L4" (only layers that executed are present). */
+  layers:      Record<string, number>
+  /** Per-guard latest latency. */
+  guards:      Record<string, number>
+  /** Control-loop cycle budget in ms. */
+  deadline_ms: number
+  /** Remaining headroom before the deadline: deadline_ms − total_ms. */
+  slack_ms:    number
+}
 export type GuardDecision = 'PASS' | 'CLAMP' | 'REJECT' | 'FAULT'
 export type RuntimeState = 'idle' | 'running' | 'paused' | 'stopped' | 'emergency'
 
@@ -22,6 +42,8 @@ export interface CycleEvent {
   active_boundaries?: string[]
   guard_statuses: GuardStatus[]
   timestamp: number
+  /** Present when the backend MetricBus is wired into TelemetryService. */
+  perf?: PerfSnapshot
 }
 
 export interface RiskEvent {
@@ -35,6 +57,8 @@ export interface RiskEvent {
   fallback_triggered: string | null
   guard_results: GuardStatus[]
   latency_ms: Record<string, number>
+  /** MetricBus snapshot captured at cycle boundary. Present when backend MetricBus is wired. */
+  perf?: PerfSnapshot | null
 }
 
 export interface RiskLogStats {
@@ -132,6 +156,10 @@ export interface TelemetrySnapshot {
   lastCycle: CycleEvent | null
   guardMap: Record<string, GuardStatus>
   latencyHistory: number[]
+  /** Cycle IDs corresponding 1:1 to latencyHistory entries for click-through navigation. */
+  latencyCycleIds: number[]
+  /** Latest perf snapshot, present when backend MetricBus is active. */
+  latestPerf: PerfSnapshot | null
   totalCycles: number
   totalRejects: number
   totalClamps: number

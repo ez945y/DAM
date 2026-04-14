@@ -46,23 +46,14 @@ nav:
   - Home: index.md
   - Getting Started:
     - Installation: installation.md
-    - Quick Start: getting-started/quickstart.md
-  - Learn DAM:
-    - Tutorial: learn/tutorial.md
-    - Concepts:
-      - Architecture Overview: concepts/architecture.md
-      - Safety Guarantees: concepts/safety.md
-      - Guard Stack Explained: concepts/guards-explained.md
-      - Boundary System: concepts/boundaries.md
-    - Reference:
-      - Guards: guards-reference.md
-      - Boundary Callbacks: boundary-callbacks.md
-    - Glossary: learn/glossary.md
+    - Stackfile Guide: quick-stack.md
+  - Reference:
+    - Guards: guards-reference.md
+    - Boundary Callbacks: boundary-callbacks.md
+    - Specification: DAM_Specification.md
   - Console:
     - Overview: console.md
     - API Reference: services-api.md
-  - Reference:
-    - Specification: DAM_Specification.md
   - Contributing: contributing.md
 
 plugins:

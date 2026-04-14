@@ -1,12 +1,12 @@
 'use client'
 import { useState, useEffect }    from 'react'
+import { useRouter }         from 'next/navigation'
 import { useTelemetry }      from '@/hooks/useTelemetry'
 import { useRuntimeControl } from '@/hooks/useRuntimeControl'
 import { useDemoMode }       from '@/hooks/useDemoMode'
 import { RiskGauge }         from '@/components/RiskGauge'
 import { StatsCard }         from '@/components/StatsCard'
 import { GuardTable }        from '@/components/GuardTable'
-import { EventLog }          from '@/components/EventLog'
 import { LatencyChart }      from '@/components/LatencyChart'
 import { Shield, TrendingDown, Timer, Loader, AlertTriangle } from 'lucide-react'
 import { PageShell } from '@/components/PageShell'
@@ -101,11 +101,40 @@ function HardwareWarning({ message }: { message: string }) {
   )
 }
 
+/**
+ * Deadline margin indicator shown next to the Cycle Latency panel header.
+ *
+ * - Green   : slack > 30 % of budget  (comfortable headroom)
+ * - Yellow  : 10–30 % of budget       (approaching limit)
+ * - Red     : < 10 % or negative      (over-budget / hard deadline missed)
+ */
+function SlackIndicator({ slackMs, deadlineMs }: { slackMs: number; deadlineMs: number }) {
+  const pct    = deadlineMs > 0 ? slackMs / deadlineMs : 0
+  const used   = deadlineMs - slackMs
+
+  const { color, bg, label } =
+    pct > 0.3  ? { color: 'text-emerald-400', bg: 'bg-emerald-400/10 border-emerald-400/30', label: 'OK' }
+    : pct > 0.1 ? { color: 'text-amber-400',   bg: 'bg-amber-400/10   border-amber-400/30',   label: 'NEAR' }
+                : { color: 'text-dam-red',       bg: 'bg-dam-red/10     border-dam-red/30',     label: slackMs < 0 ? 'OVER' : 'TIGHT' }
+
+  return (
+    <div
+      className={`flex items-center gap-1.5 rounded-md px-2 py-1 border text-[10px] font-bold ${bg} ${color}`}
+      title={`Used ${used.toFixed(1)} ms of ${deadlineMs.toFixed(0)} ms budget — ${slackMs.toFixed(1)} ms slack`}
+    >
+      <Timer size={10} strokeWidth={2.5} />
+      <span className="font-mono">{slackMs.toFixed(1)} ms</span>
+      <span className="opacity-60">{label}</span>
+    </div>
+  )
+}
+
 export default function DashboardPage() {
   const tele = useTelemetry()
   const ctrl = useRuntimeControl()
   const demo = useDemoMode()
   const adapterLabel = useAdapterLabel()
+  const router = useRouter()
 
   // Auto-start cycles after demo launch brings the backend online
   useEffect(() => {
@@ -240,8 +269,21 @@ export default function DashboardPage() {
           {/* ControlBar is now handled by PageShell, so we remove the redundant one here */}
 
           <div className="panel p-4">
-            <p className="section-label mb-3">Cycle Latency</p>
-            <LatencyChart data={tele.latencyHistory} />
+            <div className="flex items-center justify-between mb-3">
+              <p className="section-label">Cycle Latency</p>
+              {tele.latestPerf != null && (
+                <SlackIndicator
+                  slackMs={tele.latestPerf.slack_ms}
+                  deadlineMs={tele.latestPerf.deadline_ms}
+                />
+              )}
+            </div>
+            <LatencyChart
+              data={tele.latencyHistory}
+              perf={tele.latestPerf}
+              cycleIds={tele.latencyCycleIds}
+              onCycleClick={(cycleId) => router.push(`/risk-log?cycle_id=${cycleId}`)}
+            />
           </div>
 
           <div className="panel p-4">
@@ -252,11 +294,13 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <GuardTable 
-              guards={guards} 
+            <GuardTable
+              guards={guards}
               activeTask={activeTask}
               activeBoundaries={activeBoundaries}
               allBoundaryConfigs={ctrl.boundaries}
+              latestCycleId={tele.lastCycle?.cycle_id}
+              onGuardClick={(cycleId) => router.push(`/risk-log?cycle_id=${cycleId}`)}
             />
             
             {/* Status indicators (Persistent L0-L4) */}
@@ -291,12 +335,6 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="panel p-4 flex flex-col" style={{ height: 300 }}>
-            <p className="section-label mb-3 shrink-0">Event Log</p>
-            <div className="flex-1 min-h-0">
-              <EventLog entries={tele.events} />
-            </div>
-          </div>
         </div>
       </div>
     </PageShell>

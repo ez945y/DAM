@@ -158,10 +158,12 @@ fi
 # ── Done ───────────────────────────────────────────────────────────────────────
 echo ""
 ok "Setup complete."
-echo -e "  Run ${GREEN}make run${NC}          to start the system (follows .dam_stackfile.yaml)."
+echo -e "  Run ${GREEN}make dev${NC}          to start hot-reload dev server (backend + Next.js dev)."
+echo -e "  Run ${GREEN}make run${NC}          to build & start production server."
 if $WITH_LEROBOT; then
-    echo -e "  Hardware support enabled — connect robot and run ${GREEN}make run${NC}."
+    echo -e "  Hardware support enabled — connect robot and run ${GREEN}make run${NC} or ${GREEN}make dev${NC}."
 else
-    echo -e "  For real hardware: ${GREEN}make setup-lerobot${NC} then ${GREEN}make run${NC}."
+    echo -e "  For real hardware: ${GREEN}make setup-lerobot${NC} then ${GREEN}make dev${NC}."
 fi
+echo -e "  Run ${GREEN}make docs${NC}         to preview documentation → http://localhost:8002"
 echo -e "  Run ${GREEN}make test${NC}         to run the test suite."

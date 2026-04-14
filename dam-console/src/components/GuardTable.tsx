@@ -21,16 +21,20 @@ const LAYER_COLORS: Record<string, string> = {
   L4: 'text-dam-red    bg-red-950/50    border-red-900',
 }
 
-export function GuardTable({ 
-  guards, 
-  activeTask, 
+export function GuardTable({
+  guards,
+  activeTask,
   activeBoundaries = [],
-  allBoundaryConfigs = []
-}: { 
+  allBoundaryConfigs = [],
+  latestCycleId,
+  onGuardClick,
+}: {
   guards: GuardStatus[];
   activeTask?: string | null;
   activeBoundaries?: string[];
   allBoundaryConfigs?: BoundaryConfig[];
+  latestCycleId?: number;
+  onGuardClick?: (cycleId: number) => void;
 }) {
   const [expandedLayers, setExpandedLayers] = useState<Set<string>>(new Set())
 
@@ -217,8 +221,14 @@ export function GuardTable({
                 {items.map(g => {
                   const dc = DEC_CONFIG[g.decision] ?? DEC_CONFIG.PASS
                   const isLive = guards.some(rg => rg.name === g.name)
+                  const canClick = onGuardClick && latestCycleId !== undefined
                   return (
-                    <div key={g.name} className="flex items-center gap-3 px-4 py-2 pl-12 hover:bg-white/[0.02] transition-colors">
+                    <div
+                      key={g.name}
+                      onClick={() => canClick && onGuardClick!(latestCycleId!)}
+                      className={`flex items-center gap-3 px-4 py-2 pl-12 transition-colors ${canClick ? 'cursor-pointer hover:bg-dam-blue/5 hover:border-l-2 hover:border-dam-blue/30' : 'hover:bg-white/[0.02]'}`}
+                      title={canClick ? `View cycle #${latestCycleId} in Risk Log` : undefined}
+                    >
                       <div className={`w-1 h-1 rounded-full ${isLive ? 'bg-dam-green shadow-[0_0_5px_rgba(16,185,129,0.5)]' : 'bg-dam-muted/20'}`} />
                       <span className="text-dam-muted text-[11px] font-mono flex-1 truncate opacity-70">
                         {g.name}
@@ -226,6 +236,9 @@ export function GuardTable({
                       <span className={`text-[9px] font-black uppercase tracking-widest min-w-[50px] text-right ${dc.color}`}>
                         {g.decision}
                       </span>
+                      {canClick && (
+                        <span className="text-[9px] text-dam-muted/40 ml-1">↗</span>
+                      )}
                     </div>
                   )
                 })}

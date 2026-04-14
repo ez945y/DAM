@@ -48,8 +48,7 @@ def main() -> None:
     log.info("Starting DAM Host...")
     log.info("Loading configuration from: %s", stack_path)
 
-    # 1. Prepare Services
-    telemetry = TelemetryService(history_size=1000)
+    # 1. Prepare Services (TelemetryService wired with MetricBus after runtime build)
     risk_log = RiskLogService()
     boundary = BoundaryConfigService()
     control = RuntimeControlService()
@@ -59,27 +58,47 @@ def main() -> None:
     # 2. Build Runtime via Factory
     try:
         runtime = RuntimeFactory.build_from_stackfile(stack_path)
-        
+
+        # Derive cycle budget from stackfile config so slack_ms is accurate.
+        _cycle_budget_ms = 1000.0 / getattr(runtime, "_control_frequency_hz", 50.0)
+
+        # Wire TelemetryService with the runtime's MetricBus so every cycle event
+        # includes the `perf` breakdown (pipeline stages + guard layers + per-guard).
+        telemetry = TelemetryService(
+            history_size=1000,
+            metric_bus=runtime._metric_bus,
+            cycle_budget_ms=_cycle_budget_ms,
+        )
+
         # Connect to hardware if applicable
         source = getattr(runtime, "_source", None)
         if hasattr(source, "connect"):
             log.info("Connecting to hardware sources...")
             source.connect()
-            
+
         # Define instrumentation wrapper (shared between initial boot and re-checks)
         def step_wrapper(orig_step):
             def _instrumented_step():
                 res = orig_step()
                 telemetry.push(res)
-                risk_log.record(res)
+                # Capture perf snapshot at the same moment as the cycle result so
+                # per-guard latencies are aligned with this cycle's guard execution.
+                perf_snap = runtime._metric_bus.snapshot()
+                risk_log.record(res, perf=perf_snap)
                 return res
             return _instrumented_step
 
         control.set_post_step_wrapper(step_wrapper)
         runtime.step = step_wrapper(runtime.step)
-        
+
         control.attach_runtime(runtime, stack_path)
         log.info("Runtime successfully initialized and attached.")
+
+    except Exception as e:
+        log.error("Failed to initialize runtime: %s", e)
+        control.set_startup_error(str(e))
+        # Fallback: TelemetryService without MetricBus (no perf enrichment)
+        telemetry = TelemetryService(history_size=1000)
 
     except Exception as e:
         log.error("Failed to initialize runtime: %s", e)
