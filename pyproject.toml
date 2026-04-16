@@ -7,7 +7,7 @@ packages = ["dam"]
 
 [project]
 name = "dam"
-version = "0.1.0"
+version = "0.3.0"
 requires-python = ">=3.11"
 dependencies = [
     "numpy>=1.24",
@@ -16,6 +16,7 @@ dependencies = [
     "scipy>=1.12",
     "opencv-python>=4.9",
     "pyserial>=3.5",
+    "msgpack>=1.0",
 ]
 
 [project.optional-dependencies]
@@ -34,6 +35,7 @@ dev = [
 torch = [
     "torch>=2.0",
     "mcap>=1.1",
+    "msgpack>=1.0",
 ]
 
 # SO-ARM101 / Koch hardware via lerobot
@@ -59,6 +61,7 @@ services = [
     "uvicorn[standard]>=0.29",
     "httpx>=0.27",   # async test client for FastAPI
     "datasets>=2.16", # HuggingFace datasets for OOD
+    "msgspec>=0.18.6", # high-performance JSON serialization
 ]
 
 # Everything (CI matrix / dev-full service)

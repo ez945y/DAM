@@ -150,6 +150,16 @@ class LeRobotSourceAdapter(SensorAdapter):
             self._degrees_mode,
         )
 
+    def verify(self) -> None:
+        """Run an aggregate preflight check on all hardware.
+
+        This will attempt to read from all cameras and get a motor observation,
+        collecting all failures into a single RuntimeError.
+        """
+        from dam.runner.lerobot import LeRobotRunner
+
+        LeRobotRunner._preflight_check(self._robot)
+
     def read(self) -> Observation:
         """Read one observation from the robot and return a DAM Observation."""
         try:

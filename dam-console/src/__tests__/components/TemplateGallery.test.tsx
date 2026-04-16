@@ -29,6 +29,6 @@ describe('TemplateGallery', () => {
     render(<TemplateGallery templates={TEMPLATES} selected="" onSelect={onSelect} />)
     expect(screen.getAllByText('LeRobot').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('ROS2')).toBeInTheDocument()
-    expect(screen.getAllByText('Educational').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('Demo').length).toBeGreaterThanOrEqual(1)
   })
 })

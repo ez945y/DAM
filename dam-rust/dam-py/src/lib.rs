@@ -2,12 +2,13 @@
 // PyO3 macros generate From<PyErr> for PyErr conversions in PyResult-returning methods.
 #![allow(clippy::useless_conversion)]
 //!
-//! Exposes five types to Python:
+//! Exposes types to Python:
 //!   ObservationBus  — ring buffer for sensor snapshots (pickling handled here)
 //!   WatchdogTimer   — deadline watchdog; fires outside Python GIL
 //!   RiskController  — windowed risk aggregation
 //!   MetricBus       — per-guard latency / score history
 //!   ActionBus       — SPSC queue for validated actions
+//!   SerializerBus   — JSON serialization for cycle records
 //!
 //! Build:
 //!   cd dam-rust/dam-py
@@ -20,9 +21,13 @@ use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
 use action_bus::ActionBus as RustActionBus;
+use image_writer::ImageWriter as RustImageWriter;
+use mcap_writer::CycleRecordData;
+use mcap_writer::McapWriter as RustMcapWriter;
 use metric_bus::MetricBus as RustMetricBus;
 use observation_bus::ObservationBus as RustObsBus;
 use risk_controller::RiskController as RustRiskController;
+use serializer_bus::SerializerBus as RustSerializerBus;
 use watchdog::WatchdogTimer as RustWatchdog;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -246,7 +251,7 @@ impl RiskController {
     }
 }
 
-// ── MetricBus ──────────────────────────────────────────────────────────────
+// ── MetricBus ─────────────────────────────────────────────────────────────
 
 /// Per-guard latency / score metrics store with rolling history.
 ///
@@ -276,7 +281,7 @@ impl MetricBus {
         }
     }
 
-    // ── Guard metrics ──────────────────────────────────────────────────────
+    // ── Guard metrics ─────────────────────────────────────────────────────
 
     /// Record a guard latency (ms) without layer info.  Kept for backward compat;
     /// prefer ``push_guard`` for new call-sites.
@@ -342,7 +347,7 @@ impl MetricBus {
         Ok(d.unbind().into())
     }
 
-    // ── Legacy read API ────────────────────────────────────────────────────
+    // ── Legacy read API ─────────────────────────────────────────────────────
 
     fn latest(&self, guard_name: &str) -> Option<f64> {
         self.inner.latest(guard_name)
@@ -377,7 +382,7 @@ impl MetricBus {
     }
 }
 
-// ── ActionBus ──────────────────────────────────────────────────────────────
+// ── ActionBus ─────────────────────────────────────────────────────────────
 
 /// SPSC queue for validated actions (latest-wins with capacity=1).
 ///
@@ -418,6 +423,256 @@ impl ActionBus {
     }
 }
 
+// ── ImageWriter ────────────────────────────────────────────────────────────
+
+/// Async JPEG encoder for fire-and-forget image encoding (no GIL).
+///
+/// Accepts raw RGB bytes from Python and encodes to JPEG in background threads.
+/// Returns immediately without waiting for encoding to complete.
+///
+/// Constructor: ``ImageWriter()``
+///
+/// Methods:
+///   - encode_jpeg(data, width, height, quality) -> bytes (synchronous)
+///   - submit_async(data, width, height, quality) -> None (fire-and-forget)
+///
+/// Example (Python):
+/// ```python
+/// from dam_rs import ImageWriter
+/// writer = ImageWriter()
+/// # Fire-and-forget: returns immediately, encoding happens on background thread
+/// writer.submit_async(frame.tobytes(), 640, 480, 85)
+/// ```
+#[pyclass]
+struct ImageWriter {
+    _marker: std::marker::PhantomData<()>,
+}
+
+#[pymethods]
+impl ImageWriter {
+    #[new]
+    fn new() -> Self {
+        ImageWriter {
+            _marker: std::marker::PhantomData,
+        }
+    }
+
+    /// Encode raw RGB bytes to JPEG synchronously.
+    ///
+    /// Args:
+    ///   data: Raw RGB bytes (width * height * 3 bytes)
+    ///   width: Image width in pixels
+    ///   height: Image height in pixels
+    ///   quality: JPEG quality (1-100, default 85)
+    ///
+    /// Returns:
+    ///   JPEG bytes encoded from the input image
+    fn encode_jpeg(&self, data: &[u8], width: u32, height: u32, quality: u8) -> PyResult<Vec<u8>> {
+        match RustImageWriter::encode_jpeg(data, width, height, quality) {
+            Ok(bytes) => Ok(bytes),
+            Err(e) => Err(pyo3::exceptions::PyValueError::new_err(e)),
+        }
+    }
+
+    /// Submit image for async JPEG encoding (fire-and-forget).
+    ///
+    /// Returns immediately. Encoding happens on a background thread.
+    /// No callback or return value — designed for hot-path Python code.
+    ///
+    /// Args:
+    ///   data: Raw RGB bytes (width * height * 3 bytes)
+    ///   width: Image width in pixels
+    ///   height: Image height in pixels
+    ///   quality: JPEG quality (1-100, default 85)
+    fn submit_async(&self, data: Vec<u8>, width: u32, height: u32, quality: u8) {
+        RustImageWriter::submit_async(data, width, height, quality, |result| match result {
+            Ok(bytes) => log::debug!("ImageWriter: encoded {} bytes async", bytes.len()),
+            Err(e) => log::error!("ImageWriter: async encoding failed: {}", e),
+        });
+    }
+
+    fn __repr__(&self) -> String {
+        "ImageWriter()".to_string()
+    }
+}
+
+// ── McapWriter ─────────────────────────────────────────────────────────────
+
+/// High-performance MCAP writer for DAM cycle records.
+///
+/// Handles serialization (JSON for metadata, MessagePack for data) and
+/// MCAP channel/schema registration. Designed for fire-and-forget from Python.
+///
+/// Constructor: ``McapWriter()``
+///
+/// Methods:
+///   - start(path: str) -> None  (starts writing to file)
+///   - write_cycle(record: dict) -> int  (returns sequence number)
+///   - current_sequence() -> int
+///
+/// Example (Python):
+/// ```python
+/// from dam_rs import McapWriter
+/// writer = McapWriter()
+/// writer.start("/tmp/session.mcap")
+/// seq = writer.write_cycle(record_dict)  # Returns sequence number
+/// ```
+#[pyclass]
+struct McapWriter {
+    inner: RustMcapWriter,
+}
+
+#[pymethods]
+impl McapWriter {
+    #[new]
+    fn new() -> PyResult<Self> {
+        match RustMcapWriter::new() {
+            Ok(inner) => Ok(McapWriter { inner }),
+            Err(e) => Err(pyo3::exceptions::PyIOError::new_err(e)),
+        }
+    }
+
+    /// Start writing to the MCAP file.
+    ///
+    /// Args:
+    ///   path: Path to the MCAP file to create
+    fn start(&self, path: &str) -> PyResult<()> {
+        match self.inner.start(path) {
+            Ok(()) => Ok(()),
+            Err(e) => Err(pyo3::exceptions::PyIOError::new_err(e)),
+        }
+    }
+
+    /// Write a complete cycle to MCAP.
+    ///
+    /// Args:
+    ///   record: Dictionary representation of CycleRecord (as JSON string from Python)
+    ///
+    /// Returns:
+    ///   Sequence number (u64) for ordering verification
+    fn write_cycle(&self, record_json: &str) -> PyResult<u64> {
+        let cycle_record: CycleRecordData = serde_json::from_str(record_json).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "Failed to parse CycleRecord JSON: {}",
+                e
+            ))
+        })?;
+
+        match self.inner.write_cycle(cycle_record) {
+            Ok(seq) => Ok(seq),
+            Err(e) => Err(pyo3::exceptions::PyRuntimeError::new_err(e)),
+        }
+    }
+
+    /// Get the current sequence counter.
+    fn current_sequence(&self) -> u64 {
+        self.inner.current_sequence()
+    }
+
+    fn __repr__(&self) -> String {
+        "McapWriter(async)".to_string()
+    }
+}
+
+// ── SerializerBus ────────────────────────────────────────────────────────────
+
+/// High-performance JSON serializer for DAM cycle records.
+///
+/// Serializes a CycleRecord dict to pre-serialized JSON messages (as bytes).
+/// No state; each call is independent.
+///
+/// Constructor: ``SerializerBus()``
+///
+/// Methods:
+///   - serialize_cycle(record_dict: dict) -> dict  (returns topic -> bytes mapping)
+///
+/// Example (Python):
+/// ```python
+/// from dam_rs import SerializerBus
+/// serializer = SerializerBus()
+/// messages = serializer.serialize_cycle(record_dict)
+/// # messages = {
+/// #     "/dam/cycle": b'{"cycle_id": ...}',
+/// #     "/dam/obs": b'{"cycle_id": ...}',
+/// #     "/dam/action": b'{"cycle_id": ...}',
+/// #     "/dam/L0": [b'...', ...],
+/// #     ...
+/// # }
+/// ```
+#[pyclass]
+struct SerializerBus;
+
+#[pymethods]
+impl SerializerBus {
+    #[new]
+    fn new() -> Self {
+        SerializerBus
+    }
+
+    /// Serialize a CycleRecord dict to pre-serialized JSON messages.
+    ///
+    /// Args:
+    ///   record_dict: Dict representation of CycleRecord (from dataclasses.asdict())
+    ///
+    /// Returns:
+    ///   Dict mapping topic name -> bytes (or list of bytes for /dam/L0-L4)
+    fn serialize_cycle(
+        &self,
+        py: Python<'_>,
+        record_dict: &Bound<'_, PyAny>,
+    ) -> PyResult<PyObject> {
+        // Convert Python dict to serde_json::Value
+        let json_str = pyo3::types::PyModule::import_bound(py, "json")?
+            .call_method1("dumps", (record_dict,))?
+            .extract::<String>()?;
+
+        let record_json: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "Failed to parse CycleRecord dict: {}",
+                e
+            ))
+        })?;
+
+        // Call Rust serializer
+        let messages = RustSerializerBus::serialize_cycle(&record_json)
+            .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
+
+        // Convert result back to Python dict
+        let result_dict = pyo3::types::PyDict::new_bound(py);
+
+        for (topic, value) in messages.iter() {
+            match value {
+                serde_json::Value::String(s) => {
+                    // Single message: convert to bytes
+                    result_dict.set_item(topic.clone(), PyBytes::new_bound(py, s.as_bytes()))?;
+                }
+                serde_json::Value::Array(msgs) => {
+                    // Multiple messages: convert each to bytes in a list
+                    let py_list = pyo3::types::PyList::empty_bound(py);
+                    for msg_val in msgs {
+                        if let serde_json::Value::String(msg_str) = msg_val {
+                            py_list.append(PyBytes::new_bound(py, msg_str.as_bytes()))?;
+                        }
+                    }
+                    result_dict.set_item(topic.clone(), py_list)?;
+                }
+                _ => {
+                    return Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
+                        "Unexpected value type for topic {}",
+                        topic
+                    )));
+                }
+            }
+        }
+
+        Ok(result_dict.unbind().into())
+    }
+
+    fn __repr__(&self) -> String {
+        "SerializerBus()".to_string()
+    }
+}
+
 // ── Module registration ────────────────────────────────────────────────────
 
 #[pymodule]
@@ -427,5 +682,8 @@ fn dam_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<RiskController>()?;
     m.add_class::<MetricBus>()?;
     m.add_class::<ActionBus>()?;
+    m.add_class::<ImageWriter>()?;
+    m.add_class::<McapWriter>()?;
+    m.add_class::<SerializerBus>()?;
     Ok(())
 }

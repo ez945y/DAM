@@ -164,7 +164,7 @@ def test_runtime_uses_stages_when_set():
     stage = Stage(name="main", guards=[g1, g2], parallel=False)
 
     rt = _make_runtime_with_stages([stage])
-    rt.register_source(MockSource())
+    rt.register_source("main", MockSource())
     rt.register_policy(MockPolicy())
     rt.register_sink(MockSink())
     rt.start_task("default")

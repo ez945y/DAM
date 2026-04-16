@@ -30,24 +30,61 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class LeRobotRunner:
+from dam.runner.base import BaseRunner
+
+
+class LeRobotRunner(BaseRunner):
     def __init__(
         self,
         runtime: GuardRuntime,
-        source: Any,
-        sink: Any,
-        policy: Any,
+        robot: Any | None = None,
         control_frequency_hz: float = 50.0,
     ) -> None:
         self._runtime = runtime
-        self._runtime.register_source(source)
-        self._runtime.register_sink(sink)
-        self._runtime.register_policy(policy)
+        self._robot = robot
         self._control_frequency_hz = control_frequency_hz
         self._period_sec = 1.0 / control_frequency_hz
         self._running = False
         self._active_task: str | None = None
-        self._robot_ref: Any | None = None  # set by auto-builder for clean disconnect
+
+    @property
+    def runtime(self) -> GuardRuntime:
+        return self._runtime
+
+    def connect(self) -> None:
+        if self._robot and hasattr(self._robot, "connect"):
+            self._robot.connect()
+        logger.info("LeRobotRunner: connected hardware.")
+
+    def verify(self) -> None:
+        """Verify robot hardware and all external sources (cameras)."""
+        if self._robot:
+            self._preflight_check(self._robot)
+
+        # Also verify external sources registered in the runtime (e.g. OpenCV cameras)
+        if hasattr(self._runtime, "_sources"):
+            for name, src in self._runtime._sources.items():
+                if src is self._robot or src is getattr(self, "_robot", None):
+                    continue
+                if hasattr(src, "verify") and callable(src.verify):
+                    logger.info("LeRobotRunner: verifying external source '%s'...", name)
+                    src.verify()
+
+    def shutdown(self) -> None:
+        """Graceful stop: stop task, disconnect robot."""
+        self._running = False
+        try:
+            self._runtime.stop_task()
+        except Exception as e:
+            logger.warning("LeRobotRunner: stop_task error: %s", e)
+        if self._robot is not None and hasattr(self._robot, "disconnect"):
+            try:
+                self._robot.disconnect()
+                logger.info("LeRobotRunner: robot disconnected")
+            except Exception as e:
+                logger.warning("LeRobotRunner: robot disconnect error: %s", e)
+        self._active_task = None
+        logger.info("LeRobotRunner stopped.")
 
     # ── Construction helpers ───────────────────────────────────────────────
 
@@ -80,8 +117,7 @@ class LeRobotRunner:
         preset = builder.preset
 
         robot = builder.build_robot()
-        robot.connect()
-        logger.info("LeRobotRunner: robot connected  preset=%s", preset.name)
+        # robot.connect() is now deferred to runner.connect()
 
         policy_obj = builder.build_policy()
         if policy_obj is None:
@@ -115,18 +151,19 @@ class LeRobotRunner:
             degrees_mode=preset.degrees_mode,
         )
 
+        runtime.register_source("arm", source)
+        runtime.register_sink(sink)
+        if policy_adapter:
+            runtime.register_policy(policy_adapter)
+
         hz_cfg = cfg.runtime.control_frequency_hz if cfg.runtime else None
         hz = hz_cfg or cfg.safety.control_frequency_hz
 
-        runner = cls(
+        return cls(
             runtime=runtime,
-            source=source,
-            sink=sink,
-            policy=policy_adapter,
+            robot=robot,
             control_frequency_hz=hz,
         )
-        runner._robot_ref = robot
-        return runner
 
     @classmethod
     def from_stackfile(
@@ -178,15 +215,17 @@ class LeRobotRunner:
             joint_names=preset.joint_names,
         )
 
+        runtime.register_source("arm", source)
+        runtime.register_sink(sink)
+        runtime.register_policy(policy)
+
         hz = (
             cfg.runtime.control_frequency_hz if cfg.runtime else None
         ) or cfg.safety.control_frequency_hz
 
         return cls(
             runtime=runtime,
-            source=source,
-            sink=sink,
-            policy=policy,
+            robot=robot,
             control_frequency_hz=hz,
         )
 
@@ -249,20 +288,7 @@ class LeRobotRunner:
         self._running = True
 
     def stop(self) -> None:
-        """Graceful stop: stop task, disconnect robot."""
-        self._running = False
-        try:
-            self._runtime.stop_task()
-        except Exception as e:
-            logger.warning("LeRobotRunner: stop_task error: %s", e)
-        if self._robot_ref is not None and hasattr(self._robot_ref, "disconnect"):
-            try:
-                self._robot_ref.disconnect()
-                logger.info("LeRobotRunner: robot disconnected")
-            except Exception as e:
-                logger.warning("LeRobotRunner: robot disconnect error: %s", e)
-        self._active_task = None
-        logger.info("LeRobotRunner stopped.")
+        self.shutdown()
 
     def step(self) -> CycleResult:
         return self._runtime.step()
@@ -272,15 +298,10 @@ class LeRobotRunner:
         task: str,
         n_cycles: int | None = None,
     ) -> list[CycleResult]:
-        """Run control loop.  Blocks until n_cycles reached, stop() called, or Ctrl-C.
-
-        Runs a hardware preflight check (cameras + motors) before entering the
-        loop.  Raises ``RuntimeError`` immediately if any check fails so the
-        operator sees the problem before the first inference cycle.
-        """
-        if self._robot_ref is not None:
-            logger.info("Running hardware preflight check…")
-            self._preflight_check(self._robot_ref)
+        """Run control loop. Blocks until n_cycles reached, stop() called, or Ctrl-C."""
+        self.connect()
+        logger.info("Running hardware preflight check…")
+        self.verify()
 
         self.start_task(task)
         results: list[CycleResult] = []

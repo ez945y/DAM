@@ -28,11 +28,17 @@ setup-lerobot: _chmod   ## Setup with lerobot hardware support (SO-ARM101 + came
 build-rs: _chmod   ## Rebuild Rust extension only (dam_rs via maturin)
 	@bash scripts/setup.sh --rust-only
 
+# macOS: prefer venv's bundled ffmpeg dylibs over Homebrew to silence
+# "Class AVFAudioReceiver is implemented in both …" ObjC duplicate warnings.
+_AV_DYLIB_DIR := $(shell ls -d .venv/lib/python*/site-packages/av/.dylibs 2>/dev/null | head -1)
+_DYLD_PREFIX   := $(if $(_AV_DYLIB_DIR),DYLD_LIBRARY_PATH="$(_AV_DYLIB_DIR):$$DYLD_LIBRARY_PATH" ,)
+_PYTHONPATH    := PYTHONPATH="$(shell python3 -c "import site; print(site.getsitepackages()[0] if site.getsitepackages() else '')" 2>/dev/null):$$PYTHONPATH"
+
 dev: _chmod   ## Dev mode: hot-reload backend + Next.js dev server
-	@BACKEND_SCRIPT=scripts/dam_host.py bash scripts/run.sh
+	@$(_DYLD_PREFIX)$(_PYTHONPATH) BACKEND_SCRIPT=scripts/dam_host.py bash scripts/run.sh
 
 run: _chmod   ## Production mode: build frontend (static) + start backend
-	@bash scripts/run_prod.sh
+	@$(_DYLD_PREFIX)$(_PYTHONPATH) bash scripts/run_prod.sh
 
 docs:   ## Preview documentation locally at http://127.0.0.1:8002/DAM/
 	@export PATH="$$HOME/.local/bin:$$HOME/.cargo/bin:/opt/homebrew/bin:$$PATH"; \

@@ -259,8 +259,8 @@ DAM 的模組分為兩個截然不同的職責：**核心守衛邏輯**（安全
 | **OOD 檢測** | Autoencoder (PyTorch) | 基於重構誤差的異常檢測 |
 | **策略推理** | PyTorch / ONNX | LeRobot ACT, Diffusion Policy, VLA, RL 代理 —— 通過 PolicyAdapter 包裝 |
 | **API (REST)** | FastAPI / Flask | 邊界 CRUD、運行時控制、風險日誌 |
-| **API (實時)** | WebSocket | 觀測值、守衛結果、風險等級流 |
-| **數據格式** | MCAP | 循環緩衝區持久化、上下文捕捉、數據集導出 |
+| **二進位協議 (Binary Protocol)** | 遙測服務 | 用於實時圖傳的高性能協議，格式為 `[0x01][NameLen][Name][JPEG]`，大幅降低 CPU 開銷。 |
+| **CycleRecord 同步** | 資料流 | 每個週期記錄均包含 `active_cameras`，確保 MCAP 日誌與實時遙測元數據完全一致。 |
 | **類型合約** | Python `dataclass` + `ABC` | 在模組邊界處強制執行 |
 
 ### 2.2 數據平面 (Data Plane - Rust + PyO3)
@@ -626,12 +626,13 @@ flowchart TB
     TS -->|歷史存儲| DB["Event History"]
 
     subgraph "事件類型"
-        E1["observation_update"]
-        E2["guard_result"]
-        E3["action_validated / rejected"]
-        E4["risk_level_changed"]
-        E5["fallback_triggered"]
-        E6["node_transition"]
+        E1["observation_update (JSON)"]
+        E2["guard_result (JSON)"]
+        E3["action_validated / rejected (JSON)"]
+        E4["risk_level_changed (JSON)"]
+        E5["fallback_triggered (JSON)"]
+        E6["node_transition (JSON)"]
+        E7["live_camera_frame (二進位協議)"]
     end
 ```
 
@@ -1049,7 +1050,7 @@ L1 守衛運行在獨立線程上，使用當前觀測值、提議動作以及 `
 | :--- | :--- | :--- |
 | **PyO3** | 0.20+ | Python/Rust 橋接 |
 | **MCAP** | 最新 | 高性能日誌與緩衝 |
-| **LeRobot** | v0.1.0+ | 基座適配器與預先佈線 |
+| **LeRobot** | 基座適配器與預先佈線 |
 | **ROS2** | Humble/Iron | 分佈式 Sources/Sinks (自選) |
 | **FastAPI** | 0.100+ | UI 後端與 REST 控制 |
 

@@ -56,15 +56,7 @@ if [[ ! -f "$STACKFILE" ]]; then
     fi
 fi
 
-# ── Build frontend ─────────────────────────────────────────────────────────────
-info "Building frontend (Next.js production build)…"
-(cd dam-console && npm run build)
 
-# standalone output needs static assets copied in manually
-info "Copying static assets into standalone bundle…"
-cp -r dam-console/public dam-console/.next/standalone/public 2>/dev/null || true
-cp -r dam-console/.next/static dam-console/.next/standalone/.next/static 2>/dev/null || true
-ok "Frontend built"
 
 # ── Graceful shutdown ──────────────────────────────────────────────────────────
 _child_pids=()
@@ -79,30 +71,26 @@ _shutdown() {
 }
 trap _shutdown INT TERM EXIT
 
-# ── Start backend ──────────────────────────────────────────────────────────────
+# ── Start backend (Fast background startup) ──────────────────────────────────
 info "Starting backend (scripts/dam_host.py) on :8080…"
 .venv/bin/python scripts/dam_host.py &
 _child_pids+=($!)
 BACKEND_PID=$!
 
-info "Waiting for backend to be ready…"
-READY=false
-for i in $(seq 1 60); do
-    if .venv/bin/python -c \
-        "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/control/status')" \
-        2>/dev/null; then
-        READY=true
-        break
-    fi
-    kill -0 "$BACKEND_PID" 2>/dev/null || die "Backend exited unexpectedly."
-    sleep 1
-done
-$READY || die "Backend did not become ready after 60 s."
+# ── Build frontend (concurrently) ──────────────────────────────────────────────
+info "Building frontend (Next.js production build) while backend warms up…"
+(cd dam-console && npm run build > /dev/null 2>&1)
+
+# standalone output needs static assets copied in manually
+info "Finalizing frontend bundle…"
+cp -r dam-console/public dam-console/.next/standalone/public 2>/dev/null || true
+cp -r dam-console/.next/static dam-console/.next/standalone/.next/static 2>/dev/null || true
+ok "Frontend build complete"
 
 # ── Start production frontend ──────────────────────────────────────────────────
 info "Starting frontend (Next.js standalone) on :3000…"
-# standalone mode requires `node .next/standalone/server.js` — `npm run start` is incompatible
-(cd dam-console && PORT=3000 HOSTNAME=127.0.0.1 node .next/standalone/server.js) &
+# standalone mode requires `node .next/standalone/server.js`
+(cd dam-console && PORT=3000 HOSTNAME=127.0.0.1 node .next/standalone/server.js > /dev/null 2>&1) &
 _child_pids+=($!)
 
 # ── Ready banner ───────────────────────────────────────────────────────────────

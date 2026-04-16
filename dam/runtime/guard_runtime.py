@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import logging
 import threading
@@ -15,6 +16,7 @@ from dam.fallback.base import FallbackContext
 from dam.guard.aggregator import aggregate_decisions
 from dam.injection.static import precompute_injection
 from dam.types.action import ValidatedAction
+from dam.types.observation import Observation
 from dam.types.result import GuardDecision, GuardResult
 from dam.types.risk import CycleResult, RiskLevel
 
@@ -26,11 +28,10 @@ if TYPE_CHECKING:
     from dam.guard.stage import Stage
     from dam.kinematics.resolver import KinematicsResolver
     from dam.types.action import ActionProposal
-    from dam.types.observation import Observation
 
 import contextlib
 
-from dam.bus import MetricBus, ObservationBus, RiskController, WatchdogTimer
+from dam.bus import ObservationBus, PipelineMetricBus, RiskController, WatchdogTimer
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,7 @@ class GuardRuntime:
         risk_controller_config: Any | None = None,  # Optional["RiskControllerConfig"]
         loopback_config: Any | None = None,  # Optional["LoopbackConfig"]
         kinematics_resolver: KinematicsResolver | None = None,
+        boundary_to_kind: dict[str, str] | None = None,
     ) -> None:
         if always_active is None:
             always_active = []
@@ -58,10 +60,22 @@ class GuardRuntime:
             raise ValueError(
                 f"enforcement_mode must be enforce|monitor|log_only, got '{enforcement_mode}'"
             )
-        # Store ALL guards; _guards is the active (enabled) subset rebuilt on config change
+
+        # Store ALL guards sorted by layer; _guards is the enabled subset.
         self._all_guards: list[Guard] = sorted(guards, key=lambda g: g.get_layer().value)
         self._disabled_kinds: set[str] = set()
         self._guards = list(self._all_guards)
+
+        # Singleton pool: guard_kind → guard instance (one per kind)
+        self._guards_by_kind: dict[str, Any] = {}
+        for g in self._all_guards:
+            kind = getattr(g, "_guard_kind", None)
+            if kind:
+                self._guards_by_kind[kind] = g
+
+        # Boundary → guard kind mapping (populated by from_stackfile)
+        self._boundary_to_kind: dict[str, str] = dict(boundary_to_kind) if boundary_to_kind else {}
+
         self._boundary_containers = boundary_containers
         self._fallback_registry = fallback_registry
         self._task_config = task_config
@@ -73,10 +87,11 @@ class GuardRuntime:
         self._active_containers: list[BoundaryContainer] = []
         self._active_container_names: list[str] = []
         self._node_start_times: dict[str, float] = {}
-        self._source: Any = None
+        self._sources: dict[str, Any] = {}
         self._policy: Any = None
         self._sink: Any = None
         self._kinematics_resolver = kinematics_resolver
+        self._stages: list[Any] | None = None
 
         # ── Rust bus components (fall back to Python when dam_rs not compiled) ──
         # RiskController: windowed reject/clamp counter → RiskLevel
@@ -90,24 +105,39 @@ class GuardRuntime:
             _rc_reject_thr,
         )
 
-        # MetricBus: per-guard latency / score history (ms)
-        self._metric_bus: MetricBus = MetricBus()
+        # PipelineMetricBus: structured per-guard + per-stage latency tracking
+        self._metric_bus: PipelineMetricBus = PipelineMetricBus()
 
         # ObservationBus: ring buffer for loopback capture (±window_sec at hz)
-        _obs_window_sec = loopback_config.window_sec if loopback_config else 30.0
+        _obs_window_sec = loopback_config.window_sec if loopback_config else 10.0
         _obs_capacity = max(100, int(_obs_window_sec * 2 * control_frequency_hz) + 50)
         self._obs_bus: ObservationBus = ObservationBus(capacity=_obs_capacity)
 
-        # 3E: Stage DAG
-        self._stages: list[Stage] | None = None
+        # LoopbackWriter: streaming MCAP writer in a dedicated daemon thread.
+        # Receives every CycleRecord non-blocking; does all I/O off the hot path.
+        self._loopback: Any | None = None
+        if loopback_config is not None:
+            from dam.logging.loopback_writer import LoopbackWriter
 
-        # 3G: Hot reload double-buffer
+            self._loopback = LoopbackWriter(
+                output_dir=loopback_config.output_dir,
+                obs_bus=self._obs_bus,
+                control_frequency_hz=control_frequency_hz,
+                window_sec=loopback_config.window_sec,
+                rotate_mb=loopback_config.rotate_mb,
+                rotate_minutes=loopback_config.rotate_minutes,
+                max_queue_depth=loopback_config.max_queue_depth,
+                capture_images_on_clamp=loopback_config.capture_images_on_clamp,
+            )
+            self._loopback.start()
+
+        # Hot reload double-buffer
         self._pending_config: StackfileConfig | None = None
         self._hot_reload_lock = threading.Lock()
         self._config_pool = dict(config_pool)
 
-        # 3H: Dual-mode entry
         self._running = False
+        self._live_img_no_data_warned = False  # one-shot warning for missing camera images
 
         # Startup: pre-compute injection for all guards
         for g in self._guards:
@@ -157,16 +187,14 @@ class GuardRuntime:
 
     # ── Adapter registration ────────────────────────────────────────────────
 
-    def register_source(self, source: Any) -> None:
-        self._source = source
+    def register_source(self, name: str, source: Any) -> None:
+        self._sources[name] = source
 
     def register_policy(self, policy: Any) -> None:
         self._policy = policy
 
     def register_sink(self, sink: Any) -> None:
         self._sink = sink
-
-    # ── Task lifecycle ──────────────────────────────────────────────────────
 
     def start_task(self, name: str) -> None:
         if name not in self._task_config:
@@ -176,42 +204,92 @@ class GuardRuntime:
         self._active_container_names = []
         self._node_start_times = {}
         now = time.monotonic()
-        for cname in self._always_active:
-            if cname in self._boundary_containers:
-                self._active_containers.append(self._boundary_containers[cname])
-                self._active_container_names.append(cname)
-                self._node_start_times[cname] = now
-        for cname in self._task_config[name]:
-            if cname in self._boundary_containers:
-                container = self._boundary_containers[cname]
+
+        # Determine all active boundaries (always_active + task boundaries)
+        active_bnames = list(self._always_active)
+        for bname in self._task_config[name]:
+            if bname not in active_bnames:
+                active_bnames.append(bname)
+
+        # Build active containers list
+        for bname in active_bnames:
+            if bname in self._boundary_containers:
+                container = self._boundary_containers[bname]
                 self._active_containers.append(container)
-                self._active_container_names.append(cname)
-                self._node_start_times[cname] = now
+                self._active_container_names.append(bname)
+                self._node_start_times[bname] = now
 
-                # Preflight check: Allow guards to initialize early
-                # Note: We find all guards associated with this container/callback
-                # Since multiple guards might share a name if flattened, we check by name
-                for g in self._guards:
-                    if g.get_name() == cname:
-                        try:
-                            # Prepare kwargs similar to _run_flat_filtered
-                            kwargs = dict(g._static_kwargs)
-                            kwargs.update(
-                                {
-                                    k: self._config_pool[k]
-                                    for k in g._runtime_keys
-                                    if k in self._config_pool
-                                }
-                            )
-                            # Add node params
-                            node = container.get_active_node()
-                            if node and node.constraint:
-                                kwargs.update(node.constraint.params)
+        # Rebuild Stage DAG when boundary_to_kind is available (from_stackfile path).
+        # On the direct-construction path (tests, set_stages()), leave _stages untouched
+        # so manually configured stages are respected.
+        if self._boundary_to_kind:
+            self._stages = self._build_stages_for_task(active_bnames)
 
-                            logger.debug("GuardRuntime: Preflighting guard '%s'...", cname)
-                            g.preflight(**_filter_kwargs(g.preflight, kwargs))
-                        except Exception as e:
-                            logger.error("GuardRuntime: Preflight for '%s' failed: %s", cname, e)
+        # Preflight: call each guard once per boundary it will handle
+        stages_to_preflight = self._stages or []
+        for stage in stages_to_preflight:
+            pairs = (
+                stage.guard_boundary_pairs
+                if stage.guard_boundary_pairs
+                else [(g, None) for g in stage.guards]
+            )
+            for g, bname in pairs:
+                try:
+                    kwargs = dict(g._static_kwargs)
+                    kwargs.update(
+                        {k: self._config_pool[k] for k in g._runtime_keys if k in self._config_pool}
+                    )
+                    if bname is not None and bname in self._boundary_containers:
+                        node = self._boundary_containers[bname].get_active_node()
+                        if node and node.constraint:
+                            kwargs.update(node.constraint.params)
+                    guard_kind = getattr(g, "_guard_kind", g.get_name())
+                    logger.debug(
+                        "GuardRuntime: preflight '%s' for boundary '%s'", guard_kind, bname
+                    )
+                    g.preflight(**_filter_kwargs(g.preflight, kwargs))
+                except Exception as exc:
+                    logger.error(
+                        "GuardRuntime: preflight '%s' (%s) failed: %s",
+                        getattr(g, "_guard_kind", g.get_name()),
+                        bname,
+                        exc,
+                    )
+
+    def _build_stages_for_task(self, active_bnames: list[str]) -> list[Any]:
+        """Build Stage DAG from active boundaries using singleton guard instances.
+
+        Groups active boundaries by the layer of their assigned guard, then creates
+        one Stage per layer.  Each stage carries ``guard_boundary_pairs`` so the
+        same guard instance is invoked once per boundary with that boundary's params.
+        """
+        from dam.guard.stage import Stage
+
+        layer_to_pairs: dict[int, list[tuple[Any, str]]] = {}
+        layer_to_name: dict[int, str] = {}
+
+        for bname in active_bnames:
+            kind = self._boundary_to_kind.get(bname)
+            if kind is None:
+                continue
+            guard = self._guards_by_kind.get(kind)
+            if guard is None:
+                continue
+            layer_val = guard.get_layer().value
+            layer_to_pairs.setdefault(layer_val, []).append((guard, bname))
+            layer_to_name[layer_val] = guard.get_layer().name
+
+        stages = []
+        for layer_val in sorted(layer_to_pairs):
+            pairs = layer_to_pairs[layer_val]
+            stages.append(
+                Stage(
+                    name=layer_to_name[layer_val],
+                    guard_boundary_pairs=pairs,
+                    parallel=(layer_val >= 2),
+                )
+            )
+        return stages
 
     def stop_task(self) -> None:
         self._active_task = None
@@ -315,27 +393,6 @@ class GuardRuntime:
         logger.info("GuardRuntime: config swap applied (hot reload) and timers reset")
 
     # ── Core validate ───────────────────────────────────────────────────────
-
-    def shutdown(self) -> None:
-        """Properly disconnect all hardware adapters."""
-        logger.info("GuardRuntime: shutting down adapters...")
-        if self._source is not None and hasattr(self._source, "disconnect"):
-            try:
-                self._source.disconnect()
-            except Exception as e:
-                logger.debug("GuardRuntime: source disconnect failed: %s", e)
-
-        if self._sink is not None and hasattr(self._sink, "disconnect"):
-            try:
-                self._sink.disconnect()
-            except Exception as e:
-                logger.debug("GuardRuntime: sink disconnect failed: %s", e)
-
-        if self._policy is not None and hasattr(self._policy, "disconnect"):
-            try:
-                self._policy.disconnect()
-            except Exception as e:
-                logger.debug("GuardRuntime: policy disconnect failed: %s", e)
 
     def validate(
         self,
@@ -467,8 +524,10 @@ class GuardRuntime:
 
                 _t = time.perf_counter()
                 result = g.check(**_filter_kwargs(g.check, kwargs))
-                self._metric_bus.push_guard(
-                    g.get_name(), g.get_layer().value, (time.perf_counter() - _t) * 1000.0
+                _latency_ms = (time.perf_counter() - _t) * 1000.0
+                self._metric_bus.push_guard(g.get_name(), g.get_layer().value, _latency_ms)
+                result = dataclasses.replace(
+                    result, metadata={**result.metadata, "_latency_ms": _latency_ms}
                 )
             except Exception as e:
                 result = GuardResult.fault(e, "guard_code", g.get_name(), g.get_layer())
@@ -490,7 +549,10 @@ class GuardRuntime:
         for stage in self._stages:  # type: ignore[union-attr]
             timeout_s = stage.timeout_ms / 1000.0
 
-            if stage.parallel and len(stage.guards) > 1:
+            # Use guard_boundary_pairs when set (from_stackfile path); fall back to
+            # stage.guards for the direct-construction / test path.
+            _pairs = stage.guard_boundary_pairs if stage.guard_boundary_pairs else stage.guards
+            if stage.parallel and len(_pairs) > 1:
                 stage_results = self._run_stage_parallel(stage, runtime_pool, timeout_s)
             else:
                 stage_results = self._run_stage_sequential(stage, runtime_pool, timeout_s)
@@ -498,6 +560,57 @@ class GuardRuntime:
             all_results.extend(stage_results)
 
         return all_results
+
+    def _run_one_guard(
+        self,
+        g: Guard,
+        boundary_name: str | None,
+        runtime_pool: dict[str, Any],
+    ) -> GuardResult:
+        """Execute a single guard, injecting boundary-specific params when available.
+
+        ``boundary_name`` is the explicit boundary to look up in the active_map.
+        When None (direct-construction / test path) the guard's own name is used
+        as the fallback lookup key, preserving the pre-singleton behaviour.
+        """
+        kwargs = dict(g._static_kwargs)
+        kwargs.update({k: runtime_pool[k] for k in g._runtime_keys if k in runtime_pool})
+
+        node_timeout = None
+        active_map = runtime_pool.get("active_map", {})
+        lookup = boundary_name if boundary_name is not None else g.get_name()
+        if lookup in active_map:
+            container = active_map[lookup]
+            node = container.get_active_node()
+            if node:
+                node_timeout = node.timeout_sec
+                if node.constraint:
+                    kwargs.update(node.constraint.params)
+
+        result_name = boundary_name if boundary_name is not None else g.get_name()
+
+        _t_start = time.perf_counter()
+        result = g.check(**_filter_kwargs(g.check, kwargs))
+        _t_elapsed = time.perf_counter() - _t_start
+        _latency_ms = _t_elapsed * 1000.0
+
+        self._metric_bus.push_guard(result_name, g.get_layer().value, _latency_ms)
+
+        if node_timeout is not None and _t_elapsed > node_timeout:
+            result = GuardResult.reject(
+                reason=(
+                    f"guard '{result_name}' computation timeout: "
+                    f"{_t_elapsed:.3f}s > {node_timeout}s"
+                ),
+                guard_name=result_name,
+                layer=g.get_layer(),
+            )
+
+        return dataclasses.replace(
+            result,
+            guard_name=result_name,
+            metadata={**result.metadata, "_latency_ms": _latency_ms},
+        )
 
     def _run_stage_sequential(
         self,
@@ -508,13 +621,19 @@ class GuardRuntime:
         results: list[GuardResult] = []
         t_start = time.perf_counter()
 
-        for g in stage.guards:
-            # Check per-stage timeout
+        pairs = (
+            stage.guard_boundary_pairs
+            if stage.guard_boundary_pairs
+            else [(g, None) for g in stage.guards]
+        )
+
+        for g, boundary_name in pairs:
+            result_name = boundary_name if boundary_name is not None else g.get_name()
             if time.perf_counter() - t_start > timeout_s:
                 results.append(
                     GuardResult(
                         decision=GuardDecision.FAULT,
-                        guard_name=g.get_name(),
+                        guard_name=result_name,
                         layer=g.get_layer(),
                         reason=f"Stage '{stage.name}' timeout ({stage.timeout_ms}ms)",
                         fault_source="timeout",
@@ -523,39 +642,10 @@ class GuardRuntime:
                 continue
 
             try:
-                kwargs = dict(g._static_kwargs)
-                kwargs.update({k: runtime_pool[k] for k in g._runtime_keys if k in runtime_pool})
-
-                # Inject matching boundary node params
-                node_timeout = None
-                active_map = runtime_pool.get("active_map", {})
-                if g.get_name() in active_map:
-                    container = active_map[g.get_name()]
-                    node = container.get_active_node()
-                    if node:
-                        node_timeout = node.timeout_sec
-                        if node.constraint:
-                            kwargs.update(node.constraint.params)
-
-                _t_start = time.perf_counter()
-                result = g.check(**_filter_kwargs(g.check, kwargs))
-                _t_elapsed = time.perf_counter() - _t_start
-
-                self._metric_bus.push_guard(g.get_name(), g.get_layer().value, _t_elapsed * 1000.0)
-
-                # ── Global Computation Watchdog ──
-                if node_timeout is not None and _t_elapsed > node_timeout:
-                    result = GuardResult.reject(
-                        reason=(
-                            f"guard '{g.get_name()}' computation timeout: "
-                            f"{_t_elapsed:.3f}s > {node_timeout}s"
-                        ),
-                        guard_name=g.get_name(),
-                        layer=g.get_layer(),
-                    )
-            except Exception as e:
-                result = GuardResult.fault(e, "guard_code", g.get_name(), g.get_layer())
-                logger.error("Stage '%s' guard '%s' raised: %s", stage.name, g.get_name(), e)
+                result = self._run_one_guard(g, boundary_name, runtime_pool)
+            except Exception as exc:
+                result = GuardResult.fault(exc, "guard_code", result_name, g.get_layer())
+                logger.error("Stage '%s' guard '%s' raised: %s", stage.name, result_name, exc)
             results.append(result)
 
         return results
@@ -566,71 +656,47 @@ class GuardRuntime:
         runtime_pool: dict[str, Any],
         timeout_s: float,
     ) -> list[GuardResult]:
-        results: list[GuardResult] = [None] * len(stage.guards)  # type: ignore[list-item]
+        pairs = (
+            stage.guard_boundary_pairs
+            if stage.guard_boundary_pairs
+            else [(g, None) for g in stage.guards]
+        )
+        results: list[GuardResult | None] = [None] * len(pairs)
 
-        def _run_guard(idx: int, g: Guard) -> tuple[int, GuardResult]:
+        def _run_entry(idx: int, g: Guard, boundary_name: str | None) -> tuple[int, GuardResult]:
+            result_name = boundary_name if boundary_name is not None else g.get_name()
             try:
-                kwargs = dict(g._static_kwargs)
-                kwargs.update({k: runtime_pool[k] for k in g._runtime_keys if k in runtime_pool})
-
-                # Inject matching boundary node params (Parallel)
-                node_timeout = None
-                active_map = runtime_pool.get("active_map", {})
-                if g.get_name() in active_map:
-                    container = active_map[g.get_name()]
-                    node = container.get_active_node()
-                    if node:
-                        node_timeout = node.timeout_sec
-                        if node.constraint:
-                            kwargs.update(node.constraint.params)
-
-                _t_start = time.perf_counter()
-                result = g.check(**_filter_kwargs(g.check, kwargs))
-                _t_elapsed = time.perf_counter() - _t_start
-
-                self._metric_bus.push_guard(g.get_name(), g.get_layer().value, _t_elapsed * 1000.0)
-
-                # ── Global Computation Watchdog ──
-                if node_timeout is not None and _t_elapsed > node_timeout:
-                    result = GuardResult.reject(
-                        reason=(
-                            f"guard '{g.get_name()}' computation timeout: "
-                            f"{_t_elapsed:.3f}s > {node_timeout}s"
-                        ),
-                        guard_name=g.get_name(),
-                        layer=g.get_layer(),
-                    )
-            except Exception as e:
-                result = GuardResult.fault(e, "guard_code", g.get_name(), g.get_layer())
-                logger.error("Stage '%s' guard '%s' raised: %s", stage.name, g.get_name(), e)
+                result = self._run_one_guard(g, boundary_name, runtime_pool)
+            except Exception as exc:
+                result = GuardResult.fault(exc, "guard_code", result_name, g.get_layer())
+                logger.error("Stage '%s' guard '%s' raised: %s", stage.name, result_name, exc)
             return idx, result
 
-        with ThreadPoolExecutor(max_workers=len(stage.guards)) as executor:
-            futures = {executor.submit(_run_guard, i, g): i for i, g in enumerate(stage.guards)}
+        with ThreadPoolExecutor(max_workers=len(pairs)) as executor:
+            futures = {executor.submit(_run_entry, i, g, bn): i for i, (g, bn) in enumerate(pairs)}
             try:
                 for future in as_completed(futures, timeout=timeout_s):
                     idx, result = future.result()
                     results[idx] = result
             except FuturesTimeoutError:
-                # Mark any unfinished guards as FAULT
                 for future, idx in futures.items():
                     if not future.done():
-                        g = stage.guards[idx]
+                        g, bn = pairs[idx]
                         results[idx] = GuardResult(
                             decision=GuardDecision.FAULT,
-                            guard_name=g.get_name(),
+                            guard_name=bn if bn is not None else g.get_name(),
                             layer=g.get_layer(),
                             reason=f"Stage '{stage.name}' parallel timeout ({stage.timeout_ms}ms)",
                             fault_source="timeout",
                         )
 
-        # Fill any None slots (shouldn't happen, but be safe)
+        # Fill any None slots that weren't reached (shouldn't happen, but be safe)
         for i, r in enumerate(results):
             if r is None:
-                g = stage.guards[i]
+                g, bn = pairs[i]
                 results[i] = GuardResult(
                     decision=GuardDecision.FAULT,
-                    guard_name=g.get_name(),
+                    guard_name=bn if bn is not None else g.get_name(),
                     layer=g.get_layer(),
                     reason=f"Stage '{stage.name}' guard did not complete",
                     fault_source="timeout",
@@ -653,7 +719,29 @@ class GuardRuntime:
         t_start = time.monotonic()
         trace_id = str(uuid.uuid4())
 
-        obs: Observation = self._source.read()
+        # ── Read and Merge Multi-Source Observations ───────────────────────
+        full_obs = None
+        for name, src in self._sources.items():
+            s_obs = src.read()
+            if full_obs is None:
+                full_obs = s_obs
+            else:
+                # Merge logic: prioritize base keys, merge images
+                if hasattr(s_obs, "images") and s_obs.images:
+                    full_obs.images.update(s_obs.images)
+                # If the secondary source provides images but is an OpenCV adapter,
+                # it might just return a single frame. Ensure it lands in .images
+                if not hasattr(s_obs, "images") and hasattr(s_obs, "frame"):
+                    full_obs.images[name] = s_obs.frame
+
+                # Merge metadata
+                if s_obs.metadata:
+                    full_obs.metadata.update(s_obs.metadata)
+
+        if full_obs is None:
+            raise RuntimeError("No hardware sources registered to GuardRuntime")
+
+        obs = full_obs
         self._obs_bus.write(obs)  # ring buffer for loopback / MCAP capture
         t_obs = time.monotonic()
 
@@ -679,12 +767,36 @@ class GuardRuntime:
         # ── Push pipeline-stage timing and commit layer aggregates ──────────
         # Deliberately placed after all guard execution so the MetricBus holds
         # a complete picture before commit_cycle() finalises the layer history.
-        self._metric_bus.push_stage("source", (t_obs - t_start) * 1000.0)
-        self._metric_bus.push_stage("policy", (t_policy - t_obs) * 1000.0)
-        self._metric_bus.push_stage("guards", (t_validate - t_policy) * 1000.0)
-        self._metric_bus.push_stage("sink", (t_sink - t_validate) * 1000.0)
-        self._metric_bus.push_stage("total", (t_sink - t_start) * 1000.0)
+        _src_ms = (t_obs - t_start) * 1000.0
+        _policy_ms = (t_policy - t_obs) * 1000.0
+        _guard_ms = (t_validate - t_policy) * 1000.0
+        _sink_ms = (t_sink - t_validate) * 1000.0
+        _total_ms = (t_sink - t_start) * 1000.0
+
+        self._metric_bus.push_stage("source", _src_ms)
+        self._metric_bus.push_stage("policy", _policy_ms)
+        self._metric_bus.push_stage("guards", _guard_ms)
+        self._metric_bus.push_stage("sink", _sink_ms)
+        self._metric_bus.push_stage("total", _total_ms)
         self._metric_bus.commit_cycle()
+
+        # ── Loopback: build CycleRecord and hand off to writer thread ────────
+        if self._loopback is not None:
+            self._submit_loopback(
+                obs=obs,
+                action=action,
+                validated=validated,
+                guard_results=guard_results,
+                fallback_triggered=fallback_triggered,
+                trace_id=trace_id,
+                latency_stages={
+                    "source": _src_ms,
+                    "policy": _policy_ms,
+                    "guards": _guard_ms,
+                    "sink": _sink_ms,
+                    "total": _total_ms,
+                },
+            )
 
         return CycleResult(
             cycle_id=self._cycle_id - 1,
@@ -706,6 +818,151 @@ class GuardRuntime:
             active_task=self._active_task,
             active_boundaries=list(self._active_container_names),
         )
+
+    def get_latest_images(self) -> dict[str, bytes]:
+        """Return JPEG-compressed bytes for the most recent observation images.
+
+        Reads the last entry from the ObservationBus ring buffer and encodes
+        each camera frame as JPEG.  Returns an empty dict when no images are
+        available or when encoding fails.  Intended for live telemetry preview
+        only — not for archival; the loopback MCAP path handles that.
+        """
+        try:
+            obs = self._obs_bus.read_latest()
+        except Exception:
+            logger.debug("get_latest_images: read_latest() failed", exc_info=True)
+            return {}
+        if obs is None:
+            return {}
+        from dam.types.observation import Observation
+
+        if not isinstance(obs, Observation) or not obs.images:
+            if not self._live_img_no_data_warned:
+                self._live_img_no_data_warned = True
+                logger.info(
+                    "get_latest_images: observation has no images "
+                    "(obs.images=%r, type=%s). "
+                    "Camera images require a dataset with observation.images.* keys "
+                    "or a real camera source (opencv/lerobot with cameras).",
+                    type(obs.images) if isinstance(obs, Observation) else "N/A",
+                    type(obs).__name__,
+                )
+            return {}
+
+        result: dict[str, bytes] = {}
+        for cam_name, frame in obs.images.items():
+            # Pickle/unpickle through the Rust ring buffer may deserialise numpy
+            # arrays as nested lists — convert back to ndarray before encoding.
+            if not isinstance(frame, np.ndarray):
+                try:
+                    frame = np.asarray(frame, dtype=np.uint8)
+                except Exception:
+                    logger.debug(
+                        "get_latest_images: camera %r frame is not array-like: %r",
+                        cam_name,
+                        type(frame),
+                    )
+                    continue
+            if frame.size == 0:
+                continue
+            try:
+                from dam.logging.loopback_writer import _compress_image
+
+                jpeg_bytes, w, h, fmt = _compress_image(frame)
+                result[cam_name] = jpeg_bytes
+            except Exception:
+                logger.warning(
+                    "get_latest_images: failed to encode camera %r", cam_name, exc_info=True
+                )
+        return result
+
+    # ── Loopback helper ────────────────────────────────────────────────────
+
+    def _submit_loopback(
+        self,
+        obs: Observation,
+        action: ActionProposal,
+        validated: ValidatedAction | None,
+        guard_results: list[GuardResult],
+        fallback_triggered: str | None,
+        trace_id: str,
+        latency_stages: dict[str, float],
+    ) -> None:
+        """Build a CycleRecord and enqueue it on the LoopbackWriter.
+
+        Runs entirely in the control-loop thread.  All heavy work (serialisation,
+        disk I/O, image fetching) happens inside the writer thread.
+
+        Numpy arrays are converted to Python lists here so the writer thread
+        never calls .tolist() and never contends for the GIL on numpy ops.
+        For a 7-DOF arm this costs ~5 µs total; the payoff is the writer thread
+        running pure Python and keeping up with a 50 Hz producer.
+        """
+        from dam.logging.cycle_record import CycleRecord
+
+        # ── Per-guard latency (embedded by execution methods in result.metadata) ──
+        latency_guards: dict[str, float] = {
+            r.guard_name: r.metadata.get("_latency_ms", 0.0)  # type: ignore[union-attr]
+            for r in guard_results
+        }
+
+        # ── Per-layer latency + violation / clamp masks (single O(n_guards) pass) ──
+        latency_layers: dict[str, float] = {}
+        violated_layer_mask = 0
+        clamped_layer_mask = 0
+        has_violation = False
+        has_clamp = False
+        for r in guard_results:
+            lname = f"L{int(r.layer)}"
+            latency_layers[lname] = latency_layers.get(lname, 0.0) + latency_guards.get(
+                r.guard_name, 0.0
+            )
+            if r.decision in (GuardDecision.REJECT, GuardDecision.FAULT):
+                violated_layer_mask |= 1 << int(r.layer)
+                has_violation = True
+            elif r.decision == GuardDecision.CLAMP:
+                clamped_layer_mask |= 1 << int(r.layer)
+                has_clamp = True
+
+        # ── Pre-convert numpy → list so the writer thread is numpy-free ──────────
+        def _to_list(arr: Any) -> list[float] | None:
+            return arr.tolist() if arr is not None else None
+
+        rec = CycleRecord(
+            cycle_id=self._cycle_id - 1,
+            trace_id=trace_id,
+            triggered_at=time.monotonic(),
+            active_task=self._active_task,
+            active_boundaries=tuple(self._active_container_names),
+            active_cameras=tuple(obs.images.keys()) if obs.images else (),
+            obs_timestamp=obs.timestamp,
+            obs_joint_positions=obs.joint_positions.tolist(),
+            obs_joint_velocities=_to_list(obs.joint_velocities),
+            obs_end_effector_pose=_to_list(obs.end_effector_pose),
+            obs_force_torque=_to_list(obs.force_torque),
+            obs_metadata=dict(obs.metadata),
+            action_positions=action.target_joint_positions.tolist(),
+            action_velocities=_to_list(action.target_joint_velocities),
+            validated_positions=_to_list(validated.target_joint_positions if validated else None),
+            validated_velocities=_to_list(validated.target_joint_velocities if validated else None),
+            was_clamped=validated.was_clamped if validated else False,
+            fallback_triggered=fallback_triggered,
+            guard_results=tuple(guard_results),
+            latency_stages=latency_stages,
+            latency_layers=latency_layers,
+            latency_guards=latency_guards,
+            has_violation=has_violation,
+            has_clamp=has_clamp,
+            violated_layer_mask=violated_layer_mask,
+            clamped_layer_mask=clamped_layer_mask,
+        )
+        # Determine if we should capture images this cycle
+        want_images = obs.images is not None and (
+            has_violation or (self._loopback._capture_images_on_clamp and has_clamp)
+        )
+        images = obs.images if want_images else None
+
+        self._loopback.submit(rec, images)  # type: ignore[union-attr]
 
     # ── 3H: Dual-mode entry ────────────────────────────────────────────────
 
@@ -762,14 +1019,56 @@ class GuardRuntime:
         except KeyboardInterrupt:
             logger.info("GuardRuntime.run(): interrupted by user")
         finally:
-            watchdog.disarm()
+            # Ensure the watchdog thread is always stopped even if run() crashes
+            if watchdog is not None:
+                with contextlib.suppress(Exception):
+                    watchdog.disarm()
             self._running = False
 
         return results
 
     def stop(self) -> None:
-        """Signal ``run()`` to exit after the current cycle completes."""
+        """Signal ``run()`` to exit after the current cycle completes, then shutdown."""
         self._running = False
+        # Ensure loopback writer is properly shutdown
+        if self._loopback is not None:
+            self._loopback.shutdown()
+
+    def shutdown(self) -> None:
+        """Disconnect from hardware and stop background threads.
+
+        Must be called before discarding the runtime instance to prevent
+        resource leaks (semaphores, camera handles).
+        """
+        self._running = False
+        if hasattr(self, "_watchdog") and self._watchdog is not None:
+            with contextlib.suppress(Exception):
+                self._watchdog.disarm()
+
+        for name, src in self._sources.items():
+            if hasattr(src, "disconnect"):
+                try:
+                    src.disconnect()
+                except Exception as exc:
+                    logger.debug("GuardRuntime: source '%s' disconnect failed: %s", name, exc)
+
+        if self._sink is not None:
+            if hasattr(self._sink, "shutdown"):
+                try:
+                    self._sink.shutdown()
+                except Exception as exc:
+                    logger.debug("GuardRuntime: sink shutdown failed: %s", exc)
+            elif hasattr(self._sink, "disconnect"):
+                try:
+                    self._sink.disconnect()
+                except Exception as exc:
+                    logger.debug("GuardRuntime: sink disconnect failed: %s", exc)
+
+        if self._loopback is not None:
+            try:
+                self._loopback.shutdown()
+            except Exception as exc:
+                logger.debug("GuardRuntime: loopback shutdown failed: %s", exc)
 
     # ── Risk computation ────────────────────────────────────────────────────
 
@@ -782,7 +1081,7 @@ class GuardRuntime:
             return RiskLevel.ELEVATED
         return RiskLevel.NORMAL
 
-    # ── Class constructor from Stackfile ──────────────────────────────�
+    # ── Class constructor from Stackfile ──────────────────────────────
 
     @classmethod
     def from_stackfile(cls, path: str) -> GuardRuntime:
@@ -805,13 +1104,22 @@ class GuardRuntime:
         # L0: OOD           → OODGuard
         # L1: Preflight     → ExecutionGuard
         config = StackfileLoader.load(path)
-        guards: list[Any] = []
         config_pool: dict[str, Any] = {}
         boundary_containers: dict[str, Any] = {}
 
         from dam.registry.callback import get_global_registry as _get_cb_registry
+        from dam.registry.guard import get_guard_registry
 
         _cb_reg = _get_cb_registry()
+        _guard_reg = get_guard_registry()
+
+        _LAYER_KIND_MAP = {
+            "L0": "ood",
+            "L1": "preflight",
+            "L2": "motion",
+            "L3": "execution",
+            "L4": "hardware",
+        }
 
         kinematics_resolver = None
         if config.hardware and config.hardware.urdf_path:
@@ -824,50 +1132,47 @@ class GuardRuntime:
                     e,
                 )
 
+        # Singleton guard pool: one instance per guard kind across all boundaries.
+        guards_by_kind: dict[str, Any] = {}
+        # Maps each boundary name to the guard kind that handles it.
+        boundary_to_kind: dict[str, str] = {}
+
         for bname, bcfg in config.boundaries.items():
             nodes = []
-            for ncfg in bcfg.nodes:
-                layer_str = getattr(bcfg, "layer", None)
+            layer_str = getattr(bcfg, "layer", "L2")
 
-                # Use _cb_layer from the callback annotation; fall back to boundary layer.
+            for ncfg in bcfg.nodes:
+                # Prefer the layer annotated on the callback; fall back to boundary layer.
                 cb_layer = layer_str
                 if ncfg.callback:
                     try:
                         fn = _cb_reg.get(ncfg.callback)
                         cb_layer = getattr(fn, "_cb_layer", layer_str)
                     except KeyError:
-                        pass  # not yet registered — use boundary layer
+                        pass  # callback not yet registered — use boundary layer
 
-                from dam.registry.guard import get_guard_registry
-
-                _guard_reg = get_guard_registry()
-
-                _LAYER_KIND_MAP = {
-                    "L0": "ood",
-                    "L1": "preflight",
-                    "L2": "motion",
-                    "L3": "execution",
-                    "L4": "hardware",
-                }
                 guard_kind = _LAYER_KIND_MAP.get(cb_layer, "execution")
 
-                special_guard = None
-                GuardClass = _guard_reg.get(guard_kind)
-                if GuardClass and (guard_kind != "execution" or ncfg.callback is not None):
-                    Decorated = guard_decorator(cb_layer)(GuardClass)
-                    special_guard = Decorated()
+                # Ensure exactly one guard instance per kind (singleton).
+                if guard_kind not in guards_by_kind:
+                    GuardClass = _guard_reg.get(guard_kind)
+                    if GuardClass and (guard_kind != "execution" or ncfg.callback is not None):
+                        Decorated = guard_decorator(cb_layer)(GuardClass)
+                        instance = Decorated()
+                        instance.set_name(guard_kind)
+                        instance._guard_kind = guard_kind
+                        guards_by_kind[guard_kind] = instance
 
-                if special_guard:
-                    special_guard.set_name(bname)
-                    # Label the guard with its functional kind for global lifecycle management
-                    special_guard._guard_kind = guard_kind
-                    guards.append(special_guard)
+                # Record which kind handles this boundary.
+                if guard_kind in guards_by_kind:
+                    boundary_to_kind[bname] = guard_kind
 
-                # Merge any legacy top-level max_speed into params for backward compat
+                # Build boundary node.  Execution guard stores the callback name so it
+                # can dispatch dynamically; all other guards read params from the pool.
+                stores_callback = guard_kind == "execution"
                 params = dict(ncfg.params)
 
-                # Global Parameter Inheritance:
-                # If 'device' is not in node params, try to inherit from policy config.
+                # Inherit device from policy config when not explicitly set.
                 if "device" not in params and config.policy and config.policy.device:
                     params["device"] = config.policy.device
 
@@ -875,13 +1180,9 @@ class GuardRuntime:
                 if "max_speed" in extra and "max_speed" not in params:
                     params["max_speed"] = extra["max_speed"]
 
-                # For L2/OOD/HW guards the check logic runs internally;
-                # clear callback on the constraint so ExecutionGuard won't re-invoke it.
-                stores_callback = guard_kind == "exec"
-                stored_callback = ncfg.callback if stores_callback else None
                 constraint = BoundaryConstraint(
                     params=params,
-                    callback=stored_callback,
+                    callback=ncfg.callback if stores_callback else None,
                 )
                 node = BoundaryNode(
                     node_id=ncfg.node_id,
@@ -908,8 +1209,15 @@ class GuardRuntime:
         task_config = {tname: tcfg.boundaries for tname, tcfg in config.tasks.items()}
         always_active = config.safety.always_active_list()
 
+        logger.info(
+            "GuardRuntime.from_stackfile: %d guard kind(s) instantiated for %d boundary(s): %s",
+            len(guards_by_kind),
+            len(boundary_containers),
+            list(guards_by_kind.keys()),
+        )
+
         return cls(
-            guards=guards,
+            guards=list(guards_by_kind.values()),
             boundary_containers=boundary_containers,
             fallback_registry=fallback_registry,
             task_config=task_config,
@@ -920,6 +1228,7 @@ class GuardRuntime:
             risk_controller_config=config.risk_controller,
             loopback_config=config.loopback,
             kinematics_resolver=kinematics_resolver,
+            boundary_to_kind=boundary_to_kind,
         )
 
 

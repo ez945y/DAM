@@ -116,14 +116,43 @@ CRUD interface for the in-memory BoundaryConfigService.
     Changes made here update only the **in-memory** config store.
     For persistent configuration use a Stackfile.
 
+### MCAP Sessions `/mcap`
+
+View and analyze recorded loopback sessions.
+
+!!! info
+    Requires `loopback.backend = "mcap"` in Stackfile and at least one violation to have triggered recording.
+
+| Feature | Description |
+|---------|-------------|
+| **Session List** | All `.mcap` files in `output_dir`, sorted by date. Shows file size, violation count, clamp count, camera availability. |
+| **Timeline View** | Horizontal timeline of 10,000 cycles (or current session). Each bar coloured by outcome: green=PASS, amber=CLAMP, red=REJECT/FAULT. Click to jump to cycle. |
+| **Cycle Inspector** | When you click a cycle on the timeline, shows: joint angles, EE pose, force/torque, active guards, latency breakdown. |
+| **Guard Result Detail** | Per-guard decision (PASS/CLAMP/REJECT/FAULT) with reason string and latency. Colour-coded by layer (L0–L4). |
+| **Image Gallery** | If violation has images, displays side-by-side crops from violation ±2 seconds (pre/during/post context). Tap to enlarge. |
+| **Latency Graphs** | Per-cycle latency for source / policy / guards / sink, plus per-layer (L0–L4) stacked area chart. |
+| **Export** | Download filtered subset (date range, cycle range, specific guards) as CSV or new MCAP file for sharing. |
+
+#### Quick workflow
+
+1. In **Dashboard**, spot a high-risk cycle with a red badge
+2. Click the cycle ID → jumps to **MCAP Sessions** with that cycle pre-selected
+3. Inspect the guard that violated + surrounding context (±10 s)
+4. Download the incident as a mini-MCAP for bug report
+
 ---
 
 ## WebSocket stream
 
-The console subscribes to `ws://<host>:8080/ws/telemetry`.
-Each cycle the API pushes a JSON message.
+The console subscribes to the live telemetry stream to provide real-time visual feedback.
 
-The base fields are always present.  The optional `perf` object is included
+Each control cycle, the console receives:
+*   **State Updates**: JSON metadata including guard decisions, risk levels, and latency metrics.
+*   **High-Speed Video**: Zero-latency binary image frames for all active cameras.
+
+The telemetry pipeline is optimized using a custom **Binary Protocol** to minimize CPU overhead and ensure a smooth, hardware-accelerated preview even at high control frequencies. For the low-level message format, see [Services API → Binary Protocol](services-api.md#binary-message-protocol).
+
+The optional `perf` object is included
 when the backend `TelemetryService` is constructed with a `MetricBus`
 reference — see [Services API → Telemetry](services-api.md#ws-wstelemetry)
 for the full field reference and wiring instructions.

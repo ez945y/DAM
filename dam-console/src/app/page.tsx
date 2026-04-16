@@ -4,13 +4,16 @@ import { useRouter }         from 'next/navigation'
 import { useTelemetry }      from '@/hooks/useTelemetry'
 import { useRuntimeControl } from '@/hooks/useRuntimeControl'
 import { useDemoMode }       from '@/hooks/useDemoMode'
+import { useLiveMode }       from '@/hooks/useLiveMode'
 import { RiskGauge }         from '@/components/RiskGauge'
 import { StatsCard }         from '@/components/StatsCard'
 import { GuardTable }        from '@/components/GuardTable'
 import { LatencyChart }      from '@/components/LatencyChart'
-import { Shield, TrendingDown, Timer, Loader, AlertTriangle } from 'lucide-react'
+import { McapCameraPlayer }  from '@/components/McapCameraPlayer'
+import { Shield, TrendingDown, Timer, Loader, AlertTriangle, Camera, Radio } from 'lucide-react'
 import { PageShell } from '@/components/PageShell'
 import { DEC_CONFIG } from '@/components/GuardTable'
+import { api } from '@/lib/api'
 
 function formatUptime(sec: number): string {
   if (sec <= 0) return '—'
@@ -103,10 +106,6 @@ function HardwareWarning({ message }: { message: string }) {
 
 /**
  * Deadline margin indicator shown next to the Cycle Latency panel header.
- *
- * - Green   : slack > 30 % of budget  (comfortable headroom)
- * - Yellow  : 10–30 % of budget       (approaching limit)
- * - Red     : < 10 % or negative      (over-budget / hard deadline missed)
  */
 function SlackIndicator({ slackMs, deadlineMs }: { slackMs: number; deadlineMs: number }) {
   const pct    = deadlineMs > 0 ? slackMs / deadlineMs : 0
@@ -135,6 +134,19 @@ export default function DashboardPage() {
   const demo = useDemoMode()
   const adapterLabel = useAdapterLabel()
   const router = useRouter()
+  const { liveMode, toggleLiveMode } = useLiveMode()
+
+  // Camera footage toggle state (only for MCAP session fetching when NOT in live mode)
+  const [showCamera, setShowCamera] = useState(false)
+  const [mcapSession, setMcapSession] = useState<string | null>(null)
+  const [mcapCameras, setMcapCameras] = useState<string[]>([])
+  const [cameraLoading, setCameraLoading] = useState(false)
+
+  // Derive cameras for live mode from WS data
+  const liveCameras = tele.lastCycle?.live_images ? Object.keys(tele.lastCycle.live_images) : []
+
+  // showCamera is true either when user clicked camera button OR live mode is on
+  const actuallyShowCamera = showCamera || liveMode
 
   // Auto-start cycles after demo launch brings the backend online
   useEffect(() => {
@@ -146,7 +158,37 @@ export default function DashboardPage() {
     }
   }, [demo, ctrl])
 
-  // Running-time display: accumulated banked seconds + live segment if currently running
+  // Load MCAP session only when camera is shown AND NOT in live mode
+  useEffect(() => {
+    if (!showCamera || liveMode) {
+      setMcapSession(null)
+      setMcapCameras([])
+      return
+    }
+
+    setCameraLoading(true)
+    api.listMcapSessions()
+      .then(data => {
+        const sessions = data?.sessions ?? []
+        if (sessions.length > 0) {
+          const filename = sessions[0].filename
+          setMcapSession(filename)
+          return api.getMcapSession(filename)
+        }
+      })
+      .then(sessionDetail => {
+        if (sessionDetail?.stats?.cameras) {
+          setMcapCameras(sessionDetail.stats.cameras)
+        }
+      })
+      .catch(() => {
+        setMcapSession(null)
+        setMcapCameras([])
+      })
+      .finally(() => setCameraLoading(false))
+  }, [showCamera, liveMode])
+
+  // Running-time display
   const [liveSegSec, setLiveSegSec] = useState(0)
   useEffect(() => {
     if (!ctrl.startedAt) { setLiveSegSec(0); return }
@@ -164,7 +206,7 @@ export default function DashboardPage() {
   const windowRejectPct = tele.windowCycles > 0 ? ((tele.windowRejects / tele.windowCycles) * 100).toFixed(1) + '%' : '0%'
   const windowClampPct  = tele.windowCycles > 0 ? ((tele.windowClamps  / tele.windowCycles) * 100).toFixed(1) + '%' : '0%'
 
-  // Real-time Context: prefer WS cycle data, fall back to polled status, then planned config
+  // Real-time Context
   const activeTask = tele.lastCycle?.active_task
     ?? ctrl.status.active_task
     ?? ctrl.status.planned_task
@@ -185,7 +227,7 @@ export default function DashboardPage() {
       title="Dashboard" 
       subtitle="Real-time safety monitor & runtime control"
     >
-      {/* Context info for the header (optional, keeping it clean) */}
+      {/* Top bar */}
       <div className="flex items-center justify-end gap-3 mb-4 -mt-2 min-h-[28px]">
         {tele.connected && (startupError || ctrl.status.error) && (
           <HardwareWarning message={startupError || ctrl.status.error || ""} />
@@ -197,6 +239,20 @@ export default function DashboardPage() {
               </span>
           </div>
         )}
+
+        {/* Live mode toggle — same style as MCAP Viewer, lives in top-right */}
+        <button
+          onClick={toggleLiveMode}
+          title={liveMode ? 'Turn off live camera mode' : 'Turn on live camera mode'}
+          className={`flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-md border transition-all ${
+            liveMode
+              ? 'bg-red-500/15 border-red-500/40 text-red-400'
+              : 'bg-dam-surface-2 border-dam-border text-dam-muted hover:border-dam-blue/30 hover:text-dam-blue'
+          }`}
+        >
+          <Radio size={10} className={liveMode ? 'animate-pulse' : ''} />
+          {liveMode ? 'Live Camera' : 'Go Live'}
+        </button>
       </div>
 
       {/* Main grid */}
@@ -266,24 +322,86 @@ export default function DashboardPage() {
 
         {/* Right column */}
         <div className="space-y-4 min-w-0">
-          {/* ControlBar is now handled by PageShell, so we remove the redundant one here */}
-
           <div className="panel p-4">
             <div className="flex items-center justify-between mb-3">
-              <p className="section-label">Cycle Latency</p>
-              {tele.latestPerf != null && (
-                <SlackIndicator
-                  slackMs={tele.latestPerf.slack_ms}
-                  deadlineMs={tele.latestPerf.deadline_ms}
-                />
-              )}
+              <p className="section-label">
+                {actuallyShowCamera
+                  ? liveMode ? 'Live Camera Feed' : 'Camera Footage'
+                  : 'Cycle Latency'}
+              </p>
+              <div className="flex items-center gap-2">
+                {!actuallyShowCamera && tele.latestPerf != null && (
+                  <SlackIndicator
+                    slackMs={tele.latestPerf.slack_ms}
+                    deadlineMs={tele.latestPerf.deadline_ms}
+                  />
+                )}
+                {/* Camera button — only shows MCAP session display (not live mode) */}
+                {!liveMode && (
+                  <button
+                    onClick={() => setShowCamera(v => !v)}
+                    title={showCamera ? 'Show latency chart' : 'Show camera (MCAP session)'}
+                    className={`p-1.5 rounded border transition-all ${
+                      showCamera
+                        ? 'bg-dam-blue/20 text-dam-blue border-dam-blue/40'
+                        : 'bg-dam-surface-2 text-dam-muted border-dam-border hover:border-dam-blue/30 hover:text-dam-blue'
+                    }`}
+                  >
+                    <Camera size={14} strokeWidth={2} />
+                  </button>
+                )}
+              </div>
             </div>
-            <LatencyChart
-              data={tele.latencyHistory}
-              perf={tele.latestPerf}
-              cycleIds={tele.latencyCycleIds}
-              onCycleClick={(cycleId) => router.push(`/risk-log?cycle_id=${cycleId}`)}
-            />
+            
+            {actuallyShowCamera ? (
+              <div className="h-80">
+                {liveMode ? (
+                  /* Live mode: show WS camera feed */
+                  <McapCameraPlayer
+                    filename=""
+                    cameras={liveCameras}
+                    currentTimestampNs={null}
+                    liveImages={tele.lastCycle?.live_images ?? null}
+                    liveMode
+                  />
+                ) : cameraLoading ? (
+                  <div className="h-full flex items-center justify-center text-dam-muted gap-2">
+                    <Loader size={16} className="animate-spin" />
+                    <span className="text-sm">Loading session…</span>
+                  </div>
+                ) : mcapSession && mcapCameras.length > 0 ? (
+                  <>
+                    <McapCameraPlayer
+                      filename={mcapSession}
+                      cameras={mcapCameras}
+                      currentTimestampNs={
+                        tele.lastCycle?.timestamp
+                          ? tele.lastCycle.timestamp * 1e9
+                          : null
+                      }
+                    />
+                    <p className="text-[10px] text-dam-muted/60 text-center mt-1">
+                      Current frame • For playback controls, go to <a href="/mcap-viewer" className="text-dam-blue hover:underline">MCAP Viewer</a>
+                    </p>
+                  </>
+                ) : mcapSession ? (
+                  <div className="h-full flex items-center justify-center text-dam-muted">
+                    <p className="text-sm">No camera footage captured yet</p>
+                  </div>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-dam-muted">
+                    <p className="text-sm">No session found</p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <LatencyChart
+                data={tele.latencyHistory}
+                perf={tele.latestPerf}
+                cycleIds={tele.latencyCycleIds}
+                onCycleClick={(cycleId) => router.push(`/risk-log?cycle_id=${cycleId}`)}
+              />
+            )}
           </div>
 
           <div className="panel p-4">

@@ -70,6 +70,7 @@ The `perf` field is present only when `MetricBus` is wired in (see above).
   ],
   "active_task": "pick",
   "active_boundaries": ["workspace", "approach"],
+  "active_cameras": ["top", "wrist"],
   "timestamp": 1700000000.123,
 
   "perf": {
@@ -108,6 +109,21 @@ The `perf` field is present only when `MetricBus` is wired in (see above).
 | `guards.*` | float ms | Per-guard latest execution time. |
 | `deadline_ms` | float ms | Configured cycle budget (`1000 / control_frequency_hz`). |
 | `slack_ms` | float ms | Remaining headroom: `deadline_ms − total_ms`. Negative means over-budget. |
+
+#### Binary Message Protocol
+
+To avoid Base64 encoding overhead (which adds ~33% bandwidth and significant CPU latency), live camera frames are pushed as **raw binary messages** over the same WebSocket connection immediately following a cycle JSON event.
+
+Connected clients should set `ws.binaryType = "arraybuffer"` and parse binary messages using the following protocol:
+
+| Byte Offset | Size | Name | Description |
+|---|---|---|---|
+| **0** | 1 byte | **Magic** | Protocol version identifier. Fixed: `0x01` |
+| **1** | 1 byte | **Name Length** (*L*) | Length of the camera name string in bytes. |
+| **2** | *L* bytes | **Camera Name** | UTF-8 encoded camera name (e.g., `top`). |
+| **2 + L** | variable | **JPEG Payload** | Raw binary JPEG data. |
+
+Frontends can render these efficiently using `URL.createObjectURL(new Blob([jpegData], {type: 'image/jpeg'}))`.
 
 A `{"type":"ping"}` keepalive is sent every 30 s.
 
@@ -202,3 +218,80 @@ Immediate emergency stop. Also calls `sink.emergency_stop()` if available.
 
 ### `POST /api/control/reset`
 Reset to `idle` (only from `stopped` or `emergency`).
+
+---
+
+## Loopback Sessions
+
+!!! note
+    These endpoints are available only if `loopback.backend = "mcap"` is set in the Stackfile
+    and at least one cycle has been written.
+
+### `GET /mcap/sessions`
+
+List all MCAP session files in the configured `output_dir`.
+
+**Response:**
+
+```json
+{
+  "sessions": [
+    {
+      "session_id": "sess_20241210_143022_abc123",
+      "filename": "session_20241210_143022_abc123.mcap",
+      "size_mb": 123.4,
+      "created_at": 1700000000.123,
+      "rotated_at": 1700003600.456,
+      "file_count": 3,
+      "total_cycles": 180000,
+      "violation_cycles": 5,
+      "clamp_cycles": 12,
+      "has_images": true
+    }
+  ]
+}
+```
+
+### `GET /mcap/sessions/{session_id}`
+
+Metadata for a specific session (MCAP header only; does not read entire file).
+
+**Response:**
+
+```json
+{
+  "session_id": "sess_20241210_143022_abc123",
+  "filename": "session_20241210_143022_abc123.mcap",
+  "size_mb": 123.4,
+  "start_time": 1700000000.123,
+  "end_time": 1700003600.789,
+  "total_cycles": 180000,
+  "violation_cycles": 5,
+  "clamp_cycles": 12,
+  "has_images": true,
+  "compression": "zstd",
+  "channels": ["/dam/cycle", "/dam/obs", "/dam/action", "/dam/L0", "/dam/L2", "/dam/images/camera0"]
+}
+```
+
+### `GET /mcap/sessions/{session_id}/download`
+
+Download (a subset of) the session file.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `start_cycle` | int | 0 | First cycle to include |
+| `end_cycle` | int | -1 | Last cycle to include (-1 = all) |
+| `topics` | str | (all) | Comma-separated channel list (e.g. `/dam/cycle,/dam/L2`) |
+
+**Example:**
+
+```bash
+# Download cycles 100–200, only /dam/cycle and /dam/L2
+curl 'http://localhost:8080/mcap/sessions/sess_20241210.../download?start_cycle=100&end_cycle=200&topics=/dam/cycle,/dam/L2' \
+  -o incident.mcap
+```
+
+**Response:** Binary MCAP file with Content-Disposition attachment.
+
+---

@@ -129,7 +129,6 @@ docs/                 # Architecture and safety documentation
 **v0.2.0 (Current focus)**
 - Complete ROS 2 adapter
 - Finish L3 (Task Execution) and L4 (Hardware Monitoring)
-- Enhanced MCAP logging and diagnostics ("MCP Bundle")
 - Problem isolation and debugging tools
 
 **v0.3.0**

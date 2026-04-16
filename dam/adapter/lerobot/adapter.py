@@ -94,7 +94,10 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
     # ── Shared Lifecycle ────────────────────────────────────────────────────
 
     def connect(self) -> None:
-        if not self._connected:
+        if self._connected:
+            return
+
+        try:
             if hasattr(self._robot, "connect"):
                 self._robot.connect()
             self._connected = True
@@ -104,18 +107,32 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
                 self._joint_names,
                 self._degrees_mode,
             )
+        except Exception as e:
+            err_msg = str(e).lower()
+            if "already connected" in err_msg or "already open" in err_msg:
+                # Recover from inconsistent state: robot is connected but adapter thought it wasn't
+                self._connected = True
+                self._prev_time = time.monotonic()
+                logger.info("LeRobotAdapter: already connected, synchronizing state.")
+            else:
+                raise e
 
     def disconnect(self) -> None:
+        """Release hardware resources. Always attempts to call robot.disconnect()."""
+        # Close the underlying robot even if we think we aren't connected
+        if self._robot is not None:
+            try:
+                if hasattr(self._robot, "disconnect"):
+                    self._robot.disconnect()
+                elif hasattr(self._robot, "close"):
+                    self._robot.close()
+                logger.debug("LeRobotAdapter: underlying robot disconnected.")
+            except Exception as e:
+                # Logic level log to avoid spamming if already closed
+                logger.debug("LeRobotAdapter: robot disconnect failed: %s", e)
+
         if self._connected:
             self._connected = False
-            if self._robot is not None:
-                try:
-                    if hasattr(self._robot, "disconnect"):
-                        self._robot.disconnect()
-                    elif hasattr(self._robot, "close"):
-                        self._robot.close()
-                except Exception as e:
-                    logger.debug("LeRobotAdapter: robot disconnect failed: %s", e)
             logger.info("LeRobotAdapter disconnected")
 
     def is_healthy(self) -> bool:

@@ -1,6 +1,6 @@
 [package]
 name = "dam-py"
-version = "0.1.0"
+version = "0.3.0"
 edition = "2021"
 
 [lib]
@@ -10,9 +10,14 @@ crate-type = ["cdylib"]
 [dependencies]
 pyo3        = { workspace = true }
 parking_lot = { workspace = true }
+serde_json  = "1.0"
+log         = "0.4"
 
-observation-bus = { path = "../crates/observation-bus" }
-watchdog        = { path = "../crates/watchdog"        }
-risk-controller = { path = "../crates/risk-controller" }
-metric-bus      = { path = "../crates/metric-bus"      }
-action-bus      = { path = "../crates/action-bus"      }
+observation-bus    = { path = "../crates/observation-bus"    }
+watchdog           = { path = "../crates/watchdog"           }
+risk-controller    = { path = "../crates/risk-controller"    }
+metric-bus         = { path = "../crates/metric-bus"         }
+action-bus         = { path = "../crates/action-bus"         }
+image-writer       = { path = "../crates/image-writer"       }
+mcap-writer        = { path = "../crates/mcap-writer"        }
+serializer-bus     = { path = "../crates/serializer-bus"     }

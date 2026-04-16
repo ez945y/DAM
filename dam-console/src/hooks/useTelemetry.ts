@@ -26,6 +26,7 @@ let gCycleTimes: number[] = []
 let gRejectTimes: number[] = []
 let gClampTimes: number[] = []
 let gGuardMap: Record<string, any> = {}
+let gLiveImages: Record<string, Blob> = {}
 let gWsConnected = false
 let gHistoryFetched = false
 
@@ -38,6 +39,7 @@ export const resetGlobalState = () => {
   gLatestPerf = null
   gEvents = []
   gGuardMap = {}
+  gLiveImages = {}
   gLatency = []
   gLatencyCycleIds = []
   gCycleTimes = []
@@ -104,6 +106,7 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
     if (wsRef.current?.readyState === WebSocket.OPEN) return
 
     const ws = new WebSocket(`${wsUrl}/ws/telemetry`)
+    ws.binaryType = 'arraybuffer'
     wsRef.current = ws
 
     ws.onopen = () => {
@@ -125,10 +128,56 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
     }
 
     ws.onmessage = (e: MessageEvent) => {
+      if (typeof e.data !== 'string') {
+        // --- Binary Protocol: [magic: 0x01][name_len: 1][name][jpeg] ---
+        try {
+          const buf = e.data as ArrayBuffer
+          const view = new Uint8Array(buf)
+          if (view[0] === 0x01) {
+            const nameLen = view[1]
+            const name = new TextDecoder().decode(view.subarray(2, 2 + nameLen))
+            const jpegData = view.subarray(2 + nameLen)
+            const blob = new Blob([jpegData], { type: 'image/jpeg' })
+            
+            // Optimization: Update global map and trigger a partial state update if needed.
+            // But usually, we just want this to be available for the next refersh timer tick.
+            gLiveImages[name] = blob
+          }
+        } catch (err) { console.error('Binary parse error:', err) }
+        return
+      }
+
       try {
-        const cycle = JSON.parse(e.data as string) as CycleEvent
-        if (cycle.type !== 'cycle') return
+        const msg = JSON.parse(e.data as string)
+        
+        // --- System Event Bridge: Notify other hooks ---
+        if (msg.type === 'system_status' || msg.type === 'config_updated') {
+          window.dispatchEvent(new CustomEvent('dam-system-update', { detail: msg }))
+          // Don't return! Let it fall through to update general connection state if needed.
+          if (msg.type === 'system_status' && msg.message) {
+            gEvents = [{
+              type: 'info' as const,
+              message: msg.message,
+              timestamp: Date.now() / 1000
+            }, ...gEvents].slice(0, MAX_EVENTS)
+            setState(s => ({ ...s, events: [...gEvents] }))
+          }
+        }
+
+        if (msg.type !== 'cycle') return
+        const cycle = msg as CycleEvent
         const now = Date.now()
+
+        // Attach live images from the binary buffer to the cycle event for the UI
+        if (cycle.active_cameras) {
+          const images: Record<string, string | Blob> = {}
+          cycle.active_cameras.forEach(name => {
+            if (gLiveImages[name]) {
+              images[name] = gLiveImages[name]!
+            }
+          })
+          cycle.live_images = images
+        }
 
         gLatestCycle = cycle
         if (cycle.perf != null) gLatestPerf = cycle.perf
@@ -177,11 +226,9 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
     ws.onclose = () => {
       wsRef.current = null
       gWsConnected = false
-      // Clear live metrics on disconnect so charts don't show stale data.
-      gLatency = []
-      gLatencyCycleIds = []
-      gLatestPerf = null
-      setState(s => ({ ...s, connected: false, latencyHistory: [], latencyCycleIds: [], latestPerf: null }))
+      // Keep latency/perf data visible so charts don't flash empty on reconnect.
+      // Only connected: false so the UI can show a reconnecting indicator.
+      setState(s => ({ ...s, connected: false }))
       timerRef.current = setTimeout(connect, 3000)
     }
   }, [])

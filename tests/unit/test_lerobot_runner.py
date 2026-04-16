@@ -71,12 +71,16 @@ def make_runner() -> LeRobotRunner:
 
     runtime = make_runtime()
     robot = MockRobot()
-    return LeRobotRunner(
-        runtime=runtime,
-        source=LeRobotSourceAdapter(robot),
-        sink=LeRobotSinkAdapter(robot),
-        policy=LeRobotPolicyAdapter(MockPolicy()),
-    )
+
+    source = LeRobotSourceAdapter(robot)
+    sink = LeRobotSinkAdapter(robot)
+    policy = LeRobotPolicyAdapter(MockPolicy())
+
+    runtime.register_source("arm", source)
+    runtime.register_sink(sink)
+    runtime.register_policy(policy)
+
+    return LeRobotRunner(runtime=runtime, robot=robot)
 
 
 # ── Basic lifecycle ───────────────────────────────────────────────────────────
@@ -121,11 +125,18 @@ def test_runner_custom_frequency():
 
     runtime = make_runtime()
     robot = MockRobot()
+
+    source = LeRobotSourceAdapter(robot)
+    sink = LeRobotSinkAdapter(robot)
+    policy = LeRobotPolicyAdapter(MockPolicy())
+
+    runtime.register_source("arm", source)
+    runtime.register_sink(sink)
+    runtime.register_policy(policy)
+
     runner = LeRobotRunner(
         runtime=runtime,
-        source=LeRobotSourceAdapter(robot),
-        sink=LeRobotSinkAdapter(robot),
-        policy=LeRobotPolicyAdapter(MockPolicy()),
+        robot=robot,
         control_frequency_hz=100.0,
     )
     assert runner._control_frequency_hz == 100.0
@@ -299,9 +310,21 @@ def test_preflight_collects_all_failures():
 
 
 def test_preflight_skipped_when_no_robot_ref():
-    """run() skips preflight when _robot_ref is None (manual construction path)."""
-    runner = make_runner()
-    assert runner._robot_ref is None
-    # Should complete without calling _preflight_check at all
-    results = runner.run("pick_and_place", n_cycles=2)
-    assert len(results) == 2
+    """run() skips preflight when robot is None."""
+    runtime = make_runtime()
+
+    # Manual setup: register all required adapters
+    from dam.adapter.lerobot.policy import LeRobotPolicyAdapter
+    from dam.adapter.lerobot.sink import LeRobotSinkAdapter
+    from dam.adapter.lerobot.source import LeRobotSourceAdapter
+
+    robot = MockRobot()
+    runtime.register_source("arm", LeRobotSourceAdapter(robot))
+    runtime.register_sink(LeRobotSinkAdapter(robot))
+    runtime.register_policy(LeRobotPolicyAdapter(MockPolicy()))
+
+    runner = LeRobotRunner(runtime=runtime, robot=None)
+    assert runner._robot is None
+    # Should complete without calling _preflight_check
+    results = runner.run("pick_and_place", n_cycles=1)
+    assert len(results) == 1

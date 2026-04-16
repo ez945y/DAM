@@ -164,6 +164,12 @@ class SimulationConfig(BaseModel):
     preset: str | None = None
     scene: str | None = None
     lookahead_steps: int = 10
+    # Dataset replay — when set, DatasetSimSource replays from this HF repo
+    dataset_repo_id: str | None = None
+    episode: int = 0
+    # LeRobot SO-101 datasets store joint positions in degrees; set True to
+    # convert deg→rad before passing observations into the guard pipeline.
+    degrees_mode: bool = True
 
 
 class RuntimeConfig(BaseModel):
@@ -176,10 +182,14 @@ class RuntimeConfig(BaseModel):
 
 class LoopbackConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
-    backend: str = "mcap"
-    window_sec: float = 30.0
-    path: str = "/tmp/dam_loopback.mcap"
-    capture_on_violation: bool = True
+    backend: str = "mcap"  # "mcap" | "pickle"
+    output_dir: str = "/tmp/dam_loopback"  # session files written here
+    window_sec: float = 10.0  # ring-buffer depth for pre-event images
+    pre_event_sec: float = 10.0  # capture N seconds before event (0 = capture all)
+    rotate_mb: float = 500.0  # rotate file after this many MB
+    rotate_minutes: float = 60.0  # rotate file after this many minutes
+    max_queue_depth: int = 256  # drop normal cycles if queue exceeds this
+    capture_images_on_clamp: bool = False  # also fetch images on CLAMP events
 
 
 class RiskControllerConfig(BaseModel):

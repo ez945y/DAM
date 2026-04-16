@@ -86,3 +86,13 @@ tasks:
   soarm101:
     description: "Default pick-and-place task"
     boundaries: [motion, joint_position_limits, joint_velocity_limit, hardware_watchdog, ood_detector]
+
+loopback:
+  backend: mcap
+  output_dir: ./data/robot/sessions
+  window_sec: 10
+  pre_event_sec: 10
+  rotate_mb: 500
+  rotate_minutes: 60
+  max_queue_depth: 64
+  capture_images_on_clamp: true

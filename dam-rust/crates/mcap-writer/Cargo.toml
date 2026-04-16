@@ -1,0 +1,13 @@
+[package]
+name = "mcap-writer"
+version = "0.3.0"
+edition = "2021"
+
+[dependencies]
+mcap = "0.24"
+serde = { workspace = true, features = ["derive"] }
+serde_json = "1.0"
+rmp-serde = "1.1"
+log = "0.4"
+crossbeam = "0.8"
+image-writer = { path = "../image-writer" }

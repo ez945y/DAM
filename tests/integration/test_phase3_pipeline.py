@@ -114,7 +114,7 @@ def test_stage_dag_pipeline():
         config_pool={},
     )
     rt.set_stages([stage1, stage2])
-    rt.register_source(_make_mock_source())
+    rt.register_source("main", _make_mock_source())
     rt.register_policy(_make_mock_policy())
     rt.register_sink(_make_mock_sink())
     rt.start_task("default")
@@ -138,7 +138,7 @@ def test_hot_reload_pipeline():
 
     try:
         rt = GuardRuntime.from_stackfile(path)
-        rt.register_source(_make_mock_source())
+        rt.register_source("main", _make_mock_source())
         rt.register_policy(_make_mock_policy())
         rt.register_sink(_make_mock_sink())
         rt.start_task("default")
@@ -183,7 +183,7 @@ def test_dual_mode_run_n_cycles():
 
     try:
         rt = GuardRuntime.from_stackfile(path)
-        rt.register_source(_make_mock_source())
+        rt.register_source("main", _make_mock_source())
         rt.register_policy(_make_mock_policy())
         rt.register_sink(_make_mock_sink())
         rt.start_task("default")

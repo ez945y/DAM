@@ -45,8 +45,8 @@
 
 set -euo pipefail
 
-STACKFILE="stackfile.yaml"
-SERVICE="api-lerobot"
+STACKFILE=".dam_stackfile.yaml"
+SERVICE="engine-lerobot"
 DRY_RUN=false
 COMPOSE_ARGS=()
 

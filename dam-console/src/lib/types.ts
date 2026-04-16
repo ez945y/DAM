@@ -19,8 +19,10 @@ export interface PerfSnapshot {
   /** Remaining headroom before the deadline: deadline_ms − total_ms. */
   slack_ms:    number
 }
-export type GuardDecision = 'PASS' | 'CLAMP' | 'REJECT' | 'FAULT'
-export type RuntimeState = 'idle' | 'running' | 'paused' | 'stopped' | 'emergency'
+export type RuntimeDecision = 'PASS' | 'CLAMP' | 'REJECT' | 'FAULT'
+export type GuardDecision = RuntimeDecision // Alias for backward compatibility
+export type RuntimeState = 'idle' | 'starting' | 'running' | 'paused' | 'stopping' | 'stopped' | 'emergency'
+export type BackendState = 'loading' | 'ready' | 'error' | 'faulted'
 
 export interface GuardStatus {
   name: string
@@ -44,6 +46,13 @@ export interface CycleEvent {
   timestamp: number
   /** Present when the backend MetricBus is wired into TelemetryService. */
   perf?: PerfSnapshot
+  /**
+   * Live camera preview images as data-URI strings (data:image/jpeg;base64,...).
+   * Only present when WebSocket subscribers are connected and the runtime has
+   * camera sources.  Keyed by camera name.
+   */
+  active_cameras?: string[]
+  live_images?: Record<string, string | Blob>
 }
 
 export interface RiskEvent {
@@ -132,6 +141,7 @@ export interface BoundaryDef {
 
 export interface RuntimeStatus {
   state: RuntimeState
+  backend_state: BackendState
   cycle_count: number
   error: string | null
   /** Set when hardware/startup validation failed at server boot. Blocks Start. */
@@ -143,6 +153,7 @@ export interface RuntimeStatus {
   available_tasks?: string[]
   planned_task?: string | null
   planned_boundaries?: string[]
+  has_rust?: boolean
 }
 
 export interface LogEntry {
@@ -168,4 +179,44 @@ export interface TelemetrySnapshot {
   windowRejects: number  // rejects in last 1m
   windowClamps: number   // clamps in last 1m
   events: LogEntry[]
+}
+
+// ── MCAP Session Types ────────────────────────────────────────────────────
+
+export interface McapCycleData {
+  cycle_id: number
+  timestamp_ns: number
+  cycle_number: number
+  /** Observation state: joint positions, velocities, etc. */
+  observation: Record<string, any>
+  /** Policy output action */
+  action: Record<string, any>
+  /** Guard execution results for this cycle */
+  guard_results: GuardStatus[]
+  /** Bitmask of violated layers (L0-L4) */
+  violated_layer_mask: number
+  /** Bitmask of clamped layers (L0-L4) */
+  clamped_layer_mask: number
+  /** Latency breakdown for this cycle (ms) */
+  latency_ms: Record<string, number>
+  /** Images captured (if enabled) for this cycle: { camera_name: frame_idx } */
+  images: Record<string, number>
+}
+
+export interface McapGuardResult {
+  guard_name: string
+  layer: string
+  decision: GuardDecision
+  reason: string
+  latency_ms: number
+}
+
+/** Complete MCAP session with timeline and inspector data */
+export interface McapSessionWithData extends TelemetrySnapshot {
+  session_id: string
+  filename: string
+  size_mb: number
+  created_at: number
+  cycles: McapCycleData[]
+  selectedCycleId?: number
 }

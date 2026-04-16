@@ -10,6 +10,18 @@ import type {
 // ── Re-export types that config page still uses ───────────────────────────────
 export type { EnforcementMode, JointDef, PolicyConfig, TaskDef, BoundaryDef, ConstraintNodeDef }
 
+// ── Loopback (MCAP) Config ────────────────────────────────────────────────────
+export type LoopbackConfig = {
+  backend: 'mcap' | 'pickle'
+  output_dir: string
+  window_sec: number        // ring-buffer depth for images (seconds)
+  pre_event_sec?: number  // capture N seconds before event (0 = capture all)
+  rotate_mb: number         // rotate file after this many MB
+  rotate_minutes: number    // rotate file after this many minutes
+  max_queue_depth: number   // drop cycles if queue exceeds this
+  capture_images_on_clamp: boolean  // capture images on CLAMP events
+}
+
 // ── Camera type ───────────────────────────────────────────────────────────────
 export type CameraConfig = {
   name: string
@@ -55,6 +67,11 @@ export interface DamConfig {
   // Tasks & Boundaries (for guard page)
   tasks: TaskDef[]
   boundaries: BoundaryDef[]
+  // Loopback (MCAP recording)
+  loopback?: LoopbackConfig
+  // Simulation dataset replay (adapter === 'simulation' only)
+  simulation_dataset_repo_id?: string
+  simulation_episode?: number
 }
 
 // ── Template presets ───────────────────────────────────────────────────────
@@ -247,7 +264,7 @@ export const TEMPLATES: TemplatePreset[] = [
       ros2WrenchTopic: '/wrench',
       ros2Qos: 'reliable',
       policy: {
-        type: 'noop',
+        type: 'act',
         pretrained_path: '',
         device: 'cpu',
       },
@@ -268,14 +285,16 @@ export const TEMPLATES: TemplatePreset[] = [
   {
     id: 'quick_start',
     label: 'Quick Start (Sim)',
-    description: 'Full-featured sandbox with all 5 safety layers (Perception to Monitoring) active. No hardware required — connects directly to dam_sim.',
-    badge: 'Educational',
+    description: 'Full pipeline demo: replays real SO-ARM101 data with ACT policy through all 5 safety layers. No physical hardware needed.',
+    badge: 'Demo',
     config: {
       hardware_preset: 'so101_follower',
       adapter: 'simulation',
+      simulation_dataset_repo_id: 'MikeChenYZ/soarm-fmb-v2',
+      simulation_episode: 0,
       policy: {
-        type: 'noop',
-        pretrained_path: '',
+        type: 'act',
+        pretrained_path: 'MikeChenYZ/act-soarm-fmb-v2',
         device: 'cpu',
       },
       joints: SO101_JOINTS,
@@ -283,6 +302,16 @@ export const TEMPLATES: TemplatePreset[] = [
       enforcement_mode: 'monitor',
       tasks: [DEMO_TASK],
       boundaries: DEFAULT_BOUNDARIES,
+      loopback: {
+        backend: 'mcap',
+        output_dir: './data/robot/sessions',
+        window_sec: 10.0,
+        pre_event_sec: 10.0,
+        rotate_mb: 500.0,
+        rotate_minutes: 60.0,
+        max_queue_depth: 64,
+        capture_images_on_clamp: true,
+      },
     },
   },
 ]
@@ -338,6 +367,17 @@ export function defaultConfig(templateId = 'quick_start'): DamConfig {
         }],
       },
     ],
+    // Default loopback config (MCAP recording)
+    loopback: {
+      backend: 'mcap',
+      output_dir: './data/robot/sessions',
+      window_sec: 10.0,
+      pre_event_sec: 10.0,
+      rotate_mb: 500.0,
+      rotate_minutes: 60.0,
+      max_queue_depth: 64,
+      capture_images_on_clamp: true,
+    },
   }
 
   return {
@@ -347,20 +387,32 @@ export function defaultConfig(templateId = 'quick_start'): DamConfig {
     controlFrequencyHz: preset.config.controlFrequencyHz ?? base.controlFrequencyHz,
     lerobot_calibration_path: (preset.config as Partial<DamConfig>).lerobot_calibration_path ?? '',
     guardsEnabled:  (preset.config as Partial<DamConfig>).guardsEnabled  ?? {},
+    loopback: (preset.config as Partial<DamConfig>).loopback ?? base.loopback,
+    simulation_dataset_repo_id: (preset.config as Partial<DamConfig>).simulation_dataset_repo_id,
+    simulation_episode: (preset.config as Partial<DamConfig>).simulation_episode,
   }
 }
 
 // ── YAML generator ────────────────────────────────────────────────────────
 
-function fmtValue(val: any): string {
+function fmtValue(val: any, indent = ''): string {
   if (Array.isArray(val)) {
-    return `[${val.map(v => fmtValue(v)).join(', ')}]`
+    if (val.length > 0 && Array.isArray(val[0])) {
+      // For matrices/nested arrays, use flow style but with better spacing
+      return `[${val.map(v => fmtValue(v, indent)).join(', ')}]`
+    }
+    return `[${val.map(v => fmtValue(v, indent)).join(', ')}]`
   }
   if (typeof val === 'number') {
     return Number.isInteger(val) ? val.toString() : val.toFixed(4)
   }
   if (typeof val === 'object' && val !== null) {
-    return JSON.stringify(val)
+    // For nested params, expand to multi-line
+    const lines = []
+    for (const [k, v] of Object.entries(val)) {
+      lines.push(`${indent}  ${k}: ${fmtValue(v, indent + '  ')}`)
+    }
+    return '\n' + lines.join('\n')
   }
   return String(val)
 }
@@ -371,58 +423,73 @@ export function generateYaml(cfg: DamConfig): string {
   lines.push('version: "1"')
   lines.push('')
 
-  const hasHw = cfg.adapter !== 'simulation'
-
   // ── hardware ──────────────────────────────────────────────────────────────
-  if (hasHw) {
+  if (cfg.adapter === 'simulation') {
+    lines.push('hardware:')
+    lines.push('  preset: simulation')
+    if (cfg.simulation_dataset_repo_id) {
+      lines.push('  sources:')
+      lines.push('    main:')
+      lines.push('      type: dataset')
+      lines.push(`      dataset_repo_id: ${cfg.simulation_dataset_repo_id}`)
+      lines.push(`      episode: ${cfg.simulation_episode ?? 0}`)
+      lines.push('      degrees_mode: true')
+      lines.push('  sinks:')
+      lines.push('    main:')
+      lines.push('      ref: sources.main')
+    }
+    lines.push('')
+  } else {
     lines.push('hardware:')
     lines.push(`  preset: ${cfg.hardware_preset}`)
     lines.push('  sources:')
+  }
 
-    if (cfg.adapter === 'lerobot') {
-      lines.push('    follower_arm:')
-      lines.push('      type: lerobot')
-      lines.push(`      port: ${cfg.lerobot_port}`)
-      lines.push(`      id: ${cfg.lerobot_robot_id}`)
-      if (cfg.lerobot_calibration_path) {
-        lines.push(`      calibration_path: ${cfg.lerobot_calibration_path}`)
-      }
-      if (cfg.lerobot_cameras.length > 0) {
-        lines.push('      cameras:')
-        for (const cam of cfg.lerobot_cameras) {
-          if (cam.source_type === 'udp') {
-            lines.push(`        ${cam.name}: { type: udp, url: "${cam.udp_url ?? ''}", width: ${cam.width}, height: ${cam.height}, fps: ${cam.fps} }`)
-          } else {
-            // Use index_or_path to match the lerobot CLI / OpenCVCameraConfig param name
-            lines.push(`        ${cam.name}: { type: opencv, index_or_path: ${cam.index ?? 0}, width: ${cam.width}, height: ${cam.height}, fps: ${cam.fps} }`)
-          }
+  if (cfg.adapter === 'lerobot') {
+    lines.push('    follower_arm:')
+    lines.push('      type: lerobot')
+    lines.push(`      port: ${cfg.lerobot_port}`)
+    lines.push(`      id: ${cfg.lerobot_robot_id}`)
+    if (cfg.lerobot_calibration_path) {
+      lines.push(`      calibration_path: ${cfg.lerobot_calibration_path}`)
+    }
+    // Cameras as first-class citizens
+    if (cfg.lerobot_cameras.length > 0) {
+      for (const cam of cfg.lerobot_cameras) {
+        lines.push(`    ${cam.name}:`)
+        lines.push(`      type: ${cam.source_type}`)
+        if (cam.source_type === 'udp') {
+          lines.push(`      url: "${cam.udp_url ?? ''}"`)
+        } else {
+          lines.push(`      index_or_path: ${cam.index ?? 0}`)
         }
+        lines.push(`      width: ${cam.width}`)
+        lines.push(`      height: ${cam.height}`)
+        lines.push(`      fps: ${cam.fps}`)
       }
-    } else if (cfg.adapter === 'ros2') {
-      lines.push('    ros2_source:')
-      lines.push('      type: ros2')
-      lines.push(`      node_name: ${cfg.ros2NodeName}`)
-      lines.push(`      joint_topic: ${cfg.ros2JointTopic}`)
-      lines.push(`      cmd_topic: ${cfg.ros2CmdTopic}`)
-      lines.push(`      namespace: ${cfg.ros2Namespace}`)
-      lines.push(`      wrench_topic: ${cfg.ros2WrenchTopic || '/wrench'}`)
-      lines.push(`      qos: ${cfg.ros2Qos}`)
     }
-
     lines.push('  sinks:')
-    if (cfg.adapter === 'lerobot') {
-      lines.push('    follower_command:')
-      lines.push('      ref: sources.follower_arm')
-    } else if (cfg.adapter === 'ros2') {
-      lines.push('    ros2_sink:')
-      lines.push('      ref: sources.ros2_source')
-    }
-
+    lines.push('    follower_command:')
+    lines.push('      ref: sources.follower_arm')
+    lines.push('')
+  } else if (cfg.adapter === 'ros2') {
+    lines.push('    ros2_source:')
+    lines.push('      type: ros2')
+    lines.push(`      node_name: ${cfg.ros2NodeName}`)
+    lines.push(`      joint_topic: ${cfg.ros2JointTopic}`)
+    lines.push(`      cmd_topic: ${cfg.ros2CmdTopic}`)
+    lines.push(`      namespace: ${cfg.ros2Namespace}`)
+    lines.push(`      wrench_topic: ${cfg.ros2WrenchTopic || '/wrench'}`)
+    lines.push(`      qos: ${cfg.ros2Qos}`)
+    lines.push('  sinks:')
+    lines.push('    ros2_sink:')
+    lines.push('      ref: sources.ros2_source')
     lines.push('')
   }
 
   // ── policy ────────────────────────────────────────────────────────────────
-  if (cfg.policy.type !== 'noop') {
+  // Only emit policy section when a pretrained_path is actually provided
+  if (cfg.policy.pretrained_path) {
     lines.push('policy:')
     lines.push(`  type: ${cfg.policy.type}`)
     if (cfg.policy.policy_id) {
@@ -525,6 +592,20 @@ export function generateYaml(cfg: DamConfig): string {
     }
   }
 
+  // ── loopback (MCAP recording) ──────────────────────────────────────────────
+  if (cfg.loopback) {
+    lines.push('')
+    lines.push('loopback:')
+    lines.push(`  backend: ${cfg.loopback.backend}`)
+    lines.push(`  output_dir: ${cfg.loopback.output_dir}`)
+    lines.push(`  window_sec: ${cfg.loopback.window_sec}`)
+    lines.push(`  pre_event_sec: ${cfg.loopback.pre_event_sec ?? 10}`)
+    lines.push(`  rotate_mb: ${cfg.loopback.rotate_mb}`)
+    lines.push(`  rotate_minutes: ${cfg.loopback.rotate_minutes}`)
+    lines.push(`  max_queue_depth: ${cfg.loopback.max_queue_depth}`)
+    lines.push(`  capture_images_on_clamp: ${cfg.loopback.capture_images_on_clamp}`)
+  }
+
   return lines.join('\n') + '\n'
 }
 
@@ -550,6 +631,11 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
     result.ros2CmdTopic = getVal(/cmd_topic:\s*(.*)/)
     result.ros2Namespace = getVal(/namespace:\s*(.*)/)
     result.ros2Qos = getVal(/qos:\s*(.*)/)
+  } else if (/preset:\s*simulation/.test(yaml)) {
+    result.adapter = 'simulation'
+    result.simulation_dataset_repo_id = getVal(/dataset_repo_id:\s*(.*)/) ?? undefined
+    const ep = getVal(/episode:\s*(\d+)/)
+    if (ep != null) result.simulation_episode = Number(ep)
   }
 
   // 2. Policy
@@ -659,6 +745,43 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
 
   if (boundaries.length > 0) result.boundaries = boundaries
   if (tasks.length > 0) result.tasks = tasks
+
+  // 4. Cameras (Expanded parser)
+  const cameras: CameraConfig[] = []
+  let inCameras = false
+  let currentCam: any = null
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (line.includes('cameras:')) { inCameras = true; continue }
+    if (inCameras && line.startsWith('      ') && !line.startsWith('        ') && trimmed.endsWith(':')) {
+      currentCam = { name: trimmed.replace(':', ''), width: 640, height: 480, fps: 30, source_type: 'opencv' }
+      cameras.push(currentCam)
+    } else if (currentCam && line.startsWith('          ')) {
+      if (trimmed.startsWith('type:')) currentCam.source_type = trimmed.replace('type:', '').trim()
+      if (trimmed.startsWith('index_or_path:')) currentCam.index = Number(trimmed.replace('index_or_path:', '').trim())
+      if (trimmed.startsWith('url:')) currentCam.udp_url = trimmed.replace('url:', '').trim().replace(/"/g, '')
+      if (trimmed.startsWith('width:')) currentCam.width = Number(trimmed.replace('width:', '').trim())
+      if (trimmed.startsWith('height:')) currentCam.height = Number(trimmed.replace('height:', '').trim())
+      if (trimmed.startsWith('fps:')) currentCam.fps = Number(trimmed.replace('fps:', '').trim())
+    } else if (inCameras && line.startsWith('    ') && !line.startsWith('      ')) {
+      inCameras = false
+    }
+  }
+  if (cameras.length > 0) result.lerobot_cameras = cameras
+
+  // 5. Loopback
+  if (yaml.includes('loopback:')) {
+    result.loopback = {
+      backend: (getVal(/backend:\s*(.*)/) || 'mcap') as 'mcap' | 'pickle',
+      output_dir: getVal(/output_dir:\s*(.*)/) || './data/robot/sessions',
+      window_sec: Number(getVal(/window_sec:\s*(\d+\.?\d*)/) || 10),
+      pre_event_sec: Number(getVal(/pre_event_sec:\s*(\d+\.?\d*)/) || 10),
+      rotate_mb: Number(getVal(/rotate_mb:\s*(\d+\.?\d*)/) || 500),
+      rotate_minutes: Number(getVal(/rotate_minutes:\s*(\d+\.?\d*)/) || 60),
+      max_queue_depth: Number(getVal(/max_queue_depth:\s*(\d+)/) || 64),
+      capture_images_on_clamp: getVal(/capture_images_on_clamp:\s*(true|false)/) === 'true',
+    }
+  }
 
   return result
 }

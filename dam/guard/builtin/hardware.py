@@ -55,10 +55,11 @@ class HardwareGuard(Guard):
         # 1. Watchdog: Heartbeat Check
         current = now if now is not None else time.monotonic()
 
-        # Apply a grace period for the very first cycle to allow for hardware warmup/init
+        # Apply a generous grace period for the very first cycle to allow for
+        # hardware warmup/init (especially slow USB cameras).
         effective_limit = max_staleness_ms
         if cycle_id == 0:
-            effective_limit = max(effective_limit, 2000.0)
+            effective_limit = max(effective_limit, 5000.0)
 
         staleness_s = current - obs.timestamp
         staleness_ms = staleness_s * 1000.0

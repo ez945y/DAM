@@ -50,6 +50,7 @@ nav:
   - Reference:
     - Guards: guards-reference.md
     - Boundary Callbacks: boundary-callbacks.md
+    - Loopback Logging: loopback-logging.md
     - Specification: DAM_Specification.md
   - Console:
     - Overview: console.md

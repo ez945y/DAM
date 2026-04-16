@@ -174,7 +174,7 @@ def test_hot_reload_not_mid_cycle():
             def get_hardware_status(self):
                 return None
 
-        rt.register_source(MockSource())
+        rt.register_source("main", MockSource())
         rt.register_policy(MockPolicy())
         rt.register_sink(MockSink())
         rt.start_task("default")

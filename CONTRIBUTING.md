@@ -38,6 +38,94 @@ Make sure you have:
 - Rust 1.80 or higher (with `rustup`)
 - `make` (or manually run the commands in `Makefile`)
 
+### Troubleshooting
+
+#### Python Environment Issues
+
+**ImportError: No module named 'dam_rs'**
+
+If you see this error when running DAM, it means the Rust extension isn't installed in the active venv. This can happen if:
+- You upgraded Python system-wide (e.g., via Homebrew or conda)
+- The venv was corrupted
+
+Fix:
+```bash
+# Clean the old venv and reinstall
+rm -rf .venv
+make setup
+```
+
+**msgpack not found in production run**
+
+If MCAP sessions fail to parse with "No module named 'msgpack'", ensure `msgpack` is in your dependencies:
+
+```bash
+# Check it's installed
+.venv/bin/python -c "import msgpack"
+
+# If not, install it
+.venv/bin/python -m pip install msgpack
+```
+
+The `msgpack` package is required for deserializing cycle records stored in MCAP files.
+
+#### Understanding the Rust Extension (`dam_rs`)
+
+DAM uses a **Rust extension** (`dam_rs`) for high-performance MCAP writing:
+
+- **Why Rust?** MCAP file I/O (recording every control cycle) happens in the hot path. Python's `mcap` library would block the control loop. Rust handles this asynchronously in a background thread.
+
+- **What it provides**:
+  - `McapWriter`: Async writer with background thread - write calls return in < 10µs
+  - `ImageWriter`: Parallel JPEG encoding using Rayon thread pool
+
+- **Installation**: `make setup` compiles this automatically and installs it into `.venv`:
+  ```bash
+  cd dam-rust/dam-py
+  maturin build --release --interpreter .venv/bin/python
+  uv pip install -e . --quiet
+  ```
+
+- **Troubleshooting "dam_rs not installed"**:
+  ```bash
+  # Check where it's installed
+  .venv/bin/python -c "import dam_rs; print(dam_rs.__file__)"
+  
+  # If it's in conda instead, uninstall from conda:
+  pip uninstall dam-rs  # from conda env
+  
+  # Then reinstall:
+  make setup
+  ```
+
+#### Rust Build Issues
+
+**Python version mismatch (PyO3 maximum version error)**
+
+If you see `error: the configured Python interpreter version (3.14) is newer than PyO3's maximum supported version`:
+1. Remove any system Python 3.14 from PATH
+2. Clean rebuild:
+
+```bash
+rm -rf .venv dam-rust/target
+make setup
+```
+
+**Python interpreter mismatch**
+
+If `pip list | grep dam` shows `dam-rs` installed in the conda environment instead of `.venv`:
+- Uninstall from conda: `conda uninstall dam-rs`
+- Then run `make setup` again
+
+#### Port Already in Use
+
+If you see `OSError: [Errno 48] error while attempting to bind on address... address already in use`:
+```bash
+# Find and kill the existing process
+lsof -i :8080
+pkill -f dam_host
+```
+
 ### 2. Code Style & Quality
 
 - **Python**: Follow [PEP 8](https://peps.python.org/pep-0008/) and use `ruff` + `black` for formatting.

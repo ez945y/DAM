@@ -7,6 +7,9 @@ members = [
     "crates/action-bus",
     "crates/loopback",
     "crates/decision-aggregator",
+    "crates/image-writer",
+    "crates/mcap-writer",
+    "crates/serializer-bus",
     "dam-py",
 ]
 resolver = "2"

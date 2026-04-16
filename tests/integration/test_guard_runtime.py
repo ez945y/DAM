@@ -122,7 +122,7 @@ def test_full_step_cycle():
     source = MockSourceAdapter([obs, obs, obs])
     policy = MockPolicyAdapter([action, action, action])
     sink = MockSinkAdapter()
-    runtime.register_source(source)
+    runtime.register_source("main", source)
     runtime.register_policy(policy)
     runtime.register_sink(sink)
 

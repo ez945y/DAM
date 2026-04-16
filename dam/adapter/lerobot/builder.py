@@ -66,9 +66,11 @@ class LeRobotBuilder:
         self,
         hardware: HardwareConfig,
         policy: DamPolicyConfig | None = None,
+        control_frequency_hz: float = 50.0,
     ) -> None:
         self._hardware = hardware
         self._policy_cfg = policy
+        self._hz = control_frequency_hz
         self._cached_robot = None
         self._cached_policy_bundle = None  # (policy, pre, post)
 
@@ -120,8 +122,55 @@ class LeRobotBuilder:
             )
 
         robot_cfg = self._make_robot_config(src_cfg)
+
+        # --- PREFLIGHT HARDWARE CHECK ---
+        self._preflight_hardware_check(robot_cfg)
+
+        # Ensure camera FPS matches control frequency if not explicitly overridden by user
+        hz = self._hz
+        for cam_cfg in robot_cfg.cameras.values():
+            if cam_cfg.fps == 30:  # If it was the default we set in _build_camera_configs
+                cam_cfg.fps = int(hz)
+
         self._cached_robot = make_robot_from_config(robot_cfg)
         return self._cached_robot
+
+    def _preflight_hardware_check(self, robot_cfg: Any) -> None:
+        """Verify that serial ports and cameras exist before handing off to lerobot."""
+        import os
+
+        # 1. Check Serial Port
+        if hasattr(robot_cfg, "robot_type"):
+            # Lerobot configs usually have a port somewhere.
+            # We'll check common names like 'port' or 'arm_port'
+            port = getattr(robot_cfg, "port", None)
+            if port and not os.path.exists(port):
+                raise RuntimeError(
+                    f"Serial Port Failure: Device '{port}' not found. "
+                    "Please ensure the robot is plugged in and the port matches your Stackfile."
+                )
+
+        # 2. Check Cameras
+        if robot_cfg.cameras:
+            try:
+                import cv2
+            except ImportError:
+                return  # skip if cv2 not available
+
+            for name, cam in robot_cfg.cameras.items():
+                idx = cam.index_or_path
+                if isinstance(idx, int):
+                    # Quick try-open
+                    cap = cv2.VideoCapture(idx)
+                    is_opened = cap.isOpened()
+                    cap.release()
+                    if not is_opened:
+                        raise RuntimeError(
+                            f"Camera Failure: '{name}' (Index {idx}) could not be opened. "
+                            "Ensure the camera is connected and permission is granted."
+                        )
+                elif isinstance(idx, str) and not os.path.exists(idx):
+                    raise RuntimeError(f"Camera Failure: '{name}' path '{idx}' does not exist.")
 
     def build_policy(self) -> Any | None:
         """Build a policy object from ``policy.pretrained_path``.
@@ -210,9 +259,10 @@ class LeRobotBuilder:
                 index_or_path = cam_cfg.get("index_or_path", cam_cfg.get("index", 0))
                 out[cam_name] = OpenCVCameraConfig(
                     index_or_path=index_or_path,
-                    width=cam_cfg.get("width", 640),
-                    height=cam_cfg.get("height", 480),
                     fps=cam_cfg.get("fps", 30),
+                    width=cam_cfg.get("width"),
+                    height=cam_cfg.get("height"),
+                    color_mode=cam_cfg.get("color_mode", "rgb"),
                 )
         return out
 

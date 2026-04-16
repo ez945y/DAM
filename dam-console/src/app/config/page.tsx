@@ -2,10 +2,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Download, Upload, RefreshCw, Copy, Check, Plus, Trash2, Usb, RotateCcw, ShieldCheck, FolderOpen, AlertCircle } from 'lucide-react'
 import { TEMPLATES, defaultConfig, generateYaml, parseConfigFromYaml } from '@/lib/templates'
-import type { DamConfig, CameraConfig } from '@/lib/templates'
+import type { DamConfig, CameraConfig, LoopbackConfig } from '@/lib/templates'
 import type { EnforcementMode } from '@/lib/types'
 import type { UsbDeviceInfo } from '@/lib/types'
-import { scanUsbDevices } from '@/lib/api'
+import { api, scanUsbDevices } from '@/lib/api'
 import { TemplateGallery } from '@/components/TemplateGallery'
 import { AdapterColumn, ADAPTERS, POLICIES } from '@/components/AdapterPicker'
 import { JointLimitsTable } from '@/components/JointLimitsTable'
@@ -119,14 +119,25 @@ function AssetUploader({
 }
 
 export default function ConfigPage() {
-  const [cfg, setCfg] = useState<DamConfig>(() => loadSaved())
-  const [yaml, setYaml] = useState(() => generateYaml(loadSaved()))
+  // ── Server-safe initial state (no localStorage — avoids SSR/client hydration mismatch)
+  // loadSaved() is applied in the mount effect below; until then both server
+  // and client render the same default so React's hydration check passes.
+  const [cfg, setCfg] = useState<DamConfig>(() => defaultConfig('so101_act'))
+  const [yaml, setYaml] = useState(() => generateYaml(defaultConfig('so101_act')))
   const [yamlDirty, setYamlDirty] = useState(false)
   const [saved, setSaved] = useState(false)
   const [restarting, setRestarting] = useState(false)
   const [restartError, setRestartError] = useState<string | null>(null)
   const [restartOk, setRestartOk] = useState(false)
   const jsonInputRef = useRef<HTMLInputElement>(null)
+
+  // ── Load saved config from localStorage after mount (post-hydration, client-only)
+  useEffect(() => {
+    const saved = loadSaved()
+    setCfg(saved)
+    // yaml will regenerate via the cfg-watcher effect below
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     try {
@@ -137,17 +148,30 @@ export default function ConfigPage() {
     } catch { /* ignore */ }
   }, [cfg])
 
+  const [saving, setSaving] = useState(false)
+  const [lastSavedYaml, setLastSavedYaml] = useState('')
+
+  const saveToBackend = useCallback(async (content: string) => {
+    if (!content || content === lastSavedYaml) return
+    setSaving(true)
+    try {
+      const res = await api.saveConfig(content)
+      // If api.saveConfig doesn't throw, it's successful
+      setLastSavedYaml(content)
+    } catch (err) {
+      console.error('Failed to save config:', err)
+    } finally {
+      setSaving(false)
+    }
+  }, [lastSavedYaml])
+
   useEffect(() => {
     try { localStorage.setItem(YAML_STORAGE_KEY, yaml) } catch { /* ignore */ }
     const t = setTimeout(() => {
-      void fetch('/api/system/save-config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ yaml }),
-      }).catch(() => { /* ignore */ })
+      void saveToBackend(yaml)
     }, 800)
     return () => clearTimeout(t)
-  }, [yaml])
+  }, [yaml, saveToBackend])
 
   const [usbDevices, setUsbDevices] = useState<UsbDeviceInfo[]>([])
   const [usbScanning, setUsbScanning] = useState(false)
@@ -181,7 +205,8 @@ export default function ConfigPage() {
   useEffect(() => {
     const fetchConfig = async () => {
       try {
-        const res = await fetch('/api/system/config')
+        // We use raw fetch here because api.ts doesn't have a getRawConfig but let's target 8080
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/api/system/config`)
         if (res.ok) {
           const content = await res.text()
           setYaml(content)
@@ -198,9 +223,12 @@ export default function ConfigPage() {
 
   const handleTemplate = (id: string) => {
     const next = defaultConfig(id)
+    const nextYaml = generateYaml(next)
     setCfg(next)
-    setYaml(generateYaml(next))
+    setYaml(nextYaml)
     setYamlDirty(false)
+    // Save immediately on template change
+    void saveToBackend(nextYaml)
   }
 
   const set = <K extends keyof DamConfig>(key: K, value: DamConfig[K]) => {
@@ -252,17 +280,8 @@ export default function ConfigPage() {
     setRestartMsg(null)
     try {
       const adapter = cfg.adapter ?? 'simulation'
-      const res = await fetch('/api/system/restart', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ yaml, adapter }),
-      })
-      const body = await res.json() as { ok: boolean; error?: string; method?: string; message?: string }
-      if (!body.ok) throw new Error(body.error ?? 'Restart failed')
+      await api.restart(adapter, yaml)
       setRestartOk(true)
-      if (body.method === 'cold-start') {
-        setRestartMsg(body.message ?? 'Backend starting…')
-      }
       setTimeout(() => { setRestartOk(false); setRestartMsg(null) }, 5000)
     } catch (e) {
       setRestartError(e instanceof Error ? e.message : String(e))
@@ -332,6 +351,8 @@ export default function ConfigPage() {
       onExport={handleExportJson}
     >
       <input ref={jsonInputRef} type="file" accept=".json" onChange={handleImportJson} className="hidden" />
+      {/* Config Sections */}
+      
       {restartMsg && (
         <div className="flex items-center gap-2 p-2 bg-dam-blue/10 border border-dam-blue/20 rounded text-[10px] text-dam-blue animate-in fade-in slide-in-from-right-1">
           <AlertCircle size={10} /> {restartMsg}
@@ -492,9 +513,26 @@ export default function ConfigPage() {
         )}
 
         {cfg.adapter === 'simulation' && (
-          <div className="pt-2 border-t border-dam-border/60">
-            <div className="bg-dam-surface-2 border border-dam-border/60 rounded-lg p-3">
-              <p className="text-dam-muted text-[11px]">Simulation mode — no hardware required.</p>
+          <div className="pt-2 border-t border-dam-border/60 space-y-3">
+            <div className="space-y-1">
+              <label className="text-dam-muted text-xs">Dataset repo (HuggingFace)</label>
+              <input
+                value={cfg.simulation_dataset_repo_id ?? ''}
+                onChange={e => set('simulation_dataset_repo_id', e.target.value || undefined)}
+                placeholder="e.g. MikeChenYZ/soarm-fmb-v2"
+                className={`w-full ${inputCls}`}
+              />
+              <p className="text-dam-muted text-[10px]">Leave blank to use a random-walk fallback.</p>
+            </div>
+            <div className="space-y-1">
+              <label className="text-dam-muted text-xs">Episode index</label>
+              <input
+                type="number"
+                min={0}
+                value={cfg.simulation_episode ?? 0}
+                onChange={e => set('simulation_episode', Number(e.target.value))}
+                className={`w-28 ${inputCls}`}
+              />
             </div>
           </div>
         )}
@@ -509,30 +547,28 @@ export default function ConfigPage() {
             onSelect={v => handleAdapterChange('policy', v)}
           />
         </div>
-        {cfg.policy.type !== 'noop' && (
-          <div className="space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-dam-muted text-xs">Pretrained path</label>
-                <input
-                  value={cfg.policy.pretrained_path}
-                  onChange={e => setCfg(prev => ({ ...prev, policy: { ...prev.policy, pretrained_path: e.target.value } }))}
-                  className={`w-full ${inputCls}`}
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-dam-muted text-xs">Device</label>
-                <select
-                  value={cfg.policy.device}
-                  onChange={e => setCfg(prev => ({ ...prev, policy: { ...prev.policy, device: e.target.value as DamConfig['policy']['device'] } }))}
-                  className={`w-full ${inputCls}`}
-                >
-                  {['cpu', 'cuda', 'mps'].map(d => <option key={d} value={d}>{d}</option>)}
-                </select>
-              </div>
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-dam-muted text-xs">Pretrained path</label>
+              <input
+                value={cfg.policy.pretrained_path}
+                onChange={e => setCfg(prev => ({ ...prev, policy: { ...prev.policy, pretrained_path: e.target.value } }))}
+                className={`w-full ${inputCls}`}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-dam-muted text-xs">Device</label>
+              <select
+                value={cfg.policy.device}
+                onChange={e => setCfg(prev => ({ ...prev, policy: { ...prev.policy, device: e.target.value as DamConfig['policy']['device'] } }))}
+                className={`w-full ${inputCls}`}
+              >
+                {['cpu', 'cuda', 'mps'].map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
             </div>
           </div>
-        )}
+        </div>
       </Section>
 
       <Section title="Safety">
@@ -566,6 +602,186 @@ export default function ConfigPage() {
               className={`w-full ${inputCls}`}
             />
           </div>
+        </div>
+      </Section>
+
+      <Section title="MCAP Recording (Loopback)">
+        <div className="space-y-4">
+          {/* Enable/Disable toggle */}
+          <div className="flex items-center gap-3">
+            <label className="text-dam-muted text-xs">Recording status:</label>
+            <button
+              onClick={() => setCfg(prev => ({
+                ...prev,
+                loopback: prev.loopback ? undefined : {
+                  backend: 'mcap',
+                  output_dir: './data/robot/sessions',
+                  window_sec: 10.0,
+                  rotate_mb: 500.0,
+                  rotate_minutes: 60.0,
+                  max_queue_depth: 64,
+                  capture_images_on_clamp: true,
+                },
+              }))}
+              className={`px-3 py-1.5 rounded text-xs font-semibold border transition-all ${
+                cfg.loopback
+                  ? 'bg-dam-green/10 border-dam-green/30 text-dam-green'
+                  : 'bg-dam-surface-2 border-dam-border text-dam-muted hover:border-dam-orange/40'
+              }`}
+            >
+              {cfg.loopback ? '✓ Enabled' : '○ Disabled'}
+            </button>
+          </div>
+
+          {cfg.loopback && (
+            <>
+              {/* Output directory */}
+              <div className="space-y-1">
+                <label className="text-dam-muted text-xs">Output Directory</label>
+                <input
+                  value={cfg.loopback.output_dir}
+                  onChange={e => setCfg(prev => ({
+                    ...prev,
+                    loopback: prev.loopback ? { ...prev.loopback, output_dir: e.target.value } : undefined,
+                  }))}
+                  placeholder="./data/robot/sessions"
+                  className={`w-full ${inputCls}`}
+                />
+                <p className="text-dam-muted text-[10px]">Directory where MCAP session files will be stored</p>
+              </div>
+
+              {/* Backend selection */}
+              <div className="space-y-1">
+                <label className="text-dam-muted text-xs">Backend Format</label>
+                <select
+                  value={cfg.loopback.backend}
+                  onChange={e => setCfg(prev => ({
+                    ...prev,
+                    loopback: prev.loopback ? { ...prev.loopback, backend: e.target.value as 'mcap' | 'pickle' } : undefined,
+                  }))}
+                  className={`w-full ${inputCls}`}
+                >
+                  <option value="mcap">MCAP (recommended)</option>
+                  <option value="pickle">Pickle (legacy)</option>
+                </select>
+                <p className="text-dam-muted text-[10px]">MCAP format is recommended for better compatibility and compression</p>
+              </div>
+
+              {/* File rotation settings */}
+              <div className="space-y-3 pt-3 border-t border-dam-border/30">
+                <p className="text-dam-muted text-[10px] uppercase tracking-widest">File Rotation</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-dam-muted text-xs">Rotate after (MB)</label>
+                    <input
+                      type="number"
+                      step="50"
+                      min="10"
+                      value={cfg.loopback.rotate_mb}
+                      onChange={e => setCfg(prev => ({
+                        ...prev,
+                        loopback: prev.loopback ? { ...prev.loopback, rotate_mb: Number(e.target.value) } : undefined,
+                      }))}
+                      className={`w-full ${inputCls}`}
+                    />
+                    <p className="text-dam-muted text-[10px]">Create new file after this size</p>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-dam-muted text-xs">Rotate after (minutes)</label>
+                    <input
+                      type="number"
+                      step="5"
+                      min="1"
+                      value={cfg.loopback.rotate_minutes}
+                      onChange={e => setCfg(prev => ({
+                        ...prev,
+                        loopback: prev.loopback ? { ...prev.loopback, rotate_minutes: Number(e.target.value) } : undefined,
+                      }))}
+                      className={`w-full ${inputCls}`}
+                    />
+                    <p className="text-dam-muted text-[10px]">Create new file after this duration</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Queue and image settings */}
+              <div className="space-y-3 pt-3 border-t border-dam-border/30">
+                <p className="text-dam-muted text-[10px] uppercase tracking-widest">Buffering & Capture</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-dam-muted text-xs">Max queue depth</label>
+                    <input
+                      type="number"
+                      step="8"
+                      min="8"
+                      value={cfg.loopback.max_queue_depth}
+                      onChange={e => setCfg(prev => ({
+                        ...prev,
+                        loopback: prev.loopback ? { ...prev.loopback, max_queue_depth: Number(e.target.value) } : undefined,
+                      }))}
+                      className={`w-full ${inputCls}`}
+                    />
+                    <p className="text-dam-muted text-[10px]">Drop cycles if queue exceeds this depth</p>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-dam-muted text-xs">Image ring buffer (sec)</label>
+                    <input
+                      type="number"
+                      step="1"
+                      min="1"
+                      value={cfg.loopback.window_sec}
+                      onChange={e => setCfg(prev => ({
+                        ...prev,
+                        loopback: prev.loopback ? { ...prev.loopback, window_sec: Number(e.target.value) } : undefined,
+                      }))}
+                      className={`w-full ${inputCls}`}
+                    />
+                    <p className="text-dam-muted text-[10px]">Keep images from last N seconds for pre-event capture</p>
+                  </div>
+
+                  {/* Pre-event capture duration */}
+                  <div className="space-y-1">
+                    <label className="text-dam-muted text-xs">Pre-event Capture (seconds)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="60"
+                      value={cfg.loopback.pre_event_sec ?? 10}
+                      onChange={e => setCfg(prev => ({
+                        ...prev,
+                        loopback: prev.loopback ? { ...prev.loopback, pre_event_sec: Number(e.target.value) } : undefined,
+                      }))}
+                      className={`w-full ${inputCls}`}
+                    />
+                    <p className="text-dam-muted text-[10px]">Capture N seconds before event (0 = capture all cycles)</p>
+                  </div>
+                </div>
+
+                {/* Capture on clamp toggle */}
+                <div className="flex items-center gap-3 pt-2 border-t border-dam-border/20">
+                  <input
+                    type="checkbox"
+                    checked={cfg.loopback.capture_images_on_clamp}
+                    onChange={e => setCfg(prev => ({
+                      ...prev,
+                      loopback: prev.loopback ? { ...prev.loopback, capture_images_on_clamp: e.target.checked } : undefined,
+                    }))}
+                    className="accent-dam-blue"
+                  />
+                  <label className="text-dam-muted text-xs flex-1">Capture images on CLAMP events</label>
+                  <span className={`text-[10px] font-semibold ${cfg.loopback.capture_images_on_clamp ? 'text-dam-blue' : 'text-dam-muted'}`}>
+                    {cfg.loopback.capture_images_on_clamp ? 'ON' : 'OFF'}
+                  </span>
+                </div>
+              </div>
+            </>
+          )}
+
+          {!cfg.loopback && (
+            <div className="p-3 bg-dam-surface-2 border border-dam-border/60 rounded-lg">
+              <p className="text-dam-muted text-[10px]">MCAP recording is currently disabled. Click "Enabled" to start recording control cycles, guard results, and captured images.</p>
+            </div>
+          )}
         </div>
       </Section>
     </ActionShell>
