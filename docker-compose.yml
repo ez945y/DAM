@@ -46,7 +46,7 @@ services:
     volumes:
       - dam_data:/tmp/dam_data
     working_dir: /workspace
-    command: python scripts/dev_server.py
+    command: python scripts/dam_host.py
     healthcheck:
       <<: *healthcheck
 
@@ -68,7 +68,7 @@ services:
       - /dev:/dev
     privileged: true
     working_dir: /workspace
-    command: python scripts/dev_server.py
+    command: python scripts/dam_host.py
     # Use a lenient healthcheck: the server starts even when hardware is missing
     # (degraded mode), so we just check that the port is open.
     healthcheck:
@@ -144,7 +144,7 @@ services:
       - dam_data:/tmp/dam_data
     privileged: true
     working_dir: /workspace
-    command: python scripts/dev_server.py
+    command: python scripts/dam_host.py
     environment:
       - DAM_ADAPTER=lerobot
     healthcheck:
@@ -168,7 +168,7 @@ services:
     volumes:
       - .:/workspace
     working_dir: /workspace
-    command: python scripts/dev_server.py
+    command: python scripts/dam_host.py
     environment:
       - DAM_ADAPTER=ros2
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp

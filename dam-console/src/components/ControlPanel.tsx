@@ -1,9 +1,10 @@
 'use client'
 import { Power, PauseCircle, PlayCircle, StopCircle, Zap, RotateCcw, Circle } from 'lucide-react'
-import type { RuntimeState } from '@/lib/types'
+import type { RuntimeState, BackendState } from '@/lib/types'
 
 interface Props {
   state: RuntimeState
+  backendState: BackendState
   cycleCount: number
   error: string | null
   loading: boolean
@@ -17,29 +18,37 @@ interface Props {
 
 const STATE_CONFIG: Record<RuntimeState, { label: string; dot: string; bg: string; text: string }> = {
   idle:      { label: 'IDLE',      dot: 'bg-dam-muted',   bg: 'bg-dam-surface-3',  text: 'text-dam-muted'   },
+  starting:  { label: 'STARTING',  dot: 'bg-yellow-500',  bg: 'bg-yellow-500/10',  text: 'text-yellow-500'  },
   running:   { label: 'RUNNING',   dot: 'bg-dam-green',   bg: 'bg-[#071a0e]',      text: 'text-dam-green'   },
   paused:    { label: 'PAUSED',    dot: 'bg-dam-blue',    bg: 'bg-dam-blue-dim',   text: 'text-dam-blue'    },
+  stopping:  { label: 'STOPPING',  dot: 'bg-orange-500',  bg: 'bg-orange-500/10',  text: 'text-orange-500'  },
   stopped:   { label: 'STOPPED',   dot: 'bg-dam-orange',  bg: 'bg-[#1a0d00]',      text: 'text-dam-orange'  },
   emergency: { label: 'EMERGENCY', dot: 'bg-dam-red',     bg: 'bg-[#1a0505]',      text: 'text-dam-red'     },
 }
 
-export function ControlPanel({ state, cycleCount, error, loading, onStart, onPause, onResume, onStop, onEStop, onReset }: Props) {
+export function ControlPanel({ state, backendState, cycleCount, error, loading, onStart, onPause, onResume, onStop, onEStop, onReset }: Props) {
   const sc = STATE_CONFIG[state]
   const isRunning = state === 'running'
   const isPaused  = state === 'paused'
-  const isActive  = isRunning || isPaused
+  const isStarting = state === 'starting'
+  const isStopping = state === 'stopping'
+  const isEmergency = state === 'emergency'
+  
+  const systemReady = backendState === 'ready'
+  const isActive = isRunning || isPaused || isStarting || isStopping
+  const canStart = systemReady && (state === 'idle' || state === 'stopped')
 
   return (
     <div className="panel p-4 space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <p className="section-label">Runtime Control</p>
-        <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border ${sc.bg} ${sc.text} ${sc.text.replace('text-', 'border-').replace('dam-', '')}/30`}>
+        <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border ${backendState === 'faulted' ? 'bg-dam-red/10 text-dam-red border-dam-red/30' : `${sc.bg} ${sc.text} ${sc.text.replace('text-', 'border-').replace('dam-', '')}/30`}`}>
           <Circle
             size={5}
-            className={`${sc.dot} fill-current ${state === 'running' ? 'animate-pulse' : ''} ${state === 'emergency' ? 'animate-ping' : ''}`}
+            className={`fill-current ${backendState === 'faulted' ? 'bg-dam-red animate-pulse' : `${sc.dot} ${state === 'running' ? 'animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.4)]' : ''} ${state === 'emergency' ? 'animate-ping' : ''} ${(isStarting || isStopping) ? 'animate-pulse' : ''}`}`}
           />
-          {sc.label}
+          {backendState === 'faulted' ? 'SYSTEM HALTED' : sc.label}
         </div>
       </div>
 
@@ -53,13 +62,14 @@ export function ControlPanel({ state, cycleCount, error, loading, onStart, onPau
       <div className="grid grid-cols-2 gap-2">
         <button
           onClick={onStart}
-          disabled={isActive || loading}
+          disabled={!canStart || loading}
           className="group flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold border transition-all
             bg-green-950/60 text-dam-green border-green-900
             hover:bg-green-900/60 hover:border-green-700 hover:shadow-[0_0_12px_rgba(34,197,94,0.2)]
-            disabled:opacity-30 disabled:cursor-not-allowed disabled:shadow-none"
+            disabled:opacity-40 disabled:bg-dam-surface-2 disabled:border-dam-border disabled:text-dam-muted disabled:cursor-not-allowed"
         >
-          <Power size={12} /> Start
+          {isStarting ? <Circle size={12} className="animate-spin border-2 border-t-transparent rounded-full" /> : <Power size={12} />}
+          {isStarting ? 'Starting Loop...' : isEmergency ? 'Loop Halted' : 'Start'}
         </button>
 
         <button
@@ -77,13 +87,14 @@ export function ControlPanel({ state, cycleCount, error, loading, onStart, onPau
 
         <button
           onClick={onStop}
-          disabled={!isActive || loading}
+          disabled={!isActive || isStopping || loading}
           className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold border transition-all
             bg-orange-950/60 text-dam-orange border-orange-900
             hover:bg-orange-900/60 hover:border-orange-700
             disabled:opacity-30 disabled:cursor-not-allowed"
         >
-          <StopCircle size={12} /> Stop
+          {isStopping ? <Circle size={12} className="animate-spin border-2 border-t-transparent rounded-full" /> : <StopCircle size={12} />}
+          {isStopping ? 'Stopping...' : 'Stop'}
         </button>
 
         <button

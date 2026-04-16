@@ -71,39 +71,40 @@ _shutdown() {
 }
 trap _shutdown INT TERM EXIT
 
-# Dynamic backend script selection (default to simulation)
-BACKEND_BIN="${BACKEND_SCRIPT:-scripts/dam_sim.py}"
+# Dynamic backend script selection (default to Universal Host)
+BACKEND_BIN="${BACKEND_SCRIPT:-scripts/dam_host.py}"
 
 info "Starting backend (${BACKEND_BIN}) on :8080 …"
 .venv/bin/python "$BACKEND_BIN" &
 _child_pids+=($!)
 BACKEND_PID=$!
 
-# Poll until the health endpoint responds (up to 60 s)
-info "Waiting for backend to be ready…"
-READY=false
-for i in $(seq 1 60); do
-    if .venv/bin/python -c \
-        "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/control/status')" \
-        2>/dev/null; then
-        READY=true
-        break
-    fi
-    # Bail early if the backend process died
-    kill -0 "$BACKEND_PID" 2>/dev/null || die "Backend exited unexpectedly."
-    sleep 1
-done
-$READY || die "Backend did not become ready after 60 s."
-
-# ── Frontend (optional) ───────────────────────────────────────────────────────
+# ── Frontend (parallel startup) ───────────────────────────────────────────────
 if [[ -d dam-console/node_modules ]]; then
     info "Starting frontend (Next.js) on :3000 …"
-    (cd dam-console && HOST=127.0.0.1 PORT=3000 npm run dev) &
+    (cd dam-console && HOST=127.0.0.1 PORT=3000 npm run dev > /dev/null 2>&1) &
     _child_pids+=($!)
 else
     echo -e "${YELLOW}[dev] !${NC} dam-console/node_modules not found — skipping frontend."
     echo -e "      Run ${GREEN}make setup${NC} to install it."
 fi
+
+# Poll in background for health (just for banner confirmation)
+{
+    READY=false
+    for i in $(seq 1 30); do
+        if .venv/bin/python -c \
+            "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/control/status')" \
+            2>/dev/null; then
+            READY=true
+            break
+        fi
+        sleep 1
+    done
+    if ! $READY; then
+        echo -e "${RED}[dev] Warning: Backend is taking long to respond...${NC}"
+    fi
+} &
 
 # ── Ready banner ──────────────────────────────────────────────────────────────
 echo ""

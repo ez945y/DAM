@@ -18,68 +18,69 @@ from dam.config.schema import StackfileConfig
 from dam.runtime.guard_runtime import GuardRuntime
 
 if TYPE_CHECKING:
-    pass
+    from dam.runner.base import BaseRunner
 
 logger = logging.getLogger(__name__)
 
 
 class RuntimeFactory:
     @staticmethod
-    def build_from_stackfile(path: str, use_sim_fallback: bool = False) -> GuardRuntime:
-        """Build a GuardRuntime from the given stackfile path.
+    def build_from_stackfile(path: str, use_sim_fallback: bool = False) -> BaseRunner:
+        """Build a Runner from the given stackfile path."""
+        from dam.runner.base import SimulationRunner
 
-        If use_sim_fallback is True, it will attempt to use Simulation adapters
-        if hardware validation fails.
-        """
         with open(path) as f:
             raw = yaml.safe_load(f)
 
         config = StackfileConfig(**raw)
-        runtime = GuardRuntime.from_stackfile(path)
 
         # 1. Determine Adapter Type
-        adapter_type = "simulation"
+        adapter_type = None
         hw_config = config.hardware
-        if hw_config and hw_config.sources:
-            # Check the first source to determine type
-            first_src = next(iter(hw_config.sources.values()))
-            # HardwareSourceConfig is a Pydantic object, access via attribute
-            adapter_type = str(first_src.type or "simulation").lower()
+        if hw_config:
+            if hw_config.preset == "simulation":
+                adapter_type = "simulation"
+            elif hw_config.sources:
+                first_src = next(iter(hw_config.sources.values()))
+                adapter_type = str(first_src.type or "simulation").lower()
+
+        if not adapter_type:
+            raise ValueError(
+                "No valid hardware configuration found. Please specify 'preset: simulation' "
+                "or a peripheral type (e.g., 'type: lerobot') in the stackfile."
+            )
 
         logger.info("Building runtime with adapter type: %s", adapter_type)
 
-        try:
-            if adapter_type == "lerobot":
-                source, policy, sink = RuntimeFactory._build_lerobot(config)
-            elif adapter_type == "ros2":
-                source, policy, sink = RuntimeFactory._build_ros2(config)
-            else:
-                source, policy, sink = RuntimeFactory._build_simulation(config)
-        except Exception as e:
-            if use_sim_fallback:
-                logger.warning("Hardware initialization failed, falling back to simulation: %s", e)
-                source, policy, sink = RuntimeFactory._build_simulation(config)
-            else:
-                raise
+        if adapter_type == "lerobot":
+            return RuntimeFactory._build_lerobot(config, path)
+        elif adapter_type == "ros2":
+            raise NotImplementedError("ROS2 runner not implemented")
 
-        runtime.register_source(source)
+        # Explicit Simulation or fall-through
+        runtime = GuardRuntime.from_stackfile(path)
+        source, policy, sink = RuntimeFactory._build_simulation(config)
+        runtime.register_source("main", source)
         if policy:
             runtime.register_policy(policy)
         runtime.register_sink(sink)
 
-        return runtime
+        hz = config.safety.control_frequency_hz if config.safety else 10.0
+        return SimulationRunner(runtime, control_frequency_hz=hz)
 
     @staticmethod
-    def _build_lerobot(config: StackfileConfig):
-        from dam.adapter.lerobot.adapter import LeRobotAdapter
+    def _build_lerobot(config: StackfileConfig, path: str):
         from dam.adapter.lerobot.builder import LeRobotBuilder
         from dam.adapter.lerobot.policy import LeRobotPolicyAdapter
+        from dam.runner.lerobot import LeRobotRunner
+        from dam.runtime.guard_runtime import GuardRuntime
 
-        builder = LeRobotBuilder(config.hardware, config.policy)
+        runtime = GuardRuntime.from_stackfile(path)
+        hz = config.safety.control_frequency_hz if config.safety else 50.0
+        builder = LeRobotBuilder(config.hardware, config.policy, control_frequency_hz=hz)
         robot = builder.build_robot()
 
-        # Determine if we should use a unified adapter (shared node)
-        # We use a unified adapter if the sink is a reference to a source
+        # Build adapters
         use_unified = False
         sinks = config.hardware.sinks or {}
         for sink_cfg in sinks.values():
@@ -88,7 +89,8 @@ class RuntimeFactory:
                 break
 
         if use_unified:
-            logger.info("LeRobot: Using unified Source/Sink adapter (shared node)")
+            from dam.adapter.lerobot.adapter import LeRobotAdapter
+
             hw_adapter = LeRobotAdapter(
                 robot,
                 joint_names=builder.joint_names,
@@ -112,6 +114,7 @@ class RuntimeFactory:
             )
 
         policy_res = builder.build_policy()
+        policy = None
         if policy_res:
             if isinstance(policy_res, tuple):
                 p_obj, pre, post = policy_res
@@ -124,10 +127,54 @@ class RuntimeFactory:
                 )
             else:
                 policy = LeRobotPolicyAdapter(policy_res, joint_names=builder.joint_names)
-        else:
-            policy = None
 
-        return source, policy, sink
+        # Identify main source name (usually the first lerobot one)
+        main_name = "arm"
+        if config.hardware.sources:
+            for name, s in config.hardware.sources.items():
+                if str(s.type).lower() == "lerobot":
+                    main_name = name
+                    break
+
+        runtime.register_source(main_name, source)
+        runtime.register_sink(sink)
+        if policy:
+            runtime.register_policy(policy)
+
+        # ── DISCOVER OTHER SOURCES (e.g. External OpenCV Cameras) ───────
+        if config.hardware.sources:
+            for name, src_cfg in config.hardware.sources.items():
+                if name == main_name:
+                    continue  # already registered
+
+                type_str = str(src_cfg.type).lower()
+                if type_str in ("opencv", "camera", "usb"):
+                    from dam.adapter.opencv.source import OpenCVSourceAdapter
+
+                    # Robustly extract index from direct field, params, or model_extra
+                    idx = 0
+                    if hasattr(src_cfg, "index") and src_cfg.index is not None:
+                        idx = src_cfg.index
+                    elif hasattr(src_cfg, "index_or_path") and src_cfg.index_or_path is not None:
+                        idx = src_cfg.index_or_path
+                    elif (
+                        hasattr(src_cfg, "params") and src_cfg.params and "index" in src_cfg.params
+                    ):
+                        idx = src_cfg.params["index"]
+                    elif (
+                        hasattr(src_cfg, "model_extra")
+                        and src_cfg.model_extra
+                        and "index" in src_cfg.model_extra
+                    ):
+                        idx = src_cfg.model_extra["index"]
+                    elif isinstance(src_cfg, dict):
+                        idx = src_cfg.get("index", src_cfg.get("index_or_path", 0))
+
+                    cam_adapter = OpenCVSourceAdapter(index=idx, name=name)
+                    runtime.register_source(name, cam_adapter)
+                    logger.info("Registered extra source: %s (type=%s)", name, type_str)
+
+        return LeRobotRunner(runtime=runtime, robot=robot, control_frequency_hz=hz)
 
     @staticmethod
     def _build_ros2(config: StackfileConfig):
@@ -136,11 +183,95 @@ class RuntimeFactory:
 
     @staticmethod
     def _build_simulation(config: StackfileConfig):
-        from dam.testing.sim_adapters import SimPolicy, SimSink, SimSource
+        from dam.testing.sim_adapters import SimSink
 
         hz = float(config.safety.control_frequency_hz) if config.safety else 10.0
-        source = SimSource(hz=hz)
-        policy = SimPolicy()
-        sink = SimSink()
 
+        # ── Source ────────────────────────────────────────────────────────
+        # Try to find simulation source config in hardware.sources or legacy top-level simulation
+        sim_cfg = config.simulation
+        source_cfg = None
+        if config.hardware and config.hardware.sources:
+            # Find first source of type 'dataset' or 'simulation'
+            for _name, s in config.hardware.sources.items():
+                if str(s.type).lower() in ("dataset", "simulation", "mock"):
+                    source_cfg = s
+                    break
+
+        dataset_repo = None
+        if source_cfg:
+            dataset_repo = getattr(source_cfg, "dataset_repo_id", None)
+            extra = getattr(source_cfg, "model_extra", {})
+            if not dataset_repo and extra:
+                dataset_repo = extra.get("dataset_repo_id")
+
+        if not dataset_repo and sim_cfg:
+            dataset_repo = getattr(sim_cfg, "dataset_repo_id", None)
+
+        if dataset_repo:
+            from dam.testing.dataset_source import DatasetSimSource
+
+            # Map parameters from either source_cfg or legacy sim_cfg
+            episode = 0
+            degrees_mode = True
+            if source_cfg:
+                episode = getattr(source_cfg, "episode", 0)
+                degrees_mode = getattr(source_cfg, "degrees_mode", True)
+                extra = getattr(source_cfg, "model_extra", {})
+                if not episode and "episode" in extra:
+                    episode = extra["episode"]
+            elif sim_cfg:
+                episode = getattr(sim_cfg, "episode", 0)
+                degrees_mode = getattr(sim_cfg, "degrees_mode", True)
+
+            source = DatasetSimSource(
+                repo_id=dataset_repo,
+                episode=episode,
+                hz=hz,
+                degrees_mode=degrees_mode,
+            )
+        else:
+            # Fallback to random walk sim if no dataset provided
+            from dam.testing.sim_adapters import SimSource
+
+            logger.info("Simulation: using SimSource (random walk)")
+            source = SimSource(hz=hz)
+
+        # ── Policy ────────────────────────────────────────────────────────
+        policy = None
+        if config.policy and config.policy.pretrained_path:
+            try:
+                from dam.adapter.lerobot.builder import LeRobotBuilder
+                from dam.adapter.lerobot.policy import LeRobotPolicyAdapter
+                from dam.config.schema import HardwareConfig
+
+                # Build a stub HardwareConfig so LeRobotBuilder is satisfied
+                fake_hw = HardwareConfig(preset="so101_follower")
+                builder = LeRobotBuilder(fake_hw, config.policy)
+                policy_res = builder.build_policy()
+                if policy_res:
+                    if isinstance(policy_res, tuple):
+                        p_obj, pre, post = policy_res
+                    else:
+                        p_obj, pre, post = policy_res, None, None
+                    policy = LeRobotPolicyAdapter(
+                        p_obj,
+                        preprocessor=pre,
+                        postprocessor=post,
+                        joint_names=builder.joint_names,
+                        device=config.policy.device,
+                    )
+                    logger.info("Simulation: loaded real policy %s", config.policy.pretrained_path)
+            except Exception as exc:
+                logger.warning(
+                    "Simulation: policy load failed (%s), falling back to SimPolicy", exc
+                )
+
+        if policy is None:
+            from dam.testing.sim_adapters import SimPolicy
+
+            policy = SimPolicy()
+            logger.info("Simulation: using SimPolicy (random action fallback)")
+
+        sink = SimSink()
         return source, policy, sink

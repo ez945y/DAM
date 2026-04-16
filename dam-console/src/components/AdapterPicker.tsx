@@ -21,7 +21,6 @@ export const POLICIES: AdapterOption<PolicyTargetType>[] = [
   { id: 'act',       label: 'ACT',             description: 'Action Chunking with Transformers',   extra: 'torch' },
   { id: 'diffusion', label: 'Diffusion Policy', description: 'DDPM / DDIM policy (needs GPU)',      extra: 'torch' },
   { id: 'smolvla',   label: 'SmolVLA',          description: 'Small vision-language-action model',  extra: 'torch' },
-  { id: 'noop',      label: 'None',             description: 'Guard only — no AI output, for testing & monitoring' },
 ]
 
 export function AdapterColumn<T extends string>({

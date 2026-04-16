@@ -31,10 +31,16 @@ class Stage:
 
     Attributes
     ----------
-    name      : Human-readable identifier (used for logging and debugging).
-    guards    : Ordered list of Guard instances to execute in this stage.
-    parallel  : If True, all guards run concurrently via ThreadPoolExecutor.
-                If False (default), guards run sequentially in list order.
+    name               : Human-readable identifier (used for logging and debugging).
+    guards             : Ordered list of Guard instances (used when guard_boundary_pairs
+                         is empty — the legacy / direct-construction path).
+    guard_boundary_pairs: Ordered list of (Guard, boundary_name) pairs.  When non-empty
+                         this takes precedence over ``guards``.  Each pair runs the same
+                         guard instance against a specific named boundary so a single
+                         MotionGuard can be invoked once per active L2 boundary with that
+                         boundary's params injected.  Populated by ``start_task``.
+    parallel  : If True, all entries run concurrently via ThreadPoolExecutor.
+                If False (default), entries run sequentially in list order.
     timeout_ms: Per-stage wall-clock timeout in milliseconds.  If the stage
                 (or any single guard) exceeds this, the remaining guards are
                 cancelled and a FAULT result is returned for each timed-out guard.
@@ -42,5 +48,6 @@ class Stage:
 
     name: str
     guards: list[Guard] = field(default_factory=list)
+    guard_boundary_pairs: list[tuple[Guard, str]] = field(default_factory=list)
     parallel: bool = False
     timeout_ms: float = 10.0

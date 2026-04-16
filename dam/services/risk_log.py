@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import csv
 import io
-import json
 import threading
 import time
-from dataclasses import asdict, dataclass, field
 from typing import Any
 
+import msgspec
 
-@dataclass
-class RiskEvent:
+
+class RiskEvent(msgspec.Struct):
     """A single recorded risk event."""
 
     event_id: int
@@ -23,15 +22,13 @@ class RiskEvent:
     was_clamped: bool
     was_rejected: bool
     fallback_triggered: str | None
-    guard_results: list[dict[str, Any]] = field(default_factory=list)
-    latency_ms: dict[str, float] = field(default_factory=dict)
-    # Optional MetricBus snapshot captured at cycle boundary.
-    # Present when TelemetryService is wired with a MetricBus reference.
-    # Shape: {"stages": {...}, "layers": {...}, "guards": {...}}
+    guard_results: list[dict[str, Any]] = []
+    latency_ms: dict[str, float] = {}
     perf: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        """Convert to dict blazingly fast using msgspec."""
+        return msgspec.to_builtins(self)
 
 
 class RiskLogService:
@@ -151,12 +148,12 @@ class RiskLogService:
 
     # ── Export ────────────────────────────────────────────────────────────────
 
-    def export_json(self, events: list[RiskEvent] | None = None) -> str:
-        """Return JSON string of events (all if None)."""
+    def export_json(self, events: list[RiskEvent] | None = None) -> bytes:
+        """Return JSON bytes of events (all if None)."""
         if events is None:
             with self._lock:
                 events = list(self._events)
-        return json.dumps([e.to_dict() for e in events], indent=2)
+        return msgspec.json.encode(events)
 
     def export_csv(self, events: list[RiskEvent] | None = None) -> str:
         """Return CSV string (no guard_results column; flat fields only)."""

@@ -136,12 +136,16 @@ describe('generateYaml', () => {
     expect(yaml).toContain('type: act')
   })
 
-  it('omits hardware top-level section for quick_start', () => {
+  it('quick_start uses hardware preset: simulation (new unified format)', () => {
     const cfg = defaultConfig('quick_start')
     const yaml = generateYaml(cfg)
-    expect(yaml).not.toContain('preset:')
-    expect(yaml).not.toContain('sources:')
-    expect(yaml).not.toContain('sinks:')
+    expect(yaml).toContain('hardware:')
+    expect(yaml).toContain('preset: simulation')
+    expect(yaml).toContain('sources:')
+    expect(yaml).toContain('type: dataset')
+    expect(yaml).toContain('MikeChenYZ/soarm-fmb-v2')
+    expect(yaml).toContain('sinks:')
+    expect(yaml).toContain('ref: sources.main')
   })
 
   it('omits USB section entirely (USB config removed from stackfile)', () => {
@@ -162,7 +166,6 @@ describe('generateYaml', () => {
     expect(yaml).not.toContain('lower_limits:')
     expect(yaml).not.toContain('ood_model_path:')
     expect(yaml).not.toContain('nn_threshold:')
-    expect(yaml).not.toContain('backend:')
   })
 
   it('includes all 5 builtin guards in list format (Perception-Monitoring)', () => {

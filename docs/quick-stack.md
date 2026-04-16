@@ -15,22 +15,20 @@ dam:
   version: "1"
 
 guards:
-  builtin:
-    motion:
-      enabled: true
-      upper_limits: [1.57, 1.57, 1.57, 1.57, 1.57, 0.08]
-      lower_limits: [-1.57, -1.57, -1.57, -1.57, -1.57, 0.0]
-      max_velocity:    [1.5, 1.5, 1.5, 1.5, 1.5, 0.5]
-      max_acceleration:[3.0, 3.0, 3.0, 3.0, 3.0, 1.0]
+  - L2: motion
+
+safety:
+  always_active: default_limits
 
 boundaries:
-  always_active: default
-  containers:
-    default:
-      type: single
-      node:
-        node_id: default
-        constraint: {}
+  default_limits:
+    type: single
+    nodes:
+      - node_id: picking
+        params:
+          upper: [1.57, 1.57, 1.57, 1.57, 1.57, 0.08]
+          lower: [-1.57, -1.57, -1.57, -1.57, -1.57, 0.0]
+          max_velocity: [1.5, 1.5, 1.5, 1.5, 1.5, 0.5]
 ```
 
 To run it:
@@ -45,7 +43,7 @@ Or in Python:
 from dam.runtime.guard_runtime import GuardRuntime
 
 runtime = GuardRuntime.from_stackfile("my_stackfile.yaml")
-runtime.register_source(my_source)
+runtime.register_source("arm", my_source)
 runtime.register_policy(my_policy)
 runtime.register_sink(my_sink)
 runtime.start_task("default")
@@ -261,13 +259,13 @@ hardware:
       type: lerobot
       port: /dev/tty.usbmodem5AA90244141
       id: my_follower_arm
-      cameras:
-        top:
-          type: opencv
-          index: 0
-          width: 640
-          height: 480
-          fps: 30
+
+    top_cam:
+      type: opencv
+      index: 0
+      width: 640
+      height: 480
+      fps: 30
 
   sinks:
     follower_command:
@@ -303,9 +301,9 @@ hardware:
 ```python
 from dam.runner.lerobot import LeRobotRunner
 
-runner = LeRobotRunner.from_stackfile("examples/stackfiles/so101_act_pick_place.yaml")
-runner.start_task("pick_and_place")
-runner.run()    # managed loop at 50 Hz until KeyboardInterrupt
+# build_from_stackfile automates registry and adapter construction
+runner = LeRobotRunner.from_stackfile("so101_act_pick_place.yaml")
+runner.run("pick_and_place")  # runs managed loop until KeyboardInterrupt
 ```
 
 ### Low-level (GuardRuntime directly)
@@ -315,8 +313,8 @@ from dam.runtime.guard_runtime import GuardRuntime
 
 runtime = GuardRuntime.from_stackfile("my_stackfile.yaml")
 
-# Register your adapters (duck-typed)
-runtime.register_source(my_source_adapter)
+# Register your adapters (named)
+runtime.register_source("arm", my_source_adapter)
 runtime.register_policy(my_policy_adapter)
 runtime.register_sink(my_sink_adapter)
 
@@ -372,6 +370,41 @@ runtime = GuardRuntime(
     },
 )
 ```
+
+---
+
+## Loopback Logging (MCAP)
+
+Configure continuous recording of cycle records (observations, actions, guard results) to MCAP files for post-mortem analysis and incident investigation.
+
+```yaml
+loopback:
+  backend: mcap                    # "mcap" (recommended) or "pickle"
+  output_dir: /data/robot/sessions # Directory for session files
+  window_sec: 10.0                 # Ring buffer depth for violation context
+  capture_on_violation: true       # Always on (controls image capture)
+  rotate_mb: 500.0                 # Rotate file every 500 MB
+  rotate_minutes: 60.0             # Or every 60 minutes (whichever comes first)
+  max_queue_depth: 256             # Records buffered before drop (never blocks main loop)
+  capture_images_on_clamp: false   # Also capture images on CLAMP? (expensive; default off)
+```
+
+**Key settings:**
+
+- `output_dir`: Ensure the directory exists and is writable. Paths are created on first write.
+- `window_sec`: Increases buffer depth for images. Example: 30 s ≈ 1500 frames + cameras at 50 Hz = ~10–30 MB per violation.
+- `rotate_mb` / `rotate_minutes`: File rotation policy. E.g. 500 MB + 60 min = whichever comes first.
+- `capture_images_on_clamp`: Default off because motion clamps can be frequent (boundary probing). Enable only for detailed debugging.
+
+**Output:** Each session is a single `.mcap` file containing:
+- `/dam/cycle` — control loop summary (pass / clamp / reject / fault)
+- `/dam/obs` — sensor state (joint angles, EE pose, force/torque)
+- `/dam/action` — proposal and validated action
+- `/dam/L0` … `/dam/L4` — per-layer guard results
+- `/dam/latency` — per-layer latency aggregates
+- `/dam/images/{cam}` — camera frames (on violation or clamp)
+
+See [Loopback Logging](loopback-logging.md) for full schema, API, and analysis tools.
 
 ---
 

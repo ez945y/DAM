@@ -73,12 +73,10 @@ def test_phase2_pipeline_10_cycles():
     runtime = make_runtime_with_guards()
     robot = MockRobot()
     policy = MockPolicy()
-    runner = LeRobotRunner(
-        runtime=runtime,
-        source=LeRobotSourceAdapter(robot),
-        sink=LeRobotSinkAdapter(robot),
-        policy=LeRobotPolicyAdapter(policy),
-    )
+    runtime.register_source("main", LeRobotSourceAdapter(robot))
+    runtime.register_sink(LeRobotSinkAdapter(robot))
+    runtime.register_policy(LeRobotPolicyAdapter(policy))
+    runner = LeRobotRunner(runtime=runtime)
     results = runner.run("pick_and_place", n_cycles=10)
     assert len(results) == 10
     assert all(isinstance(r, CycleResult) for r in results)
@@ -92,12 +90,10 @@ def test_phase2_pipeline_guard_results_populated():
     runtime = make_runtime_with_guards()
     robot = MockRobot()
     policy = MockPolicy()
-    runner = LeRobotRunner(
-        runtime=runtime,
-        source=LeRobotSourceAdapter(robot),
-        sink=LeRobotSinkAdapter(robot),
-        policy=LeRobotPolicyAdapter(policy),
-    )
+    runtime.register_source("main", LeRobotSourceAdapter(robot))
+    runtime.register_sink(LeRobotSinkAdapter(robot))
+    runtime.register_policy(LeRobotPolicyAdapter(policy))
+    runner = LeRobotRunner(runtime=runtime)
     runner.start_task("pick_and_place")
     result = runner.step()
     assert len(result.guard_results) > 0  # should have MotionGuard + ExecutionGuard results

@@ -3,6 +3,7 @@ import { ControlPanel } from '@/components/ControlPanel'
 
 const defaultProps = {
   state: 'idle' as const,
+  backendState: 'ready' as const,
   cycleCount: 0,
   error: null,
   loading: false,

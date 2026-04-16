@@ -64,7 +64,7 @@ from dam.services.runtime_control import RuntimeControlService
 from dam.services.telemetry import TelemetryService
 
 try:
-    from fastapi import HTTPException, Query, WebSocket, WebSocketDisconnect
+    from fastapi import HTTPException, Query, Request, WebSocket, WebSocketDisconnect
     from fastapi.responses import HTMLResponse, PlainTextResponse, Response
     from fastapi.staticfiles import StaticFiles
 
@@ -81,6 +81,7 @@ def create_app(
     boundary: BoundaryConfigService | None = None,
     control: RuntimeControlService | None = None,
     ood_trainer: OODTrainerService | None = None,
+    mcap_sessions: Any | None = None,  # Optional[McapSessionService]
 ) -> Any:
     """Create and return the FastAPI application.
 
@@ -96,7 +97,7 @@ def create_app(
     app = FastAPI(
         title="DAM Console API",
         description="Detachable Action Monitor — Runtime REST + WebSocket API",
-        version="0.1.0",
+        version="0.3.0",
     )
     app.add_middleware(
         CORSMiddleware,
@@ -123,6 +124,13 @@ def create_app(
         if control is not None:
             logger.info("API: shutting down runtime control service...")
             control.stop()
+            # Also shutdown the runtime to properly close loopback writer
+            if (
+                hasattr(control, "_runtime")
+                and control._runtime is not None
+                and hasattr(control._runtime, "shutdown")
+            ):
+                control._runtime.shutdown()
 
     # ── Static UI ────────────────────────────────────────────────────────────
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
@@ -162,7 +170,12 @@ def create_app(
                 except TimeoutError:
                     event = {"type": "ping"}
                 try:
-                    await websocket.send_text(json.dumps(event))
+                    if isinstance(event, (dict, list)):
+                        await websocket.send_text(json.dumps(event))
+                    elif isinstance(event, bytes):
+                        await websocket.send_bytes(event)
+                    else:
+                        await websocket.send_text(str(event))
                 except Exception:
                     break
         except (WebSocketDisconnect, asyncio.CancelledError):
@@ -384,6 +397,13 @@ def create_app(
             raise HTTPException(503, "Runtime control service not available")
         ok = control.reset()
         return {"reset": ok, "state": control.state.value}
+
+    @app.post("/api/control/confirm-fault")
+    async def control_confirm_fault() -> Any:
+        if control is None:
+            raise HTTPException(503, "Runtime control service not available")
+        ok = control.confirm_fault()
+        return {"success": ok, "backend_state": control.status()["backend_state"]}
 
     @app.post("/api/control/restart")
     async def control_restart() -> Any:
@@ -785,6 +805,119 @@ def create_app(
         if not deleted:
             raise HTTPException(404, "Model files not found")
         return {"status": "deleted"}
-        return {"status": "deleted"}
+
+    # ── MCAP Sessions ────────────────────────────────────────────────────────
+
+    @app.get("/api/mcap/sessions")
+    def mcap_list_sessions(request: Request) -> Any:
+        # Use provided service or look in app.state for background-initialized ones
+        svc = mcap_sessions or getattr(request.app.state, "mcap_sessions", None)
+        if svc is None:
+            raise HTTPException(503, "MCAP session service not configured")
+        return {"sessions": svc.list_sessions()}
+
+    @app.get("/api/mcap/sessions/{filename}")
+    def mcap_session_info(filename: str, request: Request) -> Any:
+        svc = mcap_sessions or getattr(request.app.state, "mcap_sessions", None)
+        if svc is None:
+            raise HTTPException(503, "MCAP session service not configured")
+        info = svc.get_session_info(filename)
+        if info is None:
+            raise HTTPException(404, f"Session not found: {filename}")
+        return info
+
+    @app.delete("/api/mcap/sessions/{filename}")
+    def mcap_delete_session(filename: str, request: Request) -> Any:
+        svc = mcap_sessions or getattr(request.app.state, "mcap_sessions", None)
+        if svc is None:
+            raise HTTPException(503, "MCAP session service not configured")
+        success = svc.delete_session(filename)
+        if not success:
+            raise HTTPException(404, f"Session not found or failed to delete: {filename}")
+        return {"success": True}
+
+    @app.get("/api/mcap/sessions/{filename}/cycles")
+    def mcap_list_cycles(filename: str, request: Request) -> Any:
+        svc = mcap_sessions or getattr(request.app.state, "mcap_sessions", None)
+        if svc is None:
+            raise HTTPException(503, "MCAP session service not configured")
+        cycles = svc.list_cycles(filename)
+        return {"filename": filename, "count": len(cycles), "cycles": cycles}
+
+    @app.get("/api/mcap/sessions/{filename}/cycles/{cycle_id}")
+    def mcap_cycle_detail(
+        filename: str, cycle_id: int, request: Request, ts_ns: int | None = None
+    ) -> Any:
+        svc = mcap_sessions or getattr(request.app.state, "mcap_sessions", None)
+        if svc is None:
+            raise HTTPException(503, "MCAP session service not configured")
+        detail = svc.get_cycle_detail(filename, cycle_id, ts_ns)
+        if detail is None:
+            raise HTTPException(404, f"Cycle {cycle_id} not found in {filename}")
+        return detail
+
+    def _get_mcap_svc(request: Request) -> Any:
+        """Get mcap_sessions service from param or app.state."""
+        return mcap_sessions or getattr(request.app.state, "mcap_sessions", None)
+
+    @app.get("/api/mcap/find")
+    def mcap_find_session(cycle_id: int, request: Request) -> Any:
+        svc = _get_mcap_svc(request)
+        if svc is None:
+            raise HTTPException(503, "MCAP session service not configured")
+        filename = svc.find_session_by_cycle(cycle_id)
+        return {"cycle_id": cycle_id, "filename": filename, "found": filename is not None}
+
+    @app.get("/api/mcap/live")
+    def mcap_live_session(request: Request) -> Any:
+        """Return the most-recently-modified MCAP session — the one currently being written."""
+        svc = _get_mcap_svc(request)
+        if svc is None:
+            raise HTTPException(503, "MCAP session service not configured")
+        sessions = svc.list_sessions()
+        if not sessions:
+            return {"filename": None, "active": False}
+        latest = sessions[0]
+        return {"filename": latest["filename"], "active": True, "updated_at": latest["created_at"]}
+
+    @app.get("/api/mcap/sessions/{filename}/frames/{cam_name}")
+    def mcap_list_frames(filename: str, cam_name: str, request: Request) -> Any:
+        svc = _get_mcap_svc(request)
+        if svc is None:
+            raise HTTPException(503, "MCAP session service not configured")
+        frames = svc.list_frames(filename, cam_name)
+        return {"camera": cam_name, "count": len(frames), "frames": frames}
+
+    @app.get("/api/mcap/sessions/{filename}/frame/{cam_name}/{frame_idx}")
+    def mcap_get_frame(filename: str, cam_name: str, frame_idx: int, request: Request) -> Any:
+        svc = _get_mcap_svc(request)
+        if svc is None:
+            raise HTTPException(503, "MCAP session service not configured")
+        jpeg = svc.get_frame_jpeg(filename, cam_name, frame_idx)
+        if jpeg is None:
+            raise HTTPException(404, "Frame not found")
+        return Response(content=jpeg, media_type="image/jpeg")
+
+    @app.get("/api/mcap/sessions/{filename}/frame_at/{cam_name}")
+    def mcap_get_frame_at(filename: str, cam_name: str, ts_ns: int, request: Request) -> Any:
+        svc = _get_mcap_svc(request)
+        if svc is None:
+            raise HTTPException(503, "MCAP session service not configured")
+        jpeg = svc.get_frame_jpeg_at(filename, cam_name, ts_ns)
+        if jpeg is None:
+            raise HTTPException(404, "Frame not found")
+        return Response(content=jpeg, media_type="image/jpeg")
+
+    @app.get("/api/mcap/sessions/{filename}/download")
+    def mcap_download(filename: str, request: Request) -> Any:
+        from fastapi.responses import FileResponse
+
+        svc = _get_mcap_svc(request)
+        if svc is None:
+            raise HTTPException(503, "MCAP session service not configured")
+        path = svc._resolve(filename)
+        if not path or not path.exists():
+            raise HTTPException(404, "Session file not found")
+        return FileResponse(path, filename=filename, media_type="application/octet-stream")
 
     return app

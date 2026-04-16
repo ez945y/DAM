@@ -1,0 +1,8 @@
+[package]
+name = "image-writer"
+version = "0.3.0"
+edition = "2021"
+
+[dependencies]
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+log = "0.4"

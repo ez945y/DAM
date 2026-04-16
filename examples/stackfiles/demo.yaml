@@ -1,5 +1,22 @@
 version: "1"
 
+hardware:
+  preset: simulation
+  sources:
+    main:
+      type: dataset
+      dataset_repo_id: MikeChenYZ/soarm-fmb-v2
+      episode: 0
+      degrees_mode: true
+  sinks:
+    main:
+      ref: sources.main
+
+policy:
+  type: act
+  pretrained_path: MikeChenYZ/act-soarm-fmb-v2
+  device: cpu
+
 safety:
   control_frequency_hz: 15
   no_task_behavior: emergency_stop
@@ -62,3 +79,13 @@ tasks:
   demo_full_setup:
     description: "A full 5-layer safety guard configuration (L0-L4: Perception to Monitoring)"
     boundaries: [ood_detector, bounds, joint_position_limits, joint_velocity_limit, hardware_watchdog]
+
+loopback:
+  backend: mcap
+  output_dir: ./data/robot/sessions
+  window_sec: 10
+  pre_event_sec: 10
+  rotate_mb: 500
+  rotate_minutes: 60
+  max_queue_depth: 64
+  capture_images_on_clamp: true

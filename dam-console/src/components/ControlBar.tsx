@@ -1,6 +1,6 @@
 'use client'
-import { Power, PauseCircle, PlayCircle, StopCircle, Zap, RotateCcw, Circle } from 'lucide-react'
-import type { RuntimeState } from '@/lib/types'
+import { Power, StopCircle, Zap, Circle } from 'lucide-react'
+import type { RuntimeState, BackendState } from '@/lib/types'
 
 interface Props {
   state: RuntimeState
@@ -14,20 +14,27 @@ interface Props {
   onStop: () => void
   onEStop: () => void
   onReset: () => void
+  backendState: BackendState
 }
 
 const STATE_CONFIG: Record<RuntimeState, { label: string; dot: string; bg: string; text: string; border: string }> = {
-  idle:      { label: 'IDLE',      dot: 'bg-dam-muted',   bg: 'bg-white/5',        text: 'text-dam-muted', border: 'border-white/10' },
-  running:   { label: 'RUNNING',   dot: 'bg-dam-green',   bg: 'bg-dam-green/10',   text: 'text-dam-green', border: 'border-dam-green/30' },
+  idle:      { label: 'READY',     dot: 'bg-dam-muted',   bg: 'bg-white/5',        text: 'text-dam-muted', border: 'border-white/10' },
+  starting:  { label: 'BUSY',      dot: 'bg-yellow-500',  bg: 'bg-yellow-500/10',  text: 'text-yellow-500', border: 'border-yellow-500/30' },
+  running:   { label: 'ACTIVE',    dot: 'bg-dam-green',   bg: 'bg-dam-green/10',   text: 'text-dam-green', border: 'border-dam-green/30' },
   paused:    { label: 'PAUSED',    dot: 'bg-dam-blue',    bg: 'bg-dam-blue/10',    text: 'text-dam-blue',  border: 'border-dam-blue/30' },
+  stopping:  { label: 'STOPPING',  dot: 'bg-dam-orange',  bg: 'bg-dam-orange/10',  text: 'text-dam-orange', border: 'border-dam-orange/30' },
   stopped:   { label: 'STOPPED',   dot: 'bg-dam-orange',  bg: 'bg-dam-orange/10',  text: 'text-dam-orange', border: 'border-dam-orange/30' },
-  emergency: { label: 'EMERGENCY', dot: 'bg-dam-red',     bg: 'bg-dam-red/10',     text: 'text-dam-red',   border: 'border-dam-red/30' },
+  emergency: { label: 'FAULT',     dot: 'bg-dam-red',     bg: 'bg-dam-red/10',     text: 'text-dam-red',   border: 'border-dam-red/30' },
 }
 
-export function ControlBar({ state, cycleCount, error, loading, connected, startupError, onStart, onStop, onEStop, onReset }: Props) {
+export function ControlBar({ state, backendState, cycleCount, error, loading, connected, startupError, onStart, onStop, onEStop, onReset }: Props) {
   const sc = STATE_CONFIG[state]
   const isActive = state === 'running' || state === 'paused'
-  const hwBlocked = !!startupError
+  const isStarting = state === 'starting'
+  const isStopping = state === 'stopping'
+  const systemReady = backendState === 'ready'
+  const canStart = systemReady && (state === 'idle' || state === 'stopped')
+  const hwBlocked = !!startupError || !systemReady
 
   const btnBase = 'flex items-center gap-1.5 px-3 py-1.5 rounded text-[11px] font-bold border transition-all disabled:opacity-30 disabled:cursor-not-allowed'
 
@@ -37,13 +44,27 @@ export function ControlBar({ state, cycleCount, error, loading, connected, start
 
         {/* Action buttons (Center) */}
         <div className="flex items-center gap-2 shrink-0">
-          {!isActive ? (
+          {!isActive && !isStarting && !isStopping ? (
             <button
               onClick={onStart}
-              disabled={loading || hwBlocked}
+              disabled={loading || hwBlocked || !canStart}
               className={`${btnBase} bg-dam-green/10 text-dam-green border-dam-green/40 hover:bg-dam-green/20 hover:border-dam-green active:scale-95`}
             >
-              <Power size={12} /> START
+              <Power size={12} /> {backendState === 'faulted' ? 'FAULTED' : 'START'}
+            </button>
+          ) : isStarting ? (
+            <button
+              disabled
+              className={`${btnBase} bg-dam-blue/10 text-dam-blue border-dam-blue/40 opacity-100`}
+            >
+              <Circle size={12} className="animate-spin border-2 border-t-transparent rounded-full" /> STARTING
+            </button>
+          ) : isStopping ? (
+            <button
+              disabled
+              className={`${btnBase} bg-dam-orange/10 text-dam-orange border-dam-orange/40 opacity-100`}
+            >
+               <Circle size={12} className="animate-spin border-2 border-t-transparent rounded-full" /> STOPPING
             </button>
           ) : (
             <button
@@ -83,24 +104,6 @@ export function ControlBar({ state, cycleCount, error, loading, connected, start
                </div>
             </div>
           )}
-        </div>
-        {/* Connection Status Indicator (Left) */}
-        <div
-          className="flex items-center gap-2 select-none shrink-0"
-          title={connected ? 'Connected to Backend' : 'Backend Offline'}
-        >
-          <div className={`w-2 h-2 rounded-full transition-all duration-500 shadow-sm ${
-            connected 
-              ? 'bg-dam-green animate-pulse shadow-[0_0_8px_#10b981]' 
-              : 'bg-dam-muted/30'
-          }`} />
-          <div className="flex flex-col -space-y-0.5">
-            <span className={`text-[10px] font-black uppercase tracking-wider transition-colors ${
-              connected ? 'text-dam-green' : 'text-dam-muted/40'
-            }`}>
-              {connected ? 'CONNECTED' : 'IDLE'}
-            </span>
-          </div>
         </div>
       </div>
 

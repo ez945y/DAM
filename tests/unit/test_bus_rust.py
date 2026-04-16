@@ -10,7 +10,14 @@ Run:
 
 import time
 
-from dam.bus import ActionBus, MetricBus, ObservationBus, RiskController, WatchdogTimer
+from dam.bus import (
+    ActionBus,
+    MetricBus,
+    ObservationBus,
+    PipelineMetricBus,
+    RiskController,
+    WatchdogTimer,
+)
 
 # ── ObservationBus ────────────────────────────────────────────────────────
 
@@ -139,11 +146,11 @@ class TestRiskController:
         assert "is_emergency" in s
 
 
-# ── MetricBus ─────────────────────────────────────────────────────────────
+# ── MetricBus (Rust base — flat push API) ────────────────────────────────
 
 
 class TestMetricBus:
-    # ── Legacy API (backward compat) ──────────────────────────────────────
+    # ── Base API ──────────────────────────────────────────────────────────
 
     def test_push_latest(self):
         mb = MetricBus()
@@ -186,16 +193,21 @@ class TestMetricBus:
         mb.clear()
         assert mb.latest("g") is None
 
+
+# ── PipelineMetricBus (Python adapter — structured API) ───────────────────
+
+
+class TestPipelineMetricBus:
     # ── push_guard — per-guard with layer info ────────────────────────────
 
     def test_push_guard_updates_per_guard_latest(self):
-        mb = MetricBus()
+        mb = PipelineMetricBus()
         mb.push_guard("joint_limit", 2, 1.5)
         mb.push_guard("joint_limit", 2, 3.0)
         assert abs(mb.latest("joint_limit") - 3.0) < 1e-9
 
     def test_push_guard_multiple_guards_and_layers(self):
-        mb = MetricBus()
+        mb = PipelineMetricBus()
         mb.push_guard("ood", 0, 2.0)
         mb.push_guard("motion", 2, 1.0)
         mb.push_guard("workspace", 2, 1.5)
@@ -204,7 +216,7 @@ class TestMetricBus:
     # ── push_stage — pipeline stages ──────────────────────────────────────
 
     def test_push_stage_appears_in_snapshot_stages(self):
-        mb = MetricBus()
+        mb = PipelineMetricBus()
         mb.push_stage("source", 1.1)
         mb.push_stage("policy", 3.2)
         mb.push_stage("total", 5.0)
@@ -214,7 +226,7 @@ class TestMetricBus:
         assert abs(snap["stages"]["total"] - 5.0) < 1e-9
 
     def test_push_stage_updates_on_second_call(self):
-        mb = MetricBus()
+        mb = PipelineMetricBus()
         mb.push_stage("source", 1.0)
         mb.push_stage("source", 2.5)
         snap = mb.snapshot()
@@ -223,14 +235,14 @@ class TestMetricBus:
     # ── commit_cycle + layer aggregation ──────────────────────────────────
 
     def test_layers_empty_before_commit(self):
-        mb = MetricBus()
+        mb = PipelineMetricBus()
         mb.push_guard("g", 2, 1.0)
         snap = mb.snapshot()
         # Layer history is empty until first commit_cycle().
         assert snap["layers"] == {}
 
     def test_commit_cycle_publishes_layer_sums(self):
-        mb = MetricBus()
+        mb = PipelineMetricBus()
         mb.push_guard("joint_limit", 2, 1.5)
         mb.push_guard("workspace", 2, 2.0)
         mb.push_guard("ood", 0, 3.0)
@@ -241,7 +253,7 @@ class TestMetricBus:
 
     def test_commit_cycle_resets_accumulator(self):
         """Second cycle with no guards → layer sum should be 0."""
-        mb = MetricBus()
+        mb = PipelineMetricBus()
         mb.push_guard("g", 1, 5.0)
         mb.commit_cycle()
         mb.commit_cycle()  # no guards this cycle
@@ -249,7 +261,7 @@ class TestMetricBus:
         assert abs(snap["layers"]["L1"] - 0.0) < 1e-9
 
     def test_layer_key_format_is_L_prefixed(self):
-        mb = MetricBus()
+        mb = PipelineMetricBus()
         mb.push_guard("g", 4, 1.0)
         mb.commit_cycle()
         snap = mb.snapshot()
@@ -258,28 +270,28 @@ class TestMetricBus:
     # ── snapshot — guards field ────────────────────────────────────────────
 
     def test_snapshot_guards_reflects_push_guard(self):
-        mb = MetricBus()
+        mb = PipelineMetricBus()
         mb.push_guard("velocity_guard", 2, 0.8)
         snap = mb.snapshot()
         assert abs(snap["guards"]["velocity_guard"] - 0.8) < 1e-9
 
     def test_snapshot_guards_reflects_push(self):
-        mb = MetricBus()
-        mb.push("legacy_guard", 1.2)
+        mb = PipelineMetricBus()
+        mb.push_guard("legacy_guard", 2, 1.2)
         snap = mb.snapshot()
         assert abs(snap["guards"]["legacy_guard"] - 1.2) < 1e-9
 
     # ── snapshot — structure ───────────────────────────────────────────────
 
     def test_snapshot_returns_all_three_keys(self):
-        mb = MetricBus()
+        mb = PipelineMetricBus()
         snap = mb.snapshot()
         assert set(snap.keys()) == {"stages", "layers", "guards"}
 
     # ── clear wipes everything ────────────────────────────────────────────
 
     def test_clear_removes_stages_and_layers(self):
-        mb = MetricBus()
+        mb = PipelineMetricBus()
         mb.push_guard("g", 2, 1.0)
         mb.push_stage("source", 1.0)
         mb.commit_cycle()

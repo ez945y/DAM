@@ -998,11 +998,14 @@ export default function GuardPage() {
   useEffect(() => {
     syncStatus()
     syncCallbacks()
-    const t = setInterval(() => {
+    // React to backend config/status changes pushed via the telemetry WS
+    // instead of polling on a fixed interval.
+    const handleSystemUpdate = () => {
       syncStatus()
       syncCallbacks()
-    }, 5000)
-    return () => clearInterval(t)
+    }
+    window.addEventListener('dam-system-update', handleSystemUpdate)
+    return () => window.removeEventListener('dam-system-update', handleSystemUpdate)
   }, [syncStatus, syncCallbacks])
 
   // Auto-save to localStorage + disk (debounced)

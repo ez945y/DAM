@@ -1,10 +1,10 @@
 'use client'
 import React, { useState, useEffect, useRef } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { RiskBadge } from '@/components/RiskBadge'
 import type { PerfSnapshot, GuardStatus, RiskEvent, RiskLevel, RiskLogStats } from '@/lib/types'
-import { Download, ChevronRight, ChevronDown, Activity, Shield, Hash, Clock } from 'lucide-react'
+import { Download, ChevronRight, ChevronDown, Activity, Shield, Hash, Clock, Play, Pause } from 'lucide-react'
 
 // ── Perf breakdown widget (pipeline + guard layers only) ──────────────────
 
@@ -169,9 +169,47 @@ function GuardResultItem({
   )
 }
 
+// ── View MCAP Button ─────────────────────────────────────────────────────
+
+function ViewMcapButton({ cycleId, tsNs }: { cycleId: number; tsNs: number }) {
+  const router = useRouter()
+  const [searching, setSearching] = React.useState(false)
+
+  const handleClick = async () => {
+    setSearching(true)
+    try {
+      const result = await api.findMcapSession(cycleId)
+      if (result.found && result.filename) {
+        router.push(`/mcap-viewer?filename=${encodeURIComponent(result.filename)}&cycle_id=${cycleId}&ts_ns=${tsNs}`)
+      } else {
+        // No session contains this cycle_id — navigate without filename
+        router.push(`/mcap-viewer?cycle_id=${cycleId}&ts_ns=${tsNs}`)
+      }
+    } catch {
+      router.push(`/mcap-viewer?cycle_id=${cycleId}&ts_ns=${tsNs}`)
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  return (
+    <button
+      onClick={() => void handleClick()}
+      disabled={searching}
+      className="mt-2 w-full flex items-center justify-center gap-2 px-3 py-2 bg-dam-blue/10 border border-dam-blue/30 text-dam-blue text-xs font-bold rounded hover:bg-dam-blue/20 disabled:opacity-60 transition-colors"
+    >
+      {searching
+        ? <><span className="w-3 h-3 border-2 border-dam-blue/40 border-t-dam-blue rounded-full animate-spin" /> Locating…</>
+        : <><Play size={12} /> View in MCAP Viewer</>
+      }
+    </button>
+  )
+}
+
 // ── Main table component ──────────────────────────────────────────────────
 
 export function RiskLogTable() {
+  const router = useRouter()
   const searchParams = useSearchParams()
   const targetCycleId = searchParams ? Number(searchParams.get('cycle_id') ?? '') || null : null
 
@@ -179,6 +217,7 @@ export function RiskLogTable() {
   const [stats, setStats] = useState<RiskLogStats | null>(null)
   const [loading, setLoading] = useState(false)
   const [autoRefresh, setAutoRefresh] = useState(true)
+  const [frozen, setFrozen] = useState(false)
   const [filters, setFilters] = useState({
     min_risk_level: '',
     rejected_only: false,
@@ -228,17 +267,24 @@ export function RiskLogTable() {
     return () => window.removeEventListener('dam_live_refresh_change', sync)
   }, [])
 
-  // Auto-refresh effect
+  // Auto-refresh: Switch to event-driven instead of constant polling
   useEffect(() => {
     void load()
-    if (!autoRefresh) return
-    const timer = setInterval(() => void load(true), 1000)
-    return () => clearInterval(timer)
+
+    const handleUpdate = () => void load(true)
+    const handleFocus = () => void load()
+
+    window.addEventListener('dam-system-update', handleUpdate)
+    window.addEventListener('focus', handleFocus)
+
+    return () => {
+      window.removeEventListener('dam-system-update', handleUpdate)
+      window.removeEventListener('focus', handleFocus)
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoRefresh, filters])
+  }, [frozen, filters])
 
   // Grouping logic: collapse consecutive identical results.
-  // allCycleIds tracks every cycle_id inside a group for deep-link matching.
   const groupEvents = (raw: RiskEvent[]) => {
     if (raw.length === 0) return []
     const groups: (RiskEvent & { count: number; allCycleIds: number[] })[] = []
@@ -264,13 +310,12 @@ export function RiskLogTable() {
   }
 
   // Auto-expand + scroll to target cycle when URL param is set.
-  // Searches allCycleIds so deep-links work even when the target is grouped.
   useEffect(() => {
     if (!targetCycleId || didAutoExpand.current || events.length === 0) return
-    const grouped = groupEvents(events)
-    const idx = grouped.findIndex(g => g.allCycleIds.includes(targetCycleId))
+    const gList = groupEvents(events)
+    const idx = gList.findIndex(g => g.allCycleIds.includes(targetCycleId))
     if (idx === -1) return
-    const g = grouped[idx]
+    const g = gList[idx]
     const key = `${idx}:${g.risk_level}-${g.was_rejected}-${g.was_clamped}-${g.fallback_triggered ?? ''}`
     setExpandedKeys(prev => new Set(prev).add(key))
     didAutoExpand.current = true
@@ -284,23 +329,6 @@ export function RiskLogTable() {
 
   return (
     <div className="space-y-4">
-      {/* Stats summary */}
-      {stats && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {[
-            { label: 'Total Events', value: stats.total },
-            { label: 'Rejected', value: stats.rejected },
-            { label: 'Clamped', value: stats.clamped },
-            { label: 'Avg Latency', value: stats.avg_latency_ms != null ? `${stats.avg_latency_ms.toFixed(1)}ms` : '—' },
-          ].map(s => (
-            <div key={s.label} className="bg-dam-surface-2 border border-dam-border rounded-lg px-3 py-2">
-              <p className="text-dam-muted text-[10px] uppercase tracking-wider">{s.label}</p>
-              <p className="text-xl font-bold text-dam-blue">{s.value}</p>
-            </div>
-          ))}
-        </div>
-      )}
-
       {/* Filter + export bar */}
       <div className="flex flex-wrap items-center gap-3 bg-dam-surface-1 p-2 border border-dam-border rounded">
         <select
@@ -338,6 +366,16 @@ export function RiskLogTable() {
         <div className="h-6 w-px bg-dam-border/40 mx-1" />
 
         <div className="ml-auto flex gap-2">
+          <button
+            onClick={() => setFrozen(v => !v)}
+            className={`flex items-center gap-1 px-2 py-1.5 border text-xs font-bold rounded transition-colors ${
+              frozen
+                ? 'bg-dam-orange/10 border-dam-orange/40 text-dam-orange hover:bg-dam-orange/20'
+                : 'bg-dam-surface-2 border-dam-border text-dam-muted hover:text-dam-text'
+            }`}
+          >
+            {frozen ? <><Play size={11} /> Resume</> : <><Pause size={11} /> Freeze</>}
+          </button>
           <a
             href={api.exportRiskLogJsonUrl()}
             download="risk_log.json"
@@ -491,6 +529,9 @@ export function RiskLogTable() {
                                   <p className="text-xs text-dam-orange font-mono font-bold mt-1">➔ {e.fallback_triggered}</p>
                                 </div>
                               )}
+
+                              {/* View MCAP button */}
+                              <ViewMcapButton cycleId={e.cycle_id} tsNs={Math.floor(e.timestamp * 1e9)} />
                             </div>
                           </div>
                         </div>

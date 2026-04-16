@@ -8,15 +8,25 @@ Provides:
     create_app()        — FastAPI app combining all services
 """
 
-from dam.services.boundary_config import BoundaryConfigService
-from dam.services.risk_log import RiskEvent, RiskLogService
 from dam.services.runtime_control import RuntimeControlService
 from dam.services.telemetry import TelemetryService
 
 __all__ = [
     "TelemetryService",
-    "RiskLogService",
-    "RiskEvent",
-    "BoundaryConfigService",
     "RuntimeControlService",
 ]
+
+# Optional services — only available when their extra dependencies are installed.
+try:
+    from dam.services.risk_log import RiskEvent, RiskLogService  # requires msgspec
+
+    __all__ += ["RiskLogService", "RiskEvent"]
+except ImportError:
+    pass
+
+try:
+    from dam.services.boundary_config import BoundaryConfigService
+
+    __all__ += ["BoundaryConfigService"]
+except ImportError:
+    pass

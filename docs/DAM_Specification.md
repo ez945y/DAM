@@ -148,7 +148,7 @@ Everything else — you write none of this:
                               │  dam run --stack stackfile.yaml
  ┌────────────────────────────▼────────────────────────────────┐
  │  CONNECT                                                    │
- │  DAM auto-wires Sources → ObservationBus                    │
+ │  DAM auto-wires multi-Sources → ObservationBus (Merged)     │
  │             Sinks   ← ActionBus                             │
  │             Policy, Simulator loaded and injected           │
  └────────────────────────────┬────────────────────────────────┘
@@ -217,7 +217,7 @@ DAM's modules are organized into two distinct responsibilities: **Core Guard Log
 
 | Module | Layer | Role |
 | :--- | :--- | :--- |
-| **Guard Runtime** | Core | Orchestrates all guards, aggregates decisions, dispatches |
+| **Guard Runtime** | Core | Orchestrates all guards, aggregates decisions, merges named sources |
 | **OOD Guard** | L0 | Rejects out-of-distribution observations (autoencoder) |
 | **Simulation Preflight Guard** | L1 | Pre-executes actions in simulation to detect collisions |
 | **Motion Guard** | L2 | Enforces joint limits, velocity, acceleration, workspace |
@@ -254,7 +254,7 @@ DAM's modules are organized into two distinct responsibilities: **Core Guard Log
 | **OOD Detection** | Autoencoder (PyTorch) | Reconstruction error–based anomaly detection |
 | **Policy Inference** | PyTorch / ONNX | LeRobot ACT, Diffusion Policy, VLA, RL agents — wrapped via PolicyAdapter |
 | **API (REST)** | FastAPI / Flask | Boundary CRUD, runtime control, risk logs |
-| **API (Real-time)** | WebSocket | Observation, guard result, risk level streaming |
+| **API (Real-time)** | WebSocket | Observation, guard results; high-performance binary JPEG stream |
 | **Data Format** | MCAP | Loopback ring buffer persistence, context capture, dataset export |
 | **Type Contracts** | Python `dataclass` + `ABC` | Enforced at module boundaries |
 
@@ -656,12 +656,13 @@ flowchart TB
     TS -->|history store| DB["Event History"]
 
     subgraph "Event Types"
-        E1["observation_update"]
-        E2["guard_result"]
-        E3["action_validated / rejected"]
-        E4["risk_level_changed"]
-        E5["fallback_triggered"]
-        E6["node_transition"]
+        E1["observation_update (JSON)"]
+        E2["guard_result (JSON)"]
+        E3["action_validated / rejected (JSON)"]
+        E4["risk_level_changed (JSON)"]
+        E5["fallback_triggered (JSON)"]
+        E6["node_transition (JSON)"]
+        E7["live_camera_frame (Binary Protocol)"]
     end
 ```
 
@@ -691,7 +692,7 @@ These modules are **integration glue** — they carry no safety decision authori
 
 | Module | Category | Role |
 | :--- | :--- | :--- |
-| **Source Adapter** | Platform Bridge | Declared in Stackfile; reads from ROS2 topic / LeRobot / Serial / CAN → `Observation` field |
+| **Source Adapter** | Platform Bridge | Declared in Stackfile; individual adapters for robot arms, cameras, or sensors. Merged into a single Observation each cycle. |
 | **Sink Adapter** | Platform Bridge | Declared in Stackfile; converts `ValidatedAction` → hardware command / ROS2 topic |
 | **Policy Adapter** | Model Bridge | Wraps any policy model; exposes only `predict(obs) → ActionProposal` |
 | **Simulator Adapter** | Sim Bridge | Exposes `step(action) → Observation` + `has_collision() → bool`; used exclusively by L1 |

@@ -157,7 +157,7 @@ def test_full_step_cycle_monitor_records_decisions():
     source = MockSourceAdapter([obs] * 5)
     policy = MockPolicyAdapter([action] * 5)
     sink = MockSinkAdapter()
-    runtime.register_source(source)
+    runtime.register_source("main", source)
     runtime.register_policy(policy)
     runtime.register_sink(sink)
 
@@ -185,7 +185,7 @@ def test_enforce_mode_blocks_sink_on_violation():
     source = MockSourceAdapter([obs] * 3)
     policy = MockPolicyAdapter([action] * 3)
     sink = MockSinkAdapter()
-    runtime.register_source(source)
+    runtime.register_source("main", source)
     runtime.register_policy(policy)
     runtime.register_sink(sink)
 

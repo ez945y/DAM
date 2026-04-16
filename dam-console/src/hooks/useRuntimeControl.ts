@@ -9,6 +9,7 @@ let gStartedAt: number | null = null
 let gPrevState = 'idle'
 let gLastKnownStatus: RuntimeStatus = {
   state: 'idle',
+  backend_state: 'loading',
   cycle_count: 0,
   error: null,
   has_runtime: false,
@@ -78,8 +79,30 @@ export function useRuntimeControl() {
   useEffect(() => {
     void refresh()
     void refreshBoundaries()
-    const id = setInterval(() => { void refresh() }, 3000)
-    return () => clearInterval(id)
+
+    // 1. Reactive Update: Listen for backend events via WebSocket bridge
+    const handleUpdate = (e: any) => {
+      const msg = e.detail
+      if (msg?.state || msg?.backend_state) {
+        // Zero-latency update from Push
+        const newStatus = { ...gLastKnownStatus, ...msg }
+        gLastKnownStatus = newStatus
+        setStatus(newStatus)
+      }
+      // No need to full refresh on every push unless explicitly requested
+    }
+    window.addEventListener('dam-system-update', handleUpdate)
+
+    // 2. Window Focus: Just re-trigger refresh if needed, but WS should be active
+    const handleFocus = () => {
+      // Optional: void refresh() 
+    }
+    window.addEventListener('focus', handleFocus)
+
+    return () => {
+      window.removeEventListener('dam-system-update', handleUpdate)
+      window.removeEventListener('focus', handleFocus)
+    }
   }, [refresh, refreshBoundaries])
 
   const call = useCallback(async (fn: () => Promise<unknown>) => {
@@ -111,6 +134,7 @@ export function useRuntimeControl() {
     stop:          () => call(() => api.stop()),
     emergencyStop: () => call(() => api.emergencyStop()),
     reset:         () => call(() => api.reset()),
+    confirmFault:  () => call(() => api.confirmFault()),
     recheckHardware: () => call(() => api.recheckHardware()),
   }
 }

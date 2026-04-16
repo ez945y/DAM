@@ -63,7 +63,7 @@ def test_phase1_exit_criterion():
     action1, action2, action3 = make_action(), make_action(), make_action()
 
     runtime = GuardRuntime.from_stackfile(path.name)
-    runtime.register_source(MockSourceAdapter([obs1, obs2, obs3]))
+    runtime.register_source("main", MockSourceAdapter([obs1, obs2, obs3]))
     runtime.register_policy(MockPolicyAdapter([action1, action2, action3]))
     sink = MockSinkAdapter()
     runtime.register_sink(sink)

@@ -33,11 +33,11 @@ export function useDemoMode(): DemoModeResult {
   const [starting, setStarting]         = useState(false)
   const [launchError, setLaunchError]   = useState<string | null>(null)
   const [readyToStart, setReadyToStart] = useState(false)
-  const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null)
+  const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const stopPolling = useCallback(() => {
     if (pollTimer.current) {
-      clearInterval(pollTimer.current)
+      clearTimeout(pollTimer.current)
       pollTimer.current = null
     }
   }, [])
@@ -45,24 +45,22 @@ export function useDemoMode(): DemoModeResult {
   const waitForBackend = useCallback((): Promise<void> => {
     return new Promise((resolve, reject) => {
       const deadline = Date.now() + POLL_TIMEOUT_MS
-      pollTimer.current = setInterval(async () => {
+      const attempt = async () => {
         if (Date.now() > deadline) {
-          stopPolling()
           reject(new Error('Backend did not come online within 90 s'))
           return
         }
         try {
           const res = await fetch(BACKEND_POLL_URL, { signal: AbortSignal.timeout(2000) })
-          if (res.ok) {
-            stopPolling()
-            resolve()
-          }
+          if (res.ok) { resolve(); return }
         } catch {
           // still starting — keep polling
         }
-      }, POLL_INTERVAL_MS)
+        pollTimer.current = setTimeout(attempt, POLL_INTERVAL_MS)
+      }
+      void attempt()
     })
-  }, [stopPolling])
+  }, [])
 
   const launch = useCallback(async (method: LaunchMethod = 'python') => {
     setStarting(true)

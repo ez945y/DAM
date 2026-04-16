@@ -90,7 +90,42 @@ export const api = {
   stop: () => apiFetch<{ stopped: boolean; state: string }>('/control/stop', { method: 'POST' }),
   emergencyStop: () => apiFetch<{ emergency_stop: boolean; state: string }>('/control/estop', { method: 'POST' }),
   reset: () => apiFetch<{ reset: boolean; state: string }>('/control/reset', { method: 'POST' }),
+  confirmFault: () => apiFetch<{ success: boolean; backend_state: string }>('/control/confirm-fault', { method: 'POST' }),
   recheckHardware: () => apiFetch<{ success: boolean; state: string }>('/control/recheck-hardware', { method: 'POST' }),
+
+  // ── MCAP Sessions ─────────────────────────────────────────────────────────
+  listMcapSessions: () =>
+    apiFetch<{ sessions: McapSessionSummary[] }>('/mcap/sessions'),
+  getMcapSession: (filename: string) =>
+    apiFetch<McapSessionDetail>(`/mcap/sessions/${encodeURIComponent(filename)}`),
+  listMcapCycles: (filename: string) =>
+    apiFetch<{ filename: string; count: number; cycles: McapCycle[] }>(
+      `/mcap/sessions/${encodeURIComponent(filename)}/cycles`
+    ),
+  getMcapCycleDetail: (filename: string, cycleId: number, tsNs?: number | null) =>
+    apiFetch<McapCycleDetail>(
+      `/mcap/sessions/${encodeURIComponent(filename)}/cycles/${cycleId}${tsNs ? `?ts_ns=${tsNs}` : ''}`
+    ),
+  findMcapSession: (cycleId: number) =>
+    apiFetch<{ cycle_id: number; filename: string | null; found: boolean }>(
+      `/mcap/find?cycle_id=${cycleId}`
+    ),
+  mcapLiveSession: () =>
+    apiFetch<{ filename: string | null; active: boolean; updated_at?: number }>(
+      '/mcap/live'
+    ),
+  deleteMcapSession: (filename: string) =>
+    apiFetch<{ success: boolean }>(`/mcap/sessions/${encodeURIComponent(filename)}`, { method: 'DELETE' }),
+  listMcapFrames: (filename: string, cam: string) =>
+    apiFetch<{ camera: string; count: number; frames: McapFrame[] }>(
+      `/mcap/sessions/${encodeURIComponent(filename)}/frames/${encodeURIComponent(cam)}`
+    ),
+  mcapFrameUrl: (filename: string, cam: string, idx: number) =>
+    `${API_BASE}/api/mcap/sessions/${encodeURIComponent(filename)}/frame/${encodeURIComponent(cam)}/${idx}`,
+  mcapFrameAtUrl: (filename: string, cam: string, tsNs: number) =>
+    `${API_BASE}/api/mcap/sessions/${encodeURIComponent(filename)}/frame_at/${encodeURIComponent(cam)}?ts_ns=${tsNs}`,
+  mcapDownloadUrl: (filename: string) =>
+    `${API_BASE}/api/mcap/sessions/${encodeURIComponent(filename)}/download`,
 
   // ── System ────────────────────────────────────────────────────────────────
   saveConfig: (yaml: string) =>
@@ -118,4 +153,98 @@ export async function scanUsbDevices(): Promise<{ devices: UsbDeviceInfo[]; coun
 // Internal type for raw API response
 interface CycleEventRaw {
   [key: string]: unknown
+}
+
+// ── MCAP types ────────────────────────────────────────────────────────────────
+
+export interface McapSessionSummary {
+  filename: string
+  size_bytes: number
+  size_mb: number
+  created_at: number  // unix timestamp
+}
+
+export interface McapSessionDetail extends McapSessionSummary {
+  metadata: Record<string, string>
+  stats: {
+    total_cycles: number
+    violation_cycles: number
+    clamp_cycles: number
+    duration_sec: number
+    cameras: string[]
+    violated_layers: string[]
+    clamped_layers: string[]
+  }
+  error?: string
+}
+
+export interface McapFrame {
+  idx: number
+  log_time_ns: number
+  timestamp: number
+}
+
+export interface McapCycle {
+  cycle_id: number
+  seq: number
+  timestamp_ns: number
+  timestamp: number
+  has_violation: boolean
+  has_clamp: boolean
+  violated_layer_mask: number
+  clamped_layer_mask: number
+  violated_layers: string[]
+  clamped_layers: string[]
+}
+
+export interface McapCycleDetail {
+  cycle_id: number
+  timestamp_ns: number
+  timestamp: number
+  has_violation: boolean
+  has_clamp: boolean
+  violated_layer_mask: number
+  clamped_layer_mask: number
+  violated_layers: string[]
+  clamped_layers: string[]
+  active_task: string | null
+  active_boundaries: string[]
+  // Latency (from /dam/cycle quick access)
+  source_ms: number
+  policy_ms: number
+  guards_ms: number
+  sink_ms: number
+  total_ms: number
+  // Full latency breakdown (from /dam/latency)
+  latency: Record<string, number>
+  // Observation state
+  observation: {
+    joint_positions: number[]
+    joint_velocities: number[] | null
+    end_effector_pose: number[] | null
+    force_torque: number[] | null
+    obs_timestamp: number | null
+  } | null
+  // Policy action
+  action: {
+    target_positions: number[]
+    target_velocities: number[] | null
+    validated_positions: number[] | null
+    validated_velocities: number[] | null
+    was_clamped: boolean
+    fallback_triggered: string | null
+  } | null
+  // Guard results (one per guard that executed)
+  guard_results: Array<{
+    guard_name: string
+    layer: number
+    layer_name: string
+    decision: number
+    decision_name: string
+    reason: string
+    latency_ms: number | null
+    is_violation: boolean
+    is_clamp: boolean
+    fault_source: string | null
+  }>
 }

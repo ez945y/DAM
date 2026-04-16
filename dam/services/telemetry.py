@@ -26,6 +26,7 @@ absent when no MetricBus is wired in.
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import logging
 import threading
@@ -36,13 +37,23 @@ from typing import TYPE_CHECKING, Any
 from dam.types.risk import CycleResult
 
 if TYPE_CHECKING:
-    from dam.bus import MetricBus
+    from dam.bus import PipelineMetricBus
 
 logger = logging.getLogger(__name__)
 
 
-def _serialise_cycle(result: CycleResult) -> dict[str, Any]:
-    """Convert CycleResult to a JSON-serialisable dict (pure safety data)."""
+def _serialise_cycle(
+    result: CycleResult,
+    live_images: dict[str, bytes] | None = None,
+) -> dict[str, Any]:
+    """Convert CycleResult to a JSON-serialisable dict (pure safety data).
+
+    Args:
+        result: The cycle result to serialise.
+        live_images: Optional dict of camera_name -> JPEG bytes for live camera
+                     preview.  Encoded as base64 data-URIs in the WS event so
+                     the frontend can display them without an MCAP API call.
+    """
     guard_statuses = []
     for gr in result.guard_results:
         layer_val = gr.layer.value if hasattr(gr.layer, "value") else int(gr.layer)
@@ -54,7 +65,7 @@ def _serialise_cycle(result: CycleResult) -> dict[str, Any]:
                 "reason": gr.reason,
             }
         )
-    return {
+    event: dict[str, Any] = {
         "type": "cycle",
         "cycle_id": result.cycle_id,
         "trace_id": result.trace_id,
@@ -70,9 +81,14 @@ def _serialise_cycle(result: CycleResult) -> dict[str, Any]:
         "active_boundaries": result.active_boundaries,
         "timestamp": time.time(),
     }
+    if live_images:
+        # We no longer send base64 images in the JSON event.
+        # Images are sent as separate binary messages to the WebSocket for efficiency.
+        event["active_cameras"] = list(live_images.keys())
+    return event
 
 
-def _build_perf(metric_bus: MetricBus, cycle_budget_ms: float) -> dict[str, Any]:
+def _build_perf(metric_bus: PipelineMetricBus, cycle_budget_ms: float) -> dict[str, Any]:
     """Read a MetricBus snapshot and compute derived fields for the telemetry event."""
     snap: dict[str, Any] = metric_bus.snapshot()
     total_ms: float = snap.get("stages", {}).get("total", 0.0)
@@ -103,7 +119,7 @@ class TelemetryService:
     def __init__(
         self,
         history_size: int = 200,
-        metric_bus: MetricBus | None = None,
+        metric_bus: PipelineMetricBus | None = None,
         cycle_budget_ms: float = 20.0,
     ) -> None:
         self._history: deque[dict[str, Any]] = deque(maxlen=history_size)
@@ -114,15 +130,35 @@ class TelemetryService:
         self._metric_bus = metric_bus
         self._cycle_budget_ms = cycle_budget_ms
 
+    # ── Configuration API ────────────────────────────────────────────────────
+    def set_metric_bus(self, metric_bus: PipelineMetricBus | None) -> None:
+        """Dynamically wire a PipelineMetricBus to enrich telemetry with perf data."""
+        self._metric_bus = metric_bus
+
+    def set_cycle_budget(self, budget_ms: float) -> None:
+        """Dynamically update the control loop budget for slack computation."""
+        self._cycle_budget_ms = budget_ms
+
     # ── Producer API (called from control loop thread) ───────────────────────
 
-    def push(self, result: CycleResult) -> None:
+    def push(
+        self,
+        result: CycleResult,
+        live_images: dict[str, bytes] | None = None,
+    ) -> None:
         """Serialise and broadcast a CycleResult to all WebSocket consumers.
 
         When a MetricBus was provided at construction, the event is enriched
         with a ``perf`` sub-dict before broadcasting.
+
+        Args:
+            result: The cycle result to broadcast.
+            live_images: Optional dict of camera_name -> JPEG bytes.  When
+                         provided, a ``live_images`` key is added to the WS
+                         event so connected frontends can render camera frames
+                         without reading MCAP files.
         """
-        event = _serialise_cycle(result)
+        event = _serialise_cycle(result, live_images=live_images)
         if self._metric_bus is not None:
             event["perf"] = _build_perf(self._metric_bus, self._cycle_budget_ms)
 
@@ -135,6 +171,16 @@ class TelemetryService:
             for q in subs:
                 with contextlib.suppress(Exception):
                     self._loop.call_soon_threadsafe(q.put_nowait, event)
+                    if live_images:
+                        for cam, jpeg in live_images.items():
+                            if not jpeg:
+                                continue
+                            # Binary protocol: [magic: 0x01][name_len: 1 byte][name][jpeg]
+                            name_bytes = cam.encode()
+                            payload = (
+                                b"\x01" + len(name_bytes).to_bytes(1, "big") + name_bytes + jpeg
+                            )
+                            self._loop.call_soon_threadsafe(q.put_nowait, payload)
 
     def push_raw(self, event: dict[str, Any]) -> None:
         """Push an arbitrary JSON-serialisable event dict."""

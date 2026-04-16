@@ -22,14 +22,22 @@ export function PageShell({ title, subtitle, children }: PageShellProps) {
   } = useRuntimeControl()
   
   const tele = useTelemetry()
-  
-  // Reset telemetry on system idle to ensure fresh state for next run
+
+  // Keep stable refs so the idle-reset effect never needs the whole tele object
+  // as a dependency (tele is a new object every 500 ms due to the throttle timer).
+  const teleResetRef = React.useRef(tele.reset)
+  const teleReconnectRef = React.useRef(tele.reconnect)
+  teleResetRef.current = tele.reset
+  teleReconnectRef.current = tele.reconnect
+
+  // Reset telemetry on system idle to ensure fresh state for next run.
+  // Only re-runs when status.state changes — not on every telemetry tick.
   React.useEffect(() => {
     if (status.state === 'idle') {
-      tele.reset()
-      tele.reconnect()
+      teleResetRef.current()
+      teleReconnectRef.current()
     }
-  }, [status.state, tele])
+  }, [status.state])
 
   return (
     <div className="p-5 space-y-5 min-h-screen max-w-7xl mx-auto">
@@ -44,6 +52,7 @@ export function PageShell({ title, subtitle, children }: PageShellProps) {
         <div className="w-full md:w-auto animate-in slide-in-from-right-4 duration-700">
           <ControlBar
             state={status.state}
+            backendState={status.backend_state}
             cycleCount={tele.totalCycles}
             error={error}
             loading={loading}

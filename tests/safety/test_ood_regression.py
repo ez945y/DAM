@@ -185,7 +185,7 @@ class TestOodInMonitorPipeline:
         source = MockSourceAdapter([obs] * 5)
         policy = MockPolicyAdapter([action] * 5)
         sink = MockSinkAdapter()
-        runtime.register_source(source)
+        runtime.register_source("main", source)
         runtime.register_policy(policy)
         runtime.register_sink(sink)
 
@@ -205,7 +205,7 @@ class TestOodInMonitorPipeline:
         source_warmup = MockSourceAdapter([normal_obs] * 50)
         policy_warmup = MockPolicyAdapter([normal_action] * 50)
         sink = MockSinkAdapter()
-        runtime.register_source(source_warmup)
+        runtime.register_source("main", source_warmup)
         runtime.register_policy(policy_warmup)
         runtime.register_sink(sink)
         [runtime.step() for _ in range(50)]
@@ -215,7 +215,7 @@ class TestOodInMonitorPipeline:
         extreme_action = ActionProposal(target_joint_positions=np.zeros(6))
         source_extreme = MockSourceAdapter([extreme_obs])
         policy_extreme = MockPolicyAdapter([extreme_action])
-        runtime.register_source(source_extreme)
+        runtime.register_source("main", source_extreme)
         runtime.register_policy(policy_extreme)
 
         result = runtime.step()
