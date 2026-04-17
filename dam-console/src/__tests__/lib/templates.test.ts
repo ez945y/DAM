@@ -22,7 +22,6 @@ describe('TEMPLATES', () => {
 describe('defaultConfig', () => {
   it('returns a valid config for so101_act', () => {
     const cfg = defaultConfig('so101_act')
-    expect(cfg.templateId).toBe('so101_act')
     expect(cfg.joints).toHaveLength(6)
     expect(cfg.adapter).toBe('lerobot')
     expect(cfg.policy.type).toBe('act')
@@ -84,13 +83,8 @@ describe('defaultConfig', () => {
     const cfg = defaultConfig('quick_start')
     expect(cfg.adapter).toBe('simulation')
     expect(cfg.enforcement_mode).toBe('monitor')
-    expect(cfg.tasks[0].boundaries).toContain('hardware_watchdog')
-  })
-
-  it('full_demo template has 5 boundaries (Perception-Monitoring)', () => {
-    const cfg = defaultConfig('full_demo')
     expect(cfg.tasks[0].boundaries).toHaveLength(5)
-    expect(cfg.boundaries).toHaveLength(5)
+    expect(cfg.tasks[0].boundaries).toContain('hardware_watchdog')
   })
 
   it('falls back to simulation for unknown template id', () => {

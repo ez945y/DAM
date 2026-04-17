@@ -10,7 +10,7 @@ import { StatsCard }         from '@/components/StatsCard'
 import { GuardTable }        from '@/components/GuardTable'
 import { LatencyChart }      from '@/components/LatencyChart'
 import { McapCameraPlayer }  from '@/components/McapCameraPlayer'
-import { Shield, TrendingDown, Timer, Loader, AlertTriangle, Camera, Radio } from 'lucide-react'
+import { Shield, TrendingDown, Timer, Loader, AlertTriangle, Radio } from 'lucide-react'
 import { PageShell } from '@/components/PageShell'
 import { DEC_CONFIG } from '@/components/GuardTable'
 import { api } from '@/lib/api'
@@ -336,20 +336,7 @@ export default function DashboardPage() {
                     deadlineMs={tele.latestPerf.deadline_ms}
                   />
                 )}
-                {/* Camera button — only shows MCAP session display (not live mode) */}
-                {!liveMode && (
-                  <button
-                    onClick={() => setShowCamera(v => !v)}
-                    title={showCamera ? 'Show latency chart' : 'Show camera (MCAP session)'}
-                    className={`p-1.5 rounded border transition-all ${
-                      showCamera
-                        ? 'bg-dam-blue/20 text-dam-blue border-dam-blue/40'
-                        : 'bg-dam-surface-2 text-dam-muted border-dam-border hover:border-dam-blue/30 hover:text-dam-blue'
-                    }`}
-                  >
-                    <Camera size={14} strokeWidth={2} />
-                  </button>
-                )}
+                {/* Camera button removed — use Live Camera toggle in top bar instead */}
               </div>
             </div>
             

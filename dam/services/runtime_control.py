@@ -502,6 +502,17 @@ class RuntimeControlService:
                 self._on_state_change(self._state)
 
         if self._on_status_broadcast is not None:
+            with self._lock:
+                runner = self._runner
+                rt = runner.runtime if runner else None
+                task_config: dict[str, Any] = getattr(rt, "_task_config", {})
+                available_tasks = list(task_config.keys())
+                planned_task = (
+                    "default"
+                    if "default" in task_config
+                    else (available_tasks[0] if available_tasks else None)
+                )
+                planned_boundaries = list(task_config.get(planned_task, [])) if planned_task else []
             msg = {
                 "type": "system_status",
                 "state": self._state,
@@ -509,6 +520,8 @@ class RuntimeControlService:
                 "error": self._error or self._startup_error,
                 "message": self._error or self._startup_error or f"System state: {self._state}",
                 "cycle_count": self._cycle_count,
+                "planned_task": planned_task,
+                "planned_boundaries": planned_boundaries,
             }
             with contextlib.suppress(Exception):
                 self._on_status_broadcast(msg)

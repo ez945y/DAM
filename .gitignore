@@ -9,6 +9,8 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+.venv/
+.env
 
 # Hypothesis property-based testing database
 # Stores generated examples and shrunk failures — local only, never commit
@@ -16,6 +18,12 @@ build/
 
 # macOS
 .DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.Spotlight-V100
+.Trashes
 
 # Editors
 .vscode/
@@ -35,13 +43,18 @@ dam-rust/target/
 dam-rust/dam-py/dam_rs*.so
 dam-rust/dam-py/dam_rs*.pyd
 
+# Web / Next.js
+node_modules/
+.next/
+out/
+coverage/
+.env*.local
+*.tsbuildinfo
+
+# Project specific
 data/
 **.drawio.*
 **.png.bkp
-node_modules/
-.next/
-coverage/
-*/.env
 .dam_stackfile.yaml
 docs/DAM_Paper.md
 docs/DAM_入門學習指南.docx

@@ -79,7 +79,7 @@ function SessionCard({
         <div className="flex-1 min-w-0">
           <p className="font-mono text-[11px] font-semibold text-dam-text truncate">{session.filename}</p>
           <p className="text-[10px] text-dam-muted mt-0.5">
-            {new Date(session.created_at * 1000).toLocaleString([], {
+            {new Date(session.created_at * 1000).toLocaleString('en-US', {
               month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
             })}
           </p>
@@ -351,19 +351,37 @@ function McapViewerContent() {
   const [sessions, setSessions] = useState<McapSessionSummary[]>([])
   const [detailMap, setDetailMap] = useState<Record<string, McapSessionDetail>>({})
   const [cycles, setCycles] = useState<McapCycle[]>([])
+  const [cyclesCache, setCyclesCache] = useState<Record<string, McapCycle[]>>({})
   const [sessionsLoading, setSessionsLoading] = useState(false)
   const [cyclesLoading, setCyclesLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const selectSession = useCallback((filename: string) => {
     setSelectedFilename(filename)
-    setSelectedCycleId(null)
-    setCycles([])
+    
+    // Ultimate zero-flicker: if we have the list in cache, pre-select the first cycle immediately
+    const cached = cyclesCache[filename]
+    if (cached && cached.length > 0) {
+      // If NO cycle_id in URL, use first cached one
+      const urlCycleId = searchParams.get('cycle_id')
+      if (urlCycleId && cached.some(c => c.cycle_id === Number(urlCycleId))) {
+        setSelectedCycleId(Number(urlCycleId))
+      } else {
+        setSelectedCycleId(cached[0].cycle_id)
+      }
+    } else {
+      setSelectedCycleId(null)
+    }
+
     const url = new URL(window.location.href)
     url.searchParams.set('filename', filename)
-    url.searchParams.delete('cycle_id')
+    // ONLY delete cycle_id if we are manually switching to a session that didn't have one
+    // If we're entering via URL, keep it!
+    if (!searchParams.get('cycle_id')) {
+      url.searchParams.delete('cycle_id')
+    }
     router.replace(url.pathname + url.search, { scroll: false })
-  }, [router])
+  }, [router, cyclesCache, searchParams])
 
   const selectCycle = useCallback((cycleId: number) => {
     setSelectedCycleId(cycleId)
@@ -456,17 +474,39 @@ function McapViewerContent() {
   useEffect(() => {
     if (liveMode || !selectedFilename) return
     let cancelled = false
-    setCyclesLoading(true)
-    setCycles([])
-    api.listMcapCycles(selectedFilename)
+    const existing = cyclesCache[selectedFilename] || []
+    const lastId = existing.length > 0 ? existing[existing.length - 1].cycle_id : undefined
+
+    if (!lastId) setCyclesLoading(true)
+    
+    api.listMcapCycles(selectedFilename, lastId)
       .then(data => {
         if (cancelled) return
-        const list = data?.cycles ?? []
-        setCycles(list)
+        const newCycles = data?.cycles ?? []
+        
+        // Merge with existing cache
+        const updatedList = lastId ? [...existing, ...newCycles] : newCycles
+        setCycles(updatedList)
+        if (newCycles.length > 0 || !lastId) {
+          setCyclesCache(prev => ({ ...prev, [selectedFilename]: updatedList }))
+        }
+        
         const urlCycleId = searchParams.get('cycle_id')
+        let targetId: number | null = null
+
         if (urlCycleId) {
           const id = Number(urlCycleId)
-          if (list.some(c => c.cycle_id === id)) setSelectedCycleId(id)
+          if (updatedList.some(c => c.cycle_id === id)) {
+            targetId = id
+          }
+        }
+        
+        if (targetId === null && updatedList.length > 0 && !selectedCycleId) {
+          targetId = updatedList[0].cycle_id
+        }
+
+        if (targetId !== null) {
+          setSelectedCycleId(targetId)
         }
       })
       .catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load cycles') })
@@ -523,7 +563,7 @@ function McapViewerContent() {
                 <p className="text-[10px] opacity-60">Enable Live Mode to see real-time data</p>
               </div>
             ) : (
-              <div className="space-y-1.5 overflow-y-auto">
+              <div className="space-y-1.5 overflow-y-auto thin-scrollbar" style={{ maxHeight: 'calc(100vh - 160px)' }}>
                 {sessions.map(s => (
                   <SessionCard
                     key={s.filename}
@@ -562,23 +602,22 @@ function McapViewerContent() {
                 )}
 
                 {/* Timeline */}
-                <div className="bg-dam-surface-2 border border-dam-border rounded-lg p-4">
-                  <p className="text-[9px] font-bold text-dam-muted/50 uppercase tracking-[0.15em] mb-3">
-                    Cycle Timeline
-                  </p>
-                  {cyclesLoading ? (
-                    <div className="flex items-center gap-2 text-dam-muted py-4 justify-center">
-                      <Loader2 size={14} className="animate-spin" />
-                      <span className="text-sm">Indexing cycles…</span>
+                  <div className="bg-dam-surface-1/50 rounded-lg p-3 min-h-[60px] relative border border-dam-border/30">
+                    <div className="flex items-center justify-between mb-2">
+                       <p className="text-[9px] font-bold text-dam-muted/50 uppercase tracking-[0.15em]">
+                        Cycle Timeline
+                      </p>
+                      {cyclesLoading && <Loader2 size={10} className="animate-spin text-dam-blue" />}
                     </div>
-                  ) : (
-                    <McapTimelineView
-                      cycles={cycles}
-                      selectedCycleId={selectedCycleId ?? undefined}
-                      onSelectCycle={selectCycle}
-                    />
-                  )}
-                </div>
+                    <div className="relative">
+                      <McapTimelineView
+                        key={selectedFilename}
+                        cycles={cycles}
+                        selectedCycleId={selectedCycleId ?? undefined}
+                        onSelectCycle={selectCycle}
+                      />
+                    </div>
+                  </div>
 
                 {/* Inspector + camera */}
                 <div className="flex gap-4 flex-1 min-h-0" style={{ minHeight: 360 }}>

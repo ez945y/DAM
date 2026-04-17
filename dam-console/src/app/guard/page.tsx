@@ -49,7 +49,7 @@ function makeNode(): ConstraintNodeDef {
 }
 
 function makeBoundary(layerStr = 'L2'): BoundaryDef {
-  return { name: `new_${layerStr.toLowerCase()}_boundary`, layer: layerStr, type: 'single', nodes: [makeNode()] }
+  return { name: 'ood_detector', layer: layerStr, type: 'single', nodes: [makeNode()] }
 }
 
 // ── Shared input class ────────────────────────────────────────────────────────
@@ -774,6 +774,16 @@ function TaskForm({
 
 function migrateNode(node: ConstraintNodeDef): ConstraintNodeDef {
   const next = { ...node, params: { ...(node.params || {}) } }
+  // Clean up stray fields that shouldn't be in params
+  delete next.params.layer
+  delete next.params.type
+  // Migrate .dam_data/ood_models -> data/ood_models
+  if (next.params.ood_model_path?.includes('.dam_data/ood_models')) {
+    next.params.ood_model_path = next.params.ood_model_path.replace('.dam_data/ood_models', 'data/ood_models')
+  }
+  if (next.params.bank_path?.includes('.dam_data/ood_models')) {
+    next.params.bank_path = next.params.bank_path.replace('.dam_data/ood_models', 'data/ood_models')
+  }
   // 1. bounds -> bounds
   if (next.params.bounds && !next.params.bounds) {
     next.params.bounds = next.params.bounds
@@ -874,7 +884,7 @@ export default function GuardPage() {
 
   // Expand/collapse for Boundaries section (per layer)
   const [expandedBoundaryLayers, setExpandedBoundaryLayers] = useState<Record<string, boolean>>({
-    L0: false, L1: false, L2: true, L3: false, L4: false,
+    L0: false, L1: false, L2: false, L3: false, L4: false,
   })
 
   const [hasRust, setHasRust] = useState<boolean | null>(null)
