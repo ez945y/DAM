@@ -22,7 +22,6 @@ safety:
   no_task_behavior: emergency_stop
   enforcement_mode: monitor
 
-
 guards:
   - L0: ood
   - L1: preflight
@@ -76,8 +75,8 @@ boundaries:
           max_staleness_ms: 1000
 
 tasks:
-  demo_full_setup:
-    description: "A full 5-layer safety guard configuration (L0-L4: Perception to Monitoring)"
+  demo:
+    description: "Full demo"
     boundaries: [ood_detector, bounds, joint_position_limits, joint_velocity_limit, hardware_watchdog]
 
 loopback:

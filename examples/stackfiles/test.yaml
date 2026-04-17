@@ -24,7 +24,6 @@ safety:
   no_task_behavior: emergency_stop
   enforcement_mode: enforce
 
-
 guards:
   - L0: ood
   - L1: preflight
@@ -40,11 +39,7 @@ boundaries:
       - callback: ood_detector
         timeout_sec: 1
         fallback: emergency_stop
-        params:
-          ood_model_path: /tmp/dam_data/ood_models/ood_model_1.pt
-          bank_path: /tmp/dam_data/ood_models/ood_model_1.npy
-          backend: memory_bank
-  motion:
+  bounds:
     layer: L2
     type: single
     nodes:
@@ -58,7 +53,6 @@ boundaries:
     type: single
     nodes:
       - callback: joint_position_limits
-        timeout_sec: 1
         fallback: emergency_stop
         params:
           upper: [1.8243, 1.7691, 1.6026, 1.8067, 3.0741, 1.7453]
@@ -84,8 +78,8 @@ boundaries:
 
 tasks:
   soarm101:
-    description: "Default pick-and-place task"
-    boundaries: [motion, joint_position_limits, joint_velocity_limit, hardware_watchdog, ood_detector]
+    description: "Default task"
+    boundaries: [bounds, joint_position_limits, joint_velocity_limit, hardware_watchdog]
 
 loopback:
   backend: mcap
