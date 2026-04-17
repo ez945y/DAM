@@ -817,8 +817,10 @@ class McapSessionService:
                             return bytes(jpeg_data)
                         elif isinstance(jpeg_data, bytes):
                             return jpeg_data
-                    img = payload.get("data")
-                    return img if isinstance(img, bytes) else base64.b64decode(img)
+                    elif isinstance(payload, dict):
+                        img = payload.get("data")
+                        if img:
+                            return img if isinstance(img, bytes) else base64.b64decode(img)
         except Exception:  # noqa: BLE001
             pass
         return None
@@ -859,8 +861,10 @@ class McapSessionService:
                             return bytes(jpeg_data)
                         elif isinstance(jpeg_data, bytes):
                             return jpeg_data
-                    img = payload.get("data")
-                    return img if isinstance(img, bytes) else base64.b64decode(img)
+                    elif isinstance(payload, dict):
+                        img = payload.get("data")
+                        if img:
+                            return img if isinstance(img, bytes) else base64.b64decode(img)
         except Exception:  # noqa: BLE001
             pass
         return None

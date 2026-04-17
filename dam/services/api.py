@@ -633,7 +633,7 @@ def create_app(
                     # Logic: if name exists, add suffix _1, _2...
                     import os
 
-                    base_dir = "/tmp/dam_data/ood_models"
+                    base_dir = ".dam_data/ood_models"
                     os.makedirs(base_dir, exist_ok=True)
                     out_name = msg.get("output_name", "ood_model")
                     counter = 1
@@ -744,7 +744,7 @@ def create_app(
     async def list_ood_models() -> Any:
         import os
 
-        base_dir = "/tmp/dam_data/ood_models"
+        base_dir = ".dam_data/ood_models"
         if not os.path.exists(base_dir):
             return {"models": []}
 
@@ -790,7 +790,7 @@ def create_app(
     async def delete_ood_model(name: str) -> Any:
         import os
 
-        base_dir = "/tmp/dam_data/ood_models"
+        base_dir = ".dam_data/ood_models"
         pt_file = os.path.join(base_dir, f"{name}.pt")
         npy_file = os.path.join(base_dir, f"{name}.npy")
         json_file = os.path.join(base_dir, f"{name}.json")
