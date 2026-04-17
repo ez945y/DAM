@@ -137,7 +137,7 @@ export function McapCycleInspector({ filename, cycleId, tsNs, fallbackDetail, ov
 
   const [open, setOpen] = useState({
     guards:  true,
-    latency: true,
+    latency: false,
     obs:     false,
     action:  false,
   })
@@ -181,6 +181,23 @@ export function McapCycleInspector({ filename, cycleId, tsNs, fallbackDetail, ov
   }, [filename, cycleId, fallbackDetail, overrideCycleDetail])
 
   if (!overrideCycleDetail && (!filename || cycleId == null)) {
+    // If we have a filename but no cycleId, it means we are likely transitioning
+    // and about to auto-select the first cycle. Show the skeleton instead of empty text.
+    if (filename) {
+      return (
+        <div className="h-full flex flex-col bg-dam-surface-1 border border-dam-border rounded-lg p-6 space-y-4">
+          <div className="flex items-center justify-between mb-4">
+            <div className="h-4 w-32 bg-dam-surface-3 rounded animate-pulse" />
+            <div className="h-4 w-16 bg-dam-surface-3 rounded animate-pulse" />
+          </div>
+          <div className="mt-auto flex items-center justify-center gap-2 text-dam-muted/60">
+            <Loader2 size={12} className="animate-spin" />
+            <span className="text-[10px] uppercase tracking-wider font-bold">Synchronizing...</span>
+          </div>
+        </div>
+      )
+    }
+
     return (
       <div className="h-full flex items-center justify-center text-dam-muted text-sm py-12">
         Select a cycle in the timeline
@@ -188,11 +205,23 @@ export function McapCycleInspector({ filename, cycleId, tsNs, fallbackDetail, ov
     )
   }
 
-  if (loading) {
+  if (loading && !detail) {
     return (
-      <div className="h-full flex items-center justify-center text-dam-muted gap-2 py-12">
-        <Loader2 size={16} className="animate-spin" />
-        <span className="text-sm">Loading cycle {cycleId}…</span>
+      <div className="h-full flex flex-col bg-dam-surface-1 border border-dam-border rounded-lg p-6 space-y-4">
+        <div className="flex items-center justify-between mb-4">
+          <div className="h-4 w-32 bg-dam-surface-3 rounded animate-pulse" />
+          <div className="h-4 w-16 bg-dam-surface-3 rounded animate-pulse" />
+        </div>
+        {[1, 2, 3].map(i => (
+          <div key={i} className="space-y-2">
+            <div className="h-3 w-24 bg-dam-surface-2 rounded animate-pulse" />
+            <div className="h-8 w-full bg-dam-surface-2 rounded animate-pulse" />
+          </div>
+        ))}
+        <div className="mt-auto flex items-center justify-center gap-2 text-dam-muted/60">
+          <Loader2 size={12} className="animate-spin" />
+          <span className="text-[10px] uppercase tracking-wider font-bold">Synchronizing...</span>
+        </div>
       </div>
     )
   }

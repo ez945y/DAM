@@ -98,9 +98,9 @@ export const api = {
     apiFetch<{ sessions: McapSessionSummary[] }>('/mcap/sessions'),
   getMcapSession: (filename: string) =>
     apiFetch<McapSessionDetail>(`/mcap/sessions/${encodeURIComponent(filename)}`),
-  listMcapCycles: (filename: string) =>
+  listMcapCycles: (filename: string, sinceCycleId?: number) =>
     apiFetch<{ filename: string; count: number; cycles: McapCycle[] }>(
-      `/mcap/sessions/${encodeURIComponent(filename)}/cycles`
+      `/mcap/sessions/${encodeURIComponent(filename)}/cycles${sinceCycleId != null ? `?since_cycle_id=${sinceCycleId}` : ''}`
     ),
   getMcapCycleDetail: (filename: string, cycleId: number, tsNs?: number | null) =>
     apiFetch<McapCycleDetail>(

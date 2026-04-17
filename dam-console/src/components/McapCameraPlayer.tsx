@@ -186,6 +186,7 @@ export function McapCameraPlayer({
   const [frameIdx, setFrameIdx] = useState(0)
   const [playing, setPlaying] = useState(false)
   const [gridMode, setGridMode] = useState(false)
+  const [hasInitialized, setHasInitialized] = useState(false)
   const playIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // When live mode is enabled, stop playback
@@ -197,13 +198,14 @@ export function McapCameraPlayer({
 
   // Auto-select first camera; enable grid when >1 camera
   useEffect(() => {
-    if (cameras.length > 0 && !selectedCam) {
+    if (cameras.length > 0 && !hasInitialized) {
       setSelectedCam(cameras[0])
+      if (cameras.length > 1) {
+        setGridMode(true)
+      }
+      setHasInitialized(true)
     }
-    if (cameras.length > 1) {
-      setGridMode(true)
-    }
-  }, [cameras, selectedCam])
+  }, [cameras, hasInitialized])
 
   // Load frame list for a camera (lazy, cached in framesMap)
   const loadCam = useCallback((cam: string) => {
@@ -310,7 +312,7 @@ export function McapCameraPlayer({
   }
 
   const currentCams = liveMode ? liveCamList : cameras
-  const showGrid = gridMode || currentCams.length > 1
+  const showGrid = gridMode && currentCams.length > 1
 
   return (
     <div className="flex flex-col h-full bg-dam-surface-1 border border-dam-border rounded-lg overflow-hidden">
@@ -381,7 +383,12 @@ export function McapCameraPlayer({
             {currentCams.map(cam => {
               if (liveMode) {
                 return (
-                  <div key={cam} className="relative bg-black overflow-hidden" style={{ minHeight: 0 }}>
+                  <div 
+                    key={cam} 
+                    onClick={() => handleSelectCamera(cam)}
+                    className="relative bg-black overflow-hidden cursor-pointer hover:ring-1 hover:ring-dam-blue/50 transition-all" 
+                    style={{ minHeight: 0 }}
+                  >
                     <LiveCameraCell cam={cam} src={liveImages?.[cam]} label={currentCams.length > 1 ? cam : undefined} />
                   </div>
                 )
@@ -389,27 +396,32 @@ export function McapCameraPlayer({
               const camFrames = framesMap[cam]
               const hasFrames = camFrames && camFrames.length > 0
               return (
-                <div key={cam} className="relative bg-black overflow-hidden" style={{ minHeight: 0 }}>
-                  {loadingCams.has(cam) && !currentTimestampNs ? (
-                    <div className="flex items-center justify-center h-full text-dam-muted/40">
-                      <Loader2 size={14} className="animate-spin" />
-                    </div>
-                  ) : !hasFrames && (!loadingCams.has(cam) || !currentTimestampNs) ? (
-                    <div className="flex flex-col items-center justify-center h-full gap-1 text-dam-muted/40">
-                      <ImageOff size={16} />
-                      <span className="text-[9px]">{cam}</span>
-                    </div>
-                  ) : (
-                    <CameraCell
-                      filename={filename}
-                      cam={cam}
-                      frameIdx={hasFrames ? Math.min(frameIdx, camFrames.length - 1) : 0}
-                      tsNs={!hasFrames && currentTimestampNs != null ? currentTimestampNs : undefined}
-                      label={cam}
-                      compact
-                    />
-                  )}
-                </div>
+                  <div 
+                    key={cam} 
+                    onClick={() => handleSelectCamera(cam)}
+                    className="relative bg-black overflow-hidden cursor-pointer hover:ring-1 hover:ring-dam-blue/50 transition-all" 
+                    style={{ minHeight: 0 }}
+                  >
+                    {loadingCams.has(cam) && !currentTimestampNs ? (
+                      <div className="flex items-center justify-center h-full text-dam-muted/40">
+                        <Loader2 size={14} className="animate-spin" />
+                      </div>
+                    ) : !hasFrames && (!loadingCams.has(cam) || !currentTimestampNs) ? (
+                      <div className="flex flex-col items-center justify-center h-full gap-1 text-dam-muted/40">
+                        <ImageOff size={16} />
+                        <span className="text-[9px]">{cam}</span>
+                      </div>
+                    ) : (
+                      <CameraCell
+                        filename={filename}
+                        cam={cam}
+                        frameIdx={hasFrames ? Math.min(frameIdx, camFrames.length - 1) : 0}
+                        tsNs={!hasFrames && currentTimestampNs != null ? currentTimestampNs : undefined}
+                        label={cam}
+                        compact
+                      />
+                    )}
+                  </div>
               )
             })}
           </div>
@@ -436,8 +448,8 @@ export function McapCameraPlayer({
 
         {/* Timestamp overlay (MCAP mode only) */}
         {!liveMode && currentFrame && !isLoading && (
-          <div className="absolute bottom-2 left-2 bg-black/70 text-white text-[10px] font-mono px-2 py-0.5 rounded pointer-events-none">
-            {new Date(currentFrame.log_time_ns / 1_000_000).toLocaleTimeString([], {
+          <div className="absolute bottom-2 left-2 bg-black/80 text-white text-[10px] font-mono px-2 py-0.5 rounded pointer-events-none z-30 shadow-md">
+            {new Date(currentFrame.log_time_ns / 1_000_000).toLocaleTimeString('en-US', {
               hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 2,
             })}
             {timeOffsetMs != null && (

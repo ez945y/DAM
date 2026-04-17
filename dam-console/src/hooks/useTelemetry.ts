@@ -5,7 +5,7 @@ import type { CycleEvent, LogEntry, PerfSnapshot, TelemetrySnapshot } from '@/li
 const MAX_LATENCY = 60
 const MAX_EVENTS = 1000
 const WINDOW_MS = 60000 // 1 minute window
-const THROTTLE_MS = 500 // 0.5s refresh rate
+const THROTTLE_MS = 100 // 0.1s refresh rate (10Hz) for smooth real-time feel
 
 import { api } from '@/lib/api'
 
@@ -22,6 +22,7 @@ let gEvents: LogEntry[] = []
 let gLatency: number[] = []
 let gLatencyCycleIds: number[] = []
 const gLastLogged = new Map<string, number>()
+const gProcessedIds = new Set<number>() // Deduplication set
 let gCycleTimes: number[] = []
 let gRejectTimes: number[] = []
 let gClampTimes: number[] = []
@@ -45,6 +46,7 @@ export const resetGlobalState = () => {
   gCycleTimes = []
   gRejectTimes = []
   gClampTimes = []
+  gProcessedIds.clear()
 }
 
 export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, reset: () => void } {
@@ -111,7 +113,25 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
 
     ws.onopen = () => {
       gWsConnected = true
+      setState(s => ({ ...s, connected: true }))
       void fetchHistory()
+
+      // Fetch boundaries that have valid callbacks defined
+      api.listBoundaries().then(resp => {
+        if (!resp.boundaries) return
+        for (const b of resp.boundaries) {
+          // Only add if it has a constraint (meaning it's an actual guard)
+          if (b.nodes?.[0]?.constraint) {
+            gGuardMap[b.name] = {
+              name: b.name,
+              layer: b.layer || 'L1',
+              decision: 'STANDBY',
+              reason: '',
+            }
+          }
+        }
+        setState(s => ({ ...s, guardMap: { ...gGuardMap } }))
+      }).catch(() => {})
       
       const lastMsg = gEvents[0]?.message || ''
       const isOnlineMsg = lastMsg.includes('System Online')
@@ -153,7 +173,6 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
         // --- System Event Bridge: Notify other hooks ---
         if (msg.type === 'system_status' || msg.type === 'config_updated') {
           window.dispatchEvent(new CustomEvent('dam-system-update', { detail: msg }))
-          // Don't return! Let it fall through to update general connection state if needed.
           if (msg.type === 'system_status' && msg.message) {
             gEvents = [{
               type: 'info' as const,
@@ -168,7 +187,7 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
         const cycle = msg as CycleEvent
         const now = Date.now()
 
-        // Attach live images from the binary buffer to the cycle event for the UI
+        // Attach live images from the binary buffer
         if (cycle.active_cameras) {
           const images: Record<string, string | Blob> = {}
           cycle.active_cameras.forEach(name => {
@@ -181,46 +200,51 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
 
         gLatestCycle = cycle
         if (cycle.perf != null) gLatestPerf = cycle.perf
-        gBuffer.totalCycles++
-        gCycleTimes.push(now)
 
-        if (cycle.was_rejected) {
-          gBuffer.totalRejects++
-          gRejectTimes.push(now)
-        }
-        if (cycle.was_clamped) {
-          gBuffer.totalClamps++
-          gClampTimes.push(now)
-        }
+        const isNewCycle = !gProcessedIds.has(cycle.cycle_id)
+        if (isNewCycle) {
+          gProcessedIds.add(cycle.cycle_id)
+          gBuffer.totalCycles++
+          gCycleTimes.push(now)
 
-        let hasFault = false
-        const logEntries: LogEntry[] = []
-        const logNow = Date.now()
-        for (const g of cycle.guard_statuses) {
-          gGuardMap[g.name] = g
-          if (g.decision === 'FAULT' || g.decision === 'REJECT' || g.decision === 'CLAMP') {
-            if (g.decision === 'FAULT') hasFault = true
-            const key = `${g.name}:${g.decision}`
-            const lastLogged = gLastLogged.get(key) ?? 0
-            if (logNow - lastLogged >= 2000) {
-              gLastLogged.set(key, logNow)
-              logEntries.push({
-                type: g.decision,
-                message: `[${g.layer}] ${g.name}: ${g.reason || g.decision}`,
-                timestamp: cycle.timestamp,
-              })
+          if (cycle.was_rejected) {
+            gBuffer.totalRejects++
+            gRejectTimes.push(now)
+          }
+          if (cycle.was_clamped) {
+            gBuffer.totalClamps++
+            gClampTimes.push(now)
+          }
+
+          let hasFault = false
+          const logEntries: LogEntry[] = []
+          const logNow = Date.now()
+          for (const g of cycle.guard_statuses) {
+            gGuardMap[g.name] = g
+            if (g.decision === 'FAULT' || g.decision === 'REJECT' || g.decision === 'CLAMP') {
+              if (g.decision === 'FAULT') hasFault = true
+              const key = `${g.name}:${g.decision}`
+              const lastLogged = gLastLogged.get(key) ?? 0
+              if (logNow - lastLogged >= 2000) {
+                gLastLogged.set(key, logNow)
+                logEntries.push({
+                  type: g.decision,
+                  message: `[${g.layer}] ${g.name}: ${g.reason || g.decision}`,
+                  timestamp: cycle.timestamp,
+                })
+              }
             }
           }
-        }
-        if (hasFault) gBuffer.totalFaults++
+          if (hasFault) gBuffer.totalFaults++
 
-        if (logEntries.length > 0) {
-          gEvents = [...logEntries, ...gEvents].slice(0, MAX_EVENTS)
-        }
+          if (logEntries.length > 0) {
+            gEvents = [...logEntries, ...gEvents].slice(0, MAX_EVENTS)
+          }
 
-        gLatency = [...gLatency, cycle.latency_ms['total'] || 0].slice(-MAX_LATENCY)
-        gLatencyCycleIds = [...gLatencyCycleIds, cycle.cycle_id].slice(-MAX_LATENCY)
-      } catch (err) { console.error(err) }
+          gLatency = [...gLatency, cycle.latency_ms['total'] || 0].slice(-MAX_LATENCY)
+          gLatencyCycleIds = [...gLatencyCycleIds, cycle.cycle_id].slice(-MAX_LATENCY)
+        }
+      } catch (err) { console.error('WS JSON error:', err) }
     }
 
     ws.onclose = () => {
@@ -235,16 +259,16 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
 
   useEffect(() => {
     connect()
-    refreshTimerRef.current = setInterval(() => {
+    // Immediate first tick to ensure UI shows data even if interval hasn't fired
+    const doTick = () => {
       const now = Date.now()
       const cutoff = now - WINDOW_MS
-      
+
       gCycleTimes = gCycleTimes.filter(t => t > cutoff)
       gRejectTimes = gRejectTimes.filter(t => t > cutoff)
       gClampTimes = gClampTimes.filter(t => t > cutoff)
 
-      if (!gLatestCycle) return
-
+      // Always update state, even if gLatestCycle is null (shows initialConnecting)
       setState(s => ({
         ...s,
         lastCycle: gLatestCycle,
@@ -261,7 +285,13 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
         windowClamps: gClampTimes.length,
         events: [...gEvents],
       }))
-    }, THROTTLE_MS)
+    }
+
+    // Run once immediately
+    doTick()
+
+    // Then run at THROTTLE_MS intervals
+    refreshTimerRef.current = setInterval(doTick, THROTTLE_MS)
 
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current)

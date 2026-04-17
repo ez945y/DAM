@@ -412,7 +412,7 @@ class McapSessionService:
         }
         return res
 
-    def list_cycles(self, filename: str) -> list[dict[str, Any]]:
+    def list_cycles(self, filename: str, since_cycle_id: int | None = None) -> list[dict[str, Any]]:
         path = self._resolve(filename)
         if not path:
             return []
@@ -424,18 +424,23 @@ class McapSessionService:
             cur = self._conn.cursor()
             cur.execute("SELECT mtime_ns, cycles_json FROM cycles WHERE filename=?", (filename,))
             row = cur.fetchone()
-        if row and row[0] == mtime_ns:
-            return json.loads(row[1])
 
-        cycles = self._index_cycles(path)
-        with self._lock:
-            cur = self._conn.cursor()
-            cur.execute(
-                "INSERT OR REPLACE INTO cycles (filename, mtime_ns, cycles_json) VALUES (?, ?, ?)",
-                (filename, mtime_ns, json.dumps(cycles)),
-            )
-            self._conn.commit()
-        return cycles
+        full_list: list[dict[str, Any]] = []
+        if row and row[0] == mtime_ns:
+            full_list = json.loads(row[1])
+        else:
+            full_list = self._index_cycles(path)
+            with self._lock:
+                cur = self._conn.cursor()
+                cur.execute(
+                    "INSERT OR REPLACE INTO cycles (filename, mtime_ns, cycles_json) VALUES (?, ?, ?)",
+                    (filename, mtime_ns, json.dumps(full_list)),
+                )
+                self._conn.commit()
+
+        if since_cycle_id is not None:
+            return [c for c in full_list if c["cycle_id"] > since_cycle_id]
+        return full_list
 
     def _index_cycles(self, path: Path) -> list[dict[str, Any]]:
         cycles = []

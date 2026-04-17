@@ -93,9 +93,26 @@ export function McapTimelineView({
   }
 
   // Scroll selected bar into view
+  const isFirstRender = useRef(true)
   useEffect(() => {
-    selectedBarRef.current?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' })
-  }, [selectedCycleId])
+    if (cycles.length === 0 || selectedCycleId == null) return
+
+    // We use a small delay via requestAnimationFrame to ensure React has finished 
+    // painting the "isSelected" state to the DOM, so the ref is guaranteed to exist.
+    const scrollTask = requestAnimationFrame(() => {
+      if (!selectedBarRef.current) return
+
+      const behavior = isFirstRender.current ? 'auto' : 'smooth'
+      selectedBarRef.current.scrollIntoView({ 
+        block: 'nearest', 
+        inline: 'start', 
+        behavior 
+      })
+      isFirstRender.current = false
+    })
+
+    return () => cancelAnimationFrame(scrollTask)
+  }, [selectedCycleId, cycles]) // Depend on full cycles array for reliable sync
 
   if (cycles.length === 0) {
     return (
@@ -108,20 +125,17 @@ export function McapTimelineView({
   return (
     <div className="space-y-3">
       {/* ── Stats + incident navigator ─────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex items-center gap-2 bg-green-500/10 border border-green-500/20 px-2.5 py-1.5 rounded-lg text-xs">
-          <CheckCircle size={12} className="text-green-500" />
-          <span className="text-dam-muted">Pass</span>
+      <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 bg-green-500/10 border border-green-500/20 px-1.5 py-0.5 rounded text-[10px]">
+          <CheckCircle size={9} className="text-green-500" />
           <span className="font-mono font-bold text-green-500">{stats.pass}</span>
         </div>
-        <div className="flex items-center gap-2 bg-blue-500/10 border border-blue-500/20 px-2.5 py-1.5 rounded-lg text-xs">
-          <ShieldAlert size={12} className="text-dam-blue" />
-          <span className="text-dam-muted">Clamp</span>
+        <div className="flex items-center gap-1 bg-blue-500/10 border border-blue-500/20 px-1.5 py-0.5 rounded text-[10px]">
+          <ShieldAlert size={9} className="text-dam-blue" />
           <span className="font-mono font-bold text-dam-blue">{stats.clamp}</span>
         </div>
-        <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 px-2.5 py-1.5 rounded-lg text-xs">
-          <AlertTriangle size={12} className="text-red-500" />
-          <span className="text-dam-muted">Reject</span>
+        <div className="flex items-center gap-1 bg-red-500/10 border border-red-500/20 px-1.5 py-0.5 rounded text-[10px]">
+          <AlertTriangle size={9} className="text-red-500" />
           <span className="font-mono font-bold text-red-500">{stats.reject}</span>
         </div>
 
@@ -159,7 +173,7 @@ export function McapTimelineView({
           className="overflow-x-auto pb-1"
           style={{ scrollbarWidth: 'thin' }}
         >
-          <div className="flex gap-px min-w-min px-1 py-1">
+          <div className="flex gap-px min-w-min px-4 py-1">
             {cycles.map((cycle, idx) => {
               const status = statuses[idx]
               const isSelected = cycle.cycle_id === selectedCycleId
@@ -170,7 +184,7 @@ export function McapTimelineView({
                   onClick={() => onSelectCycle?.(cycle.cycle_id)}
                   title={`Cycle ${cycle.cycle_id} — ${status.toUpperCase()}\n${new Date(cycle.timestamp_ns / 1_000_000).toLocaleTimeString()}`}
                   className={[
-                    'shrink-0 rounded-sm transition-all duration-75',
+                    'shrink-0 rounded-sm transition-all duration-75 scroll-mx-6',
                     STATUS_COLOR[status],
                     STATUS_HOVER[status],
                     isSelected
