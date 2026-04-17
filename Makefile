@@ -13,11 +13,15 @@
 #   make ci-import         ← build Rust + import
 #   make ci-stackfile     ← validate stackfile
 #
-.PHONY: setup dev run docs test test-py test-rs test-ui lint build-rs clean help ci-lint ci-syntax ci-import ci-stackfile
+.PHONY: setup dev run docs test test-py test-rs test-ui lint build-rs clean help ci-lint ci-syntax ci-import ci-stackfile _kill_port
 
 # Ensure scripts are executable before every target that uses them
 _chmod:
 	@chmod +x scripts/setup.sh scripts/run.sh scripts/run_prod.sh scripts/test.sh
+
+_kill_port:
+	@echo "Checking for processes on port 8080..."
+	@lsof -ti:8080 | xargs kill -9 2>/dev/null || true
 
 setup: _chmod   ## First-time setup: Python venv (uv) + Rust extension (maturin) + npm
 	@bash scripts/setup.sh
@@ -34,10 +38,10 @@ _AV_DYLIB_DIR := $(shell ls -d .venv/lib/python*/site-packages/av/.dylibs 2>/dev
 _DYLD_PREFIX   := $(if $(_AV_DYLIB_DIR),DYLD_LIBRARY_PATH="$(_AV_DYLIB_DIR):$$DYLD_LIBRARY_PATH" ,)
 _PYTHONPATH    := PYTHONPATH="$(shell python3 -c "import site; print(site.getsitepackages()[0] if site.getsitepackages() else '')" 2>/dev/null):$$PYTHONPATH"
 
-dev: _chmod   ## Dev mode: hot-reload backend + Next.js dev server
+dev: _chmod _kill_port  ## Dev mode: hot-reload backend + Next.js dev server
 	@$(_DYLD_PREFIX)$(_PYTHONPATH) BACKEND_SCRIPT=scripts/dam_host.py bash scripts/run.sh
 
-run: _chmod   ## Production mode: build frontend (static) + start backend
+run: _chmod _kill_port  ## Production mode: build frontend (static) + start backend
 	@$(_DYLD_PREFIX)$(_PYTHONPATH) bash scripts/run_prod.sh
 
 docs:   ## Preview documentation locally at http://127.0.0.1:8002/DAM/

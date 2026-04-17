@@ -18,7 +18,13 @@ logger = logging.getLogger(__name__)
 
 
 class OODTrainerService:
-    def __init__(self, data_dir: str = "/tmp/dam_data/ood_models"):
+    def __init__(self, data_dir: str | None = None):
+        if data_dir is None:
+            # Default to .dam_data in project root (standard practice for local dev)
+            import os
+            project_root = os.getcwd()
+            data_dir = os.path.join(project_root, ".dam_data", "ood_models")
+            
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
