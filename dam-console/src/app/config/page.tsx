@@ -34,10 +34,10 @@ function loadSaved(): DamConfig {
     const raw = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null
     if (raw) {
       const parsed = JSON.parse(raw) as DamConfig
-      return { ...defaultConfig(parsed.templateId ?? 'so101_act'), ...parsed }
+      return { ...defaultConfig(), ...parsed, templateId: '' }
     }
   } catch { /* ignore */ }
-  return defaultConfig('so101_act')
+  return defaultConfig()
 }
 
 type AssetTarget = 'calibration' | 'ood_model'
@@ -122,8 +122,8 @@ export default function ConfigPage() {
   // ── Server-safe initial state (no localStorage — avoids SSR/client hydration mismatch)
   // loadSaved() is applied in the mount effect below; until then both server
   // and client render the same default so React's hydration check passes.
-  const [cfg, setCfg] = useState<DamConfig>(() => defaultConfig('so101_act'))
-  const [yaml, setYaml] = useState(() => generateYaml(defaultConfig('so101_act')))
+  const [cfg, setCfg] = useState<DamConfig>(() => defaultConfig())
+  const [yaml, setYaml] = useState(() => generateYaml(defaultConfig()))
   const [yamlDirty, setYamlDirty] = useState(false)
   const [saved, setSaved] = useState(false)
   const [restarting, setRestarting] = useState(false)
@@ -224,7 +224,8 @@ export default function ConfigPage() {
   const handleTemplate = (id: string) => {
     const next = defaultConfig(id)
     const nextYaml = generateYaml(next)
-    setCfg(next)
+    // FORCE identity removal for statelessness
+    setCfg({ ...next, templateId: '' })
     setYaml(nextYaml)
     setYamlDirty(false)
     // Save immediately on template change
