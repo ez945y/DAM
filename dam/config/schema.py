@@ -4,6 +4,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
+from dam.types.enforcement import EnforcementMode
+
 # ── Guard pipeline configs ─────────────────────────────────────────────────
 # All guard-specific parameters (model paths, thresholds, joint_position_limits, …)
 # live in boundary node ``params`` blocks and reach guards via the config pool.
@@ -79,19 +81,7 @@ class SafetyConfig(BaseModel):
     control_frequency_hz: float = 50.0
     max_obs_age_sec: float = 0.1
     cycle_budget_ms: float = 20.0
-    # Enforcement mode — controls whether guard decisions block action dispatch.
-    # enforce:   full validation; rejected/clamped actions are blocked (production default)
-    # monitor:   validation runs and is logged but does NOT block action dispatch
-    # log_only:  guard pipeline is skipped; only logs that a cycle occurred
-    enforcement_mode: str = "enforce"
-
-    @field_validator("enforcement_mode")
-    @classmethod
-    def valid_enforcement_mode(cls, v: str) -> str:
-        allowed = {"enforce", "monitor", "log_only"}
-        if v not in allowed:
-            raise ValueError(f"enforcement_mode must be one of {allowed}, got '{v}'")
-        return v
+    enforcement_mode: EnforcementMode = EnforcementMode.ENFORCE
 
     @field_validator("control_frequency_hz")
     @classmethod

@@ -16,6 +16,7 @@ from dam.fallback.base import FallbackContext
 from dam.guard.aggregator import aggregate_decisions
 from dam.injection.static import precompute_injection
 from dam.types.action import ValidatedAction
+from dam.types.enforcement import EnforcementMode
 from dam.types.observation import Observation
 from dam.types.result import GuardDecision, GuardResult
 from dam.types.risk import CycleResult, RiskLevel
@@ -46,7 +47,7 @@ class GuardRuntime:
         always_active: list[str] | None = None,
         config_pool: dict[str, Any] | None = None,
         control_frequency_hz: float = 50.0,
-        enforcement_mode: str = "enforce",
+        enforcement_mode: EnforcementMode | str = EnforcementMode.ENFORCE,
         risk_controller_config: Any | None = None,  # Optional["RiskControllerConfig"]
         loopback_config: Any | None = None,  # Optional["LoopbackConfig"]
         kinematics_resolver: KinematicsResolver | None = None,
@@ -56,9 +57,11 @@ class GuardRuntime:
             always_active = []
         if config_pool is None:
             config_pool = {}
-        if enforcement_mode not in ("enforce", "monitor", "log_only"):
+        try:
+            enforcement_mode = EnforcementMode(enforcement_mode)
+        except ValueError:
             raise ValueError(
-                f"enforcement_mode must be enforce|monitor|log_only, got '{enforcement_mode}'"
+                f"enforcement_mode must be one of {list(EnforcementMode)}, got '{enforcement_mode}'"
             )
 
         # Store ALL guards sorted by layer; _guards is the enabled subset.
@@ -453,8 +456,8 @@ class GuardRuntime:
             self._risk_controller.record(was_clamped=False, was_rejected=True)
             for g in self._guards:
                 g.on_violation(aggregated)
-            should_enforce = self._enforcement_mode == "enforce"
-            # In monitor/log_only modes guards run but do NOT block action dispatch
+            should_enforce = self._enforcement_mode == EnforcementMode.ENFORCE
+            # In MONITOR/LOG_ONLY modes guards run but do NOT block action dispatch
             if should_enforce:
                 fallback_name = "emergency_stop"
                 if self._active_containers:
