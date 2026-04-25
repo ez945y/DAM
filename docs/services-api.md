@@ -45,7 +45,7 @@ before and the `perf` key is absent from all events.
 
 #### Event shape
 
-Each message is a JSON object with `"type": "cycle"`.  
+Each message is a JSON object with `"type": "cycle"`.
 The `perf` field is present only when `MetricBus` is wired in (see above).
 
 ```json

@@ -51,6 +51,9 @@ coverage/
 .env*.local
 *.tsbuildinfo
 
+# MkDocs
+site/
+
 # Project specific
 data/
 **.drawio.*

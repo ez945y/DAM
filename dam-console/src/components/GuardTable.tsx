@@ -58,19 +58,19 @@ export function GuardTable({
       if (cfg) {
         if (cfg.nodes && cfg.nodes.length > 0) {
           for (const node of cfg.nodes) {
-            expected.push({ 
+            expected.push({
               boundaryName: bname,
-              nodeId: node.node_id || bname, 
+              nodeId: node.node_id || bname,
               layer: cfg.layer || 'L1',
-              decision: 'STANDBY' 
+              decision: 'STANDBY'
             })
           }
         } else {
-          expected.push({ 
+          expected.push({
             boundaryName: bname,
-            nodeId: bname, 
+            nodeId: bname,
             layer: cfg.layer || 'L1',
-            decision: 'STANDBY' 
+            decision: 'STANDBY'
           })
         }
       }
@@ -80,7 +80,7 @@ export function GuardTable({
 
   // Merge runtime guards atop expected configuration
   const mergedMap = new Map<string, GuardStatus | { name: string, boundaryName: string, layer: string, decision: GuardDecision | 'STANDBY', reason?: string }>()
-  
+
   // Initialize with placeholders
   for (const exp of expectedGuards) {
     mergedMap.set(exp.boundaryName, { ...exp, name: exp.boundaryName })
@@ -91,14 +91,14 @@ export function GuardTable({
       // Standardize layer name to 'LX' format
       let l = String(g.layer || '')
       if (!l.startsWith('L') && !isNaN(Number(l))) l = 'L' + l
-      
+
       const gWithFixedLayer = { ...g, layer: l }
 
       // Enhanced Matching Logic:
       // 1. Match by specific Node ID (priority)
       // 2. Match by Boundary Name (fallback)
       let matchingPlaceholder = expectedGuards.find(e => e.nodeId === g.name || e.boundaryName === g.name)
-      
+
       if (!matchingPlaceholder) {
         matchingPlaceholder = expectedGuards.find(e => g.name.startsWith(e.boundaryName + '_'))
       }
@@ -125,7 +125,7 @@ export function GuardTable({
 
   // Group by layer
   const grouped: Record<string, typeof mergedList> = {}
-  
+
   // Ensure L0-L4 always exist for a professional "pre-flight" look
   const coreLayers = ['L0', 'L1', 'L2', 'L3', 'L4']
   for (const layer of coreLayers) {
@@ -162,7 +162,7 @@ export function GuardTable({
         const layerCls = LAYER_COLORS[layer] ?? 'text-dam-muted bg-dam-surface-3 border-dam-border'
         const layerTextColor = layerCls.split(' ')[0]
         const hasItems = items.length > 0
-        
+
         // Compute group decision
         let groupDecision: GuardDecision | 'STANDBY' = 'STANDBY'
         if (hasItems) {
@@ -173,7 +173,7 @@ export function GuardTable({
              else if (it.decision === 'PASS' && groupDecision === 'STANDBY') groupDecision = 'PASS'
           }
         }
-        
+
         const dcGroup = DEC_CONFIG[groupDecision] ?? DEC_CONFIG.STANDBY
         const { Icon } = dcGroup
 
@@ -182,14 +182,14 @@ export function GuardTable({
         return (
           <div key={layer} className={`border border-dam-border/40 rounded bg-dam-surface-2 transition-all duration-300 ${!hasItems ? 'opacity-30 grayscale' : (dcGroup.bg === 'bg-dam-surface-3' ? '' : dcGroup.bg.replace('/40', '/5'))}`}>
             {/* Group Header */}
-            <div 
+            <div
               className={`flex items-center gap-3 px-3 py-2 border-l-2 ${dcGroup.border} transition-colors cursor-pointer hover:bg-dam-surface-3/30 select-none group/row`}
               onClick={() => hasItems && toggleLayer(layer)}
             >
               <div className="flex items-center justify-center w-5">
                 {hasItems ? (isExpanded ? <ChevronDown size={14} className="text-dam-muted group-hover/row:text-dam-blue" /> : <ChevronRight size={14} className="text-dam-muted group-hover/row:text-dam-blue" />) : null}
               </div>
-              
+
               <div className="flex items-center gap-2 flex-1 min-w-0">
                 <span className={`px-1.5 py-0.5 rounded-[4px] text-[9px] font-black border uppercase shrink-0 ${layerCls}`}>
                   {layer}
@@ -206,7 +206,7 @@ export function GuardTable({
                     {activeCountByLayer[layer] || 0}
                   </span>
                 </div>
-                
+
                 <div className="flex flex-col items-end -space-y-0.5 min-w-[60px]">
                    <span className={`text-[10px] font-black uppercase tracking-widest ${dcGroup.color}`}>
                     {groupDecision}
@@ -214,7 +214,7 @@ export function GuardTable({
                 </div>
               </div>
             </div>
-            
+
             {/* List Details */}
             {isExpanded && (
               <div className="border-t border-dam-border/30 bg-black/30 divide-y divide-dam-border/10 animate-in fade-in slide-in-from-top-1 duration-200">
@@ -251,4 +251,3 @@ export function GuardTable({
     </div>
   )
 }
-

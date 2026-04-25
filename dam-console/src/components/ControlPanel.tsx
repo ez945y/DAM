@@ -33,7 +33,7 @@ export function ControlPanel({ state, backendState, cycleCount, error, loading, 
   const isStarting = state === 'starting'
   const isStopping = state === 'stopping'
   const isEmergency = state === 'emergency'
-  
+
   const systemReady = backendState === 'ready'
   const isActive = isRunning || isPaused || isStarting || isStopping
   const canStart = systemReady && (state === 'idle' || state === 'stopped')

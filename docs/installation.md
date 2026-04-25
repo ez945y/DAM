@@ -29,7 +29,7 @@ make setup
 make run
 ```
 
-`make run` starts both the backend API (port 8080) and the dashboard UI (port 3000).  
+`make run` starts both the backend API (port 8080) and the dashboard UI (port 3000).
 Open **http://localhost:3000** in your browser to see the DAM Console.
 
 ---

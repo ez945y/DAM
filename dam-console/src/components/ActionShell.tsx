@@ -1,8 +1,8 @@
 'use client'
 import React, { useState } from 'react'
-import { 
-  Download, Upload, Check, ShieldCheck, 
-  RotateCcw, ChevronDown, ChevronUp, Copy, RefreshCw 
+import {
+  Download, Upload, Check, ShieldCheck,
+  RotateCcw, ChevronDown, ChevronUp, Copy, RefreshCw
 } from 'lucide-react'
 
 interface ActionShellProps {
@@ -52,7 +52,7 @@ export function ActionShell({
             <h1 className="text-2xl font-black text-dam-text tracking-tighter uppercase italic leading-none">{title}</h1>
             <p className="text-dam-muted text-[10px] font-bold uppercase tracking-[0.3em] mt-2 opacity-60">{description}</p>
           </div>
-          
+
           <div className="flex items-center gap-2">
             {saved && (
               <span className="flex items-center gap-1 text-dam-green text-[10px] font-bold tracking-widest uppercase mr-2 animate-in fade-in duration-500">
@@ -110,7 +110,7 @@ export function ActionShell({
 
       {/* YAML Section (Shared between Guard & Config) */}
       <div className="mt-12 pt-12 border-t border-dam-border/40 px-8">
-        <div 
+        <div
           className="flex items-center justify-between cursor-pointer group mb-5"
           onClick={() => setYamlOpen(!yamlOpen)}
         >
@@ -121,7 +121,7 @@ export function ActionShell({
             </div>
           </div>
           {yamlOpen && (
-            <button 
+            <button
               onClick={(e) => { e.stopPropagation(); handleCopy(); }}
               className="flex items-center gap-1.5 px-3 py-1 rounded bg-dam-surface-3 border border-dam-border text-[10px] font-bold text-dam-muted hover:text-dam-text transition-colors"
             >

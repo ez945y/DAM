@@ -76,7 +76,7 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
     try {
       const data = await api.getRiskLog({ limit: 500 })
       if (!data.events) return
-      
+
       const historyEntries: LogEntry[] = []
       data.events.forEach(ev => {
         ev.guard_results.forEach(g => {
@@ -91,11 +91,11 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
       })
       // Sort descending by timestamp
       historyEntries.sort((a, b) => b.timestamp - a.timestamp)
-      
+
       // Merge with de-duplication
       const existingMsg = new Set(gEvents.map(e => `${e.timestamp}:${e.message}`))
       const uniqueNew = historyEntries.filter(e => !existingMsg.has(`${e.timestamp}:${e.message}`))
-      
+
       gEvents = [...gEvents, ...uniqueNew].sort((a, b) => b.timestamp - a.timestamp).slice(0, MAX_EVENTS)
       gHistoryFetched = true
       setState(s => ({ ...s, events: [...gEvents] }))
@@ -132,10 +132,10 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
         }
         setState(s => ({ ...s, guardMap: { ...gGuardMap } }))
       }).catch(() => {})
-      
+
       const lastMsg = gEvents[0]?.message || ''
       const isOnlineMsg = lastMsg.includes('System Online')
-      
+
       if (!isOnlineMsg) {
         gEvents = [{
           type: 'info' as const,
@@ -143,7 +143,7 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
           timestamp: Date.now() / 1000
         }, ...gEvents].slice(0, MAX_EVENTS)
       }
-      
+
       setState(s => ({ ...s, connected: true, events: [...gEvents] }))
     }
 
@@ -158,7 +158,7 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
             const name = new TextDecoder().decode(view.subarray(2, 2 + nameLen))
             const jpegData = view.subarray(2 + nameLen)
             const blob = new Blob([jpegData], { type: 'image/jpeg' })
-            
+
             // Optimization: Update global map and trigger a partial state update if needed.
             // But usually, we just want this to be available for the next refersh timer tick.
             gLiveImages[name] = blob
@@ -169,7 +169,7 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
 
       try {
         const msg = JSON.parse(e.data as string)
-        
+
         // --- System Event Bridge: Notify other hooks ---
         if (msg.type === 'system_status' || msg.type === 'config_updated') {
           window.dispatchEvent(new CustomEvent('dam-system-update', { detail: msg }))

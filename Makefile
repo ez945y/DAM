@@ -23,7 +23,7 @@ _kill_port:
 	@echo "Checking for processes on port 8080..."
 	@lsof -ti:8080 | xargs kill -9 2>/dev/null || true
 
-setup: _chmod   ## First-time setup: Python venv (uv) + Rust extension (maturin) + npm
+setup: _chmod   ## First-time setup: venv + Rust + npm + pre-commit hooks
 	@bash scripts/setup.sh
 
 setup-lerobot: _chmod   ## Setup with lerobot hardware support (SO-ARM101 + cameras)
@@ -31,6 +31,10 @@ setup-lerobot: _chmod   ## Setup with lerobot hardware support (SO-ARM101 + came
 
 build-rs: _chmod   ## Rebuild Rust extension only (dam_rs via maturin)
 	@bash scripts/setup.sh --rust-only
+
+setup-precommit:   ## Install and setup pre-commit hooks
+	@uv pip install pre-commit --python .venv/bin/python
+	@.venv/bin/pre-commit install
 
 # macOS: prefer venv's bundled ffmpeg dylibs over Homebrew to silence
 # "Class AVFAudioReceiver is implemented in both …" ObjC duplicate warnings.

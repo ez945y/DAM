@@ -75,14 +75,14 @@ boundaries:
           bounds: [[-0.35, 0.35], [-0.05, 0.45], [0.01, 0.40]]
         fallback: hold_position
         timeout_sec: 15.0
-      
+
       - node_id: grasp
         constraint:
           max_speed: 0.08
           bounds: [[-0.20, 0.20], [0.05, 0.35], [0.01, 0.15]]
         fallback: hold_position
         timeout_sec: 8.0
-      
+
       - node_id: lift
         constraint:
           max_speed: 0.15
@@ -118,12 +118,12 @@ boundaries:
         constraint:
           max_speed: 0.3
         fallback: hold_position
-      
+
       - node_id: error_recovery
         constraint:
           max_speed: 0.05
         fallback: emergency_stop
-      
+
       - node_id: shutdown
         constraint:
           max_speed: 0.0
@@ -197,25 +197,25 @@ def evaluate_constraint(action, obs, constraint):
     # Check 1: Velocity
     if velocity_norm(action) > constraint.max_speed:
         return REJECT
-    
+
     # Check 2: Workspace
     if not in_bounds(fk(action), constraint.bounds):
         return REJECT
-    
+
     # Check 3: Force
     if hasattr(constraint, 'max_force_n'):
         if force_norm(obs.force) > constraint.max_force_n:
             return REJECT
-    
+
     # Check 4: Callbacks
     for cb_name in constraint.callback:
         if not callbacks[cb_name](obs, constraint):
             return REJECT
-    
+
     # Check 5: Timeout
     if node.active_time > constraint.timeout_sec:
         return REJECT
-    
+
     return PASS
 ```
 
@@ -241,7 +241,7 @@ boundaries:
     nodes:
       - node_id: reach
         fallback: hold_position      # Hold if constraint violated
-        
+
       - node_id: approach_fragile
         fallback: emergency_stop     # E-Stop if we get near fragile object
 ```
@@ -319,7 +319,7 @@ tasks:
     boundaries:
       - pick_and_place         # Main task boundary
       - always_safe_zone       # Always active (workspace limit)
-  
+
   idle:
     boundaries:
       - idle
@@ -351,14 +351,14 @@ def validate_grasp_target(obs, state, constraint):
     """
     target = state.grasp_target  # Set by your task logic
     current_ee_pos = obs.end_effector_pos
-    
+
     # Compute distance to target
     distance = np.linalg.norm(current_ee_pos - target)
-    
+
     # Reject if we're moving away from target
     if distance > state.last_distance:
         return False  # REJECT
-    
+
     state.last_distance = distance
     return True  # PASS
 
@@ -392,7 +392,7 @@ def my_callback(obs: Observation, state: RuntimeState, constraint: BoundaryConst
       obs: Current observation (sensor readings)
       state: Runtime state (task variables, history)
       constraint: The boundary constraint being evaluated
-    
+
     Returns:
       True: constraint passed
       False: constraint failed (action will be rejected)
@@ -419,14 +419,14 @@ boundaries:
           bounds: [[-0.2, 0.2], [0.1, 0.3], [0.0, 0.2]]
           max_speed: 0.1
         timeout_sec: 10.0
-      
+
       # Phase 2: Tighter bound for precision
       - node_id: precision_grasp
         constraint:
           bounds: [[-0.05, 0.05], [0.15, 0.25], [0.0, 0.1]]
           max_speed: 0.01
         timeout_sec: 5.0
-      
+
       # Phase 3: Lift phase (larger space)
       - node_id: lift
         constraint:
@@ -540,22 +540,22 @@ mcap cat violations.mcap | jq '.[] | select(.rejecting_guard == "L3")'
 
 ## Best Practices
 
-1. **Start Conservative**  
+1. **Start Conservative**
    Define tight bounds, then loosen as you validate behavior.
 
-2. **Use Multiple Boundaries**  
+2. **Use Multiple Boundaries**
    Combine global safety zone (always active) + task-specific boundaries.
 
-3. **Test Fallbacks**  
+3. **Test Fallbacks**
    Verify that your fallback strategies work before deploying.
 
-4. **Monitor Violations**  
+4. **Monitor Violations**
    Track when boundaries are hit. High violation rates indicate need for adjustment.
 
-5. **Callback Simplicity**  
+5. **Callback Simplicity**
    Keep callbacks simple (< 5 ms execution). Complex logic belongs in the policy.
 
-6. **Version Boundaries**  
+6. **Version Boundaries**
    Keep Stackfiles in version control. Track which boundary versions worked for which tasks.
 
 ---

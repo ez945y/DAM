@@ -155,6 +155,16 @@ if ! $RUST_ONLY; then
     fi
 fi
 
+# ── Pre-commit Hooks ──────────────────────────────────────────────────────────
+if ! $RUST_ONLY; then
+    if [[ -f .pre-commit-config.yaml ]]; then
+        info "Initializing pre-commit hooks..."
+        # pre-commit is already installed via 'uv sync' (dev extra) above
+        "$ROOT/.venv/bin/pre-commit" install
+        ok "Pre-commit hooks initialized"
+    fi
+fi
+
 # ── Done ───────────────────────────────────────────────────────────────────────
 echo ""
 ok "Setup complete."

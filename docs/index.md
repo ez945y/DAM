@@ -47,19 +47,19 @@ DAM decouples safety from learning. Safety becomes a **modular, swappable stack*
 
 <div class="grid cards" markdown>
 
-- **New to DAM?**  
+- **New to DAM?**
   Start with [Getting Started →](installation.md)
 
-- **Deploy Your System**  
+- **Deploy Your System**
   Read [Stackfile Guide →](quick-stack.md)
 
-- **Monitor & Control**  
+- **Monitor & Control**
   Use the [DAM Console →](console.md)
 
-- **Integrate via API**  
+- **Integrate via API**
   Check [Services API →](services-api.md)
 
-- **Deep Dive**  
+- **Deep Dive**
   See [Full Specification →](DAM_Specification.md)
 
 </div>

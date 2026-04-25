@@ -205,11 +205,11 @@ from mcap.reader import McapReader
 
 with open("session_20241210_143022.mcap", "rb") as f:
     reader = McapReader(f)
-    
+
     # List all channels
     for channel in reader.channels.values():
         print(f"/{channel.topic}: {channel.message_encoding}")
-    
+
     # Read violation cycles
     messages = reader.get_messages(topics=["/dam/cycle"])
     for msg in messages:

@@ -1,7 +1,7 @@
 
 # Contributing to Detachable Action Monitor (DAM)
 
-Thank you for your interest in contributing to **DAM**!  
+Thank you for your interest in contributing to **DAM**!
 We welcome contributions from researchers, engineers, students, and anyone passionate about making robot learning safer and more reliable.
 
 ---
@@ -90,10 +90,10 @@ DAM uses a **Rust extension** (`dam_rs`) for high-performance MCAP writing:
   ```bash
   # Check where it's installed
   .venv/bin/python -c "import dam_rs; print(dam_rs.__file__)"
-  
+
   # If it's in conda instead, uninstall from conda:
   pip uninstall dam-rs  # from conda env
-  
+
   # Then reinstall:
   make setup
   ```
@@ -169,22 +169,22 @@ make test
 
 We are actively looking for contributions in the following areas:
 
-- **Safety testing & adversarial scenario development**  
+- **Safety testing & adversarial scenario development**
   (Creating challenging edge cases and stress tests)
 
-- **Real-time performance optimization**  
+- **Real-time performance optimization**
   (Reducing latency and improving worst-case execution time in the Rust data plane)
 
-- **Additional hardware adapters**  
+- **Additional hardware adapters**
   (Support for new robot platforms beyond LeRobot and ROS 2)
 
-- **Documentation & example Stackfiles**  
+- **Documentation & example Stackfiles**
   (Improving guides, tutorials, and providing ready-to-use configurations)
 
-- **L1 Preflight Simulation**  
+- **L1 Preflight Simulation**
   (Integrating and maturing the shadow physics engine)
 
-- **Formal verification and threat modeling**  
+- **Formal verification and threat modeling**
   (Helping move toward stronger safety guarantees)
 
 ---
@@ -210,5 +210,5 @@ We appreciate every contribution — big or small — that helps make embodied A
 
 ---
 
-**Thank you for helping build safer robot systems!**  
+**Thank you for helping build safer robot systems!**
 *Built for safer embodied AI.*

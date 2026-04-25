@@ -95,7 +95,7 @@ export function useRuntimeControl() {
 
     // 2. Window Focus: Just re-trigger refresh if needed, but WS should be active
     const handleFocus = () => {
-      // Optional: void refresh() 
+      // Optional: void refresh()
     }
     window.addEventListener('focus', handleFocus)
 

@@ -4,7 +4,7 @@
 
 **Do not report vulnerabilities via public GitHub issues, discussions, or social media.**
 
-If you discover a potential security or safety issue, please email:  
+If you discover a potential security or safety issue, please email:
 **[ez945y@gmail.com](mailto:ez945y@gmail.com)**
 
 ### Please include:

@@ -158,8 +158,8 @@ function NodeForm({
                 })
               }
               // Auto-assign node_id from boundary name (preferred) or callback name
-              const nextId = (!node.node_id || node.node_id === 'default' || node.node_id === node.callback) 
-                ? (boundaryName || newCallback || 'default') 
+              const nextId = (!node.node_id || node.node_id === 'default' || node.node_id === node.callback)
+                ? (boundaryName || newCallback || 'default')
                 : node.node_id
 
               onChange({ ...node, node_id: nextId, callback: newCallback, params: newParams })
@@ -335,7 +335,7 @@ function NodeForm({
         if (!node.callback) return null
         const meta = callbackCatalog.find(c => c.name === node.callback)
         if (!meta || !meta.params || Object.keys(meta.params).length === 0) return null
-        
+
         // Specialized OOD UI
         if (isOod) {
           return (
@@ -365,7 +365,7 @@ function NodeForm({
         {/* OOD Parameters with tooltips */}
         <div className="grid grid-cols-2 gap-3 mt-4">
                  <div className="space-y-1">
-                    <label 
+                    <label
                       className="text-dam-muted text-[9px] uppercase font-bold tracking-tight px-1 flex justify-between cursor-help group"
                       title="Sensitivity (NN): Nearest Neighbor threshold. Measures the 'Similarity' between current state and memory bank samples. Range: 0.5 - 5.0. Lower is stricter."
                     >
@@ -381,7 +381,7 @@ function NodeForm({
                     />
                  </div>
                  <div className="space-y-1">
-                    <label 
+                    <label
                       className="text-dam-muted text-[9px] uppercase font-bold tracking-tight px-1 flex justify-between cursor-help group"
                       title="Density (NLL): Negative Log-Likelihood threshold. Measures the 'Probability Floor'. Higher is more tolerant (allows low prob), lower is stricter. Range: 3.0 - 15.0."
                     >
@@ -905,7 +905,7 @@ export default function GuardPage() {
         const migrated = migrateConfig(JSON.parse(raw))
         if (migrated.tasks?.length > 0) setTasks(migrated.tasks)
         else setTasks([{ id: crypto.randomUUID(), name: 'default', description: '', boundaries: ['bounds'] }])
-        
+
         if (migrated.boundaries?.length > 0) setBoundaries(migrated.boundaries)
         else setBoundaries([
           {
@@ -965,7 +965,7 @@ export default function GuardPage() {
         api.getCallbackCatalog(true),
         api.getFallbacks()
       ])
-      
+
       if (cdata.callbacks) setCallbackCatalog(cdata.callbacks)
       if (gdata.guards) {
         setGuardCatalog(gdata.guards.map(g => ({
@@ -983,7 +983,7 @@ export default function GuardPage() {
         setBoundaries(prev => {
           const next = [...prev]
           let globalChanged = false
-          
+
           next.forEach(b => {
              const node = b.nodes[0]
              if (node) {
@@ -1250,7 +1250,7 @@ export default function GuardPage() {
                             <Plus size={8} /> New Constraint
                           </button>
                       </div>
-                      
+
                       {layerBoundaries.length === 0 ? (
                         <div className="text-center py-6 border-2 border-dashed border-dam-border/20 rounded-xl">
                           <p className="text-dam-muted text-[10px] italic">

@@ -223,8 +223,8 @@ export default function DashboardPage() {
   const startupError = ctrl.status.startup_error ?? null
 
   return (
-    <PageShell 
-      title="Dashboard" 
+    <PageShell
+      title="Dashboard"
       subtitle="Real-time safety monitor & runtime control"
     >
       {/* Top bar */}
@@ -297,7 +297,7 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between">
               <p className="section-label">Runtime Context</p>
             </div>
-            
+
             <div className="space-y-2">
               <div className="flex justify-between items-center bg-dam-surface-2 rounded-lg px-3 py-2 border border-dam-border/40">
                 <span className="text-[11px] text-dam-muted">Active Task</span>
@@ -339,7 +339,7 @@ export default function DashboardPage() {
                 {/* Camera button removed — use Live Camera toggle in top bar instead */}
               </div>
             </div>
-            
+
             {actuallyShowCamera ? (
               <div className="h-80">
                 {liveMode ? (
@@ -407,13 +407,13 @@ export default function DashboardPage() {
               latestCycleId={tele.lastCycle?.cycle_id}
               onGuardClick={(cycleId) => router.push(`/risk-log?cycle_id=${cycleId}`)}
             />
-            
+
             {/* Status indicators (Persistent L0-L4) */}
             <div className="mt-4 pt-3 border-t border-dam-border/40 flex gap-4 overflow-x-auto pb-1">
               {['L0', 'L1', 'L2', 'L3', 'L4'].map(layer => {
                 const layerGuards = guards.filter(g => g.layer === layer);
                 const hasGuards = layerGuards.length > 0;
-                
+
                 let worst: string = 'OFF';
                 let colorCls = 'bg-dam-muted/20 text-dam-muted/40';
                 let shadowCls = '';
