@@ -55,7 +55,7 @@ The control plane coordinates lifecycle, Stackfile parsing, and hot-reload logic
 from dam.runtime.guard_runtime import GuardRuntime
 
 runtime = GuardRuntime.from_stackfile("mystack.yaml")
-runtime.register_source(my_hardware_source)
+runtime.register_source("main", my_hardware_source)
 runtime.register_policy(my_policy)
 runtime.register_sink(my_hardware_sink)
 

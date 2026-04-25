@@ -17,7 +17,7 @@ def run_pipeline(
     source = MockSourceAdapter(obs_seq)
     policy = MockPolicyAdapter(actions)
     sink = MockSinkAdapter()
-    runtime.register_source(source)
+    runtime.register_source("main", source)
     runtime.register_policy(policy)
     runtime.register_sink(sink)
 

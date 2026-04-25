@@ -360,7 +360,7 @@ Create a Stackfile with a **list** boundary for:
 from dam.runtime.guard_runtime import GuardRuntime
 
 runtime = GuardRuntime.from_stackfile("mystack.yaml")
-runtime.register_source(sim_robot)
+runtime.register_source("robot", sim_robot)
 runtime.register_policy(policy)
 runtime.register_sink(sim_sink)
 

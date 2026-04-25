@@ -13,7 +13,7 @@ import sys
 import tempfile
 import textwrap
 import threading
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 import uvicorn
@@ -209,10 +209,8 @@ def main() -> None:
         log.info("Shutting down...")
         with control._lock:
             if control._runner:
-                try:
+                with suppress(Exception):
                     control._runner.shutdown()
-                except Exception:
-                    pass
 
     # 3. Launch API
     app = create_app(
@@ -229,7 +227,7 @@ def main() -> None:
     log.info("DAM HOST API: http://localhost:8080")
     log.info("=" * 60)
 
-    uvicorn.run(app, host="0.0.0.0", port=8080, log_level="warning")
+    uvicorn.run(app, host="127.0.0.1", port=8080, log_level="warning")
 
 
 if __name__ == "__main__":

@@ -408,6 +408,7 @@ function McapViewerContent() {
       setDetailMap(prev => {
         const toFetch = list.filter(s => !prev[s.filename])
         if (toFetch.length === 0) return prev
+
         Promise.allSettled(toFetch.map(s => api.getMcapSession(s.filename)))
           .then(results => {
             setDetailMap(curr => {
@@ -421,7 +422,8 @@ function McapViewerContent() {
             })
           })
           .catch(() => {})
-        return prev
+
+        return { ...prev }
       })
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load sessions')

@@ -496,7 +496,7 @@ Phase 1 只需支援：`guards`、`boundaries`、`tasks`、`safety` 區塊。`ha
 def test_phase1_exit_criterion():
     """dam.step() 在純 Python mock 環境中跑完一個完整的 sense→validate→act 週期"""
     runtime = GuardRuntime.from_stackfile("examples/stackfiles/test.yaml")
-    runtime.register_source(MockSourceAdapter([obs1, obs2, obs3]))
+    runtime.register_source("main", MockSourceAdapter([obs1, obs2, obs3]))
     runtime.register_policy(MockPolicyAdapter([action1, action2, action3]))
     sink = MockSinkAdapter()
     runtime.register_sink(sink)
