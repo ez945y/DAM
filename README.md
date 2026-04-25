@@ -1,15 +1,25 @@
-# Detachable Action Monitor (DAM)
+<div align="center">
+
+<h1>Detachable Action Monitor (DAM)</h1>
+
+Detachable Trust. Deterministic Safety.
+
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue?logo=python)](https://www.python.org/downloads/)
 [![Rust 1.80+](https://img.shields.io/badge/rust-1.80%2B-orange?logo=rust)](https://www.rust-lang.org/)
 [![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen)](LICENSE)
 [![Discussions](https://img.shields.io/badge/Chat-GitHub_Discussions-blue?logo=github)](https://github.com/ez945y/DAM/discussions)
 
-### Detachable Trust. Deterministic Safety.
+<br>
+
+[Features](#features) • [Installation](#installation) • [Usage](#usage) • [Configuration](#configuration)
+</div>
+
+
 **DAM** is a detachable safety middleware that sits between any machine learning policy (or controller) and robot hardware. It intercepts every proposed action, evaluates it through a layered guard stack (L0–L4), and either **passes**, **clamps**, or **rejects** it — without modifying the policy weights or hardware drivers.
 
 This design enables strong safety boundaries while keeping the learning/policy layer fully detachable and upgradable.
 
-### Key Features
+### Features
 
 - **5-Layer Guard Stack**: Progressive defense from perception (L0) → hardware (L4)
 - **Rust Data Plane**: Deterministic, real-time-safe execution outside the Python GIL
@@ -41,12 +51,17 @@ DAM is currently **research and experimental-grade software**. It is **not certi
 
 ---
 
-### Quick Start
+### Installation
 
 ```bash
 git clone https://github.com/ez945y/DAM.git
 cd DAM
 make setup
+```
+
+### Usage
+
+```bash
 make run
 ```
 
@@ -65,7 +80,7 @@ After starting, open **http://localhost:3000** in your browser and select a conf
 
 ---
 
-### Architecture
+### Configuration
 
 DAM acts as a transparent safety layer:
 
@@ -96,34 +111,6 @@ The final decision is the **most restrictive** outcome from all active layers.
 
 ---
 
-### Project Layout
-
-```
-dam/                  # Python Control Plane
-  adapter/            # Hardware adapters (LeRobot, ROS 2)
-  guard/              # L0–L4 guard implementations
-  config/             # Stackfile parser & hot-reload logic
-  runtime/            # Main control loop
-  types/              # Core data structures
-
-dam-rust/             # Rust Data Plane (deterministic core)
-  dam-py/             # PyO3 bindings
-
-examples/             # Demo Stackfiles and configurations
-tests/                # Unit, integration, and safety tests
-docs/                 # Architecture and safety documentation
-```
-
----
-
-### Documentation
-
-- [docs/DAM_Specification.md](docs/DAM_Specification.md) — Full architecture and safety reference
-- [docs/installation.md](docs/installation.md) — Detailed installation guide
-- [CONTRIBUTING.md](CONTRIBUTING.md) — Development setup and contribution guidelines
-
----
-
 ### Roadmap
 
 **v0.2.0 (Current focus)**
@@ -148,14 +135,6 @@ docs/                 # Architecture and safety documentation
 
 ---
 
-### License
-
-[Mozilla Public License 2.0](LICENSE) — Contributions welcome!
-
-**Note**: Given the safety-critical nature of this project, we strongly encourage all contributions to include thorough testing and documentation.
-
----
-
 ### Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for details on:
@@ -174,7 +153,3 @@ We especially welcome help in the following areas:
 **DAM aims to make advanced robot safety modular, verifiable, and accessible to the embodied AI community.**
 
 Feedback and discussions are highly encouraged in [GitHub Discussions](https://github.com/ez945y/DAM/discussions).
-
----
-
-*Built for safer embodied AI.*

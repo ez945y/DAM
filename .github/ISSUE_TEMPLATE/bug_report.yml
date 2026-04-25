@@ -1,0 +1,45 @@
+name: Bug Report
+description: Report a bug to help us improve
+title: "[BUG]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please check or start a [Discussion](https://github.com/ez945y/DAM/discussions) before opening an issue.
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Steps to reproduce.
+      placeholder: |
+        1. 
+        2. 
+        3. 
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python version, DAM version.
+      placeholder: e.g. Ubuntu 22.04, Python 3.12, DAM v0.2.0
+    validations:
+      required: true
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: Visual evidence (Drag and drop images here).
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Any other info?
