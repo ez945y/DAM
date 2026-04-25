@@ -48,7 +48,7 @@ import json
 import logging
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 # Global OOD tasks registry for persistent tracking across WebSockets
 ood_tasks: dict[str, Any] = {}
@@ -64,7 +64,16 @@ from dam.services.runtime_control import RuntimeControlService
 from dam.services.telemetry import TelemetryService
 
 try:
-    from fastapi import HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+    from fastapi import (
+        Body,
+        Depends,
+        HTTPException,
+        Path,
+        Query,
+        Request,
+        WebSocket,
+        WebSocketDisconnect,
+    )
     from fastapi.responses import HTMLResponse, PlainTextResponse, Response
     from fastapi.staticfiles import StaticFiles
 
@@ -145,7 +154,7 @@ def create_app(
 
     # ── Telemetry ────────────────────────────────────────────────────────────
     @app.get("/api/telemetry/history")
-    async def telemetry_history(n: int = Query(50, ge=1, le=1000)) -> Any:
+    async def telemetry_history(n: Annotated[int, Query(ge=1, le=1000)] = 50) -> Any:
         if telemetry is None:
             raise HTTPException(503, "Telemetry service not available")
         return {"events": telemetry.get_history(n), "total": telemetry.total_pushed}
@@ -188,12 +197,12 @@ def create_app(
     # ── Risk Log ─────────────────────────────────────────────────────────────
     @app.get("/api/risk-log")
     async def risk_log_query(
-        since: float | None = None,
-        until: float | None = None,
-        min_risk_level: str | None = None,
-        rejected_only: bool = False,
-        clamped_only: bool = False,
-        limit: int = Query(100, ge=1, le=5000),
+        since: Annotated[float | None, Query()] = None,
+        until: Annotated[float | None, Query()] = None,
+        min_risk_level: Annotated[str | None, Query()] = None,
+        rejected_only: Annotated[bool, Query()] = False,
+        clamped_only: Annotated[bool, Query()] = False,
+        limit: Annotated[int, Query(ge=1, le=5000)] = 100,
     ) -> Any:
         if risk_log is None:
             raise HTTPException(503, "Risk log service not available")
@@ -233,7 +242,7 @@ def create_app(
         )
 
     @app.get("/api/risk-log/{event_id}")
-    async def risk_log_get(event_id: int) -> Any:
+    async def risk_log_get(event_id: Annotated[int, Path()]) -> Any:
         if risk_log is None:
             raise HTTPException(503, "Risk log service not available")
         ev = risk_log.get_by_id(event_id)
@@ -249,7 +258,7 @@ def create_app(
         return {"boundaries": boundary.list()}
 
     @app.get("/api/boundaries/{name}")
-    async def get_boundary(name: str) -> Any:
+    async def get_boundary(name: Annotated[str, Path()]) -> Any:
         if boundary is None:
             raise HTTPException(503, "Boundary config service not available")
         cfg = boundary.get(name)
@@ -258,7 +267,7 @@ def create_app(
         return cfg
 
     @app.post("/api/boundaries", status_code=201)
-    async def create_boundary(body: dict[str, Any]) -> Any:
+    async def create_boundary(body: Annotated[dict[str, Any], Body()]) -> Any:
         if boundary is None:
             raise HTTPException(503, "Boundary config service not available")
         try:
@@ -267,7 +276,9 @@ def create_app(
             raise HTTPException(409, str(e))
 
     @app.put("/api/boundaries/{name}")
-    async def update_boundary(name: str, body: dict[str, Any]) -> Any:
+    async def update_boundary(
+        name: Annotated[str, Path()], body: Annotated[dict[str, Any], Body()]
+    ) -> Any:
         if boundary is None:
             raise HTTPException(503, "Boundary config service not available")
         try:
@@ -275,8 +286,8 @@ def create_app(
         except KeyError as e:
             raise HTTPException(404, str(e))
 
-    @app.delete("/api/boundaries/{name}", status_code=204, response_model=None)
-    async def delete_boundary(name: str) -> None:
+    @app.delete("/api/boundaries/{name}", status_code=204)
+    async def delete_boundary(name: Annotated[str, Path()]) -> None:
         if boundary is None:
             raise HTTPException(503, "Boundary config service not available")
         deleted = boundary.delete(name)
@@ -292,7 +303,7 @@ def create_app(
         return control.status()
 
     @app.get("/api/catalog/callbacks")
-    async def get_callback_catalog(grouped: bool = False) -> Any:
+    async def get_callback_catalog(grouped: Annotated[bool, Query()] = False) -> Any:
         from dam.boundary.builtin_callbacks import get_catalog
 
         all_cbs = get_catalog()
@@ -344,9 +355,9 @@ def create_app(
 
     @app.post("/api/control/start")
     async def control_start(
-        task_name: str = "default",
-        n_cycles: int = -1,
-        cycle_budget_ms: float = 20.0,
+        task_name: Annotated[str, Query()] = "default",
+        n_cycles: Annotated[int, Query()] = -1,
+        cycle_budget_ms: Annotated[float, Query()] = 20.0,
     ) -> Any:
         if control is None:
             raise HTTPException(503, "Runtime control service not available")
@@ -487,7 +498,7 @@ def create_app(
         return await system_usb_devices()
 
     @app.post("/api/system/save-config")
-    async def system_save_config(body: dict[str, Any]) -> Any:
+    async def system_save_config(body: Annotated[dict[str, Any], Body()]) -> Any:
         """Write YAML config to .dam_stackfile.yaml in the project root.
 
         The next process restart (via /api/system/restart or /api/control/restart)
@@ -511,7 +522,7 @@ def create_app(
         return {"success": True, "path": stackfile_path}
 
     @app.post("/api/system/restart")
-    async def system_restart(body: dict[str, Any]) -> Any:
+    async def system_restart(body: Annotated[dict[str, Any], Body()]) -> Any:
         """Save config (if provided) then restart the process.
 
         Body fields:
@@ -547,7 +558,7 @@ def create_app(
     # ── OOD Training ────────────────────────────────────────────────────────
 
     @app.post("/api/ood/train")
-    async def train_ood_model(body: dict[str, Any]) -> Any:
+    async def train_ood_model(body: Annotated[dict[str, Any], Body()]) -> Any:
         if ood_trainer is None:
             raise HTTPException(503, "OOD Trainer service not available")
 
@@ -787,38 +798,49 @@ def create_app(
         return {"models": models}
 
     @app.delete("/api/ood/models/{name}")
-    async def delete_ood_model(name: str) -> Any:
-        import os
+    async def delete_ood_model(name: Annotated[str, Path()]) -> Any:
+        from pathlib import Path
 
-        base_dir = "data/ood_models"
-        pt_file = os.path.join(base_dir, f"{name}.pt")
-        npy_file = os.path.join(base_dir, f"{name}.npy")
-        json_file = os.path.join(base_dir, f"{name}.json")
-        flow_file = os.path.join(base_dir, f"{name}_flow.pt")
+        # Resolve the base directory once to a canonical path
+        base_dir = Path("data/ood_models").resolve()
+        if not base_dir.exists():
+            raise HTTPException(404, "Model files not found")
+
+        # Sanitize input to prevent directory traversal
+        if ".." in name or "/" in name or "\\" in name:
+            raise HTTPException(400, "Invalid model name")
 
         deleted = False
-        for f in [pt_file, npy_file, json_file, flow_file]:
-            if os.path.exists(f):
-                os.remove(f)
+        # Clean up all possible related files (.pt, .npy, .json, _flow.pt)
+        for suffix in [".pt", ".npy", ".json", "_flow.pt"]:
+            # Construct path and resolve it to handle any relative components
+            target_path = (base_dir / f"{name}{suffix}").resolve()
+
+            # Security check: ensure the resolved path is still inside the base directory
+            if target_path.is_relative_to(base_dir) and target_path.is_file():
+                target_path.unlink()
                 deleted = True
 
         if not deleted:
             raise HTTPException(404, "Model files not found")
         return {"status": "deleted"}
 
+    def get_mcap_service(request: Request) -> Any:
+        """Dependency to get mcap_sessions service."""
+        return mcap_sessions or getattr(request.app.state, "mcap_sessions", None)
+
     # ── MCAP Sessions ────────────────────────────────────────────────────────
 
     @app.get("/api/mcap/sessions")
-    def mcap_list_sessions(request: Request) -> Any:
-        # Use provided service or look in app.state for background-initialized ones
-        svc = mcap_sessions or getattr(request.app.state, "mcap_sessions", None)
+    def mcap_list_sessions(svc: Annotated[Any, Depends(get_mcap_service)]) -> Any:
         if svc is None:
             raise HTTPException(503, "MCAP session service not configured")
         return {"sessions": svc.list_sessions()}
 
     @app.get("/api/mcap/sessions/{filename}")
-    def mcap_session_info(filename: str, request: Request) -> Any:
-        svc = mcap_sessions or getattr(request.app.state, "mcap_sessions", None)
+    def mcap_session_info(
+        filename: Annotated[str, Path()], svc: Annotated[Any, Depends(get_mcap_service)]
+    ) -> Any:
         if svc is None:
             raise HTTPException(503, "MCAP session service not configured")
         info = svc.get_session_info(filename)
@@ -827,8 +849,9 @@ def create_app(
         return info
 
     @app.delete("/api/mcap/sessions/{filename}")
-    def mcap_delete_session(filename: str, request: Request) -> Any:
-        svc = mcap_sessions or getattr(request.app.state, "mcap_sessions", None)
+    def mcap_delete_session(
+        filename: Annotated[str, Path()], svc: Annotated[Any, Depends(get_mcap_service)]
+    ) -> Any:
         if svc is None:
             raise HTTPException(503, "MCAP session service not configured")
         success = svc.delete_session(filename)
@@ -837,8 +860,11 @@ def create_app(
         return {"success": True}
 
     @app.get("/api/mcap/sessions/{filename}/cycles")
-    def mcap_list_cycles(filename: str, request: Request, since_cycle_id: int | None = None) -> Any:
-        svc = mcap_sessions or getattr(request.app.state, "mcap_sessions", None)
+    def mcap_list_cycles(
+        filename: Annotated[str, Path()],
+        svc: Annotated[Any, Depends(get_mcap_service)],
+        since_cycle_id: Annotated[int | None, Query()] = None,
+    ) -> Any:
         if svc is None:
             raise HTTPException(503, "MCAP session service not configured")
         cycles = svc.list_cycles(filename, since_cycle_id=since_cycle_id)
@@ -846,9 +872,11 @@ def create_app(
 
     @app.get("/api/mcap/sessions/{filename}/cycles/{cycle_id}")
     def mcap_cycle_detail(
-        filename: str, cycle_id: int, request: Request, ts_ns: int | None = None
+        filename: Annotated[str, Path()],
+        cycle_id: Annotated[int, Path()],
+        svc: Annotated[Any, Depends(get_mcap_service)],
+        ts_ns: Annotated[int | None, Query()] = None,
     ) -> Any:
-        svc = mcap_sessions or getattr(request.app.state, "mcap_sessions", None)
         if svc is None:
             raise HTTPException(503, "MCAP session service not configured")
         detail = svc.get_cycle_detail(filename, cycle_id, ts_ns)
@@ -856,22 +884,18 @@ def create_app(
             raise HTTPException(404, f"Cycle {cycle_id} not found in {filename}")
         return detail
 
-    def _get_mcap_svc(request: Request) -> Any:
-        """Get mcap_sessions service from param or app.state."""
-        return mcap_sessions or getattr(request.app.state, "mcap_sessions", None)
-
     @app.get("/api/mcap/find")
-    def mcap_find_session(cycle_id: int, request: Request) -> Any:
-        svc = _get_mcap_svc(request)
+    def mcap_find_session(
+        cycle_id: Annotated[int, Query()], svc: Annotated[Any, Depends(get_mcap_service)]
+    ) -> Any:
         if svc is None:
             raise HTTPException(503, "MCAP session service not configured")
         filename = svc.find_session_by_cycle(cycle_id)
         return {"cycle_id": cycle_id, "filename": filename, "found": filename is not None}
 
     @app.get("/api/mcap/live")
-    def mcap_live_session(request: Request) -> Any:
+    def mcap_live_session(svc: Annotated[Any, Depends(get_mcap_service)]) -> Any:
         """Return the most-recently-modified MCAP session — the one currently being written."""
-        svc = _get_mcap_svc(request)
         if svc is None:
             raise HTTPException(503, "MCAP session service not configured")
         sessions = svc.list_sessions()
@@ -881,16 +905,23 @@ def create_app(
         return {"filename": latest["filename"], "active": True, "updated_at": latest["created_at"]}
 
     @app.get("/api/mcap/sessions/{filename}/frames/{cam_name}")
-    def mcap_list_frames(filename: str, cam_name: str, request: Request) -> Any:
-        svc = _get_mcap_svc(request)
+    def mcap_list_frames(
+        filename: Annotated[str, Path()],
+        cam_name: Annotated[str, Path()],
+        svc: Annotated[Any, Depends(get_mcap_service)],
+    ) -> Any:
         if svc is None:
             raise HTTPException(503, "MCAP session service not configured")
         frames = svc.list_frames(filename, cam_name)
         return {"camera": cam_name, "count": len(frames), "frames": frames}
 
     @app.get("/api/mcap/sessions/{filename}/frame/{cam_name}/{frame_idx}")
-    def mcap_get_frame(filename: str, cam_name: str, frame_idx: int, request: Request) -> Any:
-        svc = _get_mcap_svc(request)
+    def mcap_get_frame(
+        filename: Annotated[str, Path()],
+        cam_name: Annotated[str, Path()],
+        frame_idx: Annotated[int, Path()],
+        svc: Annotated[Any, Depends(get_mcap_service)],
+    ) -> Any:
         if svc is None:
             raise HTTPException(503, "MCAP session service not configured")
         jpeg = svc.get_frame_jpeg(filename, cam_name, frame_idx)
@@ -899,8 +930,12 @@ def create_app(
         return Response(content=jpeg, media_type="image/jpeg")
 
     @app.get("/api/mcap/sessions/{filename}/frame_at/{cam_name}")
-    def mcap_get_frame_at(filename: str, cam_name: str, ts_ns: int, request: Request) -> Any:
-        svc = _get_mcap_svc(request)
+    def mcap_get_frame_at(
+        filename: Annotated[str, Path()],
+        cam_name: Annotated[str, Path()],
+        ts_ns: Annotated[int, Query()],
+        svc: Annotated[Any, Depends(get_mcap_service)],
+    ) -> Any:
         if svc is None:
             raise HTTPException(503, "MCAP session service not configured")
         jpeg = svc.get_frame_jpeg_at(filename, cam_name, ts_ns)
@@ -909,10 +944,11 @@ def create_app(
         return Response(content=jpeg, media_type="image/jpeg")
 
     @app.get("/api/mcap/sessions/{filename}/download")
-    def mcap_download(filename: str, request: Request) -> Any:
+    def mcap_download(
+        filename: Annotated[str, Path()], svc: Annotated[Any, Depends(get_mcap_service)]
+    ) -> Any:
         from fastapi.responses import FileResponse
 
-        svc = _get_mcap_svc(request)
         if svc is None:
             raise HTTPException(503, "MCAP session service not configured")
         path = svc._resolve(filename)

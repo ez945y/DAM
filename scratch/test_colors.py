@@ -1,4 +1,5 @@
 import logging
+
 from dam.logging.console import setup_colored_logging
 
 

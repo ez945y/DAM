@@ -149,7 +149,7 @@ def get_hardware_status(self) -> dict:  # optional
 
 Register with runtime:
 ```python
-runtime.register_source(MySource())
+runtime.register_source("main", MySource())
 runtime.register_policy(MyPolicy())
 runtime.register_sink(MySink())
 ```
