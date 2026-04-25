@@ -48,6 +48,6 @@ class Stage:
 
     name: str
     guards: list[Guard] = field(default_factory=list)
-    guard_boundary_pairs: list[tuple[Guard, str]] = field(default_factory=list)
+    guard_boundary_pairs: list[tuple[Guard, str | None]] = field(default_factory=list)
     parallel: bool = False
     timeout_ms: float = 10.0

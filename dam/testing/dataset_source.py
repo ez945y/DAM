@@ -164,14 +164,16 @@ class DatasetSimSource:
                 cam = key.split(".", 2)[2]  # e.g. "top" or "wrist"
                 if isinstance(val, torch.Tensor):
                     # CHW float32 [0,1] → HWC uint8 [0,255]
-                    arr = val.detach().cpu()
-                    if arr.ndim == 3 and arr.shape[0] in (1, 3, 4):
-                        arr = arr.permute(1, 2, 0)
-                    arr = (arr.numpy() * 255).clip(0, 255).astype(np.uint8)
+                    t = val.detach().cpu()
+                    if t.ndim == 3 and t.shape[0] in (1, 3, 4):
+                        t = t.permute(1, 2, 0)
+                    arr: np.ndarray[tuple[int, ...], np.dtype[np.uint8]] = (
+                        (t.numpy() * 255).clip(0, 255).astype(np.uint8)
+                    )
                 else:
                     arr = np.asarray(val, dtype=np.uint8)
                 if arr.ndim == 2:
-                    arr = arr[:, :, np.newaxis]  # grayscale → HWC
+                    arr = arr[:, :, np.newaxis]
                 images[cam] = arr
 
             if images:

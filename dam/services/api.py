@@ -50,11 +50,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-from dam.services.boundary_config import BoundaryConfigService
-from dam.services.ood_trainer import OODTrainerService
-from dam.services.risk_log import RiskLogService
-from dam.services.runtime_control import RuntimeControlService
-from dam.services.telemetry import TelemetryService
+from dam.services.service_container import ServiceContainer
 
 try:
     from fastapi.responses import HTMLResponse
@@ -67,19 +63,14 @@ except ImportError:
 _UI_DIR = Path(__file__).parent / "ui"
 
 
-def create_app(
-    telemetry: TelemetryService | None = None,
-    risk_log: RiskLogService | None = None,
-    boundary: BoundaryConfigService | None = None,
-    control: RuntimeControlService | None = None,
-    ood_trainer: OODTrainerService | None = None,
-    mcap_sessions: Any | None = None,  # Optional[McapSessionService]
-) -> Any:
+def create_app(services: ServiceContainer | None = None) -> Any:
     """Create and return the FastAPI application.
 
-    Any service argument can be None; the corresponding routes will
-    return 503 Service Unavailable.
+    Pass a ``ServiceContainer`` with the services to wire in.  Any field that
+    is ``None`` causes the corresponding routes to return 503 Service Unavailable.
     """
+    if services is None:
+        services = ServiceContainer()
     if not _FASTAPI:
         raise ImportError("FastAPI is not installed. Run: pip install 'dam[services]'")
 
@@ -117,20 +108,20 @@ def create_app(
         reg_callbacks()
         reg_guards()
 
-        if telemetry is not None:
-            telemetry.attach_loop(asyncio.get_event_loop())
+        if services.telemetry is not None:
+            services.telemetry.attach_loop(asyncio.get_event_loop())
 
     @app.on_event("shutdown")
     async def _shutdown() -> None:
-        if control is not None:
+        if services.control is not None:
             logger.info("API: shutting down runtime control service...")
-            control.stop()
+            services.control.stop()
             if (
-                hasattr(control, "_runtime")
-                and control._runtime is not None
-                and hasattr(control._runtime, "shutdown")
+                hasattr(services.control, "_runtime")
+                and services.control._runtime is not None
+                and hasattr(services.control._runtime, "shutdown")
             ):
-                control._runtime.shutdown()
+                services.control._runtime.shutdown()
 
     # ── Static UI ────────────────────────────────────────────────────────────
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
@@ -144,12 +135,12 @@ def create_app(
         app.mount("/static", StaticFiles(directory=str(_UI_DIR)), name="static")
 
     # ── Domain routers ───────────────────────────────────────────────────────
-    app.include_router(create_telemetry_router(telemetry))
-    app.include_router(create_risk_log_router(risk_log))
-    app.include_router(create_boundaries_router(boundary))
-    app.include_router(create_control_router(control))
-    app.include_router(create_system_router(control))
-    app.include_router(create_ood_router(ood_trainer))
-    app.include_router(create_mcap_router(mcap_sessions))
+    app.include_router(create_telemetry_router(services.telemetry))
+    app.include_router(create_risk_log_router(services.risk_log))
+    app.include_router(create_boundaries_router(services.boundary))
+    app.include_router(create_control_router(services.control))
+    app.include_router(create_system_router(services.control))
+    app.include_router(create_ood_router(services.ood_trainer))
+    app.include_router(create_mcap_router(services.mcap_sessions))
 
     return app

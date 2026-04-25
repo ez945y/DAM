@@ -5,7 +5,7 @@ from dam.guard.builtin.ood import OODGuard
 from dam.registry.guard import get_guard_registry
 
 
-def register_all():
+def register_all() -> None:
     reg = get_guard_registry()
     reg.register("ood", OODGuard, layer="L0")
     reg.register(

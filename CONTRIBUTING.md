@@ -126,6 +126,8 @@ lsof -i :8080
 pkill -f dam_host
 ```
 
+**Semaphore Warning (`dam_host.py`)**: You may see a "leaked semaphore" warning on shutdown; this is a known false positive from the hardware stack (LeRobot) that does not affect functionality.
+
 ### 2. Code Style & Quality
 
 - **Python**: Follow [PEP 8](https://peps.python.org/pep-0008/) and use `ruff` + `black` for formatting.

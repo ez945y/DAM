@@ -43,7 +43,7 @@ class StackfileWatcher:
     def __init__(
         self,
         path: str,
-        on_change: Callable,
+        on_change: Callable[..., None],
         poll_interval_s: float = 0.5,
     ) -> None:
         self._path = path

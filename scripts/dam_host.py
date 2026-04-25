@@ -13,8 +13,20 @@ import sys
 import tempfile
 import textwrap
 import threading
+import warnings
+
+# Suppress benign resource_tracker warning: a single semaphore from the hardware
+# stack (LeRobot/OpenCV camera pipeline) is cleaned up by resource_tracker itself
+# on exit, but Python still prints the warning even though there's no actual leak.
+warnings.filterwarnings(
+    "ignore",
+    message="resource_tracker: There appear to be",
+    category=UserWarning,
+)
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
+from typing import Any
 
 import uvicorn
 from fastapi import FastAPI
@@ -33,6 +45,7 @@ from dam.services.mcap_sessions import McapSessionService
 from dam.services.ood_trainer import OODTrainerService
 from dam.services.risk_log import RiskLogService
 from dam.services.runtime_control import BackendState, RuntimeControlService, RuntimeState
+from dam.services.service_container import ServiceContainer
 from dam.services.telemetry import TelemetryService
 
 setup_colored_logging(level=logging.INFO)
@@ -92,13 +105,13 @@ def main() -> None:
     control.set_status_callback(lambda msg: telemetry.push_raw(msg))
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI):
+    async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         # 0. Attach the async event loop to Telemetry for thread-safe broadcasting
         import asyncio
 
         telemetry.attach_loop(asyncio.get_running_loop())
 
-        def _bg_init():
+        def _bg_init() -> None:
             try:
                 log.info("Background: Initializing runtime...")
                 # No longer setting control._state = STARTING here.
@@ -126,10 +139,10 @@ def main() -> None:
                     log.warning("Could not load boundary configs from stackfile", exc_info=True)
 
                 # Instrumentation
-                def step_wrapper(orig_step):
+                def step_wrapper(orig_step: Callable[[], Any]) -> Callable[[], Any]:
                     _state = {"warn_count": 0, "ok_logged": False}
 
-                    def _instrumented():
+                    def _instrumented() -> Any:
                         res = orig_step()
                         # Capture the latest camera frame (JPEG bytes) and include
                         # them in the WS telemetry event only when subscribers are
@@ -213,14 +226,15 @@ def main() -> None:
                     control._runner.shutdown()
 
     # 3. Launch API
-    app = create_app(
+    services = ServiceContainer(
         telemetry=telemetry,
         risk_log=risk_log,
         boundary=boundary,
         control=control,
         ood_trainer=ood_trainer,
-        mcap_sessions=None,  # Loaded dynamically in lifespan
+        mcap_sessions=None,  # Wired dynamically inside lifespan once MCAP dir is known
     )
+    app = create_app(services)
     app.router.lifespan_context = lifespan
 
     log.info("=" * 60)

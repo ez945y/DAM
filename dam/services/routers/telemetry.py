@@ -40,7 +40,7 @@ def create_telemetry_router(telemetry: TelemetryService | None) -> APIRouter:
                 except TimeoutError:
                     event = {"type": "ping"}
                 try:
-                    if isinstance(event, (dict, list)):
+                    if isinstance(event, dict | list):
                         await websocket.send_text(json.dumps(event))
                     elif isinstance(event, bytes):
                         await websocket.send_bytes(event)

@@ -18,10 +18,20 @@ ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # ── Colour helpers ─────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; BOLD='\033[1m'; NC='\033[0m'
-info()    { echo -e "${BLUE}[test]${NC} $*"; }
-ok()      { echo -e "${GREEN}[test] ✓${NC} $*"; }
-fail()    { echo -e "${RED}[test] ✗${NC} $*"; }
-section() { echo -e "\n${BOLD}${BLUE}── $* ─────────────────────────────────────────────────${NC}"; }
+info()    { echo -e "${BLUE}[test]   ${NC} $*"; }
+ok()      { echo -e "${GREEN}[test] ✓ ${NC} $*"; }
+fail()    { echo -e "${RED}[test] ✗ ${NC} $*"; }
+section() {
+    local title="── $* "
+    local len=${#title}
+    local total=72
+    local dashes=$((total - len))
+    local line=""
+    if [ $dashes -gt 0 ]; then
+        line=$(printf '─%.0s' $(seq 1 $dashes))
+    fi
+    echo -e "\n${BOLD}${BLUE}${title}${line}${NC}"
+}
 
 cd "$ROOT"
 
@@ -42,10 +52,10 @@ RUN_PYTHON=true; RUN_RUST=true; RUN_FRONTEND=true; RUN_LINT=true
 
 for arg in "$@"; do
     case "$arg" in
-        --python)   RUN_PYTHON=true;  RUN_RUST=false;   RUN_FRONTEND=false; RUN_LINT=false ;;
-        --rust)     RUN_PYTHON=false; RUN_RUST=true;    RUN_FRONTEND=false; RUN_LINT=false ;;
-        --frontend) RUN_PYTHON=false; RUN_RUST=false;   RUN_FRONTEND=true;  RUN_LINT=false ;;
-        --lint)     RUN_PYTHON=false; RUN_RUST=false;   RUN_FRONTEND=false; RUN_LINT=true  ;;
+        --python)   RUN_PYTHON=true;  RUN_RUST=false; RUN_FRONTEND=false; RUN_LINT=false ;;
+        --rust)     RUN_PYTHON=false; RUN_RUST=true;  RUN_FRONTEND=false; RUN_LINT=false ;;
+        --frontend) RUN_PYTHON=false; RUN_RUST=false; RUN_FRONTEND=true;  RUN_LINT=false ;;
+        --lint)     RUN_PYTHON=false; RUN_RUST=false; RUN_FRONTEND=false; RUN_LINT=true  ;;
         --no-lint)  RUN_LINT=false ;;
         *) echo "Unknown option: $arg" >&2; exit 1 ;;
     esac
@@ -72,23 +82,13 @@ run_step() {
 # ── Linters ────────────────────────────────────────────────────────────────────
 if $RUN_LINT; then
     section "Linters"
-    run_step "ruff format"  .venv/bin/ruff format --check dam tests
-    run_step "ruff lint"    .venv/bin/ruff check   dam tests
-    # mypy has internal error with Python 3.12 - skip for now
-    # run_step "mypy"         .venv/bin/python -m mypy dam
-
-    if command -v cargo &>/dev/null; then
-        run_step "cargo fmt"    bash -c "cd dam-rust && cargo fmt --all -- --check"
-        run_step "cargo clippy" bash -c "cd dam-rust && cargo clippy --workspace -- -D warnings"
-    else
-        echo -e "${YELLOW}[test] !${NC} cargo not found — skipping Rust linters"
-    fi
+    run_step "pre-commit" .venv/bin/pre-commit run --all-files
 fi
 
 # ── Python tests ───────────────────────────────────────────────────────────────
 if $RUN_PYTHON; then
     section "Python — unit"
-    run_step "pytest unit"         "$PY" -m pytest tests/unit/       -v --tb=short
+    run_step "pytest unit"         "$PY" -m pytest tests/unit/        -v --tb=short
 
     section "Python — integration"
     run_step "pytest integration"  "$PY" -m pytest tests/integration/ -v --tb=short -m "not hardware"

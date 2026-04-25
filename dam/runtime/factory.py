@@ -10,7 +10,7 @@ This factory handles:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
@@ -57,8 +57,8 @@ class RuntimeFactory:
         elif adapter_type == "ros2":
             raise NotImplementedError("ROS2 runner not implemented")
 
-        # Explicit Simulation or fall-through
-        runtime = GuardRuntime.from_stackfile(path)
+        # Explicit Simulation or fall-through — reuse already-parsed config
+        runtime = GuardRuntime._from_config(config)
         source, policy, sink = RuntimeFactory._build_simulation(config)
         runtime.register_source("main", source)
         if policy:
@@ -69,13 +69,14 @@ class RuntimeFactory:
         return SimulationRunner(runtime, control_frequency_hz=hz)
 
     @staticmethod
-    def _build_lerobot(config: StackfileConfig, path: str):
+    def _build_lerobot(config: StackfileConfig, path: str) -> BaseRunner:
         from dam.adapter.lerobot.builder import LeRobotBuilder
         from dam.adapter.lerobot.policy import LeRobotPolicyAdapter
         from dam.runner.lerobot import LeRobotRunner
         from dam.runtime.guard_runtime import GuardRuntime
 
-        runtime = GuardRuntime.from_stackfile(path)
+        assert config.hardware is not None
+        runtime = GuardRuntime._from_config(config)  # reuse already-parsed config
         hz = config.safety.control_frequency_hz if config.safety else 50.0
         builder = LeRobotBuilder(config.hardware, config.policy, control_frequency_hz=hz)
         robot = builder.build_robot()
@@ -88,6 +89,8 @@ class RuntimeFactory:
                 use_unified = True
                 break
 
+        source: Any
+        sink: Any
         if use_unified:
             from dam.adapter.lerobot.adapter import LeRobotAdapter
 
@@ -177,12 +180,11 @@ class RuntimeFactory:
         return LeRobotRunner(runtime=runtime, robot=robot, control_frequency_hz=hz)
 
     @staticmethod
-    def _build_ros2(config: StackfileConfig):
-        # Implementation for ROS2 adapters would go here
+    def _build_ros2(config: StackfileConfig) -> BaseRunner:
         raise NotImplementedError("ROS2 adapter factory not implemented yet")
 
     @staticmethod
-    def _build_simulation(config: StackfileConfig):
+    def _build_simulation(config: StackfileConfig) -> tuple[Any, Any, Any]:
         from dam.testing.sim_adapters import SimSink
 
         hz = float(config.safety.control_frequency_hz) if config.safety else 10.0
@@ -208,6 +210,7 @@ class RuntimeFactory:
         if not dataset_repo and sim_cfg:
             dataset_repo = getattr(sim_cfg, "dataset_repo_id", None)
 
+        source: Any
         if dataset_repo:
             from dam.testing.dataset_source import DatasetSimSource
 
@@ -238,7 +241,7 @@ class RuntimeFactory:
             source = SimSource(hz=hz)
 
         # ── Policy ────────────────────────────────────────────────────────
-        policy = None
+        policy: Any = None
         if config.policy and config.policy.pretrained_path:
             try:
                 from dam.adapter.lerobot.builder import LeRobotBuilder
