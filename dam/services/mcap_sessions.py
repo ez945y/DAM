@@ -179,18 +179,27 @@ class McapSessionService:
         return [f"L{i}" for i in range(5) if mask & (1 << i)]
 
     def _resolve(self, filename: str) -> Path | None:
-        name = Path(filename).name
-        if name != filename or not name.startswith("session_") or not name.endswith(".mcap"):
+        """Resolve a filename to a Path object safely and efficiently."""
+        if not filename or not isinstance(filename, str):
             return None
-        path = self._dir / name
-        if not path.is_file():
+
+        if not filename.startswith("session_") or not filename.endswith(".mcap"):
             return None
+
+        # Prevent directory traversal by taking only the name and resolving
+        safe_name = Path(filename).name
+        target_path = (self._dir / safe_name).resolve()
+
+        # Security boundary check
+        if not target_path.is_relative_to(self._dir.resolve()):
+            return None
+
         try:
-            if path.stat().st_size < 100:
-                return None
+            if target_path.is_file() and target_path.stat().st_size >= 100:
+                return target_path
         except OSError:
-            return None
-        return path
+            pass
+        return None
 
     def list_sessions(self) -> list[dict[str, Any]]:
         if not self._dir.exists():
