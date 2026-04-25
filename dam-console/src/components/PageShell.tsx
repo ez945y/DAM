@@ -11,16 +11,16 @@ interface PageShellProps {
 }
 
 export function PageShell({ title, subtitle, children }: PageShellProps) {
-  const { 
-    status, 
-    loading, 
-    error, 
-    start, 
-    stop, 
-    emergencyStop, 
-    reset 
+  const {
+    status,
+    loading,
+    error,
+    start,
+    stop,
+    emergencyStop,
+    reset
   } = useRuntimeControl()
-  
+
   const tele = useTelemetry()
 
   // Keep stable refs so the idle-reset effect never needs the whole tele object
@@ -47,7 +47,7 @@ export function PageShell({ title, subtitle, children }: PageShellProps) {
           <h1 className="text-xl font-black text-dam-text tracking-tight uppercase italic">{title}</h1>
           <p className="text-dam-muted text-[10px] font-bold uppercase tracking-widest mt-0.5 opacity-70">{subtitle}</p>
         </div>
-        
+
         {/* The shared control bar */}
         <div className="w-full md:w-auto animate-in slide-in-from-right-4 duration-700">
           <ControlBar

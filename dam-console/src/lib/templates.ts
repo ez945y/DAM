@@ -455,7 +455,7 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
     if (line.startsWith('boundaries:')) { section = 'boundaries'; continue }
     if (line.startsWith('tasks:')) { section = 'tasks'; continue }
     if (line.startsWith('version:') || line.startsWith('safety:') || line.startsWith('guards:') || line.startsWith('hardware:') || line.startsWith('policy:') || line.startsWith('loopback:')) {
-       section = 'none'; continue 
+       section = 'none'; continue
     }
 
     if (section === 'boundaries') {
@@ -504,7 +504,7 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
       const match = line.match(/\{(.*)\}/);
       if (match) {
         const params: any = {};
-        match[1].split(',').forEach(p => { 
+        match[1].split(',').forEach(p => {
           const pp = p.split(':').map(s => s.trim());
           if (pp.length >= 2) params[pp[0]] = pp[1];
         });

@@ -97,16 +97,16 @@ export function McapTimelineView({
   useEffect(() => {
     if (cycles.length === 0 || selectedCycleId == null) return
 
-    // We use a small delay via requestAnimationFrame to ensure React has finished 
+    // We use a small delay via requestAnimationFrame to ensure React has finished
     // painting the "isSelected" state to the DOM, so the ref is guaranteed to exist.
     const scrollTask = requestAnimationFrame(() => {
       if (!selectedBarRef.current) return
 
       const behavior = isFirstRender.current ? 'auto' : 'smooth'
-      selectedBarRef.current.scrollIntoView({ 
-        block: 'nearest', 
-        inline: 'start', 
-        behavior 
+      selectedBarRef.current.scrollIntoView({
+        block: 'nearest',
+        inline: 'start',
+        behavior
       })
       isFirstRender.current = false
     })

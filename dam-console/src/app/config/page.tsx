@@ -353,7 +353,7 @@ export default function ConfigPage() {
     >
       <input ref={jsonInputRef} type="file" accept=".json" onChange={handleImportJson} className="hidden" />
       {/* Config Sections */}
-      
+
       {restartMsg && (
         <div className="flex items-center gap-2 p-2 bg-dam-blue/10 border border-dam-blue/20 rounded text-[10px] text-dam-blue animate-in fade-in slide-in-from-right-1">
           <AlertCircle size={10} /> {restartMsg}

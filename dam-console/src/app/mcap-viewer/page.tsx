@@ -358,7 +358,7 @@ function McapViewerContent() {
 
   const selectSession = useCallback((filename: string) => {
     setSelectedFilename(filename)
-    
+
     // Ultimate zero-flicker: if we have the list in cache, pre-select the first cycle immediately
     const cached = cyclesCache[filename]
     if (cached && cached.length > 0) {
@@ -480,19 +480,19 @@ function McapViewerContent() {
     const lastId = existing.length > 0 ? existing[existing.length - 1].cycle_id : undefined
 
     if (!lastId) setCyclesLoading(true)
-    
+
     api.listMcapCycles(selectedFilename, lastId)
       .then(data => {
         if (cancelled) return
         const newCycles = data?.cycles ?? []
-        
+
         // Merge with existing cache
         const updatedList = lastId ? [...existing, ...newCycles] : newCycles
         setCycles(updatedList)
         if (newCycles.length > 0 || !lastId) {
           setCyclesCache(prev => ({ ...prev, [selectedFilename]: updatedList }))
         }
-        
+
         const urlCycleId = searchParams.get('cycle_id')
         let targetId: number | null = null
 
@@ -502,7 +502,7 @@ function McapViewerContent() {
             targetId = id
           }
         }
-        
+
         if (targetId === null && updatedList.length > 0 && !selectedCycleId) {
           targetId = updatedList[0].cycle_id
         }

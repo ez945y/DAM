@@ -153,7 +153,7 @@ class MySink:
     def write(self, action: Action) -> None:
         """Execute the action on hardware."""
         ...
-    
+
     def health_check(self) -> HealthStatus:
         """Report hardware health for L4 guard."""
         return HealthStatus(...)

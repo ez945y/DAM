@@ -234,20 +234,20 @@ guards:
   builtin:
     motion:
       enabled: true
-      
+
       # Joint limits (required)
       upper_limits: [1.57, 1.57, 1.57, 1.57, 1.57, 0.08]
       lower_limits: [-1.57, -1.57, -1.57, -1.57, -1.57, 0.0]
-      
+
       # Velocity limits (optional)
       max_velocity: [1.5, 1.5, 1.5, 1.5, 1.5, 0.5]
-      
+
       # Acceleration limits (optional)
       max_acceleration: [3.0, 3.0, 3.0, 3.0, 3.0, 1.0]
-      
+
       # Workspace bounds (optional)
       bounds: [[-0.5, 0.5], [-0.1, 0.6], [0.0, 1.5]]
-      
+
       # Phase 2 features
       params:
         velocity_scale: 1.0  # Runtime scale factor
@@ -430,7 +430,7 @@ guards:
       enabled: true
 ```
 
-**Benefit:** Multiple layers catch different failure modes.  
+**Benefit:** Multiple layers catch different failure modes.
 **Trade-off:** More restrictive (may reject safe actions).
 
 ### Aggressive Approach (After Validation)
@@ -452,7 +452,7 @@ guards:
       enabled: true
 ```
 
-**Benefit:** Faster control loop.  
+**Benefit:** Faster control loop.
 **Risk:** Single-layer failures are not caught.
 
 ---

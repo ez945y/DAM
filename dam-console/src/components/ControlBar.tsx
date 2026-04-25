@@ -94,10 +94,10 @@ export function ControlBar({ state, backendState, cycleCount, error, loading, co
             <div className="flex flex-col items-end -space-y-0.5 animate-in fade-in slide-in-from-right-2">
                <div className="flex items-baseline gap-1">
                  <span className="text-[12px] text-dam-text/90 font-mono tracking-tight font-black">
-                   {cycleCount > 999999 
-                     ? (cycleCount / 1000000).toFixed(2) + 'M' 
-                     : cycleCount > 999 
-                       ? (cycleCount / 1000).toFixed(1) + 'K' 
+                   {cycleCount > 999999
+                     ? (cycleCount / 1000000).toFixed(2) + 'M'
+                     : cycleCount > 999
+                       ? (cycleCount / 1000).toFixed(1) + 'K'
                        : cycleCount.toLocaleString()}
                  </span>
                  <span className="text-white/20 text-[8px] uppercase font-black tracking-widest">checks</span>

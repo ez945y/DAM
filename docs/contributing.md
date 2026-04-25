@@ -18,8 +18,8 @@ make setup
 # Start the dev server (backend + Next.js hot-reload)
 make dev
 
-# Create feature branch off `dev`
-git checkout -b issue/42
+# Create a development branch off `dev`
+git checkout -b feat/my-feature  # or fix/bug-id, issue/42
 ```
 
 ---
@@ -28,9 +28,9 @@ git checkout -b issue/42
 
 | Branch | Purpose |
 |--------|---------|
-| `main` | Stable releases only (protected). Tag: `control-plane/vX.Y.Z` or `data-plane/vX.Y.Z` |
+| `main` | Stable releases only (protected). |
 | `dev` | Integration branch. All PRs target here. |
-| `issue/<num>` | Feature branch. Cut from `dev`, merge back via PR. |
+| `feat/*`, `fix/*`, `issue/*` | Development branches. Cut from `dev`, merge back via PR. |
 
 **Workflow:** `dev` → accumulate features → merge to `main` → release tags
 
@@ -71,7 +71,7 @@ Follow Conventional Commits with DAM scopes:
 Closes #42
 ```
 
-**Types:** `feat` `fix` `test` `refactor` `docs` `ci`  
+**Types:** `feat` `fix` `test` `refactor` `docs` `ci`
 **Scopes:** `core` `guard` `boundary` `adapter` `rust` `stackfile` `cli`
 
 **Examples:**
@@ -99,7 +99,7 @@ import dam
 @dam.guard(layer="L2")  # L0, L1, L2, L3, or L4
 class MyGuard(Guard):
     """Guard description."""
-    
+
     def check(self, obs: Observation, action: ActionProposal, my_param: float) -> GuardResult:
         if bad_condition(obs, action, my_param):
             return GuardResult.reject(reason="why", guard_name=self.get_name())
@@ -165,6 +165,14 @@ runtime.register_sink(MySink())
 - **Linting:** `ruff check` — zero warnings
 - **Immutability:** Use `@dataclass(frozen=True)` for core types
 - **State:** No mutable module-level state (except registries)
+
+### Pre-commit (Highly Recommended)
+
+This project uses `pre-commit` to ensure code quality on every commit. It automatically runs `ruff`, `mypy`, and `cargo fmt`.
+
+- **Install Hooks:** `make setup-precommit` (already included in `make setup`)
+- **Run Manually:** `pre-commit run --all-files`
+- **Skip Temporarily:** `git commit --no-verify` (use only if necessary)
 
 ```bash
 ruff format dam/ tests/

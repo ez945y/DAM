@@ -20,9 +20,9 @@ body:
       label: Reproduction
       description: Steps to reproduce.
       placeholder: |
-        1. 
-        2. 
-        3. 
+        1.
+        2.
+        3.
     validations:
       required: true
   - type: input

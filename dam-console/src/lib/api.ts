@@ -66,7 +66,7 @@ export const api = {
       '/control/callbacks'
     ),
   getCallbackCatalog: (grouped: boolean = false) =>
-    apiFetch<{ 
+    apiFetch<{
       callbacks?: { name: string; layer: string; description?: string; params?: any }[],
       groups?: { layer: string; callbacks: any[] }[]
     }>(`/catalog/callbacks?grouped=${grouped}`),

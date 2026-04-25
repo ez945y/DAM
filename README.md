@@ -31,7 +31,7 @@ This design enables strong safety boundaries while keeping the learning/policy l
 - **MCAP Loopback Buffer**: Capture ±30s of context around safety events for analysis
 - **Built-in Adapters**: LeRobot (SO-ARM101) and ROS 2 support
 
-**Important Disclaimer**:  
+**Important Disclaimer**:
 DAM is currently **research and experimental-grade software**. It is **not certified** for safety-critical or production use in human-collaborative or high-risk environments. Use at your own risk. We are actively working toward formal verification, worst-case timing analysis, and compliance-oriented documentation.
 
 ---

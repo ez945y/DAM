@@ -26,7 +26,7 @@ export function OODTrainer({
   const [lr, setLr] = useState(0.001)
 
   const wsRef = useRef<WebSocket | null>(null)
-  
+
   // Use effect to fetch models on load
   useEffect(() => {
     fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/api/ood/models`)
@@ -39,7 +39,7 @@ export function OODTrainer({
   useEffect(() => {
     let baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
     const wsUrl = baseUrl.replace(/^http/, 'ws') + '/api/ood/train/ws'
-    
+
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 
@@ -139,12 +139,12 @@ export function OODTrainer({
             Installed Neural Profiles
             {models.length > 0 && <span className="text-[9px] lowercase font-normal opacity-60">({models.length} profiles discovered)</span>}
           </label>
-          <button 
+          <button
             type="button"
             onClick={() => setShowTrainer(!showTrainer)}
             className={`flex items-center gap-1.5 text-[10px] font-black transition-all px-3 py-1.5 rounded-full border ${
-              showTrainer 
-                ? 'bg-dam-blue/20 text-dam-blue border-dam-blue/50 shadow-lg shadow-dam-blue/10' 
+              showTrainer
+                ? 'bg-dam-blue/20 text-dam-blue border-dam-blue/50 shadow-lg shadow-dam-blue/10'
                 : 'bg-white/5 text-dam-muted border-white/5 hover:border-white/10 hover:text-dam-blue'
             }`}
           >
@@ -152,7 +152,7 @@ export function OODTrainer({
             {showTrainer ? 'Close Workspace' : 'Train Profile'}
           </button>
         </div>
-        
+
         {models.length === 0 ? (
           <div className="p-8 border border-dashed border-white/5 rounded-xl bg-white/[0.01] text-center">
             <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center mx-auto mb-3 text-dam-muted">
@@ -164,7 +164,7 @@ export function OODTrainer({
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-[300px] overflow-y-auto pr-1 thin-scrollbar py-1">
             {models.map(m => {
-              const isSelected = selectedPath === m.path || 
+              const isSelected = selectedPath === m.path ||
                                 (selectedPath && m.path && selectedPath.split('/').pop() === m.path.split('/').pop())
 
               return (
@@ -185,7 +185,7 @@ export function OODTrainer({
                 >
                   {/* Selection Glow */}
                   {isSelected && <div className="absolute inset-0 rounded-xl bg-dam-blue/5 animate-pulse pointer-events-none" />}
-                  
+
                   <div className="flex items-start justify-between relative z-10">
                     <div className="flex items-center gap-2 min-w-0">
                       <div className={`p-1.5 rounded-lg shrink-0 ${isSelected ? 'bg-dam-blue text-white' : 'bg-white/5 text-dam-muted'}`}>
@@ -200,19 +200,19 @@ export function OODTrainer({
                         </p>
                       </div>
                     </div>
-                    
-                    <button 
+
+                    <button
                       type="button"
                       className="p-1.5 rounded-md text-dam-muted hover:text-dam-red hover:bg-dam-red/10 transition-all opacity-0 group-hover:opacity-100"
-                      onClick={(e) => { 
-                        e.stopPropagation(); 
-                        handleDeleteModel(m.name); 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteModel(m.name);
                       }}
                     >
                       <Trash2 size={12} />
                     </button>
                   </div>
-                  
+
                   {m.metadata?.repo_id && (
                     <div className="mt-auto pt-2 border-t border-white/5 grid grid-cols-2 gap-2 relative z-10">
                       <div className="flex items-center gap-1 text-[8px] text-dam-muted font-mono truncate">
@@ -256,27 +256,27 @@ export function OODTrainer({
               </div>
             )}
           </div>
-          
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 relative z-10">
             <div className="space-y-1.5">
               <label className="text-[9px] text-dam-muted font-bold uppercase tracking-tighter ml-1">Dataset Repository (HF)</label>
               <div className="group relative">
                 <Database className="absolute left-2.5 top-1/2 -translate-y-1/2 text-dam-muted group-focus-within:text-dam-blue transition-colors" size={12} />
-                <input 
-                  value={repoId} 
-                  onChange={(e) => setRepoId(e.target.value)} 
-                  className={`${inputCls} pl-8 h-9 rounded-lg !bg-dam-surface-3/80`} 
+                <input
+                  value={repoId}
+                  onChange={(e) => setRepoId(e.target.value)}
+                  className={`${inputCls} pl-8 h-9 rounded-lg !bg-dam-surface-3/80`}
                 />
               </div>
             </div>
-            
+
             <div className="space-y-1.5">
               <label className="text-[9px] text-dam-muted font-bold uppercase tracking-tighter ml-1">Analysis Architecture</label>
               <div className="relative">
                 <Settings2 className="absolute left-2.5 top-1/2 -translate-y-1/2 text-dam-muted" size={12} />
-                <select 
-                  value={backend} 
-                  onChange={(e) => setBackend(e.target.value)} 
+                <select
+                  value={backend}
+                  onChange={(e) => setBackend(e.target.value)}
                   className={`${inputCls} pl-8 h-9 rounded-lg !bg-dam-surface-3/80 appearance-none`}
                 >
                   <option value="memory_bank">Memory Bank (Fastest)</option>

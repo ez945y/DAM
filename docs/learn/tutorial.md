@@ -603,12 +603,12 @@ Combine everything you learned into one complete project.
 
 After completing this tutorial, you can:
 
-✅ Explain the guard stack and fail-to-reject principle  
-✅ Write production-ready Stackfiles  
-✅ Design multi-phase task boundaries  
-✅ Deploy DAM to simulation and hardware  
-✅ Monitor and analyze safety events  
-✅ Debug and optimize safety constraints  
+✅ Explain the guard stack and fail-to-reject principle
+✅ Write production-ready Stackfiles
+✅ Design multi-phase task boundaries
+✅ Deploy DAM to simulation and hardware
+✅ Monitor and analyze safety events
+✅ Debug and optimize safety constraints
 
 ---
 
