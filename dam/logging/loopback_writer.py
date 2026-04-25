@@ -79,7 +79,7 @@ class _DAMEncoder(json.JSONEncoder):
     """
 
     def default(self, obj: Any) -> Any:
-        if isinstance(obj, (bytes, bytearray)):
+        if isinstance(obj, bytes | bytearray):
             return list(obj)
         if isinstance(obj, np.ndarray):
             return obj.tolist()

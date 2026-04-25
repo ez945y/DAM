@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
+from dam.guard.layer import GuardLayer
 from dam.logging.cycle_record import CycleRecord
 from dam.types.action import ActionProposal, ValidatedAction
 from dam.types.observation import Observation
@@ -74,18 +75,23 @@ def make_pass_record(cycle_id: int = 1) -> CycleRecord:
         target_joint_positions=np.zeros(6),
         target_joint_velocities=None,
     )
-    guard_result = GuardResult.success(guard_name="test_guard", layer=0)
+    guard_result = GuardResult.success(guard_name="test_guard", layer=GuardLayer.L0)
     return CycleRecord(
         cycle_id=cycle_id,
         trace_id="test_trace",
         triggered_at=time.time(),
         active_task="test_task",
         active_boundaries=("test_boundary",),
+        active_cameras=(),
         obs_timestamp=obs.timestamp,
         obs_joint_positions=obs.joint_positions.tolist(),
-        obs_joint_velocities=obs.joint_velocities,
-        obs_end_effector_pose=obs.end_effector_pose,
-        obs_force_torque=obs.force_torque,
+        obs_joint_velocities=obs.joint_velocities.tolist()
+        if obs.joint_velocities is not None
+        else None,
+        obs_end_effector_pose=obs.end_effector_pose.tolist()
+        if obs.end_effector_pose is not None
+        else None,
+        obs_force_torque=obs.force_torque.tolist() if obs.force_torque is not None else None,
         obs_metadata=obs.metadata,
         action_positions=action.target_joint_positions.tolist(),
         action_velocities=None,
@@ -109,7 +115,7 @@ def make_violation_record(cycle_id: int = 1) -> CycleRecord:
     guard_result = GuardResult.reject(
         reason="test violation",
         guard_name="test_violation_guard",
-        layer=0,
+        layer=GuardLayer.L0,
     )
     return CycleRecord(
         cycle_id=rec.cycle_id,
@@ -117,6 +123,7 @@ def make_violation_record(cycle_id: int = 1) -> CycleRecord:
         triggered_at=rec.triggered_at,
         active_task=rec.active_task,
         active_boundaries=rec.active_boundaries,
+        active_cameras=rec.active_cameras,
         obs_timestamp=rec.obs_timestamp,
         obs_joint_positions=rec.obs_joint_positions,
         obs_joint_velocities=rec.obs_joint_velocities,
@@ -150,7 +157,7 @@ def make_clamp_record(cycle_id: int = 1) -> CycleRecord:
     guard_result = GuardResult.clamp(
         clamped_action=validated,
         guard_name="test_clamp_guard",
-        layer=1,
+        layer=GuardLayer.L1,
         reason="clamped for safety",
     )
     return CycleRecord(
@@ -159,6 +166,7 @@ def make_clamp_record(cycle_id: int = 1) -> CycleRecord:
         triggered_at=rec.triggered_at,
         active_task=rec.active_task,
         active_boundaries=rec.active_boundaries,
+        active_cameras=rec.active_cameras,
         obs_timestamp=rec.obs_timestamp,
         obs_joint_positions=rec.obs_joint_positions,
         obs_joint_velocities=rec.obs_joint_velocities,
@@ -343,6 +351,7 @@ def test_mcap_file_readable_after_write(writer: Any) -> None:
 
         reader = make_reader(f)
         summary = reader.get_summary()
+        assert summary is not None
         schema_names = {s.name for s in summary.schemas.values()}
         assert "dam.Cycle" in schema_names
         assert "dam.Observation" in schema_names
@@ -397,6 +406,7 @@ def test_session_metadata_written(writer: Any, session_meta: dict[str, str]) -> 
 
         reader = make_reader(f)
         summary = reader.get_summary()
+        assert summary is not None
         # Check metadata index contains 'session'
         metadata_names = [idx.name for idx in summary.metadata_indexes]
         assert "session" in metadata_names

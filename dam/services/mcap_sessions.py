@@ -224,7 +224,7 @@ class McapSessionService:
         return sessions
 
     def get_session_info(self, filename: str) -> dict[str, Any] | None:
-        if not filename or not isinstance(filename, (str, bytes)):
+        if not filename or not isinstance(filename, str | bytes):
             return None
         path = self._resolve(filename)
         if path is None:
@@ -335,7 +335,7 @@ class McapSessionService:
                 if topic == "/dam/cycle":
                     try:
                         d = msgpack.unpackb(message.data, raw=False)
-                        if not isinstance(d, (list, tuple)) or len(d) < 6:
+                        if not isinstance(d, list | tuple) or len(d) < 6:
                             continue
                         if not _got_total_from_summary:
                             total_cycles += 1
@@ -461,7 +461,7 @@ class McapSessionService:
                 for _schema, _channel, message in reader.iter_messages(topics=["/dam/cycle"]):
                     try:
                         d = msgpack.unpackb(message.data, raw=False)
-                        if not isinstance(d, (list, tuple)) or len(d) < 6:
+                        if not isinstance(d, list | tuple) or len(d) < 6:
                             continue
                         cycles.append(
                             {
@@ -540,7 +540,7 @@ class McapSessionService:
                         encoding = channel.message_encoding
                         if "msgpack" in encoding and _HAS_MSGPACK:
                             d = _msgpack.unpackb(msg.data, raw=False)
-                            if not isinstance(d, (list, tuple)):
+                            if not isinstance(d, list | tuple):
                                 continue
                         else:
                             continue  # Only support msgpack format

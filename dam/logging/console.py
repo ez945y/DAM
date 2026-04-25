@@ -11,7 +11,7 @@ class ColoredFormatter(logging.Formatter):
     bold_red = "\033[1;31m"
     reset = "\033[0m"
 
-    def __init__(self, fmt=None, datefmt=None):
+    def __init__(self, fmt: str | None = None, datefmt: str | None = None) -> None:
         super().__init__(fmt, datefmt)
         self.fmt = fmt or "[%(asctime)s] [%(levelname)-7s] [%(name)-30s] %(message)s"
         self.datefmt = datefmt or "%H:%M:%S"
@@ -24,13 +24,15 @@ class ColoredFormatter(logging.Formatter):
             logging.CRITICAL: self.bold_red + self.fmt + self.reset,
         }
 
-    def format(self, record):
+    def format(self, record: logging.LogRecord) -> str:
         log_fmt = self.FORMATS.get(record.levelno, self.fmt)
         formatter = logging.Formatter(log_fmt, datefmt=self.datefmt)
         return formatter.format(record)
 
 
-def setup_colored_logging(level=logging.INFO, fmt=None, datefmt=None):
+def setup_colored_logging(
+    level: int = logging.INFO, fmt: str | None = None, datefmt: str | None = None
+) -> None:
     """Sets up colored logging for the console."""
     handler = logging.StreamHandler()
     handler.setFormatter(ColoredFormatter(fmt=fmt, datefmt=datefmt))

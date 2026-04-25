@@ -1,20 +1,15 @@
 from __future__ import annotations
 
-import dataclasses
-import inspect
 import logging
 import threading
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from concurrent.futures import TimeoutError as FuturesTimeoutError
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
-from dam.fallback.base import FallbackContext
-from dam.guard.aggregator import aggregate_decisions
 from dam.injection.static import precompute_injection
+from dam.runtime.execution_engine import ExecutionEngine, ValidationContext, _filter_kwargs
 from dam.types.action import ValidatedAction
 from dam.types.enforcement import EnforcementMode
 from dam.types.observation import Observation
@@ -142,6 +137,13 @@ class GuardRuntime:
         self._running = False
         self._live_img_no_data_warned = False  # one-shot warning for missing camera images
 
+        # Execution pipeline (pure compute — no hardware I/O)
+        self._engine = ExecutionEngine(
+            enforcement_mode=enforcement_mode,
+            fallback_registry=fallback_registry,
+            metric_bus=self._metric_bus,
+        )
+
         # Startup: pre-compute injection for all guards
         for g in self._guards:
             precompute_injection(g, config_pool)
@@ -166,19 +168,19 @@ class GuardRuntime:
         pool: dict[str, Any],
     ) -> None:
         active_list = cfg.guards
-        active_names = set()
+        active_names: set[str] = set()
         for item in active_list:
             if isinstance(item, dict):
                 active_names.update(item.values())
             elif isinstance(item, str):
                 active_names.add(item)
 
-        self._disabled_kinds = {
-            getattr(g, "_guard_kind", None)
-            for g in self._all_guards
-            if getattr(g, "_guard_kind", None)
-            and getattr(g, "_guard_kind", None) not in active_names
-        }
+        disabled: set[str] = set()
+        for g in self._all_guards:
+            kind: Any = getattr(g, "_guard_kind", None)
+            if isinstance(kind, str) and kind not in active_names:
+                disabled.add(kind)
+        self._disabled_kinds = disabled
         self._guards = [
             g for g in self._all_guards if getattr(g, "_guard_kind", None) in active_names
         ]
@@ -234,28 +236,28 @@ class GuardRuntime:
             pairs = (
                 stage.guard_boundary_pairs
                 if stage.guard_boundary_pairs
-                else [(g, None) for g in stage.guards]
+                else [(g, cast("str | None", None)) for g in stage.guards]
             )
-            for g, bname in pairs:
+            for g, pair_bname in pairs:
                 try:
                     kwargs = dict(g._static_kwargs)
                     kwargs.update(
                         {k: self._config_pool[k] for k in g._runtime_keys if k in self._config_pool}
                     )
-                    if bname is not None and bname in self._boundary_containers:
-                        node = self._boundary_containers[bname].get_active_node()
+                    if pair_bname is not None and pair_bname in self._boundary_containers:
+                        node = self._boundary_containers[pair_bname].get_active_node()
                         if node and node.constraint:
                             kwargs.update(node.constraint.params)
                     guard_kind = getattr(g, "_guard_kind", g.get_name())
                     logger.debug(
-                        "GuardRuntime: preflight '%s' for boundary '%s'", guard_kind, bname
+                        "GuardRuntime: preflight '%s' for boundary '%s'", guard_kind, pair_bname
                     )
                     g.preflight(**_filter_kwargs(g.preflight, kwargs))
                 except Exception as exc:
                     logger.error(
                         "GuardRuntime: preflight '%s' (%s) failed: %s",
                         getattr(g, "_guard_kind", g.get_name()),
-                        bname,
+                        pair_bname,
                         exc,
                     )
 
@@ -268,7 +270,7 @@ class GuardRuntime:
         """
         from dam.guard.stage import Stage
 
-        layer_to_pairs: dict[int, list[tuple[Any, str]]] = {}
+        layer_to_pairs: dict[int, list[tuple[Any, str | None]]] = {}
         layer_to_name: dict[int, str] = {}
 
         for bname in active_bnames:
@@ -395,7 +397,7 @@ class GuardRuntime:
 
         logger.info("GuardRuntime: config swap applied (hot reload) and timers reset")
 
-    # ── Core validate ───────────────────────────────────────────────────────
+    # ── Core validate (thin wrapper → ExecutionEngine) ───────────────────────
 
     def validate(
         self,
@@ -404,308 +406,37 @@ class GuardRuntime:
         trace_id: str,
         now: float | None = None,
     ) -> tuple[ValidatedAction | None, list[GuardResult], str | None]:
-        """Returns (validated_action, guard_results, fallback_name_triggered)."""
-        # Collect hardware_status from sink and observation metadata
+        """Returns (validated_action, guard_results, fallback_name_triggered).
+
+        Delegates all guard execution and enforcement logic to the ExecutionEngine.
+        """
+        ctx = ValidationContext(
+            cycle_id=self._cycle_id,
+            guards=self._guards,
+            stages=self._stages,
+            active_containers=self._active_containers,
+            active_container_names=self._active_container_names,
+            boundary_containers=self._boundary_containers,
+            node_start_times=dict(self._node_start_times),
+            active_task=self._active_task,
+            kinematics_resolver=self._kinematics_resolver,
+            hardware_status=self._collect_hardware_status(obs),
+            risk_controller=self._risk_controller,
+        )
+        return self._engine.validate(obs, action, trace_id, ctx, now=now)
+
+    def _collect_hardware_status(self, obs: Observation) -> dict[str, Any]:
+        """Merge hardware status from sink and observation metadata."""
         hardware_status: dict[str, Any] = {}
         if self._sink is not None and hasattr(self._sink, "get_hardware_status"):
             with contextlib.suppress(Exception):
                 sink_status = self._sink.get_hardware_status()
                 if sink_status:
                     hardware_status.update(sink_status)
-
-        # Merge status from observation metadata (set by sources on error)
         obs_hw_status = obs.metadata.get("hardware_status")
         if obs_hw_status:
             hardware_status.update(obs_hw_status)
-
-        runtime_pool: dict[str, Any] = {
-            "obs": obs,
-            "action": action,
-            "cycle_id": self._cycle_id,
-            "trace_id": trace_id,
-            "timestamp": obs.timestamp,
-            "active_task": self._active_task,
-            "active_boundaries": self._active_container_names,
-            "active_containers": [
-                self._boundary_containers[name]
-                for name in self._active_container_names
-                if name in self._boundary_containers
-            ],
-            "active_map": {
-                name: self._boundary_containers[name]
-                for name in self._active_container_names
-                if name in self._boundary_containers
-            },
-            "node_start_times": dict(self._node_start_times),
-            "hardware_status": hardware_status if hardware_status else None,
-            "kinematics_resolver": self._kinematics_resolver,
-            "now": now,
-        }
-
-        if self._stages is not None:
-            all_results = self._run_staged(obs, action, trace_id, runtime_pool)
-        else:
-            # Filter flat guards to only those currently active in this task
-            active_names = set(self._active_container_names)
-            active_guards = [g for g in self._guards if g.get_name() in active_names]
-            all_results = self._run_flat_filtered(active_guards, runtime_pool)
-
-        aggregated = aggregate_decisions(all_results)
-
-        if aggregated.decision in (GuardDecision.REJECT, GuardDecision.FAULT):
-            self._risk_controller.record(was_clamped=False, was_rejected=True)
-            for g in self._guards:
-                g.on_violation(aggregated)
-            should_enforce = self._enforcement_mode == EnforcementMode.ENFORCE
-            # In MONITOR/LOG_ONLY modes guards run but do NOT block action dispatch
-            if should_enforce:
-                fallback_name = "emergency_stop"
-                if self._active_containers:
-                    fallback_name = self._active_containers[0].get_active_node().fallback
-                current_node = (
-                    self._active_containers[0].get_active_node()
-                    if self._active_containers
-                    else next(iter(self._boundary_containers.values())).get_active_node()
-                    if self._boundary_containers
-                    else _make_dummy_node()
-                )
-                ctx = FallbackContext(
-                    rejected_proposal=action,
-                    guard_result=aggregated,
-                    current_node=current_node,
-                    cycle_id=self._cycle_id,
-                )
-                self._fallback_registry.execute_with_escalation(fallback_name, ctx, bus=None)
-                return None, all_results, fallback_name
-            else:
-                # monitor / log_only — record violation but pass original action through
-                return (
-                    ValidatedAction(
-                        target_joint_positions=action.target_joint_positions.copy(),
-                        target_joint_velocities=action.target_joint_velocities.copy()
-                        if action.target_joint_velocities is not None
-                        else None,
-                        was_clamped=False,
-                        original_proposal=action,
-                    ),
-                    all_results,
-                    None,
-                )
-
-        if aggregated.decision == GuardDecision.CLAMP:
-            self._risk_controller.record(was_clamped=True, was_rejected=False)
-            return aggregated.clamped_action, all_results, None
-
-        self._risk_controller.record(was_clamped=False, was_rejected=False)
-        validated = ValidatedAction(
-            target_joint_positions=action.target_joint_positions.copy(),
-            target_joint_velocities=action.target_joint_velocities.copy()
-            if action.target_joint_velocities is not None
-            else None,
-            was_clamped=False,
-            original_proposal=action,
-        )
-        return validated, all_results, None
-
-    def _run_flat_filtered(
-        self, guards: list[Guard], runtime_pool: dict[str, Any]
-    ) -> list[GuardResult]:
-        """Original flat guard loop (used when no stages are configured)."""
-        all_results: list[GuardResult] = []
-        for g in guards:
-            try:
-                kwargs = dict(g._static_kwargs)
-                kwargs.update({k: runtime_pool[k] for k in g._runtime_keys if k in runtime_pool})
-
-                # Inject matching boundary node params
-                active_map = runtime_pool.get("active_map", {})
-                if g.get_name() in active_map:
-                    container = active_map[g.get_name()]
-                    node = container.get_active_node()
-                    if node and node.constraint:
-                        kwargs.update(node.constraint.params)
-
-                _t = time.perf_counter()
-                result = g.check(**_filter_kwargs(g.check, kwargs))
-                _latency_ms = (time.perf_counter() - _t) * 1000.0
-                self._metric_bus.push_guard(g.get_name(), g.get_layer().value, _latency_ms)
-                result = dataclasses.replace(
-                    result, metadata={**result.metadata, "_latency_ms": _latency_ms}
-                )
-            except Exception as e:
-                result = GuardResult.fault(e, "guard_code", g.get_name(), g.get_layer())
-                logger.error("Guard '%s' raised exception: %s", g.get_name(), e)
-            all_results.append(result)
-        return all_results
-
-    def _run_staged(
-        self,
-        obs: Observation,
-        action: ActionProposal,
-        trace_id: str,
-        runtime_pool: dict[str, Any],
-    ) -> list[GuardResult]:
-        """Stage DAG execution: run stages sequentially; within each stage
-        run guards in parallel (if stage.parallel=True) or sequentially."""
-        all_results: list[GuardResult] = []
-
-        for stage in self._stages:  # type: ignore[union-attr]
-            timeout_s = stage.timeout_ms / 1000.0
-
-            # Use guard_boundary_pairs when set (from_stackfile path); fall back to
-            # stage.guards for the direct-construction / test path.
-            _pairs = stage.guard_boundary_pairs if stage.guard_boundary_pairs else stage.guards
-            if stage.parallel and len(_pairs) > 1:
-                stage_results = self._run_stage_parallel(stage, runtime_pool, timeout_s)
-            else:
-                stage_results = self._run_stage_sequential(stage, runtime_pool, timeout_s)
-
-            all_results.extend(stage_results)
-
-        return all_results
-
-    def _run_one_guard(
-        self,
-        g: Guard,
-        boundary_name: str | None,
-        runtime_pool: dict[str, Any],
-    ) -> GuardResult:
-        """Execute a single guard, injecting boundary-specific params when available.
-
-        ``boundary_name`` is the explicit boundary to look up in the active_map.
-        When None (direct-construction / test path) the guard's own name is used
-        as the fallback lookup key, preserving the pre-singleton behaviour.
-        """
-        kwargs = dict(g._static_kwargs)
-        kwargs.update({k: runtime_pool[k] for k in g._runtime_keys if k in runtime_pool})
-
-        node_timeout = None
-        active_map = runtime_pool.get("active_map", {})
-        lookup = boundary_name if boundary_name is not None else g.get_name()
-        if lookup in active_map:
-            container = active_map[lookup]
-            node = container.get_active_node()
-            if node:
-                node_timeout = node.timeout_sec
-                if node.constraint:
-                    kwargs.update(node.constraint.params)
-
-        result_name = boundary_name if boundary_name is not None else g.get_name()
-
-        _t_start = time.perf_counter()
-        result = g.check(**_filter_kwargs(g.check, kwargs))
-        _t_elapsed = time.perf_counter() - _t_start
-        _latency_ms = _t_elapsed * 1000.0
-
-        self._metric_bus.push_guard(result_name, g.get_layer().value, _latency_ms)
-
-        if node_timeout is not None and _t_elapsed > node_timeout:
-            result = GuardResult.reject(
-                reason=(
-                    f"guard '{result_name}' computation timeout: "
-                    f"{_t_elapsed:.3f}s > {node_timeout}s"
-                ),
-                guard_name=result_name,
-                layer=g.get_layer(),
-            )
-
-        return dataclasses.replace(
-            result,
-            guard_name=result_name,
-            metadata={**result.metadata, "_latency_ms": _latency_ms},
-        )
-
-    def _run_stage_sequential(
-        self,
-        stage: Stage,
-        runtime_pool: dict[str, Any],
-        timeout_s: float,
-    ) -> list[GuardResult]:
-        results: list[GuardResult] = []
-        t_start = time.perf_counter()
-
-        pairs = (
-            stage.guard_boundary_pairs
-            if stage.guard_boundary_pairs
-            else [(g, None) for g in stage.guards]
-        )
-
-        for g, boundary_name in pairs:
-            result_name = boundary_name if boundary_name is not None else g.get_name()
-            if time.perf_counter() - t_start > timeout_s:
-                results.append(
-                    GuardResult(
-                        decision=GuardDecision.FAULT,
-                        guard_name=result_name,
-                        layer=g.get_layer(),
-                        reason=f"Stage '{stage.name}' timeout ({stage.timeout_ms}ms)",
-                        fault_source="timeout",
-                    )
-                )
-                continue
-
-            try:
-                result = self._run_one_guard(g, boundary_name, runtime_pool)
-            except Exception as exc:
-                result = GuardResult.fault(exc, "guard_code", result_name, g.get_layer())
-                logger.error("Stage '%s' guard '%s' raised: %s", stage.name, result_name, exc)
-            results.append(result)
-
-        return results
-
-    def _run_stage_parallel(
-        self,
-        stage: Stage,
-        runtime_pool: dict[str, Any],
-        timeout_s: float,
-    ) -> list[GuardResult]:
-        pairs = (
-            stage.guard_boundary_pairs
-            if stage.guard_boundary_pairs
-            else [(g, None) for g in stage.guards]
-        )
-        results: list[GuardResult | None] = [None] * len(pairs)
-
-        def _run_entry(idx: int, g: Guard, boundary_name: str | None) -> tuple[int, GuardResult]:
-            result_name = boundary_name if boundary_name is not None else g.get_name()
-            try:
-                result = self._run_one_guard(g, boundary_name, runtime_pool)
-            except Exception as exc:
-                result = GuardResult.fault(exc, "guard_code", result_name, g.get_layer())
-                logger.error("Stage '%s' guard '%s' raised: %s", stage.name, result_name, exc)
-            return idx, result
-
-        with ThreadPoolExecutor(max_workers=len(pairs)) as executor:
-            futures = {executor.submit(_run_entry, i, g, bn): i for i, (g, bn) in enumerate(pairs)}
-            try:
-                for future in as_completed(futures, timeout=timeout_s):
-                    idx, result = future.result()
-                    results[idx] = result
-            except FuturesTimeoutError:
-                for future, idx in futures.items():
-                    if not future.done():
-                        g, bn = pairs[idx]
-                        results[idx] = GuardResult(
-                            decision=GuardDecision.FAULT,
-                            guard_name=bn if bn is not None else g.get_name(),
-                            layer=g.get_layer(),
-                            reason=f"Stage '{stage.name}' parallel timeout ({stage.timeout_ms}ms)",
-                            fault_source="timeout",
-                        )
-
-        # Fill any None slots that weren't reached (shouldn't happen, but be safe)
-        for i, r in enumerate(results):
-            if r is None:
-                g, bn = pairs[i]
-                results[i] = GuardResult(
-                    decision=GuardDecision.FAULT,
-                    guard_name=bn if bn is not None else g.get_name(),
-                    layer=g.get_layer(),
-                    reason=f"Stage '{stage.name}' guard did not complete",
-                    fault_source="timeout",
-                )
-
-        return results
+        return hardware_status
 
     # ── step() — single cycle ───────────────────────────────────────────────
 
@@ -905,8 +636,7 @@ class GuardRuntime:
 
         # ── Per-guard latency (embedded by execution methods in result.metadata) ──
         latency_guards: dict[str, float] = {
-            r.guard_name: r.metadata.get("_latency_ms", 0.0)  # type: ignore[union-attr]
-            for r in guard_results
+            r.guard_name: r.metadata.get("_latency_ms", 0.0) for r in guard_results
         }
 
         # ── Per-layer latency + violation / clamp masks (single O(n_guards) pass) ──
@@ -961,7 +691,7 @@ class GuardRuntime:
         )
         # Determine if we should capture images this cycle
         want_images = obs.images is not None and (
-            has_violation or (self._loopback._capture_images_on_clamp and has_clamp)
+            has_violation or (self._loopback._capture_images_on_clamp and has_clamp)  # type: ignore[union-attr]
         )
         images = obs.images if want_images else None
 
@@ -1084,29 +814,35 @@ class GuardRuntime:
             return RiskLevel.ELEVATED
         return RiskLevel.NORMAL
 
-    # ── Class constructor from Stackfile ──────────────────────────────
+    # ── Class constructors ─────────────────────────────────────────────
 
     @classmethod
     def from_stackfile(cls, path: str) -> GuardRuntime:
         """Construct a GuardRuntime from a Stackfile YAML path.
 
-        Guard type is determined by the ``_cb_layer`` attribute on registered
-        callbacks (set by the @callback decorator).  Falls back to the boundary's
-        own ``layer`` field when the callback is unknown or not yet registered.
+        Thin wrapper: loads the YAML then delegates to ``_from_config``.
+        Prefer calling ``_from_config`` directly when the config is already
+        parsed (e.g. inside RuntimeFactory) to avoid re-parsing the file.
+        """
+        from dam.config.loader import StackfileLoader
+
+        return cls._from_config(StackfileLoader.load(path))
+
+    @classmethod
+    def _from_config(cls, config: StackfileConfig) -> GuardRuntime:
+        """Construct a GuardRuntime from an already-parsed StackfileConfig.
+
+        Called by ``from_stackfile`` and by ``RuntimeFactory`` (which already
+        holds a parsed config and uses this to avoid re-parsing the YAML).
         """
         from dam.boundary.constraint import BoundaryConstraint
         from dam.boundary.list_container import ListContainer
         from dam.boundary.node import BoundaryNode
         from dam.boundary.single import SingleNodeContainer
-        from dam.config.loader import StackfileLoader
         from dam.decorators import guard as guard_decorator
         from dam.fallback.chain import build_escalation_chain
         from dam.kinematics.resolver import KinematicsResolver
 
-        # Layer → Guard class mapping
-        # L0: OOD           → OODGuard
-        # L1: Preflight     → ExecutionGuard
-        config = StackfileLoader.load(path)
         config_pool: dict[str, Any] = {}
         boundary_containers: dict[str, Any] = {}
 
@@ -1163,7 +899,7 @@ class GuardRuntime:
                         Decorated = guard_decorator(cb_layer)(GuardClass)
                         instance = Decorated()
                         instance.set_name(guard_kind)
-                        instance._guard_kind = guard_kind
+                        instance._guard_kind = guard_kind  # type: ignore[attr-defined]
                         guards_by_kind[guard_kind] = instance
 
                 # Record which kind handles this boundary.
@@ -1233,32 +969,3 @@ class GuardRuntime:
             kinematics_resolver=kinematics_resolver,
             boundary_to_kind=boundary_to_kind,
         )
-
-
-def _make_dummy_node() -> Any:
-    from dam.boundary.constraint import BoundaryConstraint
-    from dam.boundary.node import BoundaryNode
-
-    return BoundaryNode(node_id="dummy", constraint=BoundaryConstraint(), fallback="emergency_stop")
-
-
-def _filter_kwargs(fn: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
-    """Return only the kwargs that *fn* actually accepts.
-
-    If the function signature contains a ``**kwargs`` parameter (VAR_KEYWORD),
-    the full dict is returned unchanged.  Otherwise only the keys that match
-    declared parameters are kept, preventing ``TypeError: unexpected keyword
-    argument`` when the runtime injects a superset of params into a guard.
-    """
-    try:
-        sig = inspect.signature(fn)
-    except (ValueError, TypeError):
-        return kwargs  # can't introspect — pass everything and let it fail naturally
-
-    params = sig.parameters
-    # If there's a **kwargs param, the function accepts anything
-    for p in params.values():
-        if p.kind == inspect.Parameter.VAR_KEYWORD:
-            return kwargs
-
-    return {k: v for k, v in kwargs.items() if k in params}
