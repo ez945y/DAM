@@ -27,7 +27,7 @@ section() {
     local total=72
     local dashes=$((total - len))
     local line=""
-    if [ $dashes -gt 0 ]; then
+    if [[ $dashes -gt 0 ]]; then
         line=$(printf '─%.0s' $(seq 1 $dashes))
     fi
     echo -e "\n${BOLD}${BLUE}${title}${line}${NC}"
