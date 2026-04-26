@@ -25,7 +25,7 @@ const R = 52
 const CIRCUMFERENCE = 2 * Math.PI * R   // ≈ 326.7
 
 export function RiskGauge({ level }: { level: RiskLevel }) {
-  const { stroke, text, bg, border, pct, Icon, glowClass } = CONFIG[level]
+  const { stroke, text, pct, Icon, glowClass } = CONFIG[level]
   const filled    = CIRCUMFERENCE * pct
   const remaining = CIRCUMFERENCE - filled
 

@@ -210,14 +210,13 @@ function ViewMcapButton({ cycleId, tsNs }: { cycleId: number; tsNs: number }) {
 // ── Main table component ──────────────────────────────────────────────────
 
 export function RiskLogTable() {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const targetCycleId = searchParams ? Number(searchParams.get('cycle_id') ?? '') || null : null
 
   const [events, setEvents] = useState<RiskEvent[]>([])
-  const [stats, setStats] = useState<RiskLogStats | null>(null)
+  const [, setStats] = useState<RiskLogStats | null>(null)
   const [loading, setLoading] = useState(false)
-  const [autoRefresh, setAutoRefresh] = useState(true)
+  const [, setAutoRefresh] = useState(true)
   const [frozen, setFrozen] = useState(false)
   const [filters, setFilters] = useState({
     min_risk_level: '',

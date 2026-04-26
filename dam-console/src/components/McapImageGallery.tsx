@@ -125,9 +125,7 @@ export function McapImageGallery({
               <div className="p-3 border-t border-dam-border/30 flex items-center gap-2 bg-dam-surface-1">
                 <button
                   onClick={() => {
-                    // Find previous frame with same camera
-                    const prevIdx = currentFrameIdx > 0 ? currentFrameIdx - 1 : frameList.length - 1
-                    // In a real implementation, you'd need to update the cycle selection
+                    // Navigation requires lifting frame index state to the parent
                   }}
                   className="p-1 text-dam-muted hover:text-dam-text transition-colors disabled:opacity-30"
                   disabled={currentFrameIdx === 0}
@@ -144,9 +142,7 @@ export function McapImageGallery({
                 </div>
                 <button
                   onClick={() => {
-                    // Find next frame
-                    const nextIdx = currentFrameIdx < frameList.length - 1 ? currentFrameIdx + 1 : 0
-                    // In a real implementation, you'd need to update the cycle selection
+                    // Navigation requires lifting frame index state to the parent
                   }}
                   className="p-1 text-dam-muted hover:text-dam-text transition-colors disabled:opacity-30"
                   disabled={currentFrameIdx === frameList.length - 1}
