@@ -58,7 +58,7 @@ export function useDemoMode(): DemoModeResult {
         }
         pollTimer.current = setTimeout(attempt, POLL_INTERVAL_MS)
       }
-      void attempt()
+      attempt()
     })
   }, [])
 

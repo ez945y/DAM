@@ -436,15 +436,15 @@ function McapViewerContent() {
   // Trigger session load when live mode is turned OFF
   useEffect(() => {
     if (!liveMode) {
-      void loadSessions({ showSpinner: true })
+      loadSessions({ showSpinner: true })
     }
   }, [liveMode, loadSessions])
 
   // Refresh on focus / system updates (MCAP mode only)
   useEffect(() => {
     if (liveMode) return
-    const onFocus = () => void loadSessions()
-    const onUpdate = () => void loadSessions()
+    const onFocus = () => { loadSessions() }
+    const onUpdate = () => { loadSessions() }
     document.addEventListener('visibilitychange', onFocus)
     window.addEventListener('dam-system-update', onUpdate)
     return () => {

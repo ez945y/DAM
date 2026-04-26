@@ -9,9 +9,9 @@
  *
  * Body: { yaml?: string; adapter?: string }
  */
-import { spawn } from 'child_process'
-import { writeFileSync } from 'fs'
-import path from 'path'
+import { spawn } from 'node:child_process'
+import { writeFileSync } from 'node:fs'
+import path from 'node:path'
 import { NextRequest, NextResponse } from 'next/server'
 
 const PROJECT_ROOT =

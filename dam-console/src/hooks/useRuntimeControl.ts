@@ -77,8 +77,8 @@ export function useRuntimeControl() {
   }, [])
 
   useEffect(() => {
-    void refresh()
-    void refreshBoundaries()
+    refresh()
+    refreshBoundaries()
 
     // 1. Reactive Update: Listen for backend events via WebSocket bridge
     const handleUpdate = (e: any) => {

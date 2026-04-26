@@ -114,7 +114,7 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
     ws.onopen = () => {
       gWsConnected = true
       setState(s => ({ ...s, connected: true }))
-      void fetchHistory()
+      fetchHistory()
 
       // Fetch boundaries that have valid callbacks defined
       api.listBoundaries().then(resp => {

@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import type { GuardStatus, GuardDecision, BoundaryConfig } from '@/lib/types'
-import { ShieldCheck, Terminal, ShieldAlert, ShieldX, AlertOctagon, Shield, ChevronRight, ChevronDown } from 'lucide-react'
+import { ShieldCheck, ShieldAlert, ShieldX, AlertOctagon, Shield, ChevronRight, ChevronDown } from 'lucide-react'
 
 export const DEC_CONFIG: Record<GuardDecision | 'STANDBY', {
   color: string; bg: string; border: string;
@@ -90,7 +90,7 @@ export function GuardTable({
   for (const g of guards) {
       // Standardize layer name to 'LX' format
       let l = String(g.layer || '')
-      if (!l.startsWith('L') && !isNaN(Number(l))) l = 'L' + l
+      if (!l.startsWith('L') && !Number.isNaN(Number(l))) l = 'L' + l
 
       const gWithFixedLayer = { ...g, layer: l }
 
@@ -140,7 +140,7 @@ export function GuardTable({
   // Calculate active counts per layer based on LIVE runtime guards (standardize layer format)
   const activeCountByLayer = guards.reduce((acc, g) => {
     let l = String(g.layer || '')
-    if (!l.startsWith('L') && !isNaN(Number(l))) l = 'L' + l
+    if (!l.startsWith('L') && !Number.isNaN(Number(l))) l = 'L' + l
     if (l.startsWith('L')) {
       acc[l] = (acc[l] || 0) + 1
     }
@@ -160,7 +160,6 @@ export function GuardTable({
     <div className="space-y-2">
       {Object.entries(grouped).map(([layer, items]) => {
         const layerCls = LAYER_COLORS[layer] ?? 'text-dam-muted bg-dam-surface-3 border-dam-border'
-        const layerTextColor = layerCls.split(' ')[0]
         const hasItems = items.length > 0
 
         // Compute group decision
@@ -175,7 +174,6 @@ export function GuardTable({
         }
 
         const dcGroup = DEC_CONFIG[groupDecision] ?? DEC_CONFIG.STANDBY
-        const { Icon } = dcGroup
 
         const isExpanded = expandedLayers.has(layer)
 

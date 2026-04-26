@@ -20,8 +20,8 @@
  * DAM_DATA_ROOT  Mount-point shared with the Python container.
  *                Default: /mnt/dam_data   (set to ./tmp/dam_data for local dev)
  */
-import { writeFileSync, mkdirSync } from 'fs'
-import path from 'path'
+import { writeFileSync, mkdirSync } from 'node:fs'
+import path from 'node:path'
 import { NextRequest, NextResponse } from 'next/server'
 
 const ALLOWED_TARGETS = new Set(['calibration', 'ood_model'])

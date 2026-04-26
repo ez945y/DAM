@@ -67,7 +67,7 @@ function BoundaryModal({
             Cancel
           </button>
           <button
-            onClick={() => void handleSave()}
+            onClick={() => { handleSave() }}
             disabled={saving}
             className="px-4 py-1.5 text-xs font-bold bg-dam-blue text-white rounded hover:bg-dam-blue-bright disabled:opacity-50 transition-colors"
           >

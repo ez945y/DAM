@@ -73,7 +73,7 @@ function HardwareWarning({ message }: { message: string }) {
               </p>
               <button
                 disabled={loading}
-                onClick={() => void recheckHardware()}
+                onClick={() => { recheckHardware() }}
                 className="flex items-center gap-1.5 px-2 py-1 rounded bg-dam-red/10 border border-dam-red/30
                   text-dam-red text-[10px] font-bold hover:bg-dam-red/20 disabled:opacity-50 transition-all uppercase"
               >
@@ -153,7 +153,7 @@ export default function DashboardPage() {
     if (demo.readyToStart) {
       demo.clearReady()
       if (ctrl.status.state === 'idle' || ctrl.status.state === 'stopped') {
-        void ctrl.start()
+        ctrl.start()
       }
     }
   }, [demo, ctrl])

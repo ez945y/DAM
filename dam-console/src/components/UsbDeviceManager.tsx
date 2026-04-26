@@ -47,7 +47,7 @@ export function UsbDeviceManager({ devices, onChange }: Props) {
 
   // Auto-scan on mount
   useEffect(() => {
-    void doScan()
+    doScan()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
