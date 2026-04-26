@@ -2,7 +2,7 @@
 import React, { useState } from 'react'
 import {
   Download, Upload, Check, ShieldCheck,
-  RotateCcw, ChevronDown, ChevronUp, Copy, RefreshCw
+  RotateCcw, ChevronDown, Copy
 } from 'lucide-react'
 
 interface ActionShellProps {

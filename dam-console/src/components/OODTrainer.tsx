@@ -22,8 +22,8 @@ export function OODTrainer({
   const [showTrainer, setShowTrainer] = useState(false)
   const [models, setModels] = useState<{name: string, path: string, metadata?: any}[]>([])
   const [progressMsg, setProgressMsg] = useState<string>('')
-  const [epochs, setEpochs] = useState(50)
-  const [lr, setLr] = useState(0.001)
+  const epochs = 50
+  const lr = 0.001
 
   const wsRef = useRef<WebSocket | null>(null)
 

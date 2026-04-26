@@ -39,7 +39,6 @@ export function EventLog({ entries }: { entries: LogEntry[] }) {
       {/* Filter pills */}
       <div className="flex items-center gap-1.5 flex-wrap shrink-0">
         {(['all', 'REJECT', 'FAULT', 'CLAMP', 'INFO'] as LogType[]).map(t => {
-          const cfg = TYPE_CONFIG[t]
           const cnt = t === 'all' ? entries.length : (counts[t] ?? 0)
           const active = filter === t
           return (

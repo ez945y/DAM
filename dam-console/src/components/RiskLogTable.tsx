@@ -195,7 +195,7 @@ function ViewMcapButton({ cycleId, tsNs }: { cycleId: number; tsNs: number }) {
 
   return (
     <button
-      onClick={() => void handleClick()}
+      onClick={() => { handleClick() }}
       disabled={searching}
       className="mt-2 w-full flex items-center justify-center gap-2 px-3 py-2 bg-dam-blue/10 border border-dam-blue/30 text-dam-blue text-xs font-bold rounded hover:bg-dam-blue/20 disabled:opacity-60 transition-colors"
     >
@@ -270,10 +270,10 @@ export function RiskLogTable() {
 
   // Auto-refresh: Switch to event-driven instead of constant polling
   useEffect(() => {
-    void load()
+    load()
 
-    const handleUpdate = () => void load(true)
-    const handleFocus = () => void load()
+    const handleUpdate = () => { load(true) }
+    const handleFocus = () => { load() }
 
     window.addEventListener('dam-system-update', handleUpdate)
     window.addEventListener('focus', handleFocus)
@@ -392,7 +392,7 @@ export function RiskLogTable() {
             <Download size={11} /> CSV
           </a>
           <button
-            onClick={() => void load()}
+            onClick={() => { load() }}
             disabled={loading}
             className="px-4 py-1.5 bg-dam-blue text-white text-xs font-bold rounded hover:bg-dam-blue-bright disabled:opacity-50 transition-colors"
           >

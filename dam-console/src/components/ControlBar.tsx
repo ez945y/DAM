@@ -28,7 +28,6 @@ const STATE_CONFIG: Record<RuntimeState, { label: string; dot: string; bg: strin
 }
 
 export function ControlBar({ state, backendState, cycleCount, error, loading, connected, startupError, onStart, onStop, onEStop, onReset }: Props) {
-  const sc = STATE_CONFIG[state]
   const isActive = state === 'running' || state === 'paused'
   const isStarting = state === 'starting'
   const isStopping = state === 'stopping'

@@ -6,9 +6,9 @@
  * `.dam_stackfile.yaml` at the project root so that dev_server.py picks
  * it up via its auto-detect logic.
  */
-import { spawn } from 'child_process'
-import { writeFileSync } from 'fs'
-import path from 'path'
+import { spawn } from 'node:child_process'
+import { writeFileSync } from 'node:fs'
+import path from 'node:path'
 import { NextRequest, NextResponse } from 'next/server'
 
 // Support both local dev (cwd = dam-console/) and Docker (env var set by compose)

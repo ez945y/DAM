@@ -3,8 +3,8 @@
  * Writes the YAML stackfile to .dam_stackfile.yaml at the project root.
  * Called automatically (debounced) whenever the config page YAML changes.
  */
-import { writeFileSync } from 'fs'
-import path from 'path'
+import { writeFileSync } from 'node:fs'
+import path from 'node:path'
 import { NextRequest, NextResponse } from 'next/server'
 
 const PROJECT_ROOT =

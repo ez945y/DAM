@@ -7,10 +7,10 @@
  * Pass `restart: true` in the body to stop-then-recreate an already-running
  * service (picks up a new stackfile without rebuilding the image).
  */
-import { exec } from 'child_process'
-import { writeFileSync } from 'fs'
-import { promisify } from 'util'
-import path from 'path'
+import { exec } from 'node:child_process'
+import { writeFileSync } from 'node:fs'
+import { promisify } from 'node:util'
+import path from 'node:path'
 import { NextRequest, NextResponse } from 'next/server'
 
 const execAsync = promisify(exec)

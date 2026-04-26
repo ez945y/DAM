@@ -886,17 +886,11 @@ export default function GuardPage() {
     })))
   }, [setBoundaries, setTasks])
 
-  // Expand/collapse for Guard Pipeline rows
-  const [expandedGuards, setExpandedGuards] = useState<Record<string, boolean>>({
-    ood: false, preflight: false, motion: false, execution: false, hardware: false,
-  })
-
   // Expand/collapse for Boundaries section (per layer)
   const [expandedBoundaryLayers, setExpandedBoundaryLayers] = useState<Record<string, boolean>>({
     L0: false, L1: false, L2: false, L3: false, L4: false,
   })
 
-  const [hasRust, setHasRust] = useState<boolean | null>(null)
   const [saved, setSaved] = useState(false)
   const [restarting, setRestarting] = useState(false)
   const [restartError, setRestartError] = useState<string | null>(null)

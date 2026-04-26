@@ -1,15 +1,14 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Download, Upload, RefreshCw, Copy, Check, Plus, Trash2, Usb, RotateCcw, ShieldCheck, FolderOpen, AlertCircle } from 'lucide-react'
+import { RefreshCw, Check, Plus, Trash2, Usb, FolderOpen, AlertCircle } from 'lucide-react'
 import { TEMPLATES, defaultConfig, generateYaml, parseConfigFromYaml } from '@/lib/templates'
-import type { DamConfig, CameraConfig, LoopbackConfig } from '@/lib/templates'
-import type { EnforcementMode } from '@/lib/types'
-import type { UsbDeviceInfo } from '@/lib/types'
+import type { DamConfig, CameraConfig } from '@/lib/templates'
+import type { EnforcementMode, UsbDeviceInfo } from '@/lib/types'
 import { api, scanUsbDevices } from '@/lib/api'
 import { TemplateGallery } from '@/components/TemplateGallery'
 import { AdapterColumn, ADAPTERS, POLICIES } from '@/components/AdapterPicker'
 import { JointLimitsTable } from '@/components/JointLimitsTable'
-import { OODTrainer } from '@/components/OODTrainer'
+
 import { ActionShell } from '@/components/ActionShell'
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -150,15 +149,14 @@ export default function ConfigPage() {
     } catch { /* ignore */ }
   }, [cfg])
 
-  const [saving, setSaving] = useState(false)
+  const [, setSaving] = useState(false)
   const [lastSavedYaml, setLastSavedYaml] = useState('')
 
   const saveToBackend = useCallback(async (content: string) => {
     if (!content || content === lastSavedYaml) return
     setSaving(true)
     try {
-      const res = await api.saveConfig(content)
-      // If api.saveConfig doesn't throw, it's successful
+      await api.saveConfig(content)
       setLastSavedYaml(content)
     } catch (err) {
       console.error('Failed to save config:', err)
@@ -170,14 +168,14 @@ export default function ConfigPage() {
   useEffect(() => {
     try { localStorage.setItem(YAML_STORAGE_KEY, yaml) } catch { /* ignore */ }
     const t = setTimeout(() => {
-      void saveToBackend(yaml)
+      saveToBackend(yaml)
     }, 800)
     return () => clearTimeout(t)
   }, [yaml, saveToBackend])
 
   const [usbDevices, setUsbDevices] = useState<UsbDeviceInfo[]>([])
   const [usbScanning, setUsbScanning] = useState(false)
-  const [usbScanFailed, setUsbScanFailed] = useState(false)
+  const [, setUsbScanFailed] = useState(false)
 
   useEffect(() => {
     if (!yamlDirty) {
@@ -220,7 +218,7 @@ export default function ConfigPage() {
         // Silence fetch errors during startup/polling
       }
     }
-    void fetchConfig()
+    fetchConfig()
   }, [])
 
   const handleTemplate = (id: string) => {
@@ -231,7 +229,7 @@ export default function ConfigPage() {
     setYaml(nextYaml)
     setYamlDirty(false)
     // Save immediately on template change
-    void saveToBackend(nextYaml)
+    saveToBackend(nextYaml)
   }
 
   const set = <K extends keyof DamConfig>(key: K, value: DamConfig[K]) => {
