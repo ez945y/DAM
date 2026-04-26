@@ -12,11 +12,16 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
     const detail = (err as { detail?: unknown }).detail
-    const message = typeof detail === 'string'
-      ? detail
-      : Array.isArray(detail)
-        ? detail.map((d: { msg?: string }) => d?.msg ?? JSON.stringify(d)).join('; ')
-        : detail != null ? JSON.stringify(detail) : `HTTP ${res.status}`
+    let message: string
+    if (typeof detail === 'string') {
+      message = detail
+    } else if (Array.isArray(detail)) {
+      message = detail.map((d: { msg?: string }) => d?.msg ?? JSON.stringify(d)).join('; ')
+    } else if (detail === null || detail === undefined) {
+      message = `HTTP ${res.status}`
+    } else {
+      message = JSON.stringify(detail)
+    }
     throw new Error(message)
   }
   return res.json() as Promise<T>

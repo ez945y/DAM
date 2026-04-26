@@ -74,7 +74,13 @@ def create_control_router(control: RuntimeControlService | None) -> APIRouter:
             )
         return {"fallbacks": fallbacks}
 
-    @router.post("/api/control/start", responses={503: {"description": _SVC_UNAVAILABLE}})
+    @router.post(
+        "/api/control/start",
+        responses={
+            400: {"description": "Runtime already started or invalid state"},
+            503: {"description": _SVC_UNAVAILABLE},
+        },
+    )
     async def control_start(
         task_name: Annotated[str, Query()] = "default",
         n_cycles: Annotated[int, Query()] = -1,

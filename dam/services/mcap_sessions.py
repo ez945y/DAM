@@ -118,7 +118,7 @@ class McapSessionService:
     """Read-only view over the MCAP loopback output directory with SQLite caching."""
 
     def __init__(self, output_dir: str) -> None:
-        self._dir = Path(output_dir)
+        self._dir = Path(output_dir).resolve()
         self._dir.mkdir(parents=True, exist_ok=True)
 
         # Initialize SQLite index
@@ -186,12 +186,14 @@ class McapSessionService:
         if not filename.startswith("session_") or not filename.endswith(".mcap"):
             return None
 
-        # Prevent directory traversal by taking only the name and resolving
-        safe_name = Path(filename).name
-        target_path = (self._dir / safe_name).resolve()
+        # Reject any path separators or traversal sequences before constructing the path
+        if "/" in filename or "\\" in filename or ".." in filename:
+            return None
+
+        target_path = (self._dir / filename).resolve()
 
         # Security boundary check
-        if not target_path.is_relative_to(self._dir.resolve()):
+        if not target_path.is_relative_to(self._dir):
             return None
 
         try:

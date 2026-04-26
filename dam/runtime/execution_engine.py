@@ -145,7 +145,7 @@ class ExecutionEngine:
         runtime_pool = self._build_runtime_pool(obs, action, trace_id, ctx, now)
 
         if ctx.stages is not None:
-            all_results = self._run_staged(ctx.stages, obs, action, trace_id, runtime_pool)
+            all_results = self._run_staged(ctx.stages, runtime_pool)
         else:
             active_names = set(ctx.active_container_names)
             active_guards = [g for g in ctx.guards if g.get_name() in active_names]
@@ -277,9 +277,6 @@ class ExecutionEngine:
     def _run_staged(
         self,
         stages: list[Stage],
-        obs: Observation,
-        action: ActionProposal,
-        trace_id: str,
         runtime_pool: dict[str, Any],
     ) -> list[GuardResult]:
         """Stage DAG execution: stages run sequentially; guards within each stage

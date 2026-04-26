@@ -941,10 +941,10 @@ class GuardRuntime:
             return
         from dam.decorators import guard as guard_decorator
 
-        GuardClass = guard_reg.get(guard_kind)
-        if GuardClass and (guard_kind != "execution" or ncfg.callback is not None):
-            Decorated = guard_decorator(cb_layer)(GuardClass)
-            instance = Decorated()
+        guard_cls = guard_reg.get(guard_kind)
+        if guard_cls and (guard_kind != "execution" or ncfg.callback is not None):
+            decorated_cls = guard_decorator(cb_layer)(guard_cls)
+            instance = decorated_cls()
             instance.set_name(guard_kind)
             instance._guard_kind = guard_kind
             guards_by_kind[guard_kind] = instance
