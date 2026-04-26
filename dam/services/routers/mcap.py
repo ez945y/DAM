@@ -12,6 +12,12 @@ def _require_mcap_svc(svc: Any) -> Any:
     return svc
 
 
+def _require_mcap_path(path: Any) -> Any:
+    if path is None or not path.exists():
+        raise HTTPException(404, "Session file not found")
+    return path
+
+
 def create_mcap_router(mcap_sessions: Any | None) -> APIRouter:
     router = APIRouter(prefix="/api/mcap")
 
@@ -157,9 +163,7 @@ def create_mcap_router(mcap_sessions: Any | None) -> APIRouter:
         from fastapi.responses import FileResponse
 
         svc = _require_mcap_svc(svc)
-        path = svc._resolve(filename)
-        if not path or not path.exists():
-            raise HTTPException(404, "Session file not found")
+        path = _require_mcap_path(svc._resolve(filename))
         return FileResponse(path, filename=filename, media_type="application/octet-stream")
 
     return router

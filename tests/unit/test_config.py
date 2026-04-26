@@ -34,10 +34,9 @@ INVALID_YAML_MISSING_TYPE = textwrap.dedent("""\
 
 
 def write_temp_yaml(content: str) -> str:
-    path = tempfile.mktemp(suffix=".yaml")
-    with open(path, "w") as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
         f.write(content)
-    return path
+        return f.name
 
 
 def test_valid_stackfile_loads():

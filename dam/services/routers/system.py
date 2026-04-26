@@ -94,7 +94,13 @@ def create_system_router(control: RuntimeControlService | None) -> APIRouter:
     # POST /usb-scan is an alias for GET /usb-devices — no separate function needed.
     router.post("/usb-scan")(system_usb_devices)
 
-    @router.post("/save-config")
+    @router.post(
+        "/save-config",
+        responses={
+            400: {"description": "yaml is required"},
+            500: {"description": "Failed to write stackfile"},
+        },
+    )
     def system_save_config(body: Annotated[dict[str, Any], Body()]) -> Any:
         """Write YAML config to .dam_stackfile.yaml in the project root."""
         yaml_content = body.get("yaml", "")
@@ -103,7 +109,7 @@ def create_system_router(control: RuntimeControlService | None) -> APIRouter:
         _write_stackfile(_stackfile_path(), yaml_content)
         return {"success": True, "path": _stackfile_path()}
 
-    @router.post("/restart")
+    @router.post("/restart", responses={500: {"description": "Failed to write stackfile"}})
     async def system_restart(body: Annotated[dict[str, Any], Body()]) -> Any:
         """Save config (if provided) then restart the process."""
         yaml_content = body.get("yaml", "")

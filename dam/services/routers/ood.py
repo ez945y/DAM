@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 _OOD_MODELS_DIR = "data/ood_models"
 _SVC_UNAVAILABLE = "OOD Trainer service not available"
+_MODEL_NOT_FOUND = "Model files not found"
 
 # Persistent task registry — survives WebSocket reconnects within a process lifetime.
 ood_tasks: dict[str, Any] = {}
@@ -186,7 +187,7 @@ async def _ws_handle_start(msg: dict[str, Any], websocket: WebSocket, ood_traine
     )
 
 
-async def _ws_handle_cancel(websocket: WebSocket) -> None:
+async def _ws_handle_cancel() -> None:
     for _tid, tinfo in ood_tasks.items():
         if tinfo["status"] == "running":
             tinfo["cancel_event"].set()
@@ -211,7 +212,7 @@ async def _dispatch_ws_action(
     if action == "start":
         await _ws_handle_start(msg, websocket, ood_trainer)
     elif action == "cancel":
-        await _ws_handle_cancel(websocket)
+        await _ws_handle_cancel()
     elif action == "subscribe":
         await _ws_handle_subscribe(websocket)
 
@@ -273,7 +274,7 @@ def _delete_ood_model(name: str) -> Any:
 
     base_dir = FilePath(_OOD_MODELS_DIR).resolve()
     if not base_dir.exists():
-        raise HTTPException(404, "Model files not found")
+        raise HTTPException(404, _MODEL_NOT_FOUND)
     if ".." in name or "/" in name or "\\" in name:
         raise HTTPException(400, "Invalid model name")
     deleted = False
@@ -283,7 +284,7 @@ def _delete_ood_model(name: str) -> Any:
             target_path.unlink()
             deleted = True
     if not deleted:
-        raise HTTPException(404, "Model files not found")
+        raise HTTPException(404, _MODEL_NOT_FOUND)
     return {"status": "deleted"}
 
 
@@ -297,6 +298,7 @@ def create_ood_router(ood_trainer: OODTrainerService | None) -> APIRouter:
         "/train",
         responses={
             400: {"description": "repo_id is required"},
+            500: {"description": "Training failed or missing dependency"},
             503: {"description": _SVC_UNAVAILABLE},
         },
     )
@@ -321,7 +323,7 @@ def create_ood_router(ood_trainer: OODTrainerService | None) -> APIRouter:
         "/models/{name}",
         responses={
             400: {"description": "Invalid model name"},
-            404: {"description": "Model files not found"},
+            404: {"description": _MODEL_NOT_FOUND},
         },
     )(_delete_ood_model)
 
