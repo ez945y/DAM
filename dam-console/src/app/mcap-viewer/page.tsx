@@ -38,7 +38,7 @@ function cycleEventToDetail(cycle: NonNullable<ReturnType<typeof useTelemetry>['
     action: null,
     guard_results: cycle.guard_statuses.map(g => ({
       guard_name: g.name,
-      layer: parseInt(g.layer.replace('L', ''), 10),
+      layer: Number.parseInt(g.layer.replace('L', ''), 10),
       layer_name: g.layer,
       decision: 0,
       decision_name: g.decision,

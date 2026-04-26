@@ -135,10 +135,10 @@ export function OODTrainer({
       {/* Model Selector Grid */}
       <div className="space-y-2">
         <div className="flex items-center justify-between px-1">
-          <label className="text-[10px] uppercase tracking-widest text-dam-muted font-bold flex items-center gap-2">
+          <span className="text-[10px] uppercase tracking-widest text-dam-muted font-bold flex items-center gap-2">
             Installed Neural Profiles
             {models.length > 0 && <span className="text-[9px] lowercase font-normal opacity-60">({models.length} profiles discovered)</span>}
-          </label>
+          </span>
           <button
             type="button"
             onClick={() => setShowTrainer(!showTrainer)}
@@ -168,8 +168,9 @@ export function OODTrainer({
                                 (selectedPath && m.path && selectedPath.split('/').pop() === m.path.split('/').pop())
 
               return (
-                <div
+                <button
                   key={m.path}
+                  type="button"
                   onClick={() => {
                     onSelect?.(m.path);
                     onSelectMeta?.(m.path, {
@@ -177,7 +178,7 @@ export function OODTrainer({
                       bank_path: m.metadata?.bank_path,
                     });
                   }}
-                  className={`relative flex flex-col gap-2.5 p-3 rounded-xl border transition-all cursor-pointer group select-none ${
+                  className={`relative flex flex-col gap-2.5 p-3 rounded-xl border transition-all cursor-pointer group select-none text-left ${
                     isSelected
                       ? 'bg-dam-blue/10 border-dam-blue/50 shadow-lg shadow-dam-blue/5'
                       : 'bg-white/[0.02] border-white/5 hover:border-white/10 hover:bg-white/[0.04]'
@@ -231,7 +232,7 @@ export function OODTrainer({
                       </div>
                     </div>
                   )}
-                </div>
+                </button>
               )
             })}
           </div>
@@ -259,10 +260,11 @@ export function OODTrainer({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 relative z-10">
             <div className="space-y-1.5">
-              <label className="text-[9px] text-dam-muted font-bold uppercase tracking-tighter ml-1">Dataset Repository (HF)</label>
+              <label htmlFor="ood-repo-id" className="text-[9px] text-dam-muted font-bold uppercase tracking-tighter ml-1">Dataset Repository (HF)</label>
               <div className="group relative">
                 <Database className="absolute left-2.5 top-1/2 -translate-y-1/2 text-dam-muted group-focus-within:text-dam-blue transition-colors" size={12} />
                 <input
+                  id="ood-repo-id"
                   value={repoId}
                   onChange={(e) => setRepoId(e.target.value)}
                   className={`${inputCls} pl-8 h-9 rounded-lg !bg-dam-surface-3/80`}
@@ -271,10 +273,11 @@ export function OODTrainer({
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-[9px] text-dam-muted font-bold uppercase tracking-tighter ml-1">Analysis Architecture</label>
+              <label htmlFor="ood-backend" className="text-[9px] text-dam-muted font-bold uppercase tracking-tighter ml-1">Analysis Architecture</label>
               <div className="relative">
                 <Settings2 className="absolute left-2.5 top-1/2 -translate-y-1/2 text-dam-muted" size={12} />
                 <select
+                  id="ood-backend"
                   value={backend}
                   onChange={(e) => setBackend(e.target.value)}
                   className={`${inputCls} pl-8 h-9 rounded-lg !bg-dam-surface-3/80 appearance-none`}

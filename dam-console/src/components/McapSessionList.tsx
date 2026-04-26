@@ -93,7 +93,10 @@ export function McapSessionList({
         return (
           <div
             key={session.filename}
+            role="button"
+            tabIndex={0}
             onClick={() => onSelectSession?.(session.filename)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelectSession?.(session.filename) }}
             className={`p-4 rounded-lg border cursor-pointer transition-all duration-150 ${
               isSelected
                 ? 'bg-dam-blue/10 border-dam-blue/40 shadow-sm'

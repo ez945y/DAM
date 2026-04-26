@@ -182,8 +182,9 @@ export function GuardTable({
         return (
           <div key={layer} className={`border border-dam-border/40 rounded bg-dam-surface-2 transition-all duration-300 ${!hasItems ? 'opacity-30 grayscale' : (dcGroup.bg === 'bg-dam-surface-3' ? '' : dcGroup.bg.replace('/40', '/5'))}`}>
             {/* Group Header */}
-            <div
-              className={`flex items-center gap-3 px-3 py-2 border-l-2 ${dcGroup.border} transition-colors cursor-pointer hover:bg-dam-surface-3/30 select-none group/row`}
+            <button
+              type="button"
+              className={`flex items-center gap-3 px-3 py-2 border-l-2 w-full text-left ${dcGroup.border} transition-colors cursor-pointer hover:bg-dam-surface-3/30 select-none group/row`}
               onClick={() => hasItems && toggleLayer(layer)}
             >
               <div className="flex items-center justify-center w-5">
@@ -213,7 +214,7 @@ export function GuardTable({
                   </span>
                 </div>
               </div>
-            </div>
+            </button>
 
             {/* List Details */}
             {isExpanded && (
@@ -223,10 +224,12 @@ export function GuardTable({
                   const isLive = guards.some(rg => rg.name === g.name)
                   const canClick = onGuardClick && latestCycleId !== undefined
                   return (
-                    <div
+                    <button
                       key={g.name}
+                      type="button"
                       onClick={() => canClick && onGuardClick!(latestCycleId!)}
-                      className={`flex items-center gap-3 px-4 py-2 pl-12 transition-colors ${canClick ? 'cursor-pointer hover:bg-dam-blue/5 hover:border-l-2 hover:border-dam-blue/30' : 'hover:bg-white/[0.02]'}`}
+                      disabled={!canClick}
+                      className={`flex items-center gap-3 px-4 py-2 pl-12 transition-colors w-full text-left ${canClick ? 'cursor-pointer hover:bg-dam-blue/5 hover:border-l-2 hover:border-dam-blue/30' : 'hover:bg-white/[0.02]'}`}
                       title={canClick ? `View cycle #${latestCycleId} in Risk Log` : undefined}
                     >
                       <div className={`w-1 h-1 rounded-full ${isLive ? 'bg-dam-green shadow-[0_0_5px_rgba(16,185,129,0.5)]' : 'bg-dam-muted/20'}`} />
@@ -239,7 +242,7 @@ export function GuardTable({
                       {canClick && (
                         <span className="text-[9px] text-dam-muted/40 ml-1">↗</span>
                       )}
-                    </div>
+                    </button>
                   )
                 })}
               </div>

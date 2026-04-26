@@ -129,8 +129,9 @@ function NodeForm({
     }`}>
       <div className={`flex items-center gap-2 ${(!allowNodeIdEdit || isOod) ? 'hidden' : ''}`}>
         <div className="flex flex-col flex-1 gap-1">
-          <label className="text-dam-muted text-[9px] uppercase font-bold tracking-tight">Internal Node ID</label>
+          <label htmlFor={`node-${index}-id`} className="text-dam-muted text-[9px] uppercase font-bold tracking-tight">Internal Node ID</label>
           <input
+            id={`node-${index}-id`}
             value={node.node_id}
             onChange={e => onChange({ ...node, node_id: e.target.value })}
             placeholder="e.g., primary_check"
@@ -143,8 +144,9 @@ function NodeForm({
       </div>
       <div className="grid grid-cols-4 gap-2">
         <div className="space-y-0.5 col-span-2">
-          <label className="text-dam-muted text-[10px]">Callback Template</label>
+          <label htmlFor={`node-${index}-callback`} className="text-dam-muted text-[10px]">Callback Template</label>
           <select
+            id={`node-${index}-callback`}
             value={node.callback || ''}
             onChange={e => {
               const newCallback = e.target.value === '' ? null : e.target.value
@@ -195,8 +197,9 @@ function NodeForm({
           </select>
         </div>
         <div className="space-y-0.5">
-          <label className="text-dam-muted text-[10px]">Fallback</label>
+          <label htmlFor={`node-${index}-fallback`} className="text-dam-muted text-[10px]">Fallback</label>
           <select
+            id={`node-${index}-fallback`}
             value={node.fallback}
             onChange={e => onChange({ ...node, fallback: e.target.value })}
             className={`w-full ${inputCls}`}
@@ -207,8 +210,9 @@ function NodeForm({
           </select>
         </div>
         <div className="space-y-0.5">
-          <label className="text-dam-muted text-[10px]">Timeout (sec)</label>
+          <label htmlFor={`node-${index}-timeout`} className="text-dam-muted text-[10px]">Timeout (sec)</label>
           <input
+            id={`node-${index}-timeout`}
             type="number"
             step="0.5"
             value={node.timeout_sec ?? ''}
@@ -225,9 +229,10 @@ function NodeForm({
         <div className="grid grid-cols-3 gap-1.5 text-[10px]">
           {(['X', 'Y', 'Z'] as const).map((axis, axisIdx) => (
             <div key={axis} className="space-y-0.5">
-              <label className="text-dam-muted">{axis} [min, max]</label>
+              <label htmlFor={`node-${index}-bound-${axis}-min`} className="text-dam-muted">{axis} [min, max]</label>
               <div className="flex gap-1">
                 <input
+                  id={`node-${index}-bound-${axis}-min`}
                   type="number"
                   step="0.05"
                   value={bounds![axisIdx][0]}
@@ -264,9 +269,10 @@ function NodeForm({
           <div className="grid grid-cols-6 gap-1">
             {joint_position_limits.upper.map((_: number, i: number) => (
               <div key={i} className="space-y-0.5">
-                <label className="text-dam-muted text-[8px] block">J{i+1} [lo, hi]</label>
+                <label htmlFor={`node-${index}-upper-${i}`} className="text-dam-muted text-[8px] block">J{i+1} [lo, hi]</label>
                 <div className="flex flex-col gap-0.5">
                   <input
+                    id={`node-${index}-upper-${i}`}
                     type="number"
                     step="0.1"
                     value={joint_position_limits!.upper[i]}
@@ -312,8 +318,9 @@ function NodeForm({
           <div className="grid grid-cols-6 gap-1">
             {(node.params.max_velocities as number[]).map((v, i) => (
               <div key={i} className="space-y-0.5">
-                <label className="text-dam-muted text-[8px] block">J{i+1} Max</label>
+                <label htmlFor={`node-${index}-maxvel-${i}`} className="text-dam-muted text-[8px] block">J{i+1} Max</label>
                 <input
+                  id={`node-${index}-maxvel-${i}`}
                   type="number"
                   step="0.1"
                   value={v}
@@ -366,6 +373,7 @@ function NodeForm({
         <div className="grid grid-cols-2 gap-3 mt-4">
                  <div className="space-y-1">
                     <label
+                      htmlFor={`node-${index}-nn-threshold`}
                       className="text-dam-muted text-[9px] uppercase font-bold tracking-tight px-1 flex justify-between cursor-help group"
                       title="Sensitivity (NN): Nearest Neighbor threshold. Measures the 'Similarity' between current state and memory bank samples. Range: 0.5 - 5.0. Lower is stricter."
                     >
@@ -373,6 +381,7 @@ function NodeForm({
                       <span className="opacity-40 italic">0.5 - 5.0</span>
                     </label>
                     <input
+                      id={`node-${index}-nn-threshold`}
                       type="number"
                       step="0.1"
                       value={node.params.nn_threshold ?? 2.0}
@@ -382,6 +391,7 @@ function NodeForm({
                  </div>
                  <div className="space-y-1">
                     <label
+                      htmlFor={`node-${index}-nll-threshold`}
                       className="text-dam-muted text-[9px] uppercase font-bold tracking-tight px-1 flex justify-between cursor-help group"
                       title="Density (NLL): Negative Log-Likelihood threshold. Measures the 'Probability Floor'. Higher is more tolerant (allows low prob), lower is stricter. Range: 3.0 - 15.0."
                     >
@@ -389,6 +399,7 @@ function NodeForm({
                       <span className="opacity-40 italic">3.0 - 15.0</span>
                     </label>
                     <input
+                      id={`node-${index}-nll-threshold`}
                       type="number"
                       step="0.5"
                       value={node.params.nll_threshold ?? 5.0}
@@ -411,8 +422,9 @@ function NodeForm({
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {Object.entries(meta.params).map(([pName, pMeta]: [string, any]) => (
                 <div key={pName} className="space-y-0.5">
-                  <label className="text-dam-muted text-[10px]">{pName}</label>
+                  <label htmlFor={`node-${index}-param-${pName}`} className="text-dam-muted text-[10px]">{pName}</label>
                   <input
+                    id={`node-${index}-param-${pName}`}
                     type="text"
                     value={node.params?.[pName] ?? pMeta.default ?? ''}
                     onChange={e => {
@@ -613,7 +625,7 @@ function BoundaryPickerModal({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <button type="button" aria-label="Close" className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div className="relative bg-dam-surface border border-dam-border rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[80vh]">
         <div className="flex items-center justify-between p-4 border-b border-dam-border">
           <div className="flex items-center gap-2">
@@ -626,7 +638,7 @@ function BoundaryPickerModal({
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-5 thin-scrollbar">
-          {Object.keys(grouped).sort().map(layer => (
+          {Object.keys(grouped).sort((a, b) => a.localeCompare(b)).map(layer => (
             <div key={layer} className="space-y-1.5">
               <p className={`text-[10px] font-bold uppercase tracking-[0.1em] ${LAYER_COLORS[layer] || 'text-dam-muted'}`}>
                 {layer} Layer
@@ -702,9 +714,10 @@ function TaskForm({
     <div className="p-3 rounded-lg bg-dam-surface-2 border border-dam-border space-y-2">
       <div className="grid grid-cols-1 sm:grid-cols-[1fr_2fr] gap-3">
         <div className="space-y-1">
-          <label className="text-dam-muted text-[10px] uppercase tracking-wider">Task ID / Name</label>
+          <label htmlFor={`task-${task.id}-name`} className="text-dam-muted text-[10px] uppercase tracking-wider">Task ID / Name</label>
           <div className="flex items-center gap-2">
             <input
+              id={`task-${task.id}-name`}
               value={task.name}
               onChange={e => onChange({ ...task, name: e.target.value })}
               placeholder="task_name"
@@ -716,8 +729,9 @@ function TaskForm({
           </div>
         </div>
         <div className="space-y-1">
-          <label className="text-dam-muted text-[10px] uppercase tracking-wider">Description</label>
+          <label htmlFor={`task-${task.id}-desc`} className="text-dam-muted text-[10px] uppercase tracking-wider">Description</label>
           <input
+            id={`task-${task.id}-desc`}
             value={task.description}
             onChange={e => onChange({ ...task, description: e.target.value })}
             placeholder="e.g. tabletop assembly"
@@ -784,12 +798,7 @@ function migrateNode(node: ConstraintNodeDef): ConstraintNodeDef {
   if (next.params.bank_path?.includes('.dam_data/ood_models')) {
     next.params.bank_path = next.params.bank_path.replace('.dam_data/ood_models', 'data/ood_models')
   }
-  // 1. bounds -> bounds
-  if (next.params.bounds && !next.params.bounds) {
-    next.params.bounds = next.params.bounds
-    delete next.params.bounds
-  }
-  // 2. nested joint_position_limits -> flat upper/lower
+  // Migrate nested joint_position_limits -> flat upper/lower
   if (next.params.joint_position_limits && typeof next.params.joint_position_limits === 'object' && !Array.isArray(next.params.joint_position_limits)) {
     const jl = next.params.joint_position_limits as any
     if (jl.upper) next.params.upper = jl.upper
@@ -1187,8 +1196,11 @@ export default function GuardPage() {
               }`}>
                 {/* Layer header */}
                 <div
+                  role="button"
+                  tabIndex={0}
                   className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-dam-surface-2/50 transition-colors"
                   onClick={() => setExpandedBoundaryLayers(prev => ({ ...prev, [g.layer]: !prev[g.layer] }))}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') setExpandedBoundaryLayers(prev => ({ ...prev, [g.layer]: !prev[g.layer] })) }}
                 >
                   <button className="text-dam-muted p-0.5 hover:text-dam-text shrink-0">
                     {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
