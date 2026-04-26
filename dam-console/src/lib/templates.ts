@@ -475,7 +475,7 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
           else {
             const colonIdx = trimmed.indexOf(':'); if (colonIdx !== -1) {
               const key = trimmed.substring(0, colonIdx).trim(); const valRaw = trimmed.substring(colonIdx + 1).trim();
-              if (key && valRaw) { try { currentNode.params[key] = JSON.parse(valRaw.replace(/'/g, '"')) } catch { currentNode.params[key] = valRaw } }
+              if (key && valRaw) { try { currentNode.params[key] = JSON.parse(valRaw.replaceAll("'", '"')) } catch { currentNode.params[key] = valRaw } }
             }
           }
         }
@@ -496,7 +496,7 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
   if (boundaries.length > 0) result.boundaries = boundaries
   if (tasks.length > 0) result.tasks = tasks
 
-  const cameras: CameraConfig[] = []; let inCameras = false; let currentCam: any = null;
+  const cameras: CameraConfig[] = []; let inCameras = false;
   for (const line of lines) {
     if (line.includes('cameras:')) { inCameras = true; continue }
     if (inCameras && line.includes('{')) {

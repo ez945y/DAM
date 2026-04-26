@@ -36,7 +36,7 @@ def test_observation_defensive_copy():
         end_effector_pose=np.zeros(7),
     )
     arr[0] = 99.0
-    assert obs.joint_positions[0] == 0.0  # Not affected by mutation
+    assert obs.joint_positions[0] == pytest.approx(0.0)  # Not affected by mutation
 
 
 def test_action_proposal_confidence_validation():

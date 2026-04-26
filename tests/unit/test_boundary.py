@@ -22,7 +22,7 @@ def make_node(node_id: str = "n0") -> BoundaryNode:
 def test_constraint_params_stored():
     params = {"max_speed": 0.5, "bounds": [[0, 1], [0, 1], [0, 1]]}
     c = BoundaryConstraint(params=params)
-    assert c.params["max_speed"] == 0.5
+    assert abs(c.params["max_speed"] - 0.5) < 1e-9
     assert c.params["bounds"] == [[0, 1], [0, 1], [0, 1]]
 
 

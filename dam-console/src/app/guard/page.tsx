@@ -263,7 +263,7 @@ function NodeForm({
                 onChange={e => onChange({ ...node, params: { ...node.params, use_degrees: e.target.checked } })}
                 className="w-3 h-3 rounded border-dam-border bg-dam-surface-2 text-dam-blue focus:ring-0 focus:ring-offset-0"
               />
-              use_degrees
+              {' '}use_degrees
             </label>
           </div>
           <div className="grid grid-cols-6 gap-1">
@@ -312,7 +312,7 @@ function NodeForm({
                 onChange={e => onChange({ ...node, params: { ...node.params, use_degrees: e.target.checked } })}
                 className="w-3 h-3 rounded border-dam-border bg-dam-surface-2 text-dam-blue focus:ring-0 focus:ring-offset-0"
               />
-              use_degrees
+              {' '}use_degrees
             </label>
           </div>
           <div className="grid grid-cols-6 gap-1">

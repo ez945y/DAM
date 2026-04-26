@@ -351,7 +351,7 @@ export function RiskLogTable() {
             onChange={e => setFilters(f => ({ ...f, rejected_only: e.target.checked }))}
             className="accent-dam-blue"
           />
-          Rejected
+          {' '}Rejected
         </label>
         <label className="flex items-center gap-1.5 text-xs text-dam-muted cursor-pointer">
           <input
@@ -360,7 +360,7 @@ export function RiskLogTable() {
             onChange={e => setFilters(f => ({ ...f, clamped_only: e.target.checked }))}
             className="accent-dam-blue"
           />
-          Clamped
+          {' '}Clamped
         </label>
 
         <div className="h-6 w-px bg-dam-border/40 mx-1" />

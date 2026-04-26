@@ -118,10 +118,10 @@ def test_sink_emergency_stop():
     assert publisher_mock.publish.called
     published_msg = publisher_mock.publish.call_args[0][0]
     assert "positions" in published_msg
-    assert all(v == 0.0 for v in published_msg["positions"])
+    assert all(abs(v) < 1e-9 for v in published_msg["positions"])
     # zero_velocity flag → velocities list present and all zero
     assert "velocities" in published_msg
-    assert all(v == 0.0 for v in published_msg["velocities"])
+    assert all(abs(v) < 1e-9 for v in published_msg["velocities"])
 
 
 def test_sink_hardware_status():

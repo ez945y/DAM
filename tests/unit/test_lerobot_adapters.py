@@ -93,6 +93,7 @@ def test_source_velocity_estimated_on_first_read():
     robot = LegacyMockRobot()
     adapter = LeRobotSourceAdapter(robot)
     obs = adapter.read()
+    assert obs is not None
     assert obs.joint_velocities.shape == (6,)
     # First read: velocities should be zero (no previous)
     np.testing.assert_allclose(obs.joint_velocities, np.zeros(6))
@@ -124,6 +125,7 @@ def test_source_modern_degrees_to_radians():
     )
     adapter = LeRobotSourceAdapter(robot, degrees_mode=True)
     obs = adapter.read()
+    assert obs is not None
     # shoulder_pan at 90° → π/2 rad
     assert abs(obs.joint_positions[0] - math.pi / 2) < 1e-9
 
@@ -142,6 +144,7 @@ def test_source_modern_gripper_exempt_from_degree_conversion():
     )
     adapter = LeRobotSourceAdapter(robot, degrees_mode=True)
     obs = adapter.read()
+    assert obs is not None
     # gripper index is 5 — value must pass through as 0.035, not converted
     assert abs(obs.joint_positions[5] - 0.035) < 1e-9
 
@@ -160,6 +163,7 @@ def test_source_modern_radians_mode_no_conversion():
     )
     adapter = LeRobotSourceAdapter(robot, degrees_mode=False)
     obs = adapter.read()
+    assert obs is not None
     assert abs(obs.joint_positions[0] - 1.57) < 1e-9
 
 
@@ -247,7 +251,7 @@ def test_policy_predict_returns_action_proposal():
 
         proposal = adapter.predict(obs)
 
-    assert proposal.timestamp == 123.456
+    assert abs(proposal.timestamp - 123.456) < 1e-9
     assert len(proposal.target_joint_positions) == 6
     assert np.allclose(proposal.target_joint_positions[5], np.radians(0.5))
-    assert proposal.gripper_action == 0.042
+    assert abs(proposal.gripper_action - 0.042) < 1e-9
