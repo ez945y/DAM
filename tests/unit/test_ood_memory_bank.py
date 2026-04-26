@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from dam.decorators import guard
 from dam.guard.builtin.ood import FeatureExtractor, MemoryBank, OODGuard, _WelfordStats
@@ -106,7 +107,7 @@ class TestMemoryBank:
     def test_untrained_returns_zero(self):
         bank = MemoryBank()
         q = np.random.randn(128).astype(np.float32)
-        assert bank.nearest_distance(q) == 0.0
+        assert bank.nearest_distance(q) == pytest.approx(0.0)
 
     def test_save_load(self, tmp_path):
         bank = MemoryBank()
@@ -131,7 +132,7 @@ class TestWelfordStats:
         w = _WelfordStats()
         x = np.ones(5)
         w.update(x)
-        assert w.z_score_max(x) == 0.0  # n < 2
+        assert w.z_score_max(x) == pytest.approx(0.0)  # n < 2
 
     def test_ood_detected_after_warmup(self):
         w = _WelfordStats()

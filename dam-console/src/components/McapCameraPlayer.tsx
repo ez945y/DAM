@@ -229,7 +229,7 @@ export function McapCameraPlayer({
   useEffect(() => {
     if (liveMode) return
     if (gridMode) {
-      cameras.forEach(loadCam)
+      cameras.forEach(cam => loadCam(cam))
     } else if (selectedCam) {
       loadCam(selectedCam)
     }

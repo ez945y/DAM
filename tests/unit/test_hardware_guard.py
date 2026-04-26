@@ -20,14 +20,6 @@ def HG():
     precompute_injection(g, {})
     return g
 
-    # ── Tests ──────────────────────────────────────────────────────────────────
-
-    obs = Observation(
-        timestamp=time.monotonic(), joint_positions=np.zeros(6), joint_velocities=np.zeros(6)
-    )
-    result = HG.check(obs=obs, hardware_status=None)
-    assert result.decision == GuardDecision.PASS
-
 
 def test_pass_within_limits(HG):
     """Normal temperature and current within defaults → PASS."""

@@ -81,13 +81,11 @@ class TestTelemetryService:
         loop = asyncio.new_event_loop()
         svc.attach_loop(loop)
 
-        async def _test():
-            q = svc.subscribe()
-            assert svc.subscriber_count == 1
-            svc.unsubscribe(q)
-            assert svc.subscriber_count == 0
+        q = svc.subscribe()
+        assert svc.subscriber_count == 1
+        svc.unsubscribe(q)
+        assert svc.subscriber_count == 0
 
-        loop.run_until_complete(_test())
         loop.close()
 
     def test_serialise_cycle_fields(self):
@@ -484,7 +482,7 @@ class TestRuntimeControlService:
         s = svc.status()
         assert s["active_task"] is None
         assert s["active_boundaries"] == []
-        assert s["control_frequency_hz"] == 50.0
+        assert s["control_frequency_hz"] == pytest.approx(50.0)
         assert s["available_tasks"] == []
         assert s["planned_task"] is None
         assert s["planned_boundaries"] == []
@@ -505,7 +503,7 @@ class TestRuntimeControlService:
         assert s["available_tasks"] == ["default", "pick"]
         assert s["planned_task"] == "default"
         assert s["planned_boundaries"] == ["workspace", "approach"]
-        assert s["control_frequency_hz"] == 10.0
+        assert s["control_frequency_hz"] == pytest.approx(10.0)
 
     def test_status_planned_task_fallback_to_first(self):
         """When no 'default' task, planned_task falls back to first key."""

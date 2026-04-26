@@ -198,7 +198,7 @@ class MotionGuard(Guard):
             if not np.allclose(clamped_positions, positions):
                 # Check for position out of bounds
                 diff_mask = ~np.isclose(clamped_positions, positions)
-                indices = np.where(diff_mask)[0]
+                indices = np.nonzero(diff_mask)[0]
                 if len(indices) > 0:
                     idx = int(indices[0])
                     reason_parts.append(

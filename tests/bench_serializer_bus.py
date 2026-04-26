@@ -239,7 +239,7 @@ def benchmark_rust_serializer(num_cycles: int = 1000) -> dict:
     }
 
 
-def print_results(python_results: dict, rust_results: dict) -> None:
+def print_results(python_results: dict, rust_results: dict) -> bool:
     """Print comparison results."""
     py_times = sorted(python_results["times_us"])
     rs_times = sorted(rust_results["times_us"])

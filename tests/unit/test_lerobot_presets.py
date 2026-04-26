@@ -164,7 +164,7 @@ class TestGeneric6DOFPreset:
 
 
 def test_preset_control_hz_default():
-    assert SO101_FOLLOWER.control_hz == 50.0
+    assert abs(SO101_FOLLOWER.control_hz - 50.0) < 1e-9
 
 
 def test_preset_joint_names_len_matches_joints():

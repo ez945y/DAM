@@ -248,7 +248,7 @@ export function OODTrainer({
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-dam-blue opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-dam-blue"></span>
               </span>
-              Neural Training Workspace
+              {' '}Neural Training Workspace
             </h3>
             {loading && (
               <div className="flex items-center gap-2 px-2 py-1 bg-dam-blue/10 rounded-lg">

@@ -139,7 +139,7 @@ def test_runner_custom_frequency():
         robot=robot,
         control_frequency_hz=100.0,
     )
-    assert runner._control_frequency_hz == 100.0
+    assert abs(runner._control_frequency_hz - 100.0) < 1e-9
     assert abs(runner._period_sec - 0.01) < 1e-9
 
 

@@ -43,7 +43,7 @@ def test_valid_stackfile_loads():
     path = write_temp_yaml(VALID_YAML)
     cfg = StackfileLoader.load(path)
     assert "motion_guard" in cfg.boundaries
-    assert cfg.boundaries["motion_guard"].nodes[0].params["velocity_scale"] == 1.0
+    assert abs(cfg.boundaries["motion_guard"].nodes[0].params["velocity_scale"] - 1.0) < 1e-9
 
 
 def test_invalid_stackfile_raises():

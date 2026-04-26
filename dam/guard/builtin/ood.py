@@ -491,19 +491,22 @@ class RealNVPFlow:
                 half = dim // 2
                 log_det = x.new_zeros(x.shape[0])
 
+                x = x.clone()
                 for i, coupling in enumerate(self.couplings):
                     if i % 2 == 0:
                         x1, x2 = x[:, :half], x[:, half:]
                         s, t = coupling(x1)
                         x2 = x2 * torch.exp(s) + t
                         log_det = log_det + s.sum(dim=1)
-                        x = torch.cat([x1, x2], dim=1)
+                        x = x.clone()
+                        x[:, half:] = x2
                     else:
                         x1, x2 = x[:, :half], x[:, half:]
                         s, t = coupling(x2)
                         x1 = x1 * torch.exp(s) + t
                         log_det = log_det + s.sum(dim=1)
-                        x = torch.cat([x1, x2], dim=1)
+                        x = x.clone()
+                        x[:, :half] = x1
 
                 return x, log_det
 
@@ -538,9 +541,9 @@ class RealNVPFlow:
 
         X = torch.tensor(vectors, dtype=torch.float32)
         dataset = TensorDataset(X)
-        loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+        loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=0)
 
-        opt = optim.Adam(self._model.parameters(), lr=lr)
+        opt = optim.Adam(self._model.parameters(), lr=lr, weight_decay=1e-4)
         self._model.train()
 
         for epoch in range(epochs):

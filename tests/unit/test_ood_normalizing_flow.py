@@ -104,7 +104,7 @@ class TestRealNVPFlow:
     def test_neg_log_prob_before_fit_returns_zero(self):
         flow = RealNVPFlow(dim=32)
         z = np.zeros(32, dtype=np.float32)
-        assert flow.neg_log_prob(z) == 0.0
+        assert flow.neg_log_prob(z) == pytest.approx(0.0)
 
     @requires_torch
     def test_save_load_roundtrip(self, tmp_path):
