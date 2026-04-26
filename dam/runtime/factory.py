@@ -188,33 +188,40 @@ class RuntimeFactory:
         from dam.testing.sim_adapters import SimSink
 
         hz = float(config.safety.control_frequency_hz) if config.safety else 10.0
-
-        # ── Source ────────────────────────────────────────────────────────
-        # Try to find simulation source config in hardware.sources or legacy top-level simulation
         sim_cfg = config.simulation
-        source_cfg = None
+        source_cfg = RuntimeFactory._find_sim_source_cfg(config)
+        dataset_repo = RuntimeFactory._resolve_dataset_repo(source_cfg, sim_cfg)
+        source = RuntimeFactory._build_sim_source(dataset_repo, source_cfg, sim_cfg, hz)
+        policy = RuntimeFactory._build_sim_policy(config)
+        return source, policy, SimSink()
+
+    @staticmethod
+    def _find_sim_source_cfg(config: StackfileConfig) -> Any:
         if config.hardware and config.hardware.sources:
-            # Find first source of type 'dataset' or 'simulation'
             for _name, s in config.hardware.sources.items():
                 if str(s.type).lower() in ("dataset", "simulation", "mock"):
-                    source_cfg = s
-                    break
+                    return s
+        return None
 
+    @staticmethod
+    def _resolve_dataset_repo(source_cfg: Any, sim_cfg: Any) -> str | None:
         dataset_repo = None
         if source_cfg:
             dataset_repo = getattr(source_cfg, "dataset_repo_id", None)
             extra = getattr(source_cfg, "model_extra", {})
             if not dataset_repo and extra:
                 dataset_repo = extra.get("dataset_repo_id")
-
         if not dataset_repo and sim_cfg:
             dataset_repo = getattr(sim_cfg, "dataset_repo_id", None)
+        return dataset_repo
 
-        source: Any
+    @staticmethod
+    def _build_sim_source(
+        dataset_repo: str | None, source_cfg: Any, sim_cfg: Any, hz: float
+    ) -> Any:
         if dataset_repo:
             from dam.testing.dataset_source import DatasetSimSource
 
-            # Map parameters from either source_cfg or legacy sim_cfg
             episode = 0
             degrees_mode = True
             if source_cfg:
@@ -226,29 +233,22 @@ class RuntimeFactory:
             elif sim_cfg:
                 episode = getattr(sim_cfg, "episode", 0)
                 degrees_mode = getattr(sim_cfg, "degrees_mode", True)
-
-            source = DatasetSimSource(
-                repo_id=dataset_repo,
-                episode=episode,
-                hz=hz,
-                degrees_mode=degrees_mode,
+            return DatasetSimSource(
+                repo_id=dataset_repo, episode=episode, hz=hz, degrees_mode=degrees_mode
             )
-        else:
-            # Fallback to random walk sim if no dataset provided
-            from dam.testing.sim_adapters import SimSource
+        from dam.testing.sim_adapters import SimSource
 
-            logger.info("Simulation: using SimSource (random walk)")
-            source = SimSource(hz=hz)
+        logger.info("Simulation: using SimSource (random walk)")
+        return SimSource(hz=hz)
 
-        # ── Policy ────────────────────────────────────────────────────────
-        policy: Any = None
+    @staticmethod
+    def _build_sim_policy(config: StackfileConfig) -> Any:
         if config.policy and config.policy.pretrained_path:
             try:
                 from dam.adapter.lerobot.builder import LeRobotBuilder
                 from dam.adapter.lerobot.policy import LeRobotPolicyAdapter
                 from dam.config.schema import HardwareConfig
 
-                # Build a stub HardwareConfig so LeRobotBuilder is satisfied
                 fake_hw = HardwareConfig(preset="so101_follower")
                 builder = LeRobotBuilder(fake_hw, config.policy)
                 policy_res = builder.build_policy()
@@ -265,16 +265,12 @@ class RuntimeFactory:
                         device=config.policy.device,
                     )
                     logger.info("Simulation: loaded real policy %s", config.policy.pretrained_path)
+                    return policy
             except Exception as exc:
                 logger.warning(
                     "Simulation: policy load failed (%s), falling back to SimPolicy", exc
                 )
+        from dam.testing.sim_adapters import SimPolicy
 
-        if policy is None:
-            from dam.testing.sim_adapters import SimPolicy
-
-            policy = SimPolicy()
-            logger.info("Simulation: using SimPolicy (random action fallback)")
-
-        sink = SimSink()
-        return source, policy, sink
+        logger.info("Simulation: using SimPolicy (random action fallback)")
+        return SimPolicy()

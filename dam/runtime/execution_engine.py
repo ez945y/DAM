@@ -142,29 +142,7 @@ class ExecutionEngine:
             (ValidatedAction, results, None)       — action passed or was clamped
             (None,           results, fallback_name) — action rejected and fallback fired
         """
-        runtime_pool: dict[str, Any] = {
-            "obs": obs,
-            "action": action,
-            "cycle_id": ctx.cycle_id,
-            "trace_id": trace_id,
-            "timestamp": obs.timestamp,
-            "active_task": ctx.active_task,
-            "active_boundaries": ctx.active_container_names,
-            "active_containers": [
-                ctx.boundary_containers[name]
-                for name in ctx.active_container_names
-                if name in ctx.boundary_containers
-            ],
-            "active_map": {
-                name: ctx.boundary_containers[name]
-                for name in ctx.active_container_names
-                if name in ctx.boundary_containers
-            },
-            "node_start_times": ctx.node_start_times,
-            "hardware_status": ctx.hardware_status if ctx.hardware_status else None,
-            "kinematics_resolver": ctx.kinematics_resolver,
-            "now": now,
-        }
+        runtime_pool = self._build_runtime_pool(obs, action, trace_id, ctx, now)
 
         if ctx.stages is not None:
             all_results = self._run_staged(ctx.stages, obs, action, trace_id, runtime_pool)
@@ -176,52 +154,88 @@ class ExecutionEngine:
         aggregated = aggregate_decisions(all_results)
 
         if aggregated.decision in (GuardDecision.REJECT, GuardDecision.FAULT):
-            ctx.risk_controller.record(was_clamped=False, was_rejected=True)
-            for g in ctx.guards:
-                g.on_violation(aggregated)
-
-            if self._enforcement_mode == EnforcementMode.ENFORCE:
-                fallback_name = _DEFAULT_FALLBACK
-                if ctx.active_containers:
-                    fallback_name = ctx.active_containers[0].get_active_node().fallback
-                current_node = (
-                    ctx.active_containers[0].get_active_node()
-                    if ctx.active_containers
-                    else next(iter(ctx.boundary_containers.values())).get_active_node()
-                    if ctx.boundary_containers
-                    else _make_dummy_node()
-                )
-                fallback_ctx = FallbackContext(
-                    rejected_proposal=action,
-                    guard_result=aggregated,
-                    current_node=current_node,
-                    cycle_id=ctx.cycle_id,
-                )
-                self._fallback_registry.execute_with_escalation(
-                    fallback_name, fallback_ctx, bus=None
-                )
-                return None, all_results, fallback_name
-            else:
-                # MONITOR / LOG_ONLY — record violation but pass original action through
-                return (
-                    ValidatedAction(
-                        target_joint_positions=action.target_joint_positions.copy(),
-                        target_joint_velocities=action.target_joint_velocities.copy()
-                        if action.target_joint_velocities is not None
-                        else None,
-                        was_clamped=False,
-                        original_proposal=action,
-                    ),
-                    all_results,
-                    None,
-                )
+            return self._handle_violation(action, all_results, aggregated, ctx)
 
         if aggregated.decision == GuardDecision.CLAMP:
             ctx.risk_controller.record(was_clamped=True, was_rejected=False)
             return aggregated.clamped_action, all_results, None
 
         ctx.risk_controller.record(was_clamped=False, was_rejected=False)
-        validated = ValidatedAction(
+        return self._make_validated_action(action), all_results, None
+
+    # ── Private pipeline helpers ─────────────────────────────────────────────
+
+    def _build_runtime_pool(
+        self,
+        obs: Observation,
+        action: ActionProposal,
+        trace_id: str,
+        ctx: ValidationContext,
+        now: float | None,
+    ) -> dict[str, Any]:
+        active = [
+            ctx.boundary_containers[n]
+            for n in ctx.active_container_names
+            if n in ctx.boundary_containers
+        ]
+        return {
+            "obs": obs,
+            "action": action,
+            "cycle_id": ctx.cycle_id,
+            "trace_id": trace_id,
+            "timestamp": obs.timestamp,
+            "active_task": ctx.active_task,
+            "active_boundaries": ctx.active_container_names,
+            "active_containers": active,
+            "active_map": {
+                n: ctx.boundary_containers[n]
+                for n in ctx.active_container_names
+                if n in ctx.boundary_containers
+            },
+            "node_start_times": ctx.node_start_times,
+            "hardware_status": ctx.hardware_status or None,
+            "kinematics_resolver": ctx.kinematics_resolver,
+            "now": now,
+        }
+
+    def _handle_violation(
+        self,
+        action: ActionProposal,
+        all_results: list[GuardResult],
+        aggregated: GuardResult,
+        ctx: ValidationContext,
+    ) -> tuple[ValidatedAction | None, list[GuardResult], str | None]:
+        ctx.risk_controller.record(was_clamped=False, was_rejected=True)
+        for g in ctx.guards:
+            g.on_violation(aggregated)
+
+        if self._enforcement_mode != EnforcementMode.ENFORCE:
+            # MONITOR / LOG_ONLY — record violation but pass original action through
+            return self._make_validated_action(action), all_results, None
+
+        fallback_name = (
+            ctx.active_containers[0].get_active_node().fallback
+            if ctx.active_containers
+            else _DEFAULT_FALLBACK
+        )
+        fallback_ctx = FallbackContext(
+            rejected_proposal=action,
+            guard_result=aggregated,
+            current_node=self._resolve_current_node(ctx),
+            cycle_id=ctx.cycle_id,
+        )
+        self._fallback_registry.execute_with_escalation(fallback_name, fallback_ctx, bus=None)
+        return None, all_results, fallback_name
+
+    def _resolve_current_node(self, ctx: ValidationContext) -> Any:
+        if ctx.active_containers:
+            return ctx.active_containers[0].get_active_node()
+        if ctx.boundary_containers:
+            return next(iter(ctx.boundary_containers.values())).get_active_node()
+        return _make_dummy_node()
+
+    def _make_validated_action(self, action: ActionProposal) -> ValidatedAction:
+        return ValidatedAction(
             target_joint_positions=action.target_joint_positions.copy(),
             target_joint_velocities=action.target_joint_velocities.copy()
             if action.target_joint_velocities is not None
@@ -229,9 +243,6 @@ class ExecutionEngine:
             was_clamped=False,
             original_proposal=action,
         )
-        return validated, all_results, None
-
-    # ── Private execution helpers ────────────────────────────────────────────
 
     def _run_flat_filtered(
         self, guards: list[Guard], runtime_pool: dict[str, Any]
@@ -385,33 +396,61 @@ class ExecutionEngine:
             return []
         results: list[GuardResult | None] = [None] * len(pairs)
 
-        def _run_entry(idx: int, g: Guard, boundary_name: str | None) -> tuple[int, GuardResult]:
-            result_name = boundary_name if boundary_name is not None else g.get_name()
-            try:
-                result = self._run_one_guard(g, boundary_name, runtime_pool)
-            except Exception as exc:
-                result = GuardResult.fault(exc, "guard_code", result_name, g.get_layer())
-                logger.error("Stage '%s' guard '%s' raised: %s", stage.name, result_name, exc)
-            return idx, result
-
         with ThreadPoolExecutor(max_workers=len(pairs)) as executor:
-            futures = {executor.submit(_run_entry, i, g, bn): i for i, (g, bn) in enumerate(pairs)}
+            futures = {
+                executor.submit(self._run_parallel_entry, stage.name, i, g, bn, runtime_pool): i
+                for i, (g, bn) in enumerate(pairs)
+            }
             try:
                 for future in as_completed(futures, timeout=timeout_s):
                     idx, result = future.result()
                     results[idx] = result
             except FuturesTimeoutError:
-                for future, idx in futures.items():
-                    if not future.done():
-                        g, bn = pairs[idx]
-                        results[idx] = GuardResult(
-                            decision=GuardDecision.FAULT,
-                            guard_name=bn if bn is not None else g.get_name(),
-                            layer=g.get_layer(),
-                            reason=f"Stage '{stage.name}' parallel timeout ({stage.timeout_ms}ms)",
-                            fault_source="timeout",
-                        )
+                self._fill_timed_out_results(futures, pairs, results, stage)
 
+        self._fill_missing_results(results, pairs, stage)
+        return cast(list[GuardResult], results)
+
+    def _run_parallel_entry(
+        self,
+        stage_name: str,
+        idx: int,
+        g: Guard,
+        boundary_name: str | None,
+        runtime_pool: dict[str, Any],
+    ) -> tuple[int, GuardResult]:
+        result_name = boundary_name if boundary_name is not None else g.get_name()
+        try:
+            result = self._run_one_guard(g, boundary_name, runtime_pool)
+        except Exception as exc:
+            result = GuardResult.fault(exc, "guard_code", result_name, g.get_layer())
+            logger.error("Stage '%s' guard '%s' raised: %s", stage_name, result_name, exc)
+        return idx, result
+
+    def _fill_timed_out_results(
+        self,
+        futures: dict[Any, int],
+        pairs: list[tuple[Guard, str | None]],
+        results: list[GuardResult | None],
+        stage: Stage,
+    ) -> None:
+        for future, idx in futures.items():
+            if not future.done():
+                g, bn = pairs[idx]
+                results[idx] = GuardResult(
+                    decision=GuardDecision.FAULT,
+                    guard_name=bn if bn is not None else g.get_name(),
+                    layer=g.get_layer(),
+                    reason=f"Stage '{stage.name}' parallel timeout ({stage.timeout_ms}ms)",
+                    fault_source="timeout",
+                )
+
+    def _fill_missing_results(
+        self,
+        results: list[GuardResult | None],
+        pairs: list[tuple[Guard, str | None]],
+        stage: Stage,
+    ) -> None:
         for i, r in enumerate(results):
             if r is None:
                 g, bn = pairs[i]
@@ -422,5 +461,3 @@ class ExecutionEngine:
                     reason=f"Stage '{stage.name}' guard did not complete",
                     fault_source="timeout",
                 )
-
-        return cast(list[GuardResult], results)

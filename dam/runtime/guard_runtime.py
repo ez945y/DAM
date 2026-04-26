@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import threading
 import time
@@ -24,8 +25,6 @@ if TYPE_CHECKING:
     from dam.guard.stage import Stage
     from dam.kinematics.resolver import KinematicsResolver
     from dam.types.action import ActionProposal
-
-import contextlib
 
 from dam.bus import ObservationBus, PipelineMetricBus, RiskController, WatchdogTimer
 
@@ -338,8 +337,6 @@ class GuardRuntime:
 
     def _apply_config_swap(self, new_config: StackfileConfig) -> None:
         """Rebuild configuration-based parameters for all guards from the new config."""
-        import numpy as np
-
         new_config_pool: dict[str, Any] = {}
 
         # Extract guard params from boundary node params — single authoritative source.
@@ -835,112 +832,15 @@ class GuardRuntime:
         Called by ``from_stackfile`` and by ``RuntimeFactory`` (which already
         holds a parsed config and uses this to avoid re-parsing the YAML).
         """
-        from dam.boundary.constraint import BoundaryConstraint
-        from dam.boundary.list_container import ListContainer
-        from dam.boundary.node import BoundaryNode
-        from dam.boundary.single import SingleNodeContainer
-        from dam.decorators import guard as guard_decorator
         from dam.fallback.chain import build_escalation_chain
-        from dam.kinematics.resolver import KinematicsResolver
-
-        config_pool: dict[str, Any] = {}
-        boundary_containers: dict[str, Any] = {}
-
+        from dam.fallback.registry import get_global_registry
         from dam.registry.callback import get_global_registry as _get_cb_registry
         from dam.registry.guard import get_guard_registry
 
-        _cb_reg = _get_cb_registry()
-        _guard_reg = get_guard_registry()
-
-        _LAYER_KIND_MAP = {
-            "L0": "ood",
-            "L1": "preflight",
-            "L2": "motion",
-            "L3": "execution",
-            "L4": "hardware",
-        }
-
-        kinematics_resolver = None
-        if config.hardware and config.hardware.urdf_path:
-            try:
-                kinematics_resolver = KinematicsResolver(config.hardware.urdf_path)
-            except Exception as e:
-                logger.warning(
-                    "GuardRuntime: failed to init KinematicsResolver from %s: %s",
-                    config.hardware.urdf_path,
-                    e,
-                )
-
-        # Singleton guard pool: one instance per guard kind across all boundaries.
-        guards_by_kind: dict[str, Any] = {}
-        # Maps each boundary name to the guard kind that handles it.
-        boundary_to_kind: dict[str, str] = {}
-
-        for bname, bcfg in config.boundaries.items():
-            nodes = []
-            layer_str = getattr(bcfg, "layer", "L2")
-
-            for ncfg in bcfg.nodes:
-                # Prefer the layer annotated on the callback; fall back to boundary layer.
-                cb_layer = layer_str
-                if ncfg.callback:
-                    try:
-                        fn = _cb_reg.get(ncfg.callback)
-                        cb_layer = getattr(fn, "_cb_layer", layer_str)
-                    except KeyError:
-                        pass  # callback not yet registered — use boundary layer
-
-                guard_kind = _LAYER_KIND_MAP.get(cb_layer, "execution")
-
-                # Ensure exactly one guard instance per kind (singleton).
-                if guard_kind not in guards_by_kind:
-                    GuardClass = _guard_reg.get(guard_kind)
-                    if GuardClass and (guard_kind != "execution" or ncfg.callback is not None):
-                        Decorated = guard_decorator(cb_layer)(GuardClass)
-                        instance = Decorated()
-                        instance.set_name(guard_kind)
-                        instance._guard_kind = guard_kind  # type: ignore[attr-defined]
-                        guards_by_kind[guard_kind] = instance
-
-                # Record which kind handles this boundary.
-                if guard_kind in guards_by_kind:
-                    boundary_to_kind[bname] = guard_kind
-
-                # Build boundary node.  Execution guard stores the callback name so it
-                # can dispatch dynamically; all other guards read params from the pool.
-                stores_callback = guard_kind == "execution"
-                params = dict(ncfg.params)
-
-                # Inherit device from policy config when not explicitly set.
-                if "device" not in params and config.policy and config.policy.device:
-                    params["device"] = config.policy.device
-
-                extra = ncfg.model_extra or {}
-                if "max_speed" in extra and "max_speed" not in params:
-                    params["max_speed"] = extra["max_speed"]
-
-                constraint = BoundaryConstraint(
-                    params=params,
-                    callback=ncfg.callback if stores_callback else None,
-                )
-                node = BoundaryNode(
-                    node_id=ncfg.node_id,
-                    constraint=constraint,
-                    fallback=ncfg.fallback,
-                    timeout_sec=ncfg.timeout_sec,
-                )
-                nodes.append(node)
-
-            if bcfg.type == "single":
-                boundary_containers[bname] = SingleNodeContainer(nodes[0])
-            elif bcfg.type == "list":
-                boundary_containers[bname] = ListContainer(nodes, loop=bcfg.loop)
-            else:
-                raise ValueError(
-                    f"Unsupported container type '{bcfg.type}' (graph requires Python setup)"
-                )
-
-        from dam.fallback.registry import get_global_registry
+        kinematics_resolver = cls._init_kinematics_resolver(config)
+        guards_by_kind, boundary_to_kind, boundary_containers = cls._build_all_boundaries(
+            config, _get_cb_registry(), get_guard_registry()
+        )
 
         fallback_registry = get_global_registry()
         build_escalation_chain(fallback_registry)
@@ -961,7 +861,7 @@ class GuardRuntime:
             fallback_registry=fallback_registry,
             task_config=task_config,
             always_active=always_active,
-            config_pool=config_pool,
+            config_pool={},
             control_frequency_hz=config.safety.control_frequency_hz,
             enforcement_mode=config.safety.enforcement_mode,
             risk_controller_config=config.risk_controller,
@@ -969,3 +869,119 @@ class GuardRuntime:
             kinematics_resolver=kinematics_resolver,
             boundary_to_kind=boundary_to_kind,
         )
+
+    @classmethod
+    def _init_kinematics_resolver(cls, config: StackfileConfig) -> KinematicsResolver | None:
+        if not (config.hardware and config.hardware.urdf_path):
+            return None
+        from dam.kinematics.resolver import KinematicsResolver
+
+        try:
+            return KinematicsResolver(config.hardware.urdf_path)
+        except Exception as e:
+            logger.warning(
+                "GuardRuntime: failed to init KinematicsResolver from %s: %s",
+                config.hardware.urdf_path,
+                e,
+            )
+            return None
+
+    @classmethod
+    def _build_all_boundaries(
+        cls,
+        config: StackfileConfig,
+        _cb_reg: Any,
+        _guard_reg: Any,
+    ) -> tuple[dict[str, Any], dict[str, str], dict[str, Any]]:
+        _LAYER_KIND_MAP = {
+            "L0": "ood",
+            "L1": "preflight",
+            "L2": "motion",
+            "L3": "execution",
+            "L4": "hardware",
+        }
+        guards_by_kind: dict[str, Any] = {}
+        boundary_to_kind: dict[str, str] = {}
+        boundary_containers: dict[str, Any] = {}
+
+        for bname, bcfg in config.boundaries.items():
+            layer_str = getattr(bcfg, "layer", "L2")
+            nodes = []
+            for ncfg in bcfg.nodes:
+                cb_layer = cls._resolve_cb_layer(ncfg, layer_str, _cb_reg)
+                guard_kind = _LAYER_KIND_MAP.get(cb_layer, "execution")
+                cls._register_guard_if_new(guard_kind, ncfg, cb_layer, guards_by_kind, _guard_reg)
+                if guard_kind in guards_by_kind:
+                    boundary_to_kind[bname] = guard_kind
+                nodes.append(cls._build_boundary_node(ncfg, guard_kind, config))
+            boundary_containers[bname] = cls._make_container(bcfg, nodes)
+
+        return guards_by_kind, boundary_to_kind, boundary_containers
+
+    @classmethod
+    def _resolve_cb_layer(cls, ncfg: Any, layer_str: str, cb_reg: Any) -> str:
+        if not ncfg.callback:
+            return layer_str
+        try:
+            fn = cb_reg.get(ncfg.callback)
+            return getattr(fn, "_cb_layer", layer_str)
+        except KeyError:
+            return layer_str  # callback not yet registered — use boundary layer
+
+    @classmethod
+    def _register_guard_if_new(
+        cls,
+        guard_kind: str,
+        ncfg: Any,
+        cb_layer: str,
+        guards_by_kind: dict[str, Any],
+        guard_reg: Any,
+    ) -> None:
+        if guard_kind in guards_by_kind:
+            return
+        from dam.decorators import guard as guard_decorator
+
+        GuardClass = guard_reg.get(guard_kind)
+        if GuardClass and (guard_kind != "execution" or ncfg.callback is not None):
+            Decorated = guard_decorator(cb_layer)(GuardClass)
+            instance = Decorated()
+            instance.set_name(guard_kind)
+            instance._guard_kind = guard_kind
+            guards_by_kind[guard_kind] = instance
+
+    @classmethod
+    def _build_boundary_node(cls, ncfg: Any, guard_kind: str, config: StackfileConfig) -> Any:
+        from dam.boundary.constraint import BoundaryConstraint
+        from dam.boundary.node import BoundaryNode
+
+        stores_callback = guard_kind == "execution"
+        params = dict(ncfg.params)
+
+        if "device" not in params and config.policy and config.policy.device:
+            params["device"] = config.policy.device
+
+        extra = ncfg.model_extra or {}
+        if "max_speed" in extra and "max_speed" not in params:
+            params["max_speed"] = extra["max_speed"]
+
+        constraint = BoundaryConstraint(
+            params=params,
+            callback=ncfg.callback if stores_callback else None,
+        )
+        return BoundaryNode(
+            node_id=ncfg.node_id,
+            constraint=constraint,
+            fallback=ncfg.fallback,
+            timeout_sec=ncfg.timeout_sec,
+        )
+
+    @classmethod
+    def _make_container(cls, bcfg: Any, nodes: list[Any]) -> Any:
+        from dam.boundary.list_container import ListContainer
+        from dam.boundary.single import SingleNodeContainer
+
+        if bcfg.type == "single":
+            return SingleNodeContainer(nodes[0])
+        if bcfg.type == "list":
+            return ListContainer(nodes, loop=bcfg.loop)
+        raise ValueError(f"Unsupported container type '{bcfg.type}' (graph requires Python setup)")

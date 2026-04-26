@@ -9,15 +9,31 @@ if TYPE_CHECKING:
 
 from fastapi import APIRouter, HTTPException, Query
 
+_SVC_UNAVAILABLE = "Runtime control service not available"
+
+
+def _require_control(svc: RuntimeControlService | None) -> RuntimeControlService:
+    if svc is None:
+        raise HTTPException(503, _SVC_UNAVAILABLE)
+    return svc  # type: ignore[return-value]
+
+
+def _group_callbacks_by_layer(all_cbs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for cb in all_cbs:
+        layer = cb.get("layer", "L2")
+        if layer not in groups:
+            groups[layer] = []
+        groups[layer].append(cb)
+    return [{"layer": k, "callbacks": groups[k]} for k in sorted(groups.keys())]
+
 
 def create_control_router(control: RuntimeControlService | None) -> APIRouter:
     router = APIRouter()
 
-    @router.get("/api/control/status")
+    @router.get("/api/control/status", responses={503: {"description": _SVC_UNAVAILABLE}})
     async def control_status() -> Any:
-        if control is None:
-            raise HTTPException(503, "Runtime control service not available")
-        return control.status()
+        return _require_control(control).status()
 
     @router.get("/api/catalog/callbacks")
     async def get_callback_catalog(grouped: Annotated[bool, Query()] = False) -> Any:
@@ -26,16 +42,7 @@ def create_control_router(control: RuntimeControlService | None) -> APIRouter:
         all_cbs = get_catalog()
         if not grouped:
             return {"callbacks": all_cbs}
-
-        groups: dict[str, list[dict[str, Any]]] = {}
-        for cb in all_cbs:
-            layer = cb.get("layer", "L2")
-            if layer not in groups:
-                groups[layer] = []
-            groups[layer].append(cb)
-
-        sorted_keys = sorted(groups.keys())
-        return {"groups": [{"layer": k, "callbacks": groups[k]} for k in sorted_keys]}
+        return {"groups": _group_callbacks_by_layer(all_cbs)}
 
     @router.get("/api/catalog/guards")
     async def get_guard_catalog() -> Any:
@@ -67,68 +74,55 @@ def create_control_router(control: RuntimeControlService | None) -> APIRouter:
             )
         return {"fallbacks": fallbacks}
 
-    @router.post("/api/control/start")
+    @router.post("/api/control/start", responses={503: {"description": _SVC_UNAVAILABLE}})
     async def control_start(
         task_name: Annotated[str, Query()] = "default",
         n_cycles: Annotated[int, Query()] = -1,
         cycle_budget_ms: Annotated[float, Query()] = 20.0,
     ) -> Any:
-        if control is None:
-            raise HTTPException(503, "Runtime control service not available")
+        svc = _require_control(control)
         try:
-            started = control.start(task_name, n_cycles, cycle_budget_ms)
+            started = svc.start(task_name, n_cycles, cycle_budget_ms)
         except RuntimeError as e:
             raise HTTPException(400, str(e))
-        return {"started": started, "state": control.state.value}
+        return {"started": started, "state": svc.state.value}
 
-    @router.post("/api/control/recheck-hardware")
+    @router.post(
+        "/api/control/recheck-hardware", responses={503: {"description": _SVC_UNAVAILABLE}}
+    )
     async def control_recheck_hardware() -> Any:
-        if control is None:
-            raise HTTPException(503, "Runtime control service not available")
-        success = control.recheck_hardware()
-        return {"success": success, "state": control.state.value}
+        svc = _require_control(control)
+        return {"success": svc.recheck_hardware(), "state": svc.state.value}
 
-    @router.post("/api/control/pause")
+    @router.post("/api/control/pause", responses={503: {"description": _SVC_UNAVAILABLE}})
     async def control_pause() -> Any:
-        if control is None:
-            raise HTTPException(503, "Runtime control service not available")
-        ok = control.pause()
-        return {"paused": ok, "state": control.state.value}
+        svc = _require_control(control)
+        return {"paused": svc.pause(), "state": svc.state.value}
 
-    @router.post("/api/control/resume")
+    @router.post("/api/control/resume", responses={503: {"description": _SVC_UNAVAILABLE}})
     async def control_resume() -> Any:
-        if control is None:
-            raise HTTPException(503, "Runtime control service not available")
-        ok = control.resume()
-        return {"resumed": ok, "state": control.state.value}
+        svc = _require_control(control)
+        return {"resumed": svc.resume(), "state": svc.state.value}
 
-    @router.post("/api/control/stop")
+    @router.post("/api/control/stop", responses={503: {"description": _SVC_UNAVAILABLE}})
     async def control_stop() -> Any:
-        if control is None:
-            raise HTTPException(503, "Runtime control service not available")
-        ok = control.stop()
-        return {"stopped": ok, "state": control.state.value}
+        svc = _require_control(control)
+        return {"stopped": svc.stop(), "state": svc.state.value}
 
-    @router.post("/api/control/estop")
+    @router.post("/api/control/estop", responses={503: {"description": _SVC_UNAVAILABLE}})
     async def control_estop() -> Any:
-        if control is None:
-            raise HTTPException(503, "Runtime control service not available")
-        ok = control.emergency_stop()
-        return {"emergency_stop": ok, "state": control.state.value}
+        svc = _require_control(control)
+        return {"emergency_stop": svc.emergency_stop(), "state": svc.state.value}
 
-    @router.post("/api/control/reset")
+    @router.post("/api/control/reset", responses={503: {"description": _SVC_UNAVAILABLE}})
     async def control_reset() -> Any:
-        if control is None:
-            raise HTTPException(503, "Runtime control service not available")
-        ok = control.reset()
-        return {"reset": ok, "state": control.state.value}
+        svc = _require_control(control)
+        return {"reset": svc.reset(), "state": svc.state.value}
 
-    @router.post("/api/control/confirm-fault")
+    @router.post("/api/control/confirm-fault", responses={503: {"description": _SVC_UNAVAILABLE}})
     async def control_confirm_fault() -> Any:
-        if control is None:
-            raise HTTPException(503, "Runtime control service not available")
-        ok = control.confirm_fault()
-        return {"success": ok, "backend_state": control.status()["backend_state"]}
+        svc = _require_control(control)
+        return {"success": svc.confirm_fault(), "backend_state": svc.status()["backend_state"]}
 
     @router.post("/api/control/restart")
     async def control_restart() -> Any:
@@ -144,7 +138,7 @@ def create_control_router(control: RuntimeControlService | None) -> APIRouter:
             await asyncio.sleep(0.5)
             os.execv(sys.executable, [sys.executable] + sys.argv)
 
-        asyncio.ensure_future(_do_restart())
+        _restart_task = asyncio.ensure_future(_do_restart())  # noqa: RUF006
         return {"restarting": True}
 
     return router
