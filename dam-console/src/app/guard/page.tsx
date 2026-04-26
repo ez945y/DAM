@@ -431,7 +431,7 @@ function NodeForm({
                       const val = e.target.value
                       const nextParams = { ...(node.params || {}) }
                       // Basic type conversion
-                      if (!isNaN(Number(val)) && val !== '') nextParams[pName] = Number(val)
+                      if (!Number.isNaN(Number(val)) && val !== '') nextParams[pName] = Number(val)
                       else if (val === 'true') nextParams[pName] = true
                       else if (val === 'false') nextParams[pName] = false
                       else nextParams[pName] = val

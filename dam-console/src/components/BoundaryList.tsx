@@ -32,7 +32,7 @@ function BoundaryModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50" role="dialog" aria-modal="true">
+    <dialog open className="fixed inset-0 m-0 p-0 max-w-none w-full h-full border-0 bg-black/70 flex items-center justify-center z-50">
       <div className="bg-dam-surface border border-dam-border rounded-xl p-6 w-full max-w-md space-y-4">
         <h3 className="text-dam-text font-bold">{initial ? 'Edit Boundary' : 'New Boundary'}</h3>
         <div className="space-y-3">
@@ -75,7 +75,7 @@ function BoundaryModal({
           </button>
         </div>
       </div>
-    </div>
+    </dialog>
   )
 }
 

@@ -35,13 +35,6 @@ export function useDemoMode(): DemoModeResult {
   const [readyToStart, setReadyToStart] = useState(false)
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const stopPolling = useCallback(() => {
-    if (pollTimer.current) {
-      clearTimeout(pollTimer.current)
-      pollTimer.current = null
-    }
-  }, [])
-
   const waitForBackend = useCallback((): Promise<void> => {
     return new Promise((resolve, reject) => {
       const deadline = Date.now() + POLL_TIMEOUT_MS

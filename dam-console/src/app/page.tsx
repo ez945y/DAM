@@ -7,12 +7,11 @@ import { useDemoMode }       from '@/hooks/useDemoMode'
 import { useLiveMode }       from '@/hooks/useLiveMode'
 import { RiskGauge }         from '@/components/RiskGauge'
 import { StatsCard }         from '@/components/StatsCard'
-import { GuardTable }        from '@/components/GuardTable'
+import { GuardTable, DEC_CONFIG } from '@/components/GuardTable'
 import { LatencyChart }      from '@/components/LatencyChart'
 import { McapCameraPlayer }  from '@/components/McapCameraPlayer'
 import { Shield, TrendingDown, Timer, Loader, AlertTriangle, Radio } from 'lucide-react'
 import { PageShell } from '@/components/PageShell'
-import { DEC_CONFIG } from '@/components/GuardTable'
 import { api } from '@/lib/api'
 
 function formatUptime(sec: number): string {
@@ -65,7 +64,7 @@ function HardwareWarning({ message }: { message: string }) {
       {open && (
         <>
           {/* backdrop to close */}
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <button type="button" aria-label="Close" className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div className="absolute right-0 top-9 z-50 w-80 panel border border-dam-red/30 p-4 space-y-4 shadow-xl">
             <div className="flex items-center justify-between">
               <p className="text-dam-red text-xs font-bold uppercase tracking-wider">
@@ -132,12 +131,11 @@ export default function DashboardPage() {
   const tele = useTelemetry()
   const ctrl = useRuntimeControl()
   const demo = useDemoMode()
-  const adapterLabel = useAdapterLabel()
   const router = useRouter()
   const { liveMode, toggleLiveMode } = useLiveMode()
 
   // Camera footage toggle state (only for MCAP session fetching when NOT in live mode)
-  const [showCamera, setShowCamera] = useState(false)
+  const [showCamera] = useState(false)
   const [mcapSession, setMcapSession] = useState<string | null>(null)
   const [mcapCameras, setMcapCameras] = useState<string[]>([])
   const [cameraLoading, setCameraLoading] = useState(false)
