@@ -1,7 +1,4 @@
-const API_BASE =
-  typeof window !== 'undefined'
-    ? (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080')
-    : (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080')
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080'
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}/api${path}`, {

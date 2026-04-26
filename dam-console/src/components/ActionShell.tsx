@@ -110,8 +110,9 @@ export function ActionShell({
 
       {/* YAML Section (Shared between Guard & Config) */}
       <div className="mt-12 pt-12 border-t border-dam-border/40 px-8">
-        <div
-          className="flex items-center justify-between cursor-pointer group mb-5"
+        <button
+          type="button"
+          className="flex items-center justify-between cursor-pointer group mb-5 w-full text-left"
           onClick={() => setYamlOpen(!yamlOpen)}
         >
           <div className="flex items-center gap-3">
@@ -129,7 +130,7 @@ export function ActionShell({
               {copied ? 'COPIED' : 'COPY'}
             </button>
           )}
-        </div>
+        </button>
 
         {yamlOpen && (
           <div className="glass-card mt-2 group animate-in zoom-in-95 duration-300">

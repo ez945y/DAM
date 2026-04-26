@@ -37,7 +37,7 @@ const LATENCY_KEY_LABELS: Record<string, string> = {
 
 function PerfDetail({ perf, totalMs }: { perf: PerfSnapshot; totalMs: number }) {
   const maxStage = Math.max(...STAGE_ORDER.map(s => perf.stages[s] ?? 0), 0.001)
-  const layerKeys = Object.keys(perf.layers ?? {}).sort()
+  const layerKeys = Object.keys(perf.layers ?? {}).sort((a, b) => a.localeCompare(b))
 
   return (
     <div className="space-y-3">
@@ -127,8 +127,9 @@ function GuardResultItem({
       className="group/item bg-dam-surface-3 border border-dam-border rounded hover:border-dam-blue/30 transition-colors overflow-hidden"
     >
       {/* Header row — always visible, click to expand */}
-      <div
-        className="flex items-center gap-2 p-2 cursor-pointer select-none"
+      <button
+        type="button"
+        className="flex items-center gap-2 p-2 cursor-pointer select-none w-full text-left"
         onClick={() => setOpen(v => !v)}
       >
         <span className="text-dam-muted/50 shrink-0">
@@ -146,7 +147,7 @@ function GuardResultItem({
         <span className={`text-[10px] font-bold px-1.5 rounded-sm shrink-0 ${decColor}`}>
           {g.decision}
         </span>
-      </div>
+      </button>
 
       {/* Expanded: full reason + latency detail */}
       {open && (

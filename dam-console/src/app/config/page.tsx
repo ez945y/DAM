@@ -84,11 +84,13 @@ function AssetUploader({
     }
   }
 
+  const inputId = `asset-uploader-${target}`
   return (
     <div className="space-y-1">
-      <label className="text-dam-muted text-xs">{label}</label>
+      {label && <label htmlFor={inputId} className="text-dam-muted text-xs">{label}</label>}
       <div className="flex items-center gap-2">
         <input
+          id={inputId}
           value={currentPath}
           onChange={e => onPathSaved(e.target.value)}
           placeholder="/mnt/dam_data/..."
@@ -371,7 +373,7 @@ export default function ConfigPage() {
       <Section title="Hardware">
         {cfg.adapter !== 'simulation' && (
           <div className="flex items-center gap-3 flex-wrap">
-            <label className="text-dam-muted text-xs shrink-0">Hardware preset:</label>
+            <span className="text-dam-muted text-xs shrink-0">Hardware preset:</span>
             {['so101_follower', 'generic_6dof', 'custom'].map(preset => (
               <button
                 key={preset}
@@ -399,7 +401,7 @@ export default function ConfigPage() {
           <div className="space-y-4 pt-2 border-t border-dam-border/60">
             <p className="text-dam-muted text-[10px] uppercase tracking-widest">LeRobot Settings</p>
             <div className="space-y-2">
-              <label className="text-dam-muted text-xs">Robot Port</label>
+              <label htmlFor="lerobot-port" className="text-dam-muted text-xs">Robot Port</label>
               {usbDevices.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mb-2">
                   {usbDevices.map(dev => (
@@ -421,6 +423,7 @@ export default function ConfigPage() {
               )}
               <div className="flex gap-2 items-center">
                 <input
+                  id="lerobot-port"
                   value={cfg.lerobot_port}
                   onChange={e => set('lerobot_port', e.target.value)}
                   placeholder="/dev/tty.usbmodem..."
@@ -438,8 +441,9 @@ export default function ConfigPage() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-dam-muted text-xs">Robot ID</label>
+              <label htmlFor="lerobot-robot-id" className="text-dam-muted text-xs">Robot ID</label>
               <input
+                id="lerobot-robot-id"
                 value={cfg.lerobot_robot_id}
                 onChange={e => set('lerobot_robot_id', e.target.value)}
                 placeholder="my_follower_arm"
@@ -448,7 +452,7 @@ export default function ConfigPage() {
             </div>
 
             <div className="space-y-2">
-              <label className="text-dam-muted text-xs">Joint Limits</label>
+              <p className="text-dam-muted text-xs">Joint Limits</p>
               <JointLimitsTable
                 joints={cfg.joints}
                 onChange={j => set('joints', j)}
@@ -456,7 +460,7 @@ export default function ConfigPage() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-dam-muted text-xs">Calibration Directory Path</label>
+              <p className="text-dam-muted text-xs">Calibration Directory Path</p>
               <p className="text-dam-muted text-[10px] mb-2">Provide the directory containing LeRobot calibration JSONs.</p>
               <AssetUploader
                 label=""
@@ -502,12 +506,12 @@ export default function ConfigPage() {
             <p className="text-dam-muted text-[10px] uppercase tracking-widest">ROS2 Settings</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="text-dam-muted text-xs">Namespace</label>
-                <input value={cfg.ros2Namespace} onChange={e => set('ros2Namespace', e.target.value)} className={`w-full ${inputCls}`} />
+                <label htmlFor="ros2-namespace" className="text-dam-muted text-xs">Namespace</label>
+                <input id="ros2-namespace" value={cfg.ros2Namespace} onChange={e => set('ros2Namespace', e.target.value)} className={`w-full ${inputCls}`} />
               </div>
               <div className="space-y-1">
-                <label className="text-dam-muted text-xs">Joint states topic</label>
-                <input value={cfg.ros2JointTopic} onChange={e => set('ros2JointTopic', e.target.value)} className={`w-full ${inputCls}`} />
+                <label htmlFor="ros2-joint-topic" className="text-dam-muted text-xs">Joint states topic</label>
+                <input id="ros2-joint-topic" value={cfg.ros2JointTopic} onChange={e => set('ros2JointTopic', e.target.value)} className={`w-full ${inputCls}`} />
               </div>
             </div>
           </div>
@@ -516,8 +520,9 @@ export default function ConfigPage() {
         {cfg.adapter === 'simulation' && (
           <div className="pt-2 border-t border-dam-border/60 space-y-3">
             <div className="space-y-1">
-              <label className="text-dam-muted text-xs">Dataset repo (HuggingFace)</label>
+              <label htmlFor="sim-dataset-repo" className="text-dam-muted text-xs">Dataset repo (HuggingFace)</label>
               <input
+                id="sim-dataset-repo"
                 value={cfg.simulation_dataset_repo_id ?? ''}
                 onChange={e => set('simulation_dataset_repo_id', e.target.value || undefined)}
                 placeholder="e.g. MikeChenYZ/soarm-fmb-v2"
@@ -526,8 +531,9 @@ export default function ConfigPage() {
               <p className="text-dam-muted text-[10px]">Leave blank to use a random-walk fallback.</p>
             </div>
             <div className="space-y-1">
-              <label className="text-dam-muted text-xs">Episode index</label>
+              <label htmlFor="sim-episode" className="text-dam-muted text-xs">Episode index</label>
               <input
+                id="sim-episode"
                 type="number"
                 min={0}
                 value={cfg.simulation_episode ?? 0}
@@ -551,16 +557,18 @@ export default function ConfigPage() {
         <div className="space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
-              <label className="text-dam-muted text-xs">Pretrained path</label>
+              <label htmlFor="policy-pretrained-path" className="text-dam-muted text-xs">Pretrained path</label>
               <input
+                id="policy-pretrained-path"
                 value={cfg.policy.pretrained_path}
                 onChange={e => setCfg(prev => ({ ...prev, policy: { ...prev.policy, pretrained_path: e.target.value } }))}
                 className={`w-full ${inputCls}`}
               />
             </div>
             <div className="space-y-1">
-              <label className="text-dam-muted text-xs">Device</label>
+              <label htmlFor="policy-device" className="text-dam-muted text-xs">Device</label>
               <select
+                id="policy-device"
                 value={cfg.policy.device}
                 onChange={e => setCfg(prev => ({ ...prev, policy: { ...prev.policy, device: e.target.value as DamConfig['policy']['device'] } }))}
                 className={`w-full ${inputCls}`}
@@ -593,8 +601,9 @@ export default function ConfigPage() {
         </div>
         <div className="pt-3 border-t border-dam-border/60 mt-3">
           <div className="space-y-1">
-            <label className="text-dam-muted text-xs">Control frequency (Hz)</label>
+            <label htmlFor="control-freq-hz" className="text-dam-muted text-xs">Control frequency (Hz)</label>
             <input
+              id="control-freq-hz"
               type="number"
               step="5"
               min="1"
@@ -610,7 +619,7 @@ export default function ConfigPage() {
         <div className="space-y-4">
           {/* Enable/Disable toggle */}
           <div className="flex items-center gap-3">
-            <label className="text-dam-muted text-xs">Recording status:</label>
+            <span className="text-dam-muted text-xs">Recording status:</span>
             <button
               onClick={() => setCfg(prev => ({
                 ...prev,
@@ -638,8 +647,9 @@ export default function ConfigPage() {
             <>
               {/* Output directory */}
               <div className="space-y-1">
-                <label className="text-dam-muted text-xs">Output Directory</label>
+                <label htmlFor="loopback-output-dir" className="text-dam-muted text-xs">Output Directory</label>
                 <input
+                  id="loopback-output-dir"
                   value={cfg.loopback.output_dir}
                   onChange={e => setCfg(prev => ({
                     ...prev,
@@ -653,8 +663,9 @@ export default function ConfigPage() {
 
               {/* Backend selection */}
               <div className="space-y-1">
-                <label className="text-dam-muted text-xs">Backend Format</label>
+                <label htmlFor="loopback-backend" className="text-dam-muted text-xs">Backend Format</label>
                 <select
+                  id="loopback-backend"
                   value={cfg.loopback.backend}
                   onChange={e => setCfg(prev => ({
                     ...prev,
@@ -673,8 +684,9 @@ export default function ConfigPage() {
                 <p className="text-dam-muted text-[10px] uppercase tracking-widest">File Rotation</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <label className="text-dam-muted text-xs">Rotate after (MB)</label>
+                    <label htmlFor="loopback-rotate-mb" className="text-dam-muted text-xs">Rotate after (MB)</label>
                     <input
+                      id="loopback-rotate-mb"
                       type="number"
                       step="50"
                       min="10"
@@ -688,8 +700,9 @@ export default function ConfigPage() {
                     <p className="text-dam-muted text-[10px]">Create new file after this size</p>
                   </div>
                   <div className="space-y-1">
-                    <label className="text-dam-muted text-xs">Rotate after (minutes)</label>
+                    <label htmlFor="loopback-rotate-min" className="text-dam-muted text-xs">Rotate after (minutes)</label>
                     <input
+                      id="loopback-rotate-min"
                       type="number"
                       step="5"
                       min="1"
@@ -710,8 +723,9 @@ export default function ConfigPage() {
                 <p className="text-dam-muted text-[10px] uppercase tracking-widest">Buffering & Capture</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <label className="text-dam-muted text-xs">Max queue depth</label>
+                    <label htmlFor="loopback-queue-depth" className="text-dam-muted text-xs">Max queue depth</label>
                     <input
+                      id="loopback-queue-depth"
                       type="number"
                       step="8"
                       min="8"
@@ -725,8 +739,9 @@ export default function ConfigPage() {
                     <p className="text-dam-muted text-[10px]">Drop cycles if queue exceeds this depth</p>
                   </div>
                   <div className="space-y-1">
-                    <label className="text-dam-muted text-xs">Image ring buffer (sec)</label>
+                    <label htmlFor="loopback-window-sec" className="text-dam-muted text-xs">Image ring buffer (sec)</label>
                     <input
+                      id="loopback-window-sec"
                       type="number"
                       step="1"
                       min="1"
@@ -742,8 +757,9 @@ export default function ConfigPage() {
 
                   {/* Pre-event capture duration */}
                   <div className="space-y-1">
-                    <label className="text-dam-muted text-xs">Pre-event Capture (seconds)</label>
+                    <label htmlFor="loopback-pre-event-sec" className="text-dam-muted text-xs">Pre-event Capture (seconds)</label>
                     <input
+                      id="loopback-pre-event-sec"
                       type="number"
                       min="0"
                       max="60"
@@ -761,6 +777,7 @@ export default function ConfigPage() {
                 {/* Capture on clamp toggle */}
                 <div className="flex items-center gap-3 pt-2 border-t border-dam-border/20">
                   <input
+                    id="loopback-capture-on-clamp"
                     type="checkbox"
                     checked={cfg.loopback.capture_images_on_clamp}
                     onChange={e => setCfg(prev => ({
@@ -769,7 +786,7 @@ export default function ConfigPage() {
                     }))}
                     className="accent-dam-blue"
                   />
-                  <label className="text-dam-muted text-xs flex-1">Capture images on CLAMP events</label>
+                  <label htmlFor="loopback-capture-on-clamp" className="text-dam-muted text-xs flex-1">Capture images on CLAMP events</label>
                   <span className={`text-[10px] font-semibold ${cfg.loopback.capture_images_on_clamp ? 'text-dam-blue' : 'text-dam-muted'}`}>
                     {cfg.loopback.capture_images_on_clamp ? 'ON' : 'OFF'}
                   </span>

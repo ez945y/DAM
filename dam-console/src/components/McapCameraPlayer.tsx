@@ -383,21 +383,23 @@ export function McapCameraPlayer({
             {currentCams.map(cam => {
               if (liveMode) {
                 return (
-                  <div
+                  <button
                     key={cam}
+                    type="button"
                     onClick={() => handleSelectCamera(cam)}
                     className="relative bg-black overflow-hidden cursor-pointer hover:ring-1 hover:ring-dam-blue/50 transition-all"
                     style={{ minHeight: 0 }}
                   >
                     <LiveCameraCell cam={cam} src={liveImages?.[cam]} label={currentCams.length > 1 ? cam : undefined} />
-                  </div>
+                  </button>
                 )
               }
               const camFrames = framesMap[cam]
               const hasFrames = camFrames && camFrames.length > 0
               return (
-                  <div
+                  <button
                     key={cam}
+                    type="button"
                     onClick={() => handleSelectCamera(cam)}
                     className="relative bg-black overflow-hidden cursor-pointer hover:ring-1 hover:ring-dam-blue/50 transition-all"
                     style={{ minHeight: 0 }}
@@ -421,7 +423,7 @@ export function McapCameraPlayer({
                         compact
                       />
                     )}
-                  </div>
+                  </button>
               )
             })}
           </div>

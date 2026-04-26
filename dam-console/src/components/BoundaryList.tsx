@@ -37,8 +37,9 @@ function BoundaryModal({
         <h3 className="text-dam-text font-bold">{initial ? 'Edit Boundary' : 'New Boundary'}</h3>
         <div className="space-y-3">
           <div>
-            <label className="text-dam-muted text-xs uppercase tracking-wider block mb-1">Name</label>
+            <label htmlFor="boundary-name" className="text-dam-muted text-xs uppercase tracking-wider block mb-1">Name</label>
             <input
+              id="boundary-name"
               value={name}
               onChange={e => setName(e.target.value)}
               disabled={!!initial}
@@ -47,8 +48,9 @@ function BoundaryModal({
             />
           </div>
           <div>
-            <label className="text-dam-muted text-xs uppercase tracking-wider block mb-1">Type</label>
+            <label htmlFor="boundary-type" className="text-dam-muted text-xs uppercase tracking-wider block mb-1">Type</label>
             <select
+              id="boundary-type"
               value={type}
               onChange={e => setType(e.target.value as 'single' | 'list' | 'graph')}
               className="w-full bg-dam-surface-2 border border-dam-border rounded px-3 py-1.5 text-dam-text text-sm"

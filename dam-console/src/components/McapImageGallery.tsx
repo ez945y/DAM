@@ -24,7 +24,7 @@ export function McapImageGallery({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const cameras = Object.keys(images ?? {}).sort()
+  const cameras = Object.keys(images ?? {}).sort((a, b) => a.localeCompare(b))
 
   // Auto-select first camera
   useEffect(() => {
