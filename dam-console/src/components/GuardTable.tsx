@@ -178,7 +178,7 @@ export function GuardTable({
         const isExpanded = expandedLayers.has(layer)
 
         return (
-          <div key={layer} className={`border border-dam-border/40 rounded bg-dam-surface-2 transition-all duration-300 ${!hasItems ? 'opacity-30 grayscale' : (dcGroup.bg === 'bg-dam-surface-3' ? '' : dcGroup.bg.replace('/40', '/5'))}`}>
+          <div key={layer} className={`border border-dam-border/40 rounded bg-dam-surface-2 transition-all duration-300 ${!hasItems ? 'opacity-30 grayscale' : (dcGroup.bg === 'bg-dam-surface-3' ? '' : dcGroup.bg.replaceAll('/40', '/5'))}`}>
             {/* Group Header */}
             <button
               type="button"

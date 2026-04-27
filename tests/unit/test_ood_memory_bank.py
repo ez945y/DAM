@@ -106,7 +106,7 @@ class TestMemoryBank:
 
     def test_untrained_returns_zero(self):
         bank = MemoryBank()
-        q = np.random.randn(128).astype(np.float32)
+        q = np.random.default_rng().standard_normal(128).astype(np.float32)
         assert bank.nearest_distance(q) == pytest.approx(0.0)
 
     def test_save_load(self, tmp_path):

@@ -17,9 +17,9 @@ ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # ── Colour helpers ─────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
-info()    { echo -e "${BLUE}[setup]${NC} $*"; }
-ok()      { echo -e "${GREEN}[setup] ✓${NC} $*"; }
-warn()    { echo -e "${YELLOW}[setup] !${NC} $*"; }
+info()    { echo -e "${BLUE}[setup]${NC} $*"; return 0; }
+ok()      { echo -e "${GREEN}[setup] ✓${NC} $*"; return 0; }
+warn()    { echo -e "${YELLOW}[setup] !${NC} $*"; return 0; }
 die()     { echo -e "${RED}[setup] ✗${NC} $*" >&2; exit 1; }
 
 # ── Argument parsing ───────────────────────────────────────────────────────────
@@ -43,13 +43,17 @@ _find_cmd() {
     local cmd="$1"
     command -v "$cmd" 2>/dev/null && return 0
     for prefix in "$HOME/.local/bin" "$HOME/.cargo/bin" "$HOME/.rye/shims" "/opt/homebrew/bin" "/usr/local/bin"; do
-        [[ -x "$prefix/$cmd" ]] && { echo "$prefix/$cmd"; return 0; }
+        if [[ -x "$prefix/$cmd" ]]; then
+            echo "$prefix/$cmd"
+            return 0
+        fi
     done
     return 1
 }
 
 need_cmd() {
-    _find_cmd "$1" &>/dev/null || die "$1 is required but not found.  $2"
+    local cmd="$1" hint="$2"
+    _find_cmd "$cmd" &>/dev/null || die "$cmd is required but not found.  $hint"
 }
 
 # Bring common tool dirs into PATH for non-login shells.

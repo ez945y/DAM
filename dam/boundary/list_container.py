@@ -32,14 +32,14 @@ class ListContainer(BoundaryContainer):
     def get_all_nodes(self) -> list[BoundaryNode]:
         return list(self._nodes)
 
-    def evaluate(self, obs: Observation, action: ActionProposal) -> GuardResult:
+    def evaluate(self, _obs: Observation, _action: ActionProposal) -> GuardResult:
         # Constraint enforcement is handled by guards through the injection pool.
         return GuardResult.success(
             guard_name=f"ListContainer[{self._current_index}]({self._nodes[self._current_index].node_id})",
             layer=None,  # type: ignore[arg-type]
         )
 
-    def advance(self, obs: Observation | None = None) -> str | None:
+    def advance(self, _obs: Observation | None = None) -> str | None:
         """Advance to the next node.  obs is ignored (sequential, no conditions).
 
         Returns

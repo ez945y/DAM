@@ -1,7 +1,7 @@
 import { api } from '@/lib/api'
 
 const mockFetch = jest.fn()
-;(global as unknown as Record<string, unknown>).fetch = mockFetch
+;(globalThis as unknown as Record<string, unknown>).fetch = mockFetch
 
 function ok(data: unknown, status = 200) {
   return Promise.resolve({

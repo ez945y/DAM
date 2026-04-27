@@ -3,18 +3,18 @@ import { Power, StopCircle, Zap, Circle } from 'lucide-react'
 import type { RuntimeState, BackendState } from '@/lib/types'
 
 interface Props {
-  state: RuntimeState
-  cycleCount: number
-  error: string | null
-  loading: boolean
-  connected: boolean
+  readonly state: RuntimeState
+  readonly cycleCount: number
+  readonly error: string | null
+  readonly loading: boolean
+  readonly connected: boolean
   /** When set, Start and Resume are disabled (hardware not connected). */
-  startupError?: string | null
-  onStart: () => void
-  onStop: () => void
-  onEStop: () => void
-  onReset: () => void
-  backendState: BackendState
+  readonly startupError?: string | null
+  readonly onStart: () => void
+  readonly onStop: () => void
+  readonly onEStop: () => void
+  readonly onReset: () => void
+  readonly backendState: BackendState
 }
 
 const STATE_CONFIG: Record<RuntimeState, { label: string; dot: string; bg: string; text: string; border: string }> = {

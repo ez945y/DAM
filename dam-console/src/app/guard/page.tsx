@@ -15,10 +15,10 @@ import { api } from '@/lib/api'
 // ── Guard pipeline definitions ───────────────────────────────────────────────
 
 interface GuardDef {
-  id: string
-  name: string
-  layer: string
-  description: string
+  readonly id: string
+  readonly name: string
+  readonly layer: string
+  readonly description: string
 }
 
 
@@ -93,7 +93,7 @@ function NodeForm({
 
     if (node.callback === 'joint_position_limits' && (!nextParams.upper || !nextParams.lower)) {
       nextParams.upper = [1.82, 1.77, 1.60, 1.81, 3.07, 1.75]
-      nextParams.lower = [-1.82, -1.77, -1.60, -1.81, -3.07, 0.0]
+      nextParams.lower = [-1.82, -1.77, -1.60, -1.81, -3.07, 0]
       nextParams.use_degrees = false
       changed = true
     }
@@ -268,7 +268,7 @@ function NodeForm({
           </div>
           <div className="grid grid-cols-6 gap-1">
             {joint_position_limits.upper.map((_: number, i: number) => (
-              <div key={i} className="space-y-0.5">
+              <div key={`joint-pos-${i}`} className="space-y-0.5">
                 <label htmlFor={`node-${index}-upper-${i}`} className="text-dam-muted text-[8px] block">J{i+1} [lo, hi]</label>
                 <div className="flex flex-col gap-0.5">
                   <input
@@ -317,7 +317,7 @@ function NodeForm({
           </div>
           <div className="grid grid-cols-6 gap-1">
             {(node.params.max_velocities as number[]).map((v, i) => (
-              <div key={i} className="space-y-0.5">
+              <div key={`joint-vel-${i}`} className="space-y-0.5">
                 <label htmlFor={`node-${index}-maxvel-${i}`} className="text-dam-muted text-[8px] block">J{i+1} Max</label>
                 <input
                   id={`node-${index}-maxvel-${i}`}
@@ -384,7 +384,7 @@ function NodeForm({
                       id={`node-${index}-nn-threshold`}
                       type="number"
                       step="0.1"
-                      value={node.params.nn_threshold ?? 2.0}
+                      value={node.params.nn_threshold ?? 2}
                       onChange={e => onChange({ ...node, params: { ...node.params, nn_threshold: Number(e.target.value) } })}
                       className={`w-full ${inputCls} h-9 rounded-lg`}
                     />
@@ -402,7 +402,7 @@ function NodeForm({
                       id={`node-${index}-nll-threshold`}
                       type="number"
                       step="0.5"
-                      value={node.params.nll_threshold ?? 5.0}
+                      value={node.params.nll_threshold ?? 5}
                       onChange={e => onChange({ ...node, params: { ...node.params, nll_threshold: Number(e.target.value) } })}
                       className={`w-full ${inputCls} h-9 rounded-lg`}
                     />
@@ -538,9 +538,9 @@ function BoundaryCard({
                 {' / '}{nodes.length} active
               </span>
               <div className="flex gap-1">
-                {nodes.map((_, i) => (
+                {nodes.map((n, i) => (
                   <button
-                    key={i}
+                    key={n.node_id || `node-${i}`}
                     onClick={() => setActiveIdx(i)}
                     className={`w-2 h-2 rounded-full transition-all ${
                       i === clampedActive
@@ -574,7 +574,7 @@ function BoundaryCard({
 
           {nodes.map((node, i) => (
             <NodeForm
-              key={i}
+              key={node.node_id || `node-${i}`}
               node={node}
               index={i}
               isActive={isList ? i === clampedActive : undefined}
@@ -793,10 +793,10 @@ function migrateNode(node: ConstraintNodeDef): ConstraintNodeDef {
   delete next.params.type
   // Migrate .dam_data/ood_models -> data/ood_models
   if (next.params.ood_model_path?.includes('.dam_data/ood_models')) {
-    next.params.ood_model_path = next.params.ood_model_path.replace('.dam_data/ood_models', 'data/ood_models')
+    next.params.ood_model_path = next.params.ood_model_path.replaceAll('.dam_data/ood_models', 'data/ood_models')
   }
   if (next.params.bank_path?.includes('.dam_data/ood_models')) {
-    next.params.bank_path = next.params.bank_path.replace('.dam_data/ood_models', 'data/ood_models')
+    next.params.bank_path = next.params.bank_path.replaceAll('.dam_data/ood_models', 'data/ood_models')
   }
   // Migrate nested joint_position_limits -> flat upper/lower
   if (next.params.joint_position_limits && typeof next.params.joint_position_limits === 'object' && !Array.isArray(next.params.joint_position_limits)) {
@@ -867,8 +867,8 @@ export default function GuardPage() {
           callback: 'ood_detector',
           params: {
             ood_model_path: path,
-            nn_threshold: 2.0,
-            nll_threshold: 5.0,
+            nn_threshold: 2,
+            nll_threshold: 5,
             backend: meta?.backend ?? 'memory_bank',
             ...(meta?.bank_path ? { bank_path: meta.bank_path } : {}),
           },
@@ -923,7 +923,7 @@ export default function GuardPage() {
               },
               callback: 'workspace',
               fallback: 'emergency_stop',
-              timeout_sec: 1.0,
+              timeout_sec: 1,
             }],
           },
         ])
@@ -945,7 +945,7 @@ export default function GuardPage() {
               },
               callback: 'workspace',
               fallback: 'emergency_stop',
-              timeout_sec: 1.0,
+              timeout_sec: 1,
             }],
           },
         ])
@@ -992,7 +992,7 @@ export default function GuardPage() {
              if (node) {
                // Fix null timeouts
                if (node.timeout_sec === null) {
-                 node.timeout_sec = 1.0
+                 node.timeout_sec = 1
                  globalChanged = true
                }
                // Sync specialized callback logic if missing
@@ -1017,15 +1017,15 @@ export default function GuardPage() {
       syncStatus()
       syncCallbacks()
     }
-    window.addEventListener('dam-system-update', handleSystemUpdate)
-    return () => window.removeEventListener('dam-system-update', handleSystemUpdate)
+    globalThis.addEventListener('dam-system-update', handleSystemUpdate)
+    return () => globalThis.removeEventListener('dam-system-update', handleSystemUpdate)
   }, [syncStatus, syncCallbacks])
 
   // Auto-save to localStorage + disk (debounced)
   useEffect(() => {
     const t = setTimeout(async () => {
       try {
-        const rawCfg = typeof window !== 'undefined' ? localStorage.getItem('dam_config_v1') : null
+        const rawCfg = typeof globalThis.window !== 'undefined' ? localStorage.getItem('dam_config_v1') : null
         const cfg: DamConfig = rawCfg ? { ...defaultConfig(), ...JSON.parse(rawCfg) } : defaultConfig()
         cfg.tasks = tasks
         cfg.boundaries = boundaries
@@ -1057,12 +1057,12 @@ export default function GuardPage() {
 
   const toggleGuard = (id: string, e: React.MouseEvent) => {
     e.stopPropagation()
-    setGuardsEnabled(prev => ({ ...prev, [id]: prev[id] === false ? true : false }))
+    setGuardsEnabled(prev => ({ ...prev, [id]: prev[id] === false }))
   }
 
 
   const handleExport = () => {
-    const rawCfg = typeof window !== 'undefined' ? localStorage.getItem('dam_config_v1') : null
+    const rawCfg = typeof globalThis.window !== 'undefined' ? localStorage.getItem('dam_config_v1') : null
     const cfg: DamConfig = rawCfg ? { ...defaultConfig(), ...JSON.parse(rawCfg) } : defaultConfig()
     cfg.tasks = tasks
     cfg.boundaries = boundaries
@@ -1079,22 +1079,20 @@ export default function GuardPage() {
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    const reader = new FileReader()
-    reader.onload = ev => {
+    e.target.value = ''
+    file.text().then(text => {
       try {
-        const parsed = JSON.parse(ev.target?.result as string) as DamConfig
+        const parsed = JSON.parse(text) as DamConfig
         if (parsed.tasks) setTasks(parsed.tasks)
         if (parsed.boundaries) setBoundaries(parsed.boundaries)
         if (parsed.guardsEnabled) setGuardsEnabled(parsed.guardsEnabled)
       } catch {}
-    }
-    reader.readAsText(file)
-    e.target.value = ''
+    })
   }
 
   const yamlPreview = (() => {
     try {
-      const rawCfg = typeof window !== 'undefined' ? localStorage.getItem('dam_config_v1') : null
+      const rawCfg = typeof globalThis.window !== 'undefined' ? localStorage.getItem('dam_config_v1') : null
       const cfg: DamConfig = rawCfg ? { ...defaultConfig(), ...JSON.parse(rawCfg) } : defaultConfig()
       cfg.tasks = tasks
       cfg.boundaries = boundaries
@@ -1110,7 +1108,7 @@ export default function GuardPage() {
     setRestartError(null)
     setRestartOk(false)
     try {
-      const rawCfg = typeof window !== 'undefined' ? localStorage.getItem('dam_config_v1') : null
+      const rawCfg = typeof globalThis.window !== 'undefined' ? localStorage.getItem('dam_config_v1') : null
       const cfg: DamConfig = rawCfg ? { ...defaultConfig(), ...JSON.parse(rawCfg) } : defaultConfig()
       cfg.tasks = tasks
       cfg.boundaries = boundaries
@@ -1189,23 +1187,22 @@ export default function GuardPage() {
                 isEnabled ? '' : 'opacity-60 grayscale'
               }`}>
                 {/* Layer header */}
-                <div
-                  role="button"
-                  tabIndex={0}
-                  className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-dam-surface-2/50 transition-colors"
-                  onClick={() => setExpandedBoundaryLayers(prev => ({ ...prev, [g.layer]: !prev[g.layer] }))}
-                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') setExpandedBoundaryLayers(prev => ({ ...prev, [g.layer]: !prev[g.layer] })) }}
-                >
-                  <button className="text-dam-muted p-0.5 hover:text-dam-text shrink-0">
-                    {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                  </button>
-                  <span className={`text-[9px] px-1.5 py-0.5 rounded border font-mono shrink-0 ${LAYER_COLORS[g.layer] ?? ''}`}>
-                    {g.layer}
-                  </span>
-                  <div className="flex-1 min-w-0 flex items-center gap-3">
-                    <span className={`text-sm font-semibold transition-colors ${isEnabled ? 'text-dam-text' : 'text-dam-muted'}`}>
-                      {g.name}
+                <div className="flex items-center gap-3 px-3 py-2.5 hover:bg-dam-surface-2/50 transition-colors">
+                  <button
+                    type="button"
+                    className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                    onClick={() => setExpandedBoundaryLayers(prev => ({ ...prev, [g.layer]: !prev[g.layer] }))}
+                  >
+                    <span className="text-dam-muted p-0.5 hover:text-dam-text shrink-0">
+                      {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                     </span>
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded border font-mono shrink-0 ${LAYER_COLORS[g.layer] ?? ''}`}>
+                      {g.layer}
+                    </span>
+                    <div className="flex-1 min-w-0 flex items-center gap-3">
+                      <span className={`text-sm font-semibold transition-colors ${isEnabled ? 'text-dam-text' : 'text-dam-muted'}`}>
+                        {g.name}
+                      </span>
                     {activeInLayer > 0 && isEnabled && (
                       <div className="flex items-center gap-1 px-1.5 py-0.5 bg-dam-blue/10 border border-dam-blue/20 rounded-md shrink-0">
                         <div className="w-1 h-1 rounded-full bg-dam-blue animate-pulse" />
@@ -1214,10 +1211,11 @@ export default function GuardPage() {
                         </span>
                       </div>
                     )}
-                  </div>
-
+                    </div>
+                  </button>
 
                   <button
+                    type="button"
                     onClick={e => toggleGuard(g.id, e)}
                     className="shrink-0 transition-colors"
                   >
@@ -1228,7 +1226,8 @@ export default function GuardPage() {
                   </button>
 
                   <button
-                    onClick={e => { e.stopPropagation(); addBoundary(g.layer) }}
+                    type="button"
+                    onClick={() => addBoundary(g.layer)}
                     className="flex items-center gap-1 text-[10px] text-dam-muted hover:text-dam-blue border border-dam-border px-2 py-1 rounded bg-dam-surface-3 transition-colors shrink-0"
                   >
                     <Plus size={9} /> Add

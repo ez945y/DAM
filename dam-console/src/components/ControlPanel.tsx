@@ -3,17 +3,17 @@ import { Power, PauseCircle, PlayCircle, StopCircle, Zap, RotateCcw, Circle } fr
 import type { RuntimeState, BackendState } from '@/lib/types'
 
 interface Props {
-  state: RuntimeState
-  backendState: BackendState
-  cycleCount: number
-  error: string | null
-  loading: boolean
-  onStart: () => void
-  onPause: () => void
-  onResume: () => void
-  onStop: () => void
-  onEStop: () => void
-  onReset: () => void
+  readonly state: RuntimeState
+  readonly backendState: BackendState
+  readonly cycleCount: number
+  readonly error: string | null
+  readonly loading: boolean
+  readonly onStart: () => void
+  readonly onPause: () => void
+  readonly onResume: () => void
+  readonly onStop: () => void
+  readonly onEStop: () => void
+  readonly onReset: () => void
 }
 
 const STATE_CONFIG: Record<RuntimeState, { label: string; dot: string; bg: string; text: string }> = {
@@ -37,13 +37,14 @@ export function ControlPanel({ state, backendState, cycleCount, error, loading, 
   const systemReady = backendState === 'ready'
   const isActive = isRunning || isPaused || isStarting || isStopping
   const canStart = systemReady && (state === 'idle' || state === 'stopped')
+  const startLabel = isStarting ? 'Starting Loop...' : isEmergency ? 'Loop Halted' : 'Start'
 
   return (
     <div className="panel p-4 space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <p className="section-label">Runtime Control</p>
-        <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border ${backendState === 'faulted' ? 'bg-dam-red/10 text-dam-red border-dam-red/30' : `${sc.bg} ${sc.text} ${sc.text.replace('text-', 'border-').replace('dam-', '')}/30`}`}>
+        <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border ${backendState === 'faulted' ? 'bg-dam-red/10 text-dam-red border-dam-red/30' : `${sc.bg} ${sc.text} ${sc.text.replaceAll('text-', 'border-').replaceAll('dam-', '')}/30`}`}>
           <Circle
             size={5}
             className={`fill-current ${backendState === 'faulted' ? 'bg-dam-red animate-pulse' : `${sc.dot} ${state === 'running' ? 'animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.4)]' : ''} ${state === 'emergency' ? 'animate-ping' : ''} ${(isStarting || isStopping) ? 'animate-pulse' : ''}`}`}
@@ -69,7 +70,7 @@ export function ControlPanel({ state, backendState, cycleCount, error, loading, 
             disabled:opacity-40 disabled:bg-dam-surface-2 disabled:border-dam-border disabled:text-dam-muted disabled:cursor-not-allowed"
         >
           {isStarting ? <Circle size={12} className="animate-spin border-2 border-t-transparent rounded-full" /> : <Power size={12} />}
-          {isStarting ? 'Starting Loop...' : isEmergency ? 'Loop Halted' : 'Start'}
+          {startLabel}
         </button>
 
         <button

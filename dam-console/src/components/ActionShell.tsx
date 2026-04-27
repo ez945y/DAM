@@ -6,18 +6,18 @@ import {
 } from 'lucide-react'
 
 interface ActionShellProps {
-  title: string
-  description: string
-  restarting?: boolean
-  restartOk?: boolean
-  restartError?: string | null
-  saved?: boolean
-  yaml: string
-  onYamlChange?: (v: string) => void
-  onApply?: () => void
-  onImport?: () => void
-  onExport?: () => void
-  children: React.ReactNode
+  readonly title: string
+  readonly description: string
+  readonly restarting?: boolean
+  readonly restartOk?: boolean
+  readonly restartError?: string | null
+  readonly saved?: boolean
+  readonly yaml: string
+  readonly onYamlChange?: (v: string) => void
+  readonly onApply?: () => void
+  readonly onImport?: () => void
+  readonly onExport?: () => void
+  readonly children: React.ReactNode
 }
 
 export function ActionShell({
@@ -36,6 +36,7 @@ export function ActionShell({
 }: ActionShellProps) {
   const [yamlOpen, setYamlOpen] = useState(true)
   const [copied, setCopied] = useState(false)
+  const applyLabel = restarting ? 'Syncing...' : restartOk ? 'Applied' : 'Apply & Restart'
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(yaml)
@@ -87,7 +88,7 @@ export function ActionShell({
                     ? <Check size={12} />
                     : <ShieldCheck size={12} />
                 }
-                {restarting ? 'Syncing...' : restartOk ? 'Applied' : 'Apply & Restart'}
+                {applyLabel}
               </button>
             )}
           </div>

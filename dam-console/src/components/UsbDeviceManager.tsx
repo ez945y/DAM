@@ -7,8 +7,8 @@ import type { UsbDeviceInfo } from '@/lib/types'
 type UsbDevice = { path: string }
 
 interface Props {
-  devices: UsbDevice[]
-  onChange: (devices: UsbDevice[]) => void
+  readonly devices: UsbDevice[]
+  readonly onChange: (devices: UsbDevice[]) => void
 }
 
 const COMMON_PRESETS: { path: string; label: string }[] = [
@@ -54,7 +54,7 @@ export function UsbDeviceManager({ devices, onChange }: Props) {
   const toggleScanned = (path: string, checked: boolean) => {
     setScannedDevices(prev => prev.map(d => d.path === path ? { ...d, selected: checked } : d))
     if (checked) {
-      if (!devices.find(d => d.path === path)) {
+      if (!devices.some(d => d.path === path)) {
         onChange([...devices, { path }])
       }
     } else {
@@ -63,7 +63,7 @@ export function UsbDeviceManager({ devices, onChange }: Props) {
   }
 
   const addPreset = (path: string) => {
-    if (!devices.find(d => d.path === path)) {
+    if (!devices.some(d => d.path === path)) {
       onChange([...devices, { path }])
     }
   }
@@ -180,7 +180,7 @@ export function UsbDeviceManager({ devices, onChange }: Props) {
               <span />
             </div>
             {devices.map((d, i) => (
-              <div key={i} className="grid grid-cols-[1fr_auto] gap-2 items-center">
+              <div key={d.path || i} className="grid grid-cols-[1fr_auto] gap-2 items-center">
                 <input
                   value={d.path}
                   onChange={e => update(i, e.target.value)}

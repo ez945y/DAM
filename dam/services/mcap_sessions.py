@@ -82,8 +82,7 @@ def _mcap_open(path: Path) -> Generator[Any, None, None]:
     try:
         # Try SeekingReader (which reads Chunk Index / SummaryOffset at EOF instantly)
         reader = _make_reader(f)
-    except Exception:
-        # Fallback for active or incomplete streaming files
+    except Exception:  # noqa: BLE001 — Fallback for active or incomplete streaming files
         f.seek(0)
         reader = _NonSeekingReader(f, validate_crcs=False)
 
@@ -100,8 +99,11 @@ try:
 except ImportError:
     _HAS_MSGPACK = False
 
+_TOPIC_CYCLE = "/dam/cycle"
+_TOPIC_IMAGES_PREFIX = "/dam/images/"
+
 _DETAIL_TOPICS = {
-    "/dam/cycle",
+    _TOPIC_CYCLE,
     "/dam/obs",
     "/dam/action",
     "/dam/latency",
@@ -314,13 +316,13 @@ class McapSessionService:
                     # /dam/cycle messages set first_ts / last_ts from actual cycle
                     # timestamps only.
                     for ch in reader.get_summary().channels.values():
-                        if ch.topic == "/dam/cycle":
+                        if ch.topic == _TOPIC_CYCLE:
                             total_cycles = stats.channel_message_counts.get(ch.id, 0)
                             _got_total_from_summary = True
-                        elif ch.topic.startswith("/dam/images/"):
-                            cameras.add(ch.topic.split("/dam/images/", 1)[1])
-            except Exception:
-                pass  # Fallback to scanning for active or incomplete files
+                        elif ch.topic.startswith(_TOPIC_IMAGES_PREFIX):
+                            cameras.add(ch.topic.split(_TOPIC_IMAGES_PREFIX, 1)[1])
+            except Exception:  # noqa: BLE001 — Fallback to scanning for active or incomplete files
+                pass
 
         with _mcap_open(path) as reader:
             # Metadata and channels are available as we stream or after header
@@ -332,9 +334,9 @@ class McapSessionService:
             # to avoid doubling the number.
             import msgpack
 
-            for _schema, channel, message in reader.iter_messages(topics=["/dam/cycle"]):
+            for _schema, channel, message in reader.iter_messages(topics=[_TOPIC_CYCLE]):
                 topic = channel.topic
-                if topic == "/dam/cycle":
+                if topic == _TOPIC_CYCLE:
                     try:
                         d = msgpack.unpackb(message.data, raw=False)
                         if not isinstance(d, list | tuple) or len(d) < 6:
@@ -385,8 +387,8 @@ class McapSessionService:
                 channels_dict = getattr(reader, "channels", {})
 
             for channel in channels_dict.values():
-                if channel.topic.startswith("/dam/images/"):
-                    cameras.add(channel.topic.split("/dam/images/", 1)[1])
+                if channel.topic.startswith(_TOPIC_IMAGES_PREFIX):
+                    cameras.add(channel.topic.split(_TOPIC_IMAGES_PREFIX, 1)[1])
 
         # Active-session fallback: when the SeekingReader couldn't open the file
         # (session still being written), NonSeekingReader filtered to /dam/cycle
@@ -397,9 +399,9 @@ class McapSessionService:
                 with open(path, "rb") as f_scan:
                     scan_reader = _NonSeekingReader(f_scan, validate_crcs=False)
                     for _, ch, _ in scan_reader.iter_messages():
-                        if ch.topic.startswith("/dam/images/"):
-                            cameras.add(ch.topic.split("/dam/images/", 1)[1])
-            except Exception:
+                        if ch.topic.startswith(_TOPIC_IMAGES_PREFIX):
+                            cameras.add(ch.topic.split(_TOPIC_IMAGES_PREFIX, 1)[1])
+            except Exception:  # noqa: BLE001 — partial/corrupted MCAP is non-fatal for listing
                 pass
 
         st = path.stat()
@@ -460,7 +462,7 @@ class McapSessionService:
 
             with _mcap_open(path) as reader:
                 seq = 0
-                for _schema, _channel, message in reader.iter_messages(topics=["/dam/cycle"]):
+                for _schema, _channel, message in reader.iter_messages(topics=[_TOPIC_CYCLE]):
                     try:
                         d = msgpack.unpackb(message.data, raw=False)
                         if not isinstance(d, list | tuple) or len(d) < 6:
@@ -546,7 +548,7 @@ class McapSessionService:
                                 continue
                         else:
                             continue  # Only support msgpack format
-                    except Exception:
+                    except Exception:  # noqa: BLE001 — malformed message; skip
                         continue
 
                     topic = channel.topic
@@ -554,7 +556,7 @@ class McapSessionService:
                     if msg_cid != cycle_id:
                         continue
 
-                    if topic == "/dam/cycle":
+                    if topic == _TOPIC_CYCLE:
                         found = True
                         # Rust msgpack format (array, 23 elements):
                         # [0]cycle_id [1]obs_timestamp [2]has_violation [3]has_clamp
@@ -674,7 +676,7 @@ class McapSessionService:
                         if arr_len > _IDX_LATENCY_LAYERS and isinstance(
                             d[_IDX_LATENCY_LAYERS], dict
                         ):
-                            detail["latency"] = {k: v for k, v in d[_IDX_LATENCY_LAYERS].items()}
+                            detail["latency"] = dict(d[_IDX_LATENCY_LAYERS])
                     elif topic == "/dam/obs":
                         detail["observation"] = {
                             "joint_positions": d.get("joint_positions", []),

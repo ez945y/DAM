@@ -8,17 +8,17 @@ import {
 } from 'lucide-react'
 
 interface McapCameraPlayerProps {
-  filename: string
-  cameras: string[]
+  readonly filename: string
+  readonly cameras: string[]
   /** log_time_ns of the currently selected cycle — used to sync the player. */
-  currentTimestampNs: number | null
+  readonly currentTimestampNs: number | null
   /**
    * these instead of fetching frames from the MCAP API, and the scrubbar +
    * playback controls will be hidden.
    */
-  liveImages?: Record<string, string | Blob> | null
+  readonly liveImages?: Record<string, string | Blob> | null
   /** Whether live mode is currently enabled (shows badge, hides controls). */
-  liveMode?: boolean
+  readonly liveMode?: boolean
 }
 
 /** Binary search: index of frame whose timestamp_ns is closest to target. */

@@ -128,10 +128,10 @@ class LeRobotSourceAdapter(SensorAdapter):
             q = positions_rad[:n_arm].astype(np.float64)
             pin.forwardMotions(self._pin_model, self._pin_data, q)
             pin.updateFramePlacements(self._pin_model, self._pin_data)
-            oMf = self._pin_data.oMf[self._pin_ee_frame_id]
-            quat = pin.Quaternion(oMf.rotation)
+            o_mf = self._pin_data.oMf[self._pin_ee_frame_id]
+            quat = pin.Quaternion(o_mf.rotation)
             return np.array(
-                [*oMf.translation, quat.x, quat.y, quat.z, quat.w],
+                [*o_mf.translation, quat.x, quat.y, quat.z, quat.w],
                 dtype=np.float64,
             )
         except Exception as exc:

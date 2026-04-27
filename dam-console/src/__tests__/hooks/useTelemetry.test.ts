@@ -3,7 +3,7 @@ import { useTelemetry, resetGlobalState } from '@/hooks/useTelemetry'
 
 // Mock WebSocket
 class MockWebSocket {
-  static OPEN = 1
+  static readonly OPEN = 1
   readyState = MockWebSocket.OPEN
   onopen: (() => void) | null = null
   onmessage: ((e: { data: string }) => void) | null = null
@@ -21,7 +21,7 @@ class MockWebSocket {
   static _reset() { MockWebSocket._instances = [] }
 }
 
-;(global as unknown as Record<string, unknown>).WebSocket = MockWebSocket
+;(globalThis as unknown as Record<string, unknown>).WebSocket = MockWebSocket
 
 describe('useTelemetry', () => {
   beforeEach(() => {

@@ -13,7 +13,7 @@ G = TypeVar("G", bound=type)
 
 def guard(
     layer: str,
-    process_group: str | None = None,
+    _process_group: str | None = None,
 ) -> Callable[[G], G]:
     """Class decorator for Guard subclasses. Validates and caches signature at import time."""
     try:

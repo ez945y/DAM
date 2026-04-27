@@ -30,7 +30,8 @@ function useAdapterLabel(): string {
       const raw = localStorage.getItem('dam_config_v1')
       if (raw) {
         const adapter = (JSON.parse(raw) as { adapter?: string }).adapter ?? 'simulation'
-        setLabel(adapter === 'lerobot' ? 'LeRobot server' : adapter === 'ros2' ? 'ROS2 server' : 'Dev server')
+        const adapterLabel = adapter === 'lerobot' ? 'LeRobot server' : adapter === 'ros2' ? 'ROS2 server' : 'Dev server'
+        setLabel(adapterLabel)
       }
     } catch { /* ignore */ }
   }, [])
@@ -83,7 +84,7 @@ function HardwareWarning({ message }: { message: string }) {
 
             <ul className="space-y-1">
               {lines.map((l, i) => (
-                <li key={i} className="text-[11px] text-dam-muted leading-snug flex gap-1.5">
+                <li key={`line-${i}`} className="text-[11px] text-dam-muted leading-snug flex gap-1.5">
                   <span className="text-dam-red shrink-0 mt-0.5">•</span>
                   <span>{l}</span>
                 </li>
@@ -216,7 +217,7 @@ export default function DashboardPage() {
         : ctrl.status.planned_boundaries ?? []
   )
   const isTaskLive = !!(tele.lastCycle?.active_task || ctrl.status.active_task)
-  const controlFreqHz = ctrl.status.control_frequency_hz ?? 50.0
+  const controlFreqHz = ctrl.status.control_frequency_hz ?? 50
 
   const startupError = ctrl.status.startup_error ?? null
 
@@ -422,7 +423,7 @@ export default function DashboardPage() {
                           layerGuards.some(g => g.decision === 'REJECT') ? 'REJECT' :
                           layerGuards.some(g => g.decision === 'CLAMP') ? 'CLAMP' : 'PASS';
                   const cfg = DEC_CONFIG[worst as keyof typeof DEC_CONFIG];
-                  colorCls = cfg.color.replace('text-', 'bg-');
+                  colorCls = cfg.color.replaceAll('text-', 'bg-');
                   shadowCls = 'shadow-[0_0_8px] shadow-current';
                   pulseCls = 'animate-pulse';
                 }

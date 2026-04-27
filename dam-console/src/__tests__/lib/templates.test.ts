@@ -58,7 +58,7 @@ describe('defaultConfig', () => {
     expect(pan.lower_rad).toBeCloseTo(-1.8243, 4)
     expect(pan.upper_rad).toBeCloseTo( 1.8243, 4)
     // gripper: 0 → 1.7453 (one-directional)
-    expect(grip.lower_rad).toBeCloseTo(0.0, 4)
+    expect(grip.lower_rad).toBeCloseTo(0, 4)
     expect(grip.upper_rad).toBeCloseTo(1.7453, 4)
   })
 
@@ -96,7 +96,7 @@ describe('defaultConfig', () => {
     const cfg = defaultConfig('ros2_minimal')
     expect(cfg.adapter).toBe('ros2')
     expect(cfg.ros2JointTopic).toBe('/joint_states')
-    expect(cfg.controlFrequencyHz).toBe(15.0)
+    expect(cfg.controlFrequencyHz).toBe(15)
   })
 
   it('guardsEnabled defaults to empty object', () => {

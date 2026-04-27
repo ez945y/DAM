@@ -44,7 +44,7 @@ def aggregate_decisions(results: list[GuardResult]) -> GuardResult:
             clamped_action=merged_action,
             guard_name="aggregator",
             layer=worst_rep.layer,
-            reason="; ".join(set(r.reason for r in clampers if r.reason)),
+            reason="; ".join({r.reason for r in clampers if r.reason}),
         )
 
     return worst_rep

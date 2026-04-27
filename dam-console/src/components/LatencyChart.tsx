@@ -125,7 +125,7 @@ function RollingHistoryChart({
   const chartData = data.map((v, i) => ({ i, ms: Number.parseFloat(v.toFixed(2)) }))
   const avg  = data.length ? data.reduce((a, b) => a + b, 0) / data.length : 0
   const max  = data.length ? Math.max(...data) : 0
-  const last = data.length ? data[data.length - 1] : 0
+  const last = data.at(-1) ?? 0
 
   const handleClick = (e: { activeTooltipIndex?: number }) => {
     if (!onCycleClick || !cycleIds) return
@@ -202,10 +202,10 @@ function RollingHistoryChart({
 // ── Public component ──────────────────────────────────────────────────────
 
 interface LatencyChartProps {
-  data: number[]
-  perf?: PerfSnapshot | null
-  cycleIds?: number[]
-  onCycleClick?: (cycleId: number) => void
+  readonly data: number[]
+  readonly perf?: PerfSnapshot | null
+  readonly cycleIds?: number[]
+  readonly onCycleClick?: (cycleId: number) => void
 }
 
 export function LatencyChart({ data, perf, cycleIds, onCycleClick }: LatencyChartProps) {

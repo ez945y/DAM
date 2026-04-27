@@ -120,12 +120,15 @@ class RuntimeControlService:
                 return self.runtime.step()
 
             def connect(self) -> None:
+                # Runtime is pre-built; no connection step needed.
                 pass
 
             def verify(self) -> None:
+                # Runtime is pre-built; no verification step needed.
                 pass
 
             def shutdown(self) -> None:
+                # Runtime is pre-built; no shutdown step needed.
                 pass
 
         with self._lock:
@@ -164,7 +167,7 @@ class RuntimeControlService:
         try:
             if hasattr(self._runner.runtime, "start_task"):
                 self._runner.runtime.start_task(task_name)
-        except Exception:
+        except Exception:  # noqa: BLE001 — start_task is best-effort
             pass
 
         self._run_thread = threading.Thread(
@@ -264,7 +267,7 @@ class RuntimeControlService:
             if sources:
                 first = next(iter(sources.values()), {})
                 return str(first.get("type", "simulation")).lower()
-        except Exception:
+        except Exception:  # noqa: BLE001 — config read failure is non-fatal; default to simulation
             pass
         return "simulation"
 

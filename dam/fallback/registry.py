@@ -60,7 +60,7 @@ class FallbackRegistry:
         if "emergency_stop" in self._strategies:
             try:
                 return self._strategies["emergency_stop"].execute(context, bus)
-            except Exception:
+            except Exception:  # noqa: BLE001 — swallow; caller handles the failure result below
                 pass
         return FallbackResult(success=False, action=None, reason="all fallbacks failed")
 

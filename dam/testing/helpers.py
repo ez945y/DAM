@@ -17,7 +17,7 @@ def inject_and_call(
     kwargs.update({k: runtime_pool[k] for k in guard_instance._runtime_keys if k in runtime_pool})
     # For direct testing, also pass through any explicitly provided kwargs
     for k, v in runtime_kwargs.items():
-        if k not in kwargs and k in [p for p in guard_instance.__class__._cached_param_names]:
+        if k not in kwargs and k in guard_instance.__class__._cached_param_names:
             kwargs[k] = v
     return guard_instance.check(**kwargs)
 

@@ -3,8 +3,8 @@ import { Plus, X } from 'lucide-react'
 import type { JointDef } from '@/lib/types'
 
 interface Props {
-  joints: JointDef[]
-  onChange: (joints: JointDef[]) => void
+  readonly joints: JointDef[]
+  readonly onChange: (joints: JointDef[]) => void
 }
 
 export function JointLimitsTable({ joints, onChange }: Props) {
@@ -20,8 +20,8 @@ export function JointLimitsTable({ joints, onChange }: Props) {
       ...joints,
       {
         name: `joint_${joints.length + 1}`,
-        lower_rad: -2.0,
-        upper_rad: 2.0,
+        lower_rad: -2,
+        upper_rad: 2,
       },
     ])
   }
@@ -47,7 +47,7 @@ export function JointLimitsTable({ joints, onChange }: Props) {
           </thead>
           <tbody>
             {joints.map((j, i) => (
-              <tr key={i} className="border-b border-dam-border/40">
+              <tr key={j.name || i} className="border-b border-dam-border/40">
                 <td className="px-2 py-1">
                   <input
                     type="text"

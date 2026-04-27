@@ -75,7 +75,9 @@ class SimSink:
     """Discards actions (no hardware to send to)."""
 
     def write(self, action: object) -> None:
+        # Simulation sink discards actions — no hardware to send to.
         pass
 
     def emergency_stop(self) -> None:
+        # Simulation sink has no hardware to stop.
         pass

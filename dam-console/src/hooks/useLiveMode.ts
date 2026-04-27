@@ -24,7 +24,7 @@ function _set(v: boolean) {
 }
 
 // Initialise from localStorage on first import (browser only)
-if (typeof window !== 'undefined') {
+if (typeof globalThis.window !== 'undefined') {
   try {
     const raw = localStorage.getItem(LS_KEY)
     if (raw) _current = JSON.parse(raw) as boolean

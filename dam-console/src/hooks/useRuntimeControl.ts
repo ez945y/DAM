@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { api } from '@/lib/api'
 import type { RuntimeStatus, BoundaryConfig } from '@/lib/types'
 
@@ -91,17 +91,17 @@ export function useRuntimeControl() {
       }
       // No need to full refresh on every push unless explicitly requested
     }
-    window.addEventListener('dam-system-update', handleUpdate)
+    globalThis.addEventListener('dam-system-update', handleUpdate)
 
     // 2. Window Focus: Just re-trigger refresh if needed, but WS should be active
     const handleFocus = () => {
       // Optional: void refresh()
     }
-    window.addEventListener('focus', handleFocus)
+    globalThis.addEventListener('focus', handleFocus)
 
     return () => {
-      window.removeEventListener('dam-system-update', handleUpdate)
-      window.removeEventListener('focus', handleFocus)
+      globalThis.removeEventListener('dam-system-update', handleUpdate)
+      globalThis.removeEventListener('focus', handleFocus)
     }
   }, [refresh, refreshBoundaries])
 

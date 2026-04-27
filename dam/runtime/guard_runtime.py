@@ -342,11 +342,6 @@ class GuardRuntime:
         # Extract guard params from boundary node params — single authoritative source.
         # All guard-specific parameters (motion limits, OOD model paths, …) live here,
         # not in the guards: section.
-        def _to_arr(lst: Any, fill: float) -> np.ndarray:
-            if not lst:
-                return np.array([], dtype=float)
-            return np.array([fill if x is None else float(x) for x in lst], dtype=float)
-
         for _bname, bcfg in new_config.boundaries.items():
             for ncfg in bcfg.nodes:
                 c_params = ncfg.params

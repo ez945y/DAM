@@ -6,7 +6,7 @@ import {
   Zap, Activity, Circle, ShieldCheck, Film, RotateCcw
 } from 'lucide-react'
 import { useRuntimeControl } from '@/hooks/useRuntimeControl'
-import type { RuntimeState, BackendState } from '@/lib/types'
+import type { BackendState } from '@/lib/types'
 
 const BACKEND_STYLE: Record<BackendState, { text: string; label: string; dot: string }> = {
   loading:  { text: 'text-yellow-500', label: 'INITIALIZING', dot: 'bg-yellow-500 animate-pulse' },

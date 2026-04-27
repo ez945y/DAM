@@ -15,7 +15,7 @@ ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # ── Colour helpers ─────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
-info() { echo -e "${BLUE}[dev]${NC} $*"; }
+info() { echo -e "${BLUE}[dev]${NC} $*"; return 0; }
 die()  { echo -e "${RED}[dev] ✗${NC} $*" >&2; exit 1; }
 
 cd "$ROOT"
@@ -39,7 +39,7 @@ done
 [[ -f .venv/bin/python ]] \
     || die ".venv is missing a Python binary.  Run: make setup"
 if ! .venv/bin/python -c "import dam_rs" 2>/dev/null; then
-    echo -e "${RED}[dev] dam_rs import error:${NC}"
+    echo -e "${RED}[dev] dam_rs import error:${NC}" >&2
     .venv/bin/python -c "import dam_rs" 2>&1 || true
     die "dam_rs not importable.  Run: make build-rs"
 fi
@@ -68,6 +68,7 @@ _shutdown() {
     done
     wait 2>/dev/null || true
     info "All services stopped."
+    return 0
 }
 trap _shutdown INT TERM EXIT
 

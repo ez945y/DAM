@@ -103,7 +103,7 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
   }, [])
 
   const connect = useCallback(() => {
-    if (typeof window === 'undefined') return
+    if (typeof globalThis.window === 'undefined') return
     const wsUrl = process.env.NEXT_PUBLIC_WS_URL ?? 'ws://localhost:8080'
     if (wsRef.current?.readyState === WebSocket.OPEN) return
 
@@ -172,7 +172,7 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
 
         // --- System Event Bridge: Notify other hooks ---
         if (msg.type === 'system_status' || msg.type === 'config_updated') {
-          window.dispatchEvent(new CustomEvent('dam-system-update', { detail: msg }))
+          globalThis.dispatchEvent(new CustomEvent('dam-system-update', { detail: msg }))
           if (msg.type === 'system_status' && msg.message) {
             gEvents = [{
               type: 'info' as const,
