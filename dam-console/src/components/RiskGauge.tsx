@@ -4,14 +4,14 @@ import { ShieldCheck, ShieldAlert, ShieldX, Zap } from 'lucide-react'
 import type { RiskLevel } from '@/lib/types'
 
 interface LevelConfig {
-  stroke: string
-  text: string
-  bg: string
-  border: string
-  glow: string
-  pct: number            // 0.0 – 1.0 arc fill
-  Icon: React.ComponentType<LucideProps>
-  glowClass: string
+  readonly stroke: string
+  readonly text: string
+  readonly bg: string
+  readonly border: string
+  readonly glow: string
+  readonly pct: number            // 0.0 – 1.0 arc fill
+  readonly Icon: React.ComponentType<LucideProps>
+  readonly glowClass: string
 }
 
 const CONFIG: Record<RiskLevel, LevelConfig> = {

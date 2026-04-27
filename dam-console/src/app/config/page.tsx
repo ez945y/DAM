@@ -30,7 +30,7 @@ const YAML_STORAGE_KEY = 'dam_yaml_v1'
 
 function loadSaved(): DamConfig {
   try {
-    const raw = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null
+    const raw = typeof globalThis.window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null
     if (raw) {
       const parsed = JSON.parse(raw) as DamConfig
       return { ...defaultConfig(), ...parsed, templateId: '' }
@@ -149,7 +149,7 @@ export default function ConfigPage() {
     } catch { /* ignore */ }
   }, [cfg])
 
-  const [, setSaving] = useState(false)
+  const [_saving, setSaving] = useState(false)
   const [lastSavedYaml, setLastSavedYaml] = useState('')
 
   const saveToBackend = useCallback(async (content: string) => {
@@ -175,7 +175,7 @@ export default function ConfigPage() {
 
   const [usbDevices, setUsbDevices] = useState<UsbDeviceInfo[]>([])
   const [usbScanning, setUsbScanning] = useState(false)
-  const [, setUsbScanFailed] = useState(false)
+  const [_usbScanFailed, setUsbScanFailed] = useState(false)
 
   useEffect(() => {
     if (!yamlDirty) {
@@ -214,7 +214,7 @@ export default function ConfigPage() {
           setCfg(prev => ({ ...prev, ...parsed }))
           setYamlDirty(false)
         }
-      } catch (err) {
+      } catch {
         // Silence fetch errors during startup/polling
       }
     }
@@ -318,17 +318,15 @@ export default function ConfigPage() {
   const handleImportJson = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    const reader = new FileReader()
-    reader.onload = ev => {
+    e.target.value = ''
+    file.text().then(text => {
       try {
-        const parsed = JSON.parse(ev.target?.result as string) as DamConfig
+        const parsed = JSON.parse(text) as DamConfig
         setCfg(parsed)
         setYaml(generateYaml(parsed))
         setYamlDirty(false)
       } catch { alert('Invalid JSON config file') }
-    }
-    reader.readAsText(file)
-    e.target.value = ''
+    })
   }
 
   const ENFORCEMENT_MODES: { id: EnforcementMode; label: string; description: string }[] = [
@@ -474,7 +472,7 @@ export default function ConfigPage() {
               {cfg.lerobot_cameras.length > 0 && (
                 <div className="space-y-2 mb-2">
                   {cfg.lerobot_cameras.map((cam, i) => (
-                    <div key={i} className="grid grid-cols-[6rem_5rem_6rem_4rem_4rem_3.5rem_auto] gap-1.5 items-center">
+                    <div key={cam.name || `cam-${i}`} className="grid grid-cols-[6rem_5rem_6rem_4rem_4rem_3.5rem_auto] gap-1.5 items-center">
                       <input value={cam.name} onChange={e => updateCamera(i, 'name', e.target.value)} className={inputCls} placeholder="top" />
                       <select value={cam.source_type} onChange={e => updateCamera(i, 'source_type', e.target.value)} className={inputCls}>
                         <option value="opencv">opencv</option>
@@ -624,9 +622,9 @@ export default function ConfigPage() {
                 loopback: prev.loopback ? undefined : {
                   backend: 'mcap',
                   output_dir: './data/robot/sessions',
-                  window_sec: 10.0,
-                  rotate_mb: 500.0,
-                  rotate_minutes: 60.0,
+                  window_sec: 10,
+                  rotate_mb: 500,
+                  rotate_minutes: 60,
                   max_queue_depth: 64,
                   capture_images_on_clamp: true,
                 },

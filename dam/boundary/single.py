@@ -28,7 +28,7 @@ class SingleNodeContainer(BoundaryContainer):
     def get_all_nodes(self) -> list[BoundaryNode]:
         return [self._node]
 
-    def evaluate(self, obs: Observation, action: ActionProposal) -> GuardResult:
+    def evaluate(self, _obs: Observation, _action: ActionProposal) -> GuardResult:
         # Constraint enforcement is handled by guards through the injection pool.
         # Containers do not duplicate that logic — return PASS as a no-op result.
         return GuardResult.success(
@@ -36,15 +36,17 @@ class SingleNodeContainer(BoundaryContainer):
             layer=None,  # type: ignore[arg-type]
         )
 
-    def advance(self, obs: Observation | None = None) -> str | None:
+    def advance(self, _obs: Observation | None = None) -> str | None:
         # Single node — no transition; return current node ID to signal "still active".
         return self._node.node_id
 
     def reset(self) -> None:
+        # Single node has no state to reset.
         pass
 
     def snapshot(self) -> dict[str, Any]:
         return {}
 
-    def restore(self, state: dict[str, Any]) -> None:
+    def restore(self, _state: dict[str, Any]) -> None:
+        # Single node has no restorable state.
         pass

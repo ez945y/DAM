@@ -192,8 +192,8 @@ def _record_to_dict(
                             "data": list(compressed),
                         }
                     )
-                except Exception:
-                    pass  # Skip if encoding fails
+                except Exception:  # noqa: BLE001 — skip if encoding fails
+                    pass
 
     return {
         "cycle_id": rec.cycle_id,
@@ -256,7 +256,7 @@ def _compress_image(arr: np.ndarray | bytes) -> tuple[bytes, int, int, str]:
                         "LoopbackWriter: Rust JPEG encoder failed: %s, falling back",
                         e,
                     )
-        except Exception:
+        except Exception:  # noqa: BLE001 — image conversion failure is non-fatal
             pass
 
     try:

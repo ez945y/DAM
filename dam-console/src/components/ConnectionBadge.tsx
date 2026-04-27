@@ -1,7 +1,7 @@
 import { Terminal } from 'lucide-react'
 
 interface Props {
-  connected: boolean
+  readonly connected: boolean
 }
 
 export function ConnectionBadge({ connected }: Props) {

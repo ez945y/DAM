@@ -225,7 +225,7 @@ async def _run_ws_loop(websocket: WebSocket, ood_trainer: Any) -> None:
             await _dispatch_ws_action(msg.get("action"), msg, websocket, ood_trainer)
     except WebSocketDisconnect:
         _cleanup_ws(websocket)
-    except Exception:
+    except Exception:  # noqa: BLE001 — disconnect without proper close; swallow to avoid propagating to Starlette
         pass
 
 
@@ -248,7 +248,7 @@ def _scan_model_file(f: str, models_dict: dict[str, Any]) -> None:
         try:
             with open(meta_path) as mf:
                 models_dict[base_name]["metadata"] = json.load(mf)
-        except Exception:
+        except Exception:  # noqa: BLE001 — malformed metadata is non-fatal; model still listed
             pass
 
     npy_path = os.path.join(_OOD_MODELS_DIR, f"{base_name}.npy")

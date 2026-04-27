@@ -85,12 +85,11 @@ ARG EXTRAS=services
 
 WORKDIR /workspace
 
-RUN pip install --no-cache-dir uv
-
 # ── Permanent runtime libs ────────────────────────────────────────────────────
 # • libusb-1.0-0          — pyserial needs this to open /dev/ttyACM* / ttyUSB*
 # • libgl1 / libglib2.0-0 — required by opencv-python-headless at import time
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN pip install --no-cache-dir uv \
+    && apt-get update && apt-get install -y --no-install-recommends \
         libusb-1.0-0 \
         libgl1 \
         libglib2.0-0 \

@@ -214,9 +214,9 @@ export function RiskLogTable() {
   const targetCycleId = searchParams ? Number(searchParams.get('cycle_id') ?? '') || null : null
 
   const [events, setEvents] = useState<RiskEvent[]>([])
-  const [, setStats] = useState<RiskLogStats | null>(null)
+  const [_stats, setStats] = useState<RiskLogStats | null>(null)
   const [loading, setLoading] = useState(false)
-  const [, setAutoRefresh] = useState(true)
+  const [_autoRefresh, setAutoRefresh] = useState(true)
   const [frozen, setFrozen] = useState(false)
   const [filters, setFilters] = useState({
     min_risk_level: '',
@@ -263,8 +263,8 @@ export function RiskLogTable() {
       setAutoRefresh(saved !== 'false')
     }
     sync()
-    window.addEventListener('dam_live_refresh_change', sync)
-    return () => window.removeEventListener('dam_live_refresh_change', sync)
+    globalThis.addEventListener('dam_live_refresh_change', sync)
+    return () => globalThis.removeEventListener('dam_live_refresh_change', sync)
   }, [])
 
   // Auto-refresh: Switch to event-driven instead of constant polling
@@ -274,12 +274,12 @@ export function RiskLogTable() {
     const handleUpdate = () => { load(true) }
     const handleFocus = () => { load() }
 
-    window.addEventListener('dam-system-update', handleUpdate)
-    window.addEventListener('focus', handleFocus)
+    globalThis.addEventListener('dam-system-update', handleUpdate)
+    globalThis.addEventListener('focus', handleFocus)
 
     return () => {
-      window.removeEventListener('dam-system-update', handleUpdate)
-      window.removeEventListener('focus', handleFocus)
+      globalThis.removeEventListener('dam-system-update', handleUpdate)
+      globalThis.removeEventListener('focus', handleFocus)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [frozen, filters])
@@ -293,7 +293,7 @@ export function RiskLogTable() {
         groups.push({ ...ev, count: 1, allCycleIds: [ev.cycle_id] })
         continue
       }
-      const last = groups[groups.length - 1]
+      const last = groups.at(-1)!
       const isSame =
         last.risk_level === ev.risk_level &&
         last.was_rejected === ev.was_rejected &&
@@ -483,7 +483,7 @@ export function RiskLogTable() {
                               <div className="space-y-1.5">
                                 {e.guard_results && e.guard_results.length > 0 ? e.guard_results.map((g, gi) => (
                                   <GuardResultItem
-                                    key={gi}
+                                    key={`${g.name}-${gi}`}
                                     g={g}
                                     guardLatencyMs={e.perf?.guards?.[g.name]}
                                   />

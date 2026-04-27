@@ -66,12 +66,12 @@ export function EventLog({ entries }: { entries: LogEntry[] }) {
             <p className="text-xs">No events</p>
           </div>
         ) : (
-          filtered.map((e, i) => {
+          filtered.map((e) => {
             const upCaseType = e.type.toUpperCase() as LogType
             const cfg = TYPE_CONFIG[upCaseType] ?? TYPE_CONFIG.INFO
             const { Icon } = cfg
             return (
-              <div key={i} className={`flex items-start gap-2 py-1.5 px-2 rounded-lg hover:bg-white/[0.02] ${cfg.color}`}>
+              <div key={`${e.timestamp}-${e.message}`} className={`flex items-start gap-2 py-1.5 px-2 rounded-lg hover:bg-white/[0.02] ${cfg.color}`}>
                 <span className="shrink-0 text-[10px] font-mono text-dam-muted mt-0.5 tabular-nums">{fmtTime(e.timestamp)}</span>
                 <Icon size={11} className={`shrink-0 mt-0.5 ${cfg.color}`} />
                 <span className="text-[11px] leading-snug break-all">{e.message}</span>

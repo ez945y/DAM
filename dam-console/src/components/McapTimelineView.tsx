@@ -15,9 +15,9 @@ export interface TimelineCycle {
 }
 
 export interface McapTimelineViewProps {
-  cycles: TimelineCycle[]
-  selectedCycleId?: number
-  onSelectCycle?: (cycleId: number) => void
+  readonly cycles: TimelineCycle[]
+  readonly selectedCycleId?: number
+  readonly onSelectCycle?: (cycleId: number) => void
 }
 
 type CycleStatus = 'reject' | 'clamp' | 'pass'
@@ -77,12 +77,12 @@ export function McapTimelineView({
   function jumpIncident(dir: 'prev' | 'next') {
     if (incidentIds.length === 0 || !onSelectCycle) return
     if (selectedCycleId == null) {
-      onSelectCycle(dir === 'next' ? incidentIds[0] : incidentIds[incidentIds.length - 1])
+      onSelectCycle(dir === 'next' ? incidentIds[0] : (incidentIds.at(-1) ?? incidentIds[0]))
       return
     }
     const pos = incidentIds.indexOf(selectedCycleId)
     if (dir === 'prev') {
-      const target = pos <= 0 ? incidentIds[incidentIds.length - 1] : incidentIds[pos - 1]
+      const target = pos <= 0 ? (incidentIds.at(-1) ?? incidentIds[0]) : incidentIds[pos - 1]
       onSelectCycle(target)
     } else {
       const target = pos < 0 || pos >= incidentIds.length - 1

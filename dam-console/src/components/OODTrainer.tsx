@@ -81,7 +81,7 @@ export function OODTrainer({
           setLoading(false)
           setProgressMsg('')
         }
-      } catch (err) { /* ignore */ }
+      } catch { /* ignore */ }
     }
 
     ws.onclose = () => {
@@ -111,7 +111,7 @@ export function OODTrainer({
   const handleDeleteModel = async (name: string) => {
     if (!confirm(`Delete model ${name}?`)) return
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/api/ood/models/${name.replace('.pt', '')}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/api/ood/models/${name.replaceAll('.pt', '')}`, {
         method: 'DELETE'
       })
       if (res.ok) {
@@ -194,7 +194,7 @@ export function OODTrainer({
                       </div>
                       <div className="min-w-0">
                         <h5 className={`text-[11px] font-bold truncate ${isSelected ? 'text-dam-blue' : 'text-dam-text'}`}>
-                          {m.name.replace('.pt', '')}
+                          {m.name.replaceAll('.pt', '')}
                         </h5>
                         <p className="text-[9px] text-dam-muted truncate opacity-60 font-mono">
                           {m.metadata?.backend || 'Generic'}

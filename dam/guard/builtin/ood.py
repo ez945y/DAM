@@ -539,8 +539,8 @@ class RealNVPFlow:
         if self._model is None:
             self._model = self._build_model().to(self._device)
 
-        X = torch.tensor(vectors, dtype=torch.float32)
-        dataset = TensorDataset(X)
+        x_tensor = torch.tensor(vectors, dtype=torch.float32)
+        dataset = TensorDataset(x_tensor)
         loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=0)
 
         opt = optim.Adam(self._model.parameters(), lr=lr, weight_decay=1e-4)

@@ -5,9 +5,9 @@ import type { McapSessionDetail, McapSessionSummary } from '@/lib/api'
 import { FileText, AlertTriangle, AlertCircle, Download, Loader2, Film, Activity, Trash2 } from 'lucide-react'
 
 export interface McapSessionListProps {
-  onSelectSession?: (filename: string) => void
-  onDeleteSession?: (filename: string) => void
-  selectedFilename?: string
+  readonly onSelectSession?: (filename: string) => void
+  readonly onDeleteSession?: (filename: string) => void
+  readonly selectedFilename?: string
 }
 
 export function McapSessionList({
@@ -91,13 +91,11 @@ export function McapSessionList({
         const hasClamps = (details?.stats.clamp_cycles ?? 0) > 0
 
         return (
-          <div
+          <button
             key={session.filename}
-            role="button"
-            tabIndex={0}
+            type="button"
             onClick={() => onSelectSession?.(session.filename)}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelectSession?.(session.filename) }}
-            className={`p-4 rounded-lg border cursor-pointer transition-all duration-150 ${
+            className={`p-4 rounded-lg border cursor-pointer transition-all duration-150 w-full text-left ${
               isSelected
                 ? 'bg-dam-blue/10 border-dam-blue/40 shadow-sm'
                 : 'bg-dam-surface-2 border-dam-border/60 hover:border-dam-blue/30 hover:bg-dam-surface-1'
@@ -195,7 +193,7 @@ export function McapSessionList({
                 Download MCAP
               </a>
             </div>
-          </div>
+          </button>
         )
       })}
     </div>

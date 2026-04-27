@@ -112,7 +112,7 @@ const SO101_JOINTS: JointDef[] = [
   { name: 'elbow_flex',    lower_rad: -1.6026, upper_rad:  1.6026 },
   { name: 'wrist_flex',    lower_rad: -1.8067, upper_rad:  1.8067 },
   { name: 'wrist_roll',    lower_rad: -3.0741, upper_rad:  3.0741 },
-  { name: 'gripper',       lower_rad:  0.0,    upper_rad:  1.7453 },
+  { name: 'gripper',       lower_rad:  0,    upper_rad:  1.7453 },
 ]
 
 const SO101_CAMERAS: CameraConfig[] = [
@@ -123,19 +123,19 @@ const SO101_CAMERAS: CameraConfig[] = [
 const DEFAULT_BOUNDARIES: BoundaryDef[] = [
   {
     name: 'ood_detector', layer: 'L0', type: 'single',
-    nodes: [{ node_id: 'default', params: {}, callback: 'ood_detector', fallback: 'emergency_stop', timeout_sec: 1.0 }]
+    nodes: [{ node_id: 'default', params: {}, callback: 'ood_detector', fallback: 'emergency_stop', timeout_sec: 1 }]
   },
   {
     name: 'bounds', layer: 'L2', type: 'single',
-    nodes: [{ node_id: 'default', params: { bounds: [[-0.4, 0.4], [-0.4, 0.4], [0.02, 0.6]] }, callback: 'workspace', fallback: 'emergency_stop', timeout_sec: 1.0 }]
+    nodes: [{ node_id: 'default', params: { bounds: [[-0.4, 0.4], [-0.4, 0.4], [0.02, 0.6]] }, callback: 'workspace', fallback: 'emergency_stop', timeout_sec: 1 }]
   },
   {
     name: 'joint_position_limits', layer: 'L2', type: 'single',
-    nodes: [{ node_id: 'default', params: { upper: [1.8243, 1.7691, 1.6026, 1.8067, 3.0741, 1.7453], lower: [-1.8243, -1.7691, -1.6026, -1.8067, -3.0741, 0.0] }, callback: 'joint_position_limits', fallback: 'emergency_stop', timeout_sec: null }]
+    nodes: [{ node_id: 'default', params: { upper: [1.8243, 1.7691, 1.6026, 1.8067, 3.0741, 1.7453], lower: [-1.8243, -1.7691, -1.6026, -1.8067, -3.0741, 0] }, callback: 'joint_position_limits', fallback: 'emergency_stop', timeout_sec: null }]
   },
   {
     name: 'joint_velocity_limit', layer: 'L2', type: 'single',
-    nodes: [{ node_id: 'default', params: { max_velocities: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5] }, callback: 'joint_velocity_limit', fallback: 'emergency_stop', timeout_sec: 1.0 }]
+    nodes: [{ node_id: 'default', params: { max_velocities: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5] }, callback: 'joint_velocity_limit', fallback: 'emergency_stop', timeout_sec: 1 }]
   },
   {
     name: 'hardware_watchdog', layer: 'L4', type: 'single',
@@ -153,12 +153,12 @@ export const TEMPLATES: TemplatePreset[] = [
       hardware_preset: 'so101_follower', adapter: 'simulation',
       simulation_dataset_repo_id: 'MikeChenYZ/soarm-fmb-v2', simulation_episode: 0,
       policy: { type: 'act', pretrained_path: 'MikeChenYZ/act-soarm-fmb-v2', device: 'cpu' },
-      joints: SO101_JOINTS, controlFrequencyHz: 15.0, enforcement_mode: 'monitor',
+      joints: SO101_JOINTS, controlFrequencyHz: 15, enforcement_mode: 'monitor',
       tasks: [{ id: 'demo', name: 'demo', description: 'Full demo', boundaries: DEFAULT_BOUNDARIES.map(b => b.name) }],
       boundaries: DEFAULT_BOUNDARIES,
       loopback: {
-        backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10.0, pre_event_sec: 10.0,
-        rotate_mb: 500.0, rotate_minutes: 60.0, max_queue_depth: 64, capture_images_on_clamp: true,
+        backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10, pre_event_sec: 10,
+        rotate_mb: 500, rotate_minutes: 60, max_queue_depth: 64, capture_images_on_clamp: true,
       },
     },
   },
@@ -171,12 +171,12 @@ export const TEMPLATES: TemplatePreset[] = [
       hardware_preset: 'so101_follower', adapter: 'lerobot', lerobot_port: '/dev/tty.usbmodem5AA90244141',
       lerobot_robot_id: 'my_awesome_follower_arm', lerobot_cameras: SO101_CAMERAS,
       policy: { type: 'act', pretrained_path: 'MikeChenYZ/act-soarm-fmb-v2', device: 'mps' },
-      joints: SO101_JOINTS, controlFrequencyHz: 15.0, enforcement_mode: 'enforce',
+      joints: SO101_JOINTS, controlFrequencyHz: 15, enforcement_mode: 'enforce',
       tasks: [{ id: 'soarm101', name: 'soarm101', description: 'Default task', boundaries: ['bounds', 'joint_position_limits', 'joint_velocity_limit', 'hardware_watchdog'] }],
       boundaries: DEFAULT_BOUNDARIES,
       loopback: {
-        backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10.0, pre_event_sec: 10.0,
-        rotate_mb: 500.0, rotate_minutes: 60.0, max_queue_depth: 64, capture_images_on_clamp: true,
+        backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10, pre_event_sec: 10,
+        rotate_mb: 500, rotate_minutes: 60, max_queue_depth: 64, capture_images_on_clamp: true,
       },
     },
   },
@@ -189,12 +189,12 @@ export const TEMPLATES: TemplatePreset[] = [
       hardware_preset: 'so101_follower', adapter: 'lerobot', lerobot_port: '/dev/tty.usbmodem5AA90244141',
       lerobot_robot_id: 'my_awesome_follower_arm', lerobot_cameras: SO101_CAMERAS,
       policy: { type: 'diffusion', pretrained_path: 'MikeChenYZ/dp-soarm-fmb', device: 'mps', noise_scheduler_type: 'DDIM', num_inference_steps: 15 },
-      joints: SO101_JOINTS, controlFrequencyHz: 15.0, enforcement_mode: 'enforce',
+      joints: SO101_JOINTS, controlFrequencyHz: 15, enforcement_mode: 'enforce',
       tasks: [{ id: 'soarm101', name: 'soarm101', description: 'Default task', boundaries: ['bounds', 'joint_position_limits', 'joint_velocity_limit', 'hardware_watchdog'] }],
       boundaries: DEFAULT_BOUNDARIES,
       loopback: {
-        backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10.0, pre_event_sec: 10.0,
-        rotate_mb: 500.0, rotate_minutes: 60.0, max_queue_depth: 64, capture_images_on_clamp: true,
+        backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10, pre_event_sec: 10,
+        rotate_mb: 500, rotate_minutes: 60, max_queue_depth: 64, capture_images_on_clamp: true,
       },
     },
   },
@@ -207,12 +207,12 @@ export const TEMPLATES: TemplatePreset[] = [
       hardware_preset: 'generic_6dof', adapter: 'ros2', ros2NodeName: 'dam_node', ros2JointTopic: '/joint_states',
       ros2CmdTopic: '/joint_commands', ros2Namespace: '/dam', ros2WrenchTopic: '/wrench', ros2Qos: 'reliable',
       policy: { type: 'act', pretrained_path: '', device: 'cpu' },
-      controlFrequencyHz: 15.0, enforcement_mode: 'monitor',
+      controlFrequencyHz: 15, enforcement_mode: 'monitor',
       tasks: [{ id: 'default', name: 'default', description: 'Default task', boundaries: [] }],
       boundaries: [],
       loopback: {
-        backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10.0, pre_event_sec: 10.0,
-        rotate_mb: 500.0, rotate_minutes: 60.0, max_queue_depth: 64, capture_images_on_clamp: true,
+        backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10, pre_event_sec: 10,
+        rotate_mb: 500, rotate_minutes: 60, max_queue_depth: 64, capture_images_on_clamp: true,
       },
     },
   },
@@ -226,7 +226,7 @@ export function defaultConfig(templateId = ''): DamConfig {
     lerobot_cameras: [], lerobot_calibration_path: '', ros2NodeName: 'dam_node', ros2JointTopic: '/joint_states',
     ros2CmdTopic: '/joint_commands', ros2Namespace: '/dam', ros2WrenchTopic: '', ros2Qos: 'reliable',
     policy: { type: 'noop', pretrained_path: '', device: 'cpu' },
-    joints: SO101_JOINTS, controlFrequencyHz: 10.0, enforcement_mode: 'monitor',
+    joints: SO101_JOINTS, controlFrequencyHz: 10, enforcement_mode: 'monitor',
     guardsEnabled: {}, tasks: [], boundaries: [],
   }
   if (!preset) return base
@@ -390,7 +390,7 @@ const SCHEMA: YamlSection[] = [
     scalar('backend', cfg => cfg.loopback!.backend),
     scalar('output_dir', cfg => cfg.loopback!.output_dir),
     scalar('window_sec', cfg => cfg.loopback!.window_sec),
-    scalar('pre_event_sec', cfg => cfg.loopback!.pre_event_sec ?? 10.0),
+    scalar('pre_event_sec', cfg => cfg.loopback!.pre_event_sec ?? 10),
     scalar('rotate_mb', cfg => cfg.loopback!.rotate_mb),
     scalar('rotate_minutes', cfg => cfg.loopback!.rotate_minutes),
     scalar('max_queue_depth', cfg => cfg.loopback!.max_queue_depth),
@@ -460,18 +460,18 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
 
     if (section === 'boundaries') {
       if (line.startsWith('  ') && !line.startsWith('    ')) {
-        currentBoundary = { name: trimmed.replace(':', ''), layer: 'L2', type: 'single', nodes: [] }; boundaries.push(currentBoundary);
+        currentBoundary = { name: trimmed.replaceAll(':', ''), layer: 'L2', type: 'single', nodes: [] }; boundaries.push(currentBoundary);
       } else if (currentBoundary && line.startsWith('    ')) {
-        if (trimmed.startsWith('layer:')) currentBoundary.layer = trimmed.replace('layer:', '').trim()
-        if (trimmed.startsWith('type:')) currentBoundary.type = trimmed.replace('type:', '').trim()
+        if (trimmed.startsWith('layer:')) currentBoundary.layer = trimmed.replaceAll('layer:', '').trim()
+        if (trimmed.startsWith('type:')) currentBoundary.type = trimmed.replaceAll('type:', '').trim()
         if (trimmed.startsWith('- node_id:') || trimmed.startsWith('- callback:')) {
           const isNodeId = trimmed.startsWith('- node_id:');
-          currentNode = { node_id: isNodeId ? trimmed.replace('- node_id:', '').trim() : 'default', params: {}, callback: isNodeId ? null : trimmed.replace('- callback:', '').trim(), fallback: 'emergency_stop', timeout_sec: 1.0 };
+          currentNode = { node_id: isNodeId ? trimmed.replaceAll('- node_id:', '').trim() : 'default', params: {}, callback: isNodeId ? null : trimmed.replaceAll('- callback:', '').trim(), fallback: 'emergency_stop', timeout_sec: 1 };
           currentBoundary.nodes.push(currentNode);
         } else if (currentNode) {
-          if (trimmed.startsWith('callback:')) currentNode.callback = trimmed.replace('callback:', '').trim()
-          else if (trimmed.startsWith('fallback:')) currentNode.fallback = trimmed.replace('fallback:', '').trim()
-          else if (trimmed.startsWith('timeout_sec:')) currentNode.timeout_sec = Number(trimmed.replace('timeout_sec:', '').trim())
+          if (trimmed.startsWith('callback:')) currentNode.callback = trimmed.replaceAll('callback:', '').trim()
+          else if (trimmed.startsWith('fallback:')) currentNode.fallback = trimmed.replaceAll('fallback:', '').trim()
+          else if (trimmed.startsWith('timeout_sec:')) currentNode.timeout_sec = Number(trimmed.replaceAll('timeout_sec:', '').trim())
           else {
             const colonIdx = trimmed.indexOf(':'); if (colonIdx !== -1) {
               const key = trimmed.substring(0, colonIdx).trim(); const valRaw = trimmed.substring(colonIdx + 1).trim();
@@ -482,11 +482,11 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
       }
     } else if (section === 'tasks') {
       if (line.startsWith('  ') && !line.startsWith('    ')) {
-        const name = trimmed.replace(':', ''); const task: any = { id: name, name, description: '', boundaries: [] }; tasks.push(task);
+        const name = trimmed.replaceAll(':', ''); const task: any = { id: name, name, description: '', boundaries: [] }; tasks.push(task);
         let j = i + 1; while (j < lines.length && lines[j].startsWith('    ')) {
           const tline = lines[j].trim();
-          if (tline.startsWith('description:')) task.description = tline.replace('description:', '').trim().replace(/^"(.*)"$/, '$1')
-          if (tline.startsWith('boundaries:')) task.boundaries = tline.replace('boundaries:', '').trim().replace('[', '').replace(']', '').split(',').map(s => s.trim()).filter(Boolean)
+          if (tline.startsWith('description:')) task.description = tline.replaceAll('description:', '').trim().replace(/^"(.*)"$/, '$1')
+          if (tline.startsWith('boundaries:')) task.boundaries = tline.replaceAll('boundaries:', '').trim().replaceAll('[', '').replaceAll(']', '').split(',').map(s => s.trim()).filter(Boolean)
           j++
         }
         i = j - 1
@@ -501,7 +501,7 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
     if (line.includes('cameras:')) { inCameras = true; continue }
     if (inCameras && line.includes('{')) {
       const name = line.trim().split(':')[0];
-      const match = line.match(/\{(.*)\}/);
+      const match = /\{(.*)\}/.exec(line);
       if (match) {
         const params: any = {};
         match[1].split(',').forEach(p => {

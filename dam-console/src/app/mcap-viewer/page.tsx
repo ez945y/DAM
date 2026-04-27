@@ -38,7 +38,7 @@ function cycleEventToDetail(cycle: NonNullable<ReturnType<typeof useTelemetry>['
     action: null,
     guard_results: cycle.guard_statuses.map(g => ({
       guard_name: g.name,
-      layer: Number.parseInt(g.layer.replace('L', ''), 10),
+      layer: Number.parseInt(g.layer.replaceAll('L', ''), 10),
       layer_name: g.layer,
       decision: 0,
       decision_name: g.decision,
@@ -210,7 +210,7 @@ function LiveModePanel() {
   useEffect(() => {
     if (!lastCycle) return
     setLiveCycles(prev => {
-      if (prev.length > 0 && prev[prev.length - 1].cycle_id >= lastCycle.cycle_id) return prev
+      if (prev.length > 0 && (prev.at(-1)?.cycle_id ?? -1) >= lastCycle.cycle_id) return prev
       const entry: McapCycle = {
         cycle_id: lastCycle.cycle_id,
         seq: lastCycle.cycle_id,
@@ -446,10 +446,10 @@ function McapViewerContent() {
     const onFocus = () => { loadSessions() }
     const onUpdate = () => { loadSessions() }
     document.addEventListener('visibilitychange', onFocus)
-    window.addEventListener('dam-system-update', onUpdate)
+    globalThis.addEventListener('dam-system-update', onUpdate)
     return () => {
       document.removeEventListener('visibilitychange', onFocus)
-      window.removeEventListener('dam-system-update', onUpdate)
+      globalThis.removeEventListener('dam-system-update', onUpdate)
     }
   }, [loadSessions, liveMode])
 
@@ -477,7 +477,7 @@ function McapViewerContent() {
     if (liveMode || !selectedFilename) return
     let cancelled = false
     const existing = cyclesCache[selectedFilename] || []
-    const lastId = existing.length > 0 ? existing[existing.length - 1].cycle_id : undefined
+    const lastId = existing.at(-1)?.cycle_id
 
     if (!lastId) setCyclesLoading(true)
 

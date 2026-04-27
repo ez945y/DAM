@@ -18,9 +18,9 @@ ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # ── Colour helpers ─────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; BOLD='\033[1m'; NC='\033[0m'
-info()    { echo -e "${BLUE}[test]   ${NC} $*"; }
-ok()      { echo -e "${GREEN}[test] ✓ ${NC} $*"; }
-fail()    { echo -e "${RED}[test] ✗ ${NC} $*"; }
+info()    { echo -e "${BLUE}[test]   ${NC} $*"; return 0; }
+ok()      { echo -e "${GREEN}[test] ✓ ${NC} $*"; return 0; }
+fail()    { echo -e "${RED}[test] ✗ ${NC} $*"; return 0; }
 section() {
     local title="── $* "
     local len=${#title}
@@ -31,6 +31,7 @@ section() {
         line=$(printf '─%.0s' $(seq 1 $dashes))
     fi
     echo -e "\n${BOLD}${BLUE}${title}${line}${NC}"
+    return 0
 }
 
 cd "$ROOT"
@@ -77,6 +78,7 @@ run_step() {
         fail "$label"
         FAILURES+=("$label")
     fi
+    return 0
 }
 
 # ── Linters ────────────────────────────────────────────────────────────────────

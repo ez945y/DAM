@@ -223,7 +223,7 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
                     frame = cam.async_read()
                     if frame is not None:
                         self._prev_images[cam_name] = np.asarray(frame).copy()
-                except Exception:
+                except Exception:  # noqa: BLE001 — camera read failure is non-fatal; stale frame kept
                     pass
 
         # EE Pose via Pinocchio
@@ -256,10 +256,10 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
             q = positions_rad[: self._pin_model.nq].astype(np.float64)
             pin.forwardMotions(self._pin_model, self._pin_data, q)
             pin.updateFramePlacements(self._pin_model, self._pin_data)
-            oMf = self._pin_data.oMf[self._pin_ee_frame_id]
-            quat = pin.Quaternion(oMf.rotation)
-            return np.array([*oMf.translation, quat.x, quat.y, quat.z, quat.w])
-        except Exception:
+            o_mf = self._pin_data.oMf[self._pin_ee_frame_id]
+            quat = pin.Quaternion(o_mf.rotation)
+            return np.array([*o_mf.translation, quat.x, quat.y, quat.z, quat.w])
+        except Exception:  # noqa: BLE001 — FK failure is non-fatal; caller checks for None
             return None
 
     # ── ActionAdapter Interface (Write) ─────────────────────────────────────

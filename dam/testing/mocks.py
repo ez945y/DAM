@@ -25,7 +25,7 @@ class MockPolicyAdapter:
         self._queue = list(actions)
         self._index = 0
 
-    def predict(self, obs: Observation) -> ActionProposal:
+    def predict(self, _obs: Observation) -> ActionProposal:
         if self._index >= len(self._queue):
             raise StopIteration("MockPolicyAdapter: no more actions")
         action = self._queue[self._index]

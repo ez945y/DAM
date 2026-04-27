@@ -19,6 +19,7 @@ class NoOpPolicyAdapter(PolicyAdapter):
     """Policy that always returns a zero-action proposal (safe stand-still)."""
 
     def initialize(self, config: dict[str, Any]) -> None:
+        # No-op policy requires no initialization.
         pass
 
     def predict(self, obs: Observation) -> ActionProposal:
@@ -34,4 +35,5 @@ class NoOpPolicyAdapter(PolicyAdapter):
         return "noop"
 
     def reset(self) -> None:
+        # No state to reset.
         pass

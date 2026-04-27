@@ -98,18 +98,18 @@ def ood_detector(
     from dam.decorators import guard as _guard_deco
     from dam.guard.builtin.ood import OODGuard
 
-    _DecoratedOOD = _guard_deco("L0")(OODGuard)
+    decorated_ood = _guard_deco("L0")(OODGuard)
     cache_key = (ood_model_path, bank_path, backend)
 
     with _ood_cache_lock:
         if cache_key not in _ood_guard_cache:
-            guard = _DecoratedOOD(backend=backend)
+            guard = decorated_ood(backend=backend)
             if ood_model_path and bank_path:
                 try:
                     joint_dim = len(obs.joint_positions)
                     has_images = obs.images is not None and len(obs.images) > 0
                     guard.load(ood_model_path, bank_path, joint_dim, has_images)
-                except Exception:
+                except Exception:  # noqa: BLE001 — guard runs untrained if model files are missing/invalid
                     pass
             _ood_guard_cache[cache_key] = guard
         guard = _ood_guard_cache[cache_key]
@@ -242,7 +242,7 @@ def check_joints_not_moving(*, obs: Observation, max_speed_rad_s: float = 0.01) 
     """Return False if any joint is moving faster than threshold."""
     if obs.joint_velocities is None:
         return True
-    return not float(np.max(np.abs(obs.joint_velocities))) > max_speed_rad_s
+    return float(np.max(np.abs(obs.joint_velocities))) <= max_speed_rad_s
 
 
 # ── L3: TASK EXECUTION ─────────────────────────────────────────────────────────
@@ -324,7 +324,7 @@ def _get_ee_pose(
     if kinematics_resolver is not None:
         try:
             return kinematics_resolver.compute_fk(obs.joint_positions)
-        except Exception:
+        except Exception:  # noqa: BLE001 — FK failure is non-fatal; caller falls back to None
             pass
     return None
 

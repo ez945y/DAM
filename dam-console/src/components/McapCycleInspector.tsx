@@ -86,7 +86,7 @@ function Sparkline({ values, label }: { values: number[]; label: string }) {
         <polyline points={pts} fill="none" stroke="#3B82F6" strokeWidth="1.5" strokeLinejoin="round" />
       </svg>
       <span className="text-[10px] font-mono text-dam-muted">
-        [{values[0]?.toFixed(3)}, …, {values[values.length - 1]?.toFixed(3)}]
+        [{values[0]?.toFixed(3)}, …, {values.at(-1)?.toFixed(3)}]
       </span>
     </div>
   )
@@ -117,16 +117,16 @@ const LAYER_COLORS: Record<string, string> = {
 // ── Main component ────────────────────────────────────────────────────────
 
 interface McapCycleInspectorProps {
-  filename: string | null
-  cycleId: number | null
-  tsNs?: number | null
+  readonly filename: string | null
+  readonly cycleId: number | null
+  readonly tsNs?: number | null
   /** Fallback cycle data from telemetry when MCAP file doesn't have this cycle yet (live mode) */
-  fallbackDetail?: Partial<McapCycleDetail> | null
+  readonly fallbackDetail?: Partial<McapCycleDetail> | null
   /**
    * When provided, skip the MCAP API call entirely and display this data directly.
    * Used in live mode where cycle data comes from WebSocket telemetry.
    */
-  overrideCycleDetail?: McapCycleDetail | null
+  readonly overrideCycleDetail?: McapCycleDetail | null
 }
 
 export function McapCycleInspector({ filename, cycleId, tsNs, fallbackDetail, overrideCycleDetail }: McapCycleInspectorProps) {
@@ -237,6 +237,7 @@ export function McapCycleInspector({ filename, cycleId, tsNs, fallbackDetail, ov
   if (!detail) return null
 
   const totalMs = detail.total_ms || detail.latency?.total_ms || 0
+  const cycleStatusLabel = detail.has_violation ? 'REJECT' : detail.has_clamp ? 'CLAMP' : 'PASS'
 
   return (
     <div className="flex flex-col h-full overflow-y-auto bg-dam-surface-1 border border-dam-border rounded-lg text-xs">
@@ -255,7 +256,7 @@ export function McapCycleInspector({ filename, cycleId, tsNs, fallbackDetail, ov
               detail.has_clamp     ? 'text-dam-blue bg-blue-500/10 border-blue-500/20' :
                                      'text-green-400 bg-green-500/10 border-green-500/20'
             }`}>
-              {detail.has_violation ? 'REJECT' : detail.has_clamp ? 'CLAMP' : 'PASS'}
+              {cycleStatusLabel}
             </span>
           </div>
         </div>
@@ -282,7 +283,7 @@ export function McapCycleInspector({ filename, cycleId, tsNs, fallbackDetail, ov
           {detail.guard_results.length === 0 ? (
             <p className="text-dam-muted/60 italic text-[10px]">No guard results recorded</p>
           ) : detail.guard_results.map((g, i) => (
-            <div key={i} className={`flex items-start gap-2 p-2 rounded border ${
+            <div key={`${g.layer}-${i}`} className={`flex items-start gap-2 p-2 rounded border ${
               g.is_violation ? 'bg-red-500/5 border-red-500/20' :
               g.is_clamp     ? 'bg-blue-500/5 border-blue-500/20' :
                                'bg-dam-surface-2 border-dam-border/40'
@@ -316,7 +317,7 @@ export function McapCycleInspector({ filename, cycleId, tsNs, fallbackDetail, ov
           {(['source_ms', 'policy_ms', 'guards_ms', 'sink_ms'] as const).map(key => (
             <LatencyBar
               key={key}
-              label={key.replace('_ms', '')}
+              label={key.replaceAll('_ms', '')}
               ms={detail.latency?.[key] ?? detail[key] ?? 0}
               totalMs={totalMs}
               color={STAGE_COLORS[key]}
@@ -338,7 +339,7 @@ export function McapCycleInspector({ filename, cycleId, tsNs, fallbackDetail, ov
                 const ms = detail.latency?.[key] ?? 0
                 if (ms === 0) return null
                 return (
-                  <LatencyBar key={key} label={key.replace('_ms', '')} ms={ms} totalMs={totalMs} color={LAYER_COLORS[key]} />
+                  <LatencyBar key={key} label={key.replaceAll('_ms', '')} ms={ms} totalMs={totalMs} color={LAYER_COLORS[key]} />
                 )
               })}
             </div>

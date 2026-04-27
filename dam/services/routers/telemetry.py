@@ -22,7 +22,7 @@ async def _send_event(websocket: WebSocket, event: Any) -> bool:
         else:
             await websocket.send_text(str(event))
         return True
-    except Exception:
+    except Exception:  # noqa: BLE001 — any send error means disconnected; caller checks return value
         return False
 
 
@@ -32,7 +32,7 @@ async def _stream_telemetry(telemetry: TelemetryService, websocket: WebSocket) -
     for ev in telemetry.get_history(50):
         try:
             await websocket.send_text(json.dumps(ev))
-        except Exception:
+        except Exception:  # noqa: BLE001 — client disconnected during history replay; stop replaying
             break
     try:
         while True:
@@ -45,7 +45,7 @@ async def _stream_telemetry(telemetry: TelemetryService, websocket: WebSocket) -
                     break
     except (WebSocketDisconnect, asyncio.CancelledError):
         pass
-    except Exception:
+    except Exception:  # noqa: BLE001 — any unexpected error closes the stream gracefully
         pass
     finally:
         telemetry.unsubscribe(q)

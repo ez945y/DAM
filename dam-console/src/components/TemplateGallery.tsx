@@ -1,9 +1,9 @@
 import type { TemplatePreset } from '@/lib/templates'
 
 interface Props {
-  templates: TemplatePreset[]
-  selected: string
-  onSelect: (id: string) => void
+  readonly templates: TemplatePreset[]
+  readonly selected: string
+  readonly onSelect: (id: string) => void
 }
 
 const BADGE_COLOR: Record<string, string> = {

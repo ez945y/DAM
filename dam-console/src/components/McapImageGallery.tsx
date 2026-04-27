@@ -5,9 +5,9 @@ import type { McapFrame } from '@/lib/api'
 import { ChevronLeft, ChevronRight, Loader2, Image as ImageIcon } from 'lucide-react'
 
 export interface McapImageGalleryProps {
-  sessionFilename: string
-  cycleId: number
-  images: Record<string, number>  // { camera_name: frame_idx }
+  readonly sessionFilename: string
+  readonly cycleId: number
+  readonly images: Record<string, number>  // { camera_name: frame_idx }
 }
 
 /**

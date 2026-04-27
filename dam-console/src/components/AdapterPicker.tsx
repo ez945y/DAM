@@ -2,10 +2,10 @@
 import type { PolicyConfig } from '@/lib/types'
 
 interface AdapterOption<T extends string> {
-  id: T
-  label: string
-  description: string
-  extra?: string
+  readonly id: T
+  readonly label: string
+  readonly description: string
+  readonly extra?: string
 }
 
 export type AdapterType = 'lerobot' | 'ros2' | 'simulation'
@@ -71,9 +71,9 @@ export function AdapterColumn<T extends string>({
 }
 
 interface Props {
-  adapter: 'lerobot' | 'ros2' | 'simulation'
-  policy: PolicyConfig['type']
-  onChange: (field: 'adapter' | 'policy', value: string) => void
+  readonly adapter: 'lerobot' | 'ros2' | 'simulation'
+  readonly policy: PolicyConfig['type']
+  readonly onChange: (field: 'adapter' | 'policy', value: string) => void
 }
 
 export function AdapterPicker({ adapter, policy, onChange }: Props) {

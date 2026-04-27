@@ -5,9 +5,9 @@ import { useRuntimeControl } from '@/hooks/useRuntimeControl'
 import { useTelemetry } from '@/hooks/useTelemetry'
 
 interface PageShellProps {
-  title: string
-  subtitle: string
-  children: React.ReactNode
+  readonly title: string
+  readonly subtitle: string
+  readonly children: React.ReactNode
 }
 
 export function PageShell({ title, subtitle, children }: PageShellProps) {

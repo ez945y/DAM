@@ -16,8 +16,8 @@ ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
-info() { echo -e "${BLUE}[run]${NC} $*"; }
-ok()   { echo -e "${GREEN}[run] ✓${NC} $*"; }
+info() { echo -e "${BLUE}[run]${NC} $*"; return 0; }
+ok()   { echo -e "${GREEN}[run] ✓${NC} $*"; return 0; }
 die()  { echo -e "${RED}[run] ✗${NC} $*" >&2; exit 1; }
 
 cd "$ROOT"
@@ -68,6 +68,7 @@ _shutdown() {
     done
     wait 2>/dev/null || true
     info "All services stopped."
+    return 0
 }
 trap _shutdown INT TERM EXIT
 

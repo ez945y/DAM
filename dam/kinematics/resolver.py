@@ -61,7 +61,7 @@ class KinematicsResolver:
         pin.forwardKinematics(self.model, self.data, q)
         pin.updateFramePlacements(self.model, self.data)
 
-        oMf = self.data.oMf[self.ee_frame_id]
-        quat = pin.Quaternion(oMf.rotation)
+        o_mf = self.data.oMf[self.ee_frame_id]
+        quat = pin.Quaternion(o_mf.rotation)
 
-        return np.array([*oMf.translation, quat.x, quat.y, quat.z, quat.w], dtype=np.float64)
+        return np.array([*o_mf.translation, quat.x, quat.y, quat.z, quat.w], dtype=np.float64)

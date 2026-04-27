@@ -51,7 +51,7 @@ class GraphContainer(BoundaryContainer):
     def get_all_nodes(self) -> list[BoundaryNode]:
         return list(self._nodes.values())
 
-    def evaluate(self, obs: Observation, action: ActionProposal) -> GuardResult:
+    def evaluate(self, _obs: Observation, _action: ActionProposal) -> GuardResult:
         # Constraint enforcement is handled by guards through the injection pool.
         return GuardResult.success(
             guard_name=f"GraphContainer({self._current_node_id})",

@@ -157,7 +157,7 @@ class LeRobotPolicyAdapter(PolicyAdapter):
 
         try:
             arr = raw.detach().cpu().numpy() if hasattr(raw, "detach") else np.asarray(raw)
-        except Exception:
+        except Exception:  # noqa: BLE001 — tensor conversion failed; fall back to np.asarray
             arr = np.asarray(raw)
 
         # 3. Handle multi-step/batch dimensions [..., T, D] -> [D]
