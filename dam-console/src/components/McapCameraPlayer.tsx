@@ -121,7 +121,7 @@ function CameraCell({
 
 // ── Live camera cell (WS-backed) ──────────────────────────────────────────────
 
-function LiveCameraCell({
+const LiveCameraCell = React.memo(({
   cam,
   src,
   label,
@@ -129,36 +129,43 @@ function LiveCameraCell({
   cam: string
   src: string | Blob | null | undefined
   label?: string
-}) {
-  const [objectUrl, setObjectUrl] = useState<string | null>(null)
+}) => {
+  const imgRef = useRef<HTMLImageElement>(null)
 
-  // Manage ObjectURL lifecycle for binary image blobs
+  // Direct DOM manipulation to bypass React render cycle for high-frequency updates
   useEffect(() => {
+    let url = ''
     if (src instanceof Blob) {
-      const url = URL.createObjectURL(src)
-      setObjectUrl(url)
-      return () => URL.revokeObjectURL(url)
-    } else {
-      setObjectUrl(null)
+      url = URL.createObjectURL(src)
+    } else if (typeof src === 'string') {
+      url = src
+    }
+
+    if (imgRef.current && url) {
+      imgRef.current.src = url
+    }
+
+    return () => {
+      if (src instanceof Blob && url) {
+        URL.revokeObjectURL(url)
+      }
     }
   }, [src])
 
-  const displaySrc = src instanceof Blob ? objectUrl : src
-
   return (
     <div className="relative bg-black flex items-center justify-center h-full w-full overflow-hidden">
-      {displaySrc ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={displaySrc as string}
-          alt={`${cam} live`}
-          className="max-w-full max-h-full object-contain"
-        />
-      ) : (
+      {!src ? (
         <div className="flex flex-col items-center gap-1 text-dam-muted/40">
           <Radio size={20} className="animate-pulse" />
           <span className="text-[10px]">Waiting for frames…</span>
         </div>
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          ref={imgRef}
+          alt={`${cam} live`}
+          className="max-w-full max-h-full object-contain relative z-10"
+        />
       )}
       {(label || cam) && (
         <div className="absolute top-1.5 left-1.5 bg-black/60 text-white text-[9px] font-mono px-1.5 py-0.5 rounded z-20 flex items-center gap-1">
@@ -168,7 +175,7 @@ function LiveCameraCell({
       )}
     </div>
   )
-}
+}, (prev, next) => prev.src === next.src && prev.label === next.label && prev.cam === next.cam)
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
@@ -309,8 +316,18 @@ export function McapCameraPlayer({
     : null
 
   const handleSelectCamera = (cam: string) => {
-    setSelectedCam(cam)
-    setGridMode(false)
+    if (gridMode) {
+      setSelectedCam(cam)
+      setGridMode(false)
+    } else {
+      // Toggle back to grid if the same camera is clicked again
+      if (selectedCam === cam) {
+        setGridMode(true)
+      } else {
+        setSelectedCam(cam)
+        setGridMode(false)
+      }
+    }
     setPlaying(false)
   }
 
@@ -320,7 +337,7 @@ export function McapCameraPlayer({
   return (
     <div className="flex flex-col h-full bg-dam-surface-1 border border-dam-border rounded-lg overflow-hidden">
       {/* Header: camera tabs + grid toggle */}
-      <div className="flex items-center gap-1.5 px-3 py-2 border-b border-dam-border/50 bg-dam-surface-2/50 shrink-0">
+      <div className="flex items-center gap-1.5 px-3 py-2 border-b border-dam-border/50 bg-dam-surface-2/50 shrink-0 relative z-20">
         {liveMode ? (
           <Radio size={12} className="text-red-400 animate-pulse shrink-0" />
         ) : (
@@ -467,8 +484,8 @@ export function McapCameraPlayer({
 
         {/* Live indicator overlay */}
         {liveMode && (
-          <div className="absolute bottom-2 right-2 bg-black/70 text-red-400 text-[10px] font-mono px-2 py-0.5 rounded pointer-events-none flex items-center gap-1">
-            <Radio size={8} className="animate-pulse" />
+          <div className="absolute bottom-3 right-3 bg-red-500/10 backdrop-blur-md text-red-400 text-[10px] font-black px-2.5 py-1 rounded-full border border-red-500/30 pointer-events-none flex items-center gap-1.5 z-30 shadow-lg">
+            <Radio size={10} className="animate-pulse" />
             LIVE
           </div>
         )}

@@ -36,7 +36,9 @@ export function ActionShell({
 }: ActionShellProps) {
   const [yamlOpen, setYamlOpen] = useState(true)
   const [copied, setCopied] = useState(false)
-  const applyLabel = restarting ? 'Syncing...' : restartOk ? 'Applied' : 'Apply & Restart'
+  let applyLabel = 'Apply & Restart'
+  if (restarting) applyLabel = 'Syncing...'
+  else if (restartOk) applyLabel = 'Applied'
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(yaml)

@@ -84,7 +84,7 @@ def create_control_router(control: RuntimeControlService | None) -> APIRouter:
     async def control_start(
         task_name: Annotated[str, Query()] = "default",
         n_cycles: Annotated[int, Query()] = -1,
-        cycle_budget_ms: Annotated[float, Query()] = 20.0,
+        cycle_budget_ms: Annotated[float | None, Query()] = None,
     ) -> Any:
         svc = _require_control(control)
         try:

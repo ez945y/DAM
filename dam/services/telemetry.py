@@ -40,6 +40,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+BINARY_PROTOCOL_VERSION = b"\x02"
+
 
 def _serialise_cycle(
     result: CycleResult,
@@ -170,8 +172,15 @@ class TelemetryService:
                         if not jpeg:
                             continue
                         name_bytes = cam.encode()
-                        # Binary protocol: [magic: 0x01][name_len: 1 byte][name][jpeg]
-                        payload = b"\x01" + len(name_bytes).to_bytes(1, "big") + name_bytes + jpeg
+                        # Binary protocol v2:
+                        # [magic: 0x02][cycle_id: 4 bytes][name_len: 1 byte][name][jpeg]
+                        payload = (
+                            BINARY_PROTOCOL_VERSION
+                            + result.cycle_id.to_bytes(4, "big")
+                            + len(name_bytes).to_bytes(1, "big")
+                            + name_bytes
+                            + jpeg
+                        )
                         self._loop.call_soon_threadsafe(_safe_queue_push, q, payload)
 
     def push_raw(self, event: dict[str, Any]) -> None:

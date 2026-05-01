@@ -90,34 +90,34 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
     if (gHistoryFetched) return
     try {
       const data = await api.getRiskLog({ limit: 500 })
-      if (!data.events) return
-
-      const historyEntries: LogEntry[] = []
-      data.events.forEach(ev => {
-        ev.guard_results.forEach(g => {
-          if (g.decision !== 'PASS') {
-            historyEntries.push({
-              type: g.decision,
-              message: `[${g.layer}] ${g.name}: ${g.reason || g.decision}`,
-              timestamp: ev.timestamp
-            })
-          }
+      if (data.events) {
+        const historyEntries: LogEntry[] = []
+        data.events.forEach(ev => {
+          ev.guard_results.forEach(g => {
+            if (g.decision !== 'PASS') {
+              historyEntries.push({
+                type: g.decision,
+                message: `[${g.layer}] ${g.name}: ${g.reason || g.decision}`,
+                timestamp: ev.timestamp
+              })
+            }
+          })
         })
-      })
-      historyEntries.sort((a, b) => b.timestamp - a.timestamp)
+        historyEntries.sort((a, b) => b.timestamp - a.timestamp)
 
-      const existingMsg = new Set(gEvents.map(e => `${e.timestamp}:${e.message}`))
-      const uniqueNew = historyEntries.filter(e => !existingMsg.has(`${e.timestamp}:${e.message}`))
+        const existingMsg = new Set(gEvents.map(e => `${e.timestamp}:${e.message}`))
+        const uniqueNew = historyEntries.filter(e => !existingMsg.has(`${e.timestamp}:${e.message}`))
 
-      gEvents = [...gEvents, ...uniqueNew].sort((a, b) => b.timestamp - a.timestamp).slice(0, MAX_EVENTS)
-      gHistoryFetched = true
-      gVersion++
-      setState(s => ({ ...s, events: [...gEvents] }))
+        gEvents = [...gEvents, ...uniqueNew].sort((a, b) => b.timestamp - a.timestamp).slice(0, MAX_EVENTS)
+        gHistoryFetched = true
+        gVersion++
+        setState(s => ({ ...s, events: [...gEvents] }))
+      }
     } catch {}
   }, [])
 
   const connect = useCallback(() => {
-    if (typeof globalThis.window === 'undefined') return
+    if (globalThis.window === undefined) return
     const wsUrl = process.env.NEXT_PUBLIC_WS_URL ?? 'ws://localhost:8080'
     if (wsRef.current?.readyState === WebSocket.OPEN) return
 
@@ -132,23 +132,26 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
       fetchHistory()
 
       api.listBoundaries().then(resp => {
-        if (!resp.boundaries) return
-        for (const b of resp.boundaries) {
-          if (b.nodes?.[0]?.constraint) {
-            gGuardMap[b.name] = {
-              name: b.name,
-              layer: b.layer || 'L1',
-              decision: 'STANDBY',
-              reason: '',
+        if (resp.boundaries) {
+          for (const b of resp.boundaries) {
+            if (b.nodes?.[0]?.constraint) {
+              gGuardMap[b.name] = {
+                name: b.name,
+                layer: b.layer || 'L1',
+                decision: 'STANDBY',
+                reason: '',
+              }
             }
           }
+          gVersion++
+          setState(s => ({ ...s, guardMap: { ...gGuardMap } }))
         }
-        gVersion++
-        setState(s => ({ ...s, guardMap: { ...gGuardMap } }))
       }).catch(() => {})
 
       const lastMsg = gEvents[0]?.message || ''
-      if (!lastMsg.includes('System Online')) {
+      if (lastMsg.includes('System Online')) {
+        // Skip
+      } else {
         gEvents = [{
           type: 'info' as const,
           message: 'System Online — Monitoring safety pipeline...',
@@ -162,20 +165,45 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
 
     ws.onmessage = (e: MessageEvent) => {
       if (typeof e.data !== 'string') {
-        // Binary Protocol: [magic: 0x01][name_len: 1][name][jpeg]
+        // Binary Protocol v2: [magic: 0x02][cycle_id: 4][name_len: 1][name][jpeg]
         try {
           const buf = e.data as ArrayBuffer
           const view = new Uint8Array(buf)
-          if (view[0] === 0x01) {
-            const nameLen = view[1]
-            const name = new TextDecoder().decode(view.subarray(2, 2 + nameLen))
-            const jpegData = view.subarray(2 + nameLen)
-            gLiveImages[name] = new Blob([jpegData], { type: 'image/jpeg' })
-            if (!gActiveCameras.includes(name)) {
-              gActiveCameras = [...gActiveCameras, name]
-            }
-            gVersion++
+          const dataView = new DataView(buf)
+          const magic = view[0]
+
+          let cycleId = -1
+          let nameLen = 0
+          let nameOffset = 0
+
+          if (magic === 0x02) {
+            // v2: with cycle_id (4-byte Uint32, big-endian)
+            cycleId = dataView.getUint32(1, false)
+            nameLen = view[5]
+            nameOffset = 6
+          } else if (magic === 0x01) {
+            // v1: legacy
+            nameLen = view[1]
+            nameOffset = 2
+          } else {
+            return // Unknown protocol
           }
+
+          // Sync check: ignore images from older cycles
+          if (cycleId !== -1 && gLatestCycle && cycleId < gLatestCycle.cycle_id) {
+            return
+          }
+
+          const name = new TextDecoder().decode(view.subarray(nameOffset, nameOffset + nameLen))
+          const jpegData = view.subarray(nameOffset + nameLen)
+          gLiveImages[name] = new Blob([jpegData], { type: 'image/jpeg' })
+
+          if (gActiveCameras.includes(name)) {
+            // Already tracked
+          } else {
+            gActiveCameras = [...gActiveCameras, name]
+          }
+          gVersion++
         } catch (err) { console.error('Binary parse error:', err) }
         return
       }
@@ -200,17 +228,21 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
         const cycle = msg as CycleEvent
         const now = Date.now()
 
-        // Keep gActiveCameras in sync with the latest cycle's reported cameras.
-        if (cycle.active_cameras?.length) {
-          gActiveCameras = cycle.active_cameras
+        // Keep gActiveCameras in sync. We merge current cameras with cycle-reported
+        // ones and track the last time we saw a frame to avoid flapping.
+        const cycleCams = cycle.active_cameras ?? []
+        for (const cam of cycleCams) {
+          if (!gActiveCameras.includes(cam)) {
+            gActiveCameras = [...gActiveCameras, cam]
+          }
         }
 
-        gLatestCycle = cycle
-        if (cycle.perf != null) gLatestPerf = cycle.perf
-        gVersion++
+        const isNewer = cycle.cycle_id > (gLatestCycle?.cycle_id ?? -1)
+        if (isNewer) {
+          gLatestCycle = cycle
+          if (cycle.perf != null) gLatestPerf = cycle.perf
+          gVersion++
 
-        const isNewCycle = !gProcessedIds.has(cycle.cycle_id)
-        if (isNewCycle) {
           gProcessedIds.add(cycle.cycle_id)
           gBuffer.totalCycles++
           gCycleTimes.push(now)
@@ -286,24 +318,73 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
       if (lastVersionRef.current === gVersion) return
       lastVersionRef.current = gVersion
 
-      setState(s => ({
-        ...s,
-        lastCycle: gLatestCycle,
-        guardMap: { ...gGuardMap },
-        latencyHistory: [...gLatency],
-        latencyCycleIds: [...gLatencyCycleIds],
-        latestPerf: gLatestPerf,
-        totalCycles: gBuffer.totalCycles,
-        totalRejects: gBuffer.totalRejects,
-        totalClamps: gBuffer.totalClamps,
-        totalFaults: gBuffer.totalFaults,
-        windowCycles: gCycleTimes.length,
-        windowRejects: gRejectTimes.length,
-        windowClamps: gClampTimes.length,
-        events: [...gEvents],
-        activeCameras: [...gActiveCameras],
-        liveImages: { ...gLiveImages },
-      }))
+      setState(s => {
+        const next: TelemetrySnapshot = { ...s }
+        let changed = false
+
+        if (s.lastCycle !== gLatestCycle) {
+          next.lastCycle = gLatestCycle
+          changed = true
+        }
+        if (s.latestPerf !== gLatestPerf) {
+          next.latestPerf = gLatestPerf
+          changed = true
+        }
+        if (s.totalCycles !== gBuffer.totalCycles) {
+          next.totalCycles = gBuffer.totalCycles
+          changed = true
+        }
+        if (s.totalRejects !== gBuffer.totalRejects) {
+          next.totalRejects = gBuffer.totalRejects
+          changed = true
+        }
+        if (s.totalClamps !== gBuffer.totalClamps) {
+          next.totalClamps = gBuffer.totalClamps
+          changed = true
+        }
+        if (s.totalFaults !== gBuffer.totalFaults) {
+          next.totalFaults = gBuffer.totalFaults
+          changed = true
+        }
+        if (s.windowCycles !== gCycleTimes.length) {
+          next.windowCycles = gCycleTimes.length
+          changed = true
+        }
+        if (s.windowRejects !== gRejectTimes.length) {
+          next.windowRejects = gRejectTimes.length
+          changed = true
+        }
+        if (s.windowClamps !== gClampTimes.length) {
+          next.windowClamps = gClampTimes.length
+          changed = true
+        }
+
+        // Arrays/Objects need explicit check or just clone if we know version changed
+        // To be safe and fast, we check if the global array is different from state
+        if (s.events !== gEvents) {
+          next.events = [...gEvents]
+          changed = true
+        }
+        if (s.latencyHistory.length !== gLatency.length || s.latencyHistory[s.latencyHistory.length-1] !== gLatency[gLatency.length-1]) {
+          next.latencyHistory = [...gLatency]
+          next.latencyCycleIds = [...gLatencyCycleIds]
+          changed = true
+        }
+        if (s.activeCameras !== gActiveCameras) {
+          next.activeCameras = [...gActiveCameras]
+          changed = true
+        }
+        if (s.liveImages !== gLiveImages) {
+          next.liveImages = { ...gLiveImages }
+          changed = true
+        }
+        if (s.guardMap !== gGuardMap) {
+          next.guardMap = { ...gGuardMap }
+          changed = true
+        }
+
+        return changed ? next : s
+      })
     }
 
     // Run once immediately

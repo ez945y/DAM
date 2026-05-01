@@ -26,7 +26,7 @@ const NAV = [
 
 export function Sidebar() {
   const path = usePathname()
-  const { status, confirmFault, recheckHardware, loading } = useRuntimeControl()
+  const { status, confirmFault, reset, recheckHardware, loading } = useRuntimeControl()
   // useTelemetry keeps the WebSocket connected on all pages, ensuring
   // dam-system-update events fire globally (e.g. for config-page restart feedback).
   const { connected } = useTelemetry()
@@ -80,21 +80,53 @@ export function Sidebar() {
 
       {/* Bottom status panel */}
       <div className="p-3 border-t border-dam-border space-y-2">
-        {/* Dynamic Action Button (Confirm or Recheck) */}
-        {(bs === 'error' || bs === 'faulted') && (
-          <button
-            onClick={bs === 'faulted' ? confirmFault : recheckHardware}
-            disabled={loading}
-            className={`w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-[10px] font-black uppercase tracking-widest border transition-all ${
-              bs === 'faulted'
-                ? 'bg-dam-red/20 text-dam-red border-dam-red/40 hover:bg-dam-red/30 animate-pulse'
-                : 'bg-dam-orange/20 text-dam-orange border-dam-orange/40 hover:bg-dam-orange/30'
-            }`}
-          >
-            {bs === 'faulted' ? <ShieldCheck size={12} /> : <RotateCcw size={12} />}
-            {bs === 'faulted' ? 'Confirm Safety' : 'Recheck HW'}
-          </button>
-        )}
+        {/* Dynamic Action Button (Confirm or Reset) */}
+        {(bs === 'error' || bs === 'faulted' || status.state === 'emergency') && (() => {
+          const isFault = bs === 'faulted'
+          const isEmergency = status.state === 'emergency'
+
+          let btnAction = recheckHardware
+          let btnLabel = 'Recheck HW'
+          let btnIcon = <RotateCcw size={12} />
+          let btnStyle = 'bg-dam-orange/20 text-dam-orange border-dam-orange/40 hover:bg-dam-orange/30'
+
+          if (isFault) {
+            btnAction = async () => { await confirmFault(); await reset() }
+            btnLabel = 'Confirm Safety'
+            btnIcon = <ShieldCheck size={12} />
+            btnStyle = 'bg-dam-red/20 text-dam-red border-dam-red/40 hover:bg-dam-red/30 animate-pulse'
+          } else if (isEmergency) {
+            btnAction = async () => { await reset() }
+            btnLabel = 'Reset System'
+            btnStyle = 'bg-dam-red/20 text-dam-red border-dam-red/40 hover:bg-dam-red/30 animate-pulse'
+          }
+
+          const baseStyle = 'w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-[10px] font-black uppercase tracking-widest border transition-all'
+
+          return (
+            <div className="space-y-1.5">
+              <button
+                onClick={btnAction}
+                disabled={loading && !isEmergency}
+                className={`${baseStyle} ${btnStyle}`}
+              >
+                {btnIcon}
+                {btnLabel}
+              </button>
+
+
+            {/* Emergency fallback: Allow reset even if backend is in error/checking */}
+            {status.state === 'emergency' && bs === 'error' && (
+              <button
+                onClick={() => reset()}
+                className="w-full text-[9px] text-dam-muted hover:text-dam-red transition-colors py-1 uppercase tracking-tighter font-bold"
+              >
+                Force Reset State
+              </button>
+            )}
+          </div>
+          )
+        })()}
 
         <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-dam-surface-2 border border-dam-border">
           <Activity size={11} className="text-dam-muted" />

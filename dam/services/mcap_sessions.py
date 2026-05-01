@@ -104,6 +104,7 @@ except ImportError:
 _TOPIC_CYCLE = "/dam/cycle"
 _TOPIC_IMAGES_PREFIX = "/dam/images/"
 
+_MAX_FRAME_CACHE = 512
 _READER_POOL_TTL = 30.0  # seconds before an idle reader entry is closed
 
 _DETAIL_TOPICS = {
@@ -170,7 +171,6 @@ class McapSessionService:
         # LRU frame-JPEG cache — avoids reopening MCAP file on every scrub/playback request.
         # Key: (filename, cam_name, target_ns).  Max 512 entries (~50 MB at ~100 KB/frame).
         self._frame_cache: OrderedDict[tuple[str, str, int], bytes] = OrderedDict()
-        self._frame_cache_max = 512
         # In-memory frame-list cache: avoids SQLite query + json.loads on every get_frame_jpeg.
         # Key: (filename, cam_name, mtime_ns).  Invalidated automatically when mtime changes.
         self._frames_mem: dict[tuple[str, str, int], list[dict[str, Any]]] = {}
@@ -868,9 +868,13 @@ class McapSessionService:
             return json.loads(row[1])
 
         frames = []
+        seen_ts = set()
         try:
             with _mcap_open(path) as reader:
                 for _, _, msg in reader.iter_messages(topics=[f"/dam/images/{cam_name}"]):
+                    if msg.log_time in seen_ts:
+                        continue
+                    seen_ts.add(msg.log_time)
                     frames.append(
                         {
                             "idx": len(frames),
@@ -947,7 +951,7 @@ class McapSessionService:
         with self._lock:
             self._frame_cache[key] = data
             self._frame_cache.move_to_end(key)
-            while len(self._frame_cache) > self._frame_cache_max:
+            while len(self._frame_cache) > _MAX_FRAME_CACHE:
                 self._frame_cache.popitem(last=False)
 
     @staticmethod

@@ -239,14 +239,19 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
         self._prev_positions = positions.copy()
         self._prev_velocities = velocities.copy()
 
-        # Images — persist them in _prev_images for robustness
+        # Images — only include FRESH frames in the current observation.
+        # This prevents duplicate photos from polluting the MCAP timeline/training data.
+        images: dict[str, np.ndarray] = {}
         if hasattr(self._robot, "cameras") and self._robot.cameras:
             for cam_name, cam in self._robot.cameras.items():
                 try:
+                    # async_read() returns None if no new frame is available.
                     frame = cam.async_read()
                     if frame is not None:
-                        self._prev_images[cam_name] = np.asarray(frame).copy()
-                except Exception:  # noqa: BLE001 — camera read failure is non-fatal; stale frame kept
+                        frame_np = np.asarray(frame).copy()
+                        self._prev_images[cam_name] = frame_np
+                        images[cam_name] = frame_np
+                except Exception:  # noqa: BLE001 — camera read failure is non-fatal
                     pass
 
         # EE Pose via Pinocchio
@@ -261,7 +266,7 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
             joint_positions=positions,
             joint_velocities=velocities,
             end_effector_pose=ee_pose,
-            images=self._prev_images.copy(),
+            images=images,
         )
 
     def _estimate_velocity(self, positions: np.ndarray, now: float) -> np.ndarray:

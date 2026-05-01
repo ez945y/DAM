@@ -65,6 +65,8 @@ class DatasetSimSource:
         self._hz = hz
         self._degrees_mode = degrees_mode
         self._cursor = 0
+        self._start_time: float | None = None
+        self._start_index: int = 0
 
         # Pre-loaded episode data: list of {"joint_positions", "images"?, "action"?}
         self._frames: list[dict[str, Any]] = []
@@ -72,10 +74,11 @@ class DatasetSimSource:
 
         logger.info("DatasetSimSource: loading %s episode %d …", repo_id, episode)
         try:
-            self._frames = self._load_episode(repo_id, episode)
+            self._frames, self._source_fps = self._load_episode(repo_id, episode)
             logger.info(
-                "DatasetSimSource: ready — %d frames, cameras: %s",
+                "DatasetSimSource: ready — %d frames, source_fps: %.1f, cameras: %s",
                 len(self._frames),
+                self._source_fps,
                 sorted({k for f in self._frames[:1] for k in (f.get("images") or {})}),
             )
         except Exception:
@@ -84,15 +87,36 @@ class DatasetSimSource:
                 repo_id,
             )
             self._frames = []
+            self._source_fps = hz
 
     # ── Public API ─────────────────────────────────────────────────────────
+
+    def connect(self) -> None:
+        """Reset playback state on fresh connection/task start."""
+        self._start_time = None
+        self._cursor = 0
+        logger.info("DatasetSimSource: playback timer reset")
+
+    def disconnect(self) -> None:
+        """No-op for simulation."""
+        pass
 
     def read(self) -> Observation:
         if not self._frames:
             return self._random_obs()
 
-        frame = self._frames[self._cursor % len(self._frames)]
-        self._cursor += 1
+        now = time.monotonic()
+        if self._start_time is None:
+            self._start_time = now
+            self._start_index = self._cursor
+
+        # Calculate current frame index based on elapsed time and NATIVE dataset HZ
+        elapsed = now - self._start_time
+        index = int(self._start_index + (elapsed * self._source_fps))
+
+        # Loop playback
+        frame = self._frames[index % len(self._frames)]
+        self._cursor = index + 1  # update cursor for compatibility
 
         joint_pos: np.ndarray = frame["joint_positions"]
 
@@ -119,8 +143,8 @@ class DatasetSimSource:
     # ── Dataset loading ────────────────────────────────────────────────────
 
     @staticmethod
-    def _load_episode(repo_id: str, episode: int) -> list[dict[str, Any]]:
-        """Download + decode one episode.  Returns a list of frame dicts."""
+    def _load_episode(repo_id: str, episode: int) -> tuple[list[dict[str, Any]], float]:
+        """Download + decode one episode.  Returns (frames, fps)."""
         try:
             from lerobot.datasets.lerobot_dataset import LeRobotDataset
         except ImportError as exc:
@@ -185,7 +209,7 @@ class DatasetSimSource:
         # shared-memory / semaphore state before the resource_tracker runs.
         del loader
 
-        return frames
+        return frames, float(getattr(ds, "fps", 30.0))
 
     # ── Fallback ───────────────────────────────────────────────────────────
 

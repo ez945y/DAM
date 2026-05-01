@@ -81,6 +81,7 @@ _FLOW_N_COUPLING = 6  # number of affine coupling layers
 _FLOW_HIDDEN = 256  # hidden units per coupling MLP
 _FLOW_EPOCHS = 50
 _FLOW_LR = 1e-3
+_FLOW_SUFFIX = "_flow.pt"
 _FLOW_BATCH = 64
 
 
@@ -803,7 +804,7 @@ class OODGuard(Guard):
         self._extractor.save(model_path)
         if self._backend_name == "normalizing_flow" and self._flow is not None:
             self._flow.save(
-                model_path.replace(".pt", "_flow.pt"),
+                model_path.replace(".pt", _FLOW_SUFFIX),
                 mean_train_nll=self._mean_train_nll,
                 std_train_nll=self._std_train_nll,
             )
@@ -821,7 +822,7 @@ class OODGuard(Guard):
         """Restore extractor and memory bank / flow from disk."""
         self._device = device
         self._extractor.load(model_path, joint_dim, has_images, device=device)
-        flow_path = model_path.replace(".pt", "_flow.pt")
+        flow_path = model_path.replace(".pt", _FLOW_SUFFIX)
         if self._backend_name == "normalizing_flow" and Path(flow_path).exists():
             if self._flow is None:
                 self._flow = RealNVPFlow(device=device)
@@ -909,32 +910,38 @@ class OODGuard(Guard):
         device: str = "cpu",
     ) -> None:
         changed = False
-        if (
-            model_path
-            and (model_path != self._model_path or device != self._device)
-            and Path(model_path).exists()
-        ):
-            joint_vec = obs.joint_positions
-            has_images = obs.images is not None and len(obs.images) > 0
-            self._extractor.load(model_path, joint_vec.shape[0], has_images, device=device)
-            # Also load the flow checkpoint (and restore training stats) if present.
-            flow_path = model_path.replace(".pt", "_flow.pt")
-            if self._backend_name == "normalizing_flow" and Path(flow_path).exists():
-                if self._flow is None:
-                    self._flow = RealNVPFlow(device=device)
-                mean_nll, std_nll = self._flow.load(flow_path, device=device)
-                if mean_nll is not None:
-                    self._mean_train_nll = mean_nll
-                    self._std_train_nll = std_nll
-            self._model_path = model_path
-            self._device = device
-            changed = True
+        if model_path and (model_path != self._model_path or device != self._device):
+            changed = self._load_model(model_path, obs, device)
+
         if bank_path and bank_path != self._bank_path and Path(bank_path).exists():
             self._bank.load(bank_path)
             self._bank_path = bank_path
             changed = True
+
         if changed:
             logger.info("OODGuard: reloaded (model=%s, bank=%s)", model_path, bank_path)
+
+    def _load_model(self, model_path: str, obs: Observation, device: str) -> bool:
+        if not Path(model_path).exists():
+            return False
+
+        joint_vec = obs.joint_positions
+        has_images = obs.images is not None and len(obs.images) > 0
+        self._extractor.load(model_path, joint_vec.shape[0], has_images, device=device)
+
+        # Also load the flow checkpoint (and restore training stats) if present.
+        flow_path = model_path.replace(".pt", _FLOW_SUFFIX)
+        if self._backend_name == "normalizing_flow" and Path(flow_path).exists():
+            if self._flow is None:
+                self._flow = RealNVPFlow(device=device)
+            mean_nll, std_nll = self._flow.load(flow_path, device=device)
+            if mean_nll is not None:
+                self._mean_train_nll = mean_nll
+                self._std_train_nll = std_nll
+
+        self._model_path = model_path
+        self._device = device
+        return True
 
     # ── Individual backend checks ─────────────────────────────────────────────
 

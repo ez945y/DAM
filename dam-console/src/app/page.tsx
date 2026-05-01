@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect }    from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useRouter }         from 'next/navigation'
 import { useTelemetry }      from '@/hooks/useTelemetry'
 import { useRuntimeControl } from '@/hooks/useRuntimeControl'
@@ -29,7 +29,9 @@ function useAdapterLabel(): string {
       const raw = localStorage.getItem('dam_config_v1')
       if (raw) {
         const adapter = (JSON.parse(raw) as { adapter?: string }).adapter ?? 'simulation'
-        const adapterLabel = adapter === 'lerobot' ? 'LeRobot server' : adapter === 'ros2' ? 'ROS2 server' : 'Dev server'
+        const isLeRobot = adapter === 'lerobot'
+        const isRos2 = adapter === 'ros2'
+        const adapterLabel = isLeRobot ? 'LeRobot server' : isRos2 ? 'ROS2 server' : 'Dev server'
         setLabel(adapterLabel)
       }
     } catch { /* ignore */ }
@@ -42,10 +44,18 @@ function HardwareWarning({ message }: { message: string }) {
   const [open, setOpen] = useState(false)
 
   // Parse bullet-point lines out of the error message for clean display
-  const lines = message
-    .split('\n')
-    .map(l => l.replace(/^\s*[•\-]\s*/, '').trim())
-    .filter(Boolean)
+  const lines = useMemo(() => {
+    let list = message
+      .split('\n')
+      .map(l => l.replace(/^\s*[•\-]\s*/, '').trim())
+      .filter(Boolean)
+
+    // Filter out the generic E-Stop message if we have more specific hardware details
+    if (list.length > 1) {
+      list = list.filter(l => l !== 'Emergency Stop Triggered')
+    }
+    return list
+  }, [message])
 
   const { recheckHardware, loading } = useRuntimeControl()
 
@@ -82,8 +92,8 @@ function HardwareWarning({ message }: { message: string }) {
             </div>
 
             <ul className="space-y-1">
-              {lines.map((l, i) => (
-                <li key={`line-${i}`} className="text-[11px] text-dam-muted leading-snug flex gap-1.5">
+              {lines.map((l) => (
+                <li key={l} className="text-[11px] text-dam-muted leading-snug flex gap-1.5">
                   <span className="text-dam-red shrink-0 mt-0.5">•</span>
                   <span>{l}</span>
                 </li>
@@ -160,18 +170,21 @@ export default function DashboardPage() {
   const windowClampPct  = tele.windowCycles > 0 ? ((tele.windowClamps  / tele.windowCycles) * 100).toFixed(1) + '%' : '0%'
 
   // Real-time Context
-  const activeTask = tele.lastCycle?.active_task
-    ?? ctrl.status.active_task
-    ?? ctrl.status.planned_task
-  const activeBoundaries = (
-    tele.lastCycle?.active_boundaries?.length
-      ? tele.lastCycle.active_boundaries
-      : ctrl.status.active_boundaries?.length
-        ? ctrl.status.active_boundaries
-        : ctrl.status.planned_boundaries ?? []
-  )
-  const isTaskLive = !!(tele.lastCycle?.active_task || ctrl.status.active_task)
-  const controlFreqHz = ctrl.status.control_frequency_hz ?? 50
+  const teleCycle = tele.lastCycle
+  const ctrlStatus = ctrl.status
+
+  const activeTask = teleCycle?.active_task ?? ctrlStatus.active_task ?? ctrlStatus.planned_task
+
+  // Determine active boundaries without nested ternaries
+  let activeBoundaries = ctrlStatus.planned_boundaries ?? []
+  if (teleCycle?.active_boundaries?.length) {
+    activeBoundaries = teleCycle.active_boundaries
+  } else if (ctrlStatus.active_boundaries?.length) {
+    activeBoundaries = ctrlStatus.active_boundaries
+  }
+
+  const isTaskLive = !!(teleCycle?.active_task || ctrlStatus.active_task)
+  const controlFreqHz = ctrl.status.control_frequency_hz
 
   const startupError = ctrl.status.startup_error ?? null
 
@@ -267,7 +280,9 @@ export default function DashboardPage() {
               </div>
               <div className="flex justify-between items-center bg-dam-surface-2 rounded-lg px-3 py-2 border border-dam-border/40">
                 <span className="text-[11px] text-dam-muted">Control Freq</span>
-                <span className="text-[11px] font-mono font-bold text-dam-text">{controlFreqHz.toFixed(1)} Hz</span>
+                <span className="text-[11px] font-mono font-bold text-dam-text">
+                  {controlFreqHz ? `${controlFreqHz.toFixed(1)} Hz` : '—'}
+                </span>
               </div>
             </div>
           </div>
@@ -340,9 +355,17 @@ export default function DashboardPage() {
                 let pulseCls = '';
 
                 if (hasGuards) {
-                  worst = layerGuards.some(g => g.decision === 'FAULT') ? 'FAULT' :
-                          layerGuards.some(g => g.decision === 'REJECT') ? 'REJECT' :
-                          layerGuards.some(g => g.decision === 'CLAMP') ? 'CLAMP' : 'PASS';
+                  // Determine worst decision by priority: FAULT > REJECT > CLAMP > PASS
+                  if (layerGuards.some(g => g.decision === 'FAULT')) {
+                    worst = 'FAULT'
+                  } else if (layerGuards.some(g => g.decision === 'REJECT')) {
+                    worst = 'REJECT'
+                  } else if (layerGuards.some(g => g.decision === 'CLAMP')) {
+                    worst = 'CLAMP'
+                  } else {
+                    worst = 'PASS'
+                  }
+
                   const cfg = DEC_CONFIG[worst as keyof typeof DEC_CONFIG];
                   colorCls = cfg.color.replaceAll('text-', 'bg-');
                   shadowCls = 'shadow-[0_0_8px] shadow-current';

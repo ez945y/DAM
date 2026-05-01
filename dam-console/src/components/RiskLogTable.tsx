@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
+import { useLiveMode } from '@/hooks/useLiveMode'
 import { RiskBadge } from '@/components/RiskBadge'
 import type { PerfSnapshot, GuardStatus, RiskEvent, RiskLevel, RiskLogStats } from '@/lib/types'
 import { Download, ChevronRight, ChevronDown, Activity, Shield, Hash, Clock, Play, Pause } from 'lucide-react'
@@ -169,14 +170,15 @@ function GuardResultItem({
     </div>
   )
 }
-
 // ── View MCAP Button ─────────────────────────────────────────────────────
 
 function ViewMcapButton({ cycleId, tsNs }: { cycleId: number; tsNs: number }) {
   const router = useRouter()
   const [searching, setSearching] = React.useState(false)
+  const { setLiveMode } = useLiveMode()
 
   const handleClick = async () => {
+    setLiveMode(false)
     setSearching(true)
     try {
       const result = await api.findMcapSession(cycleId)
@@ -210,11 +212,15 @@ function ViewMcapButton({ cycleId, tsNs }: { cycleId: number; tsNs: number }) {
 // ── Main table component ──────────────────────────────────────────────────
 
 export function RiskLogTable() {
+  const [isMounted, setIsMounted] = useState(false)
   const searchParams = useSearchParams()
   const targetCycleId = searchParams ? Number(searchParams.get('cycle_id') ?? '') || null : null
 
+  useEffect(() => {
+    setIsMounted(true)
+  }, [])
+
   const [events, setEvents] = useState<RiskEvent[]>([])
-  const [_stats, setStats] = useState<RiskLogStats | null>(null)
   const [loading, setLoading] = useState(false)
   const [_autoRefresh, setAutoRefresh] = useState(true)
   const [frozen, setFrozen] = useState(false)
@@ -240,17 +246,15 @@ export function RiskLogTable() {
   const load = async (isBackground = false) => {
     if (!isBackground) setLoading(true)
     try {
-      const [evRes, stRes] = await Promise.all([
-        api.getRiskLog({
-          min_risk_level: filters.min_risk_level || undefined,
-          rejected_only: filters.rejected_only,
-          clamped_only: filters.clamped_only,
-          limit: filters.limit,
-        }),
-        api.getRiskLogStats(),
-      ])
+      const evRes = await api.getRiskLog({
+        min_risk_level: filters.min_risk_level || undefined,
+        rejected_only: filters.rejected_only,
+        clamped_only: filters.clamped_only,
+        limit: filters.limit,
+      })
+      // Intentionally not storing stats if it's unused in the UI
+      await api.getRiskLogStats()
       setEvents(evRes.events)
-      setStats(stRes)
     } catch { /* ignore */ } finally {
       if (!isBackground) setLoading(false)
     }
@@ -326,6 +330,15 @@ export function RiskLogTable() {
   }, [targetCycleId, events])
 
   const groupedEvents = groupEvents(events)
+
+  if (!isMounted) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[50vh] space-y-3">
+        <div className="w-6 h-6 border-2 border-dam-blue/40 border-t-dam-blue rounded-full animate-spin" />
+        <span className="text-dam-muted text-xs">Loading Risk Log...</span>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-4">

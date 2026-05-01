@@ -117,3 +117,16 @@ class BoundaryConfigService:
             self.upsert(cfg)
             count += 1
         return count
+
+    def load_from_file(self, stack_path: str) -> int:
+        """Helper to load boundaries directly from a YAML stackfile path."""
+        try:
+            import yaml
+
+            with builtins.open(stack_path) as f:
+                cfg = yaml.safe_load(f)
+                if cfg and "boundaries" in cfg:
+                    return self.load_from_stackfile(cfg["boundaries"])
+        except Exception:
+            return 0
+        return 0
