@@ -1,0 +1,3345 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Real-time safety middleware for ML-driven robot arms">
+      
+      
+      
+        <link rel="canonical" href="https://ez945y.github.io/DAM/DAM_Development_Plan/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/logo.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>DAM 開發計畫書 - DAM — Detachable Action Monitor</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="amber" data-md-color-accent="yellow">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#dam" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="DAM — Detachable Action Monitor" class="md-header__button md-logo" aria-label="DAM — Detachable Action Monitor" data-md-component="logo">
+      
+  <img src="../assets/logo.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            DAM — Detachable Action Monitor
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              DAM 開發計畫書
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="amber" data-md-color-accent="yellow"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="amber" data-md-color-accent="yellow"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/ez945y/DAM" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ez945y/DAM
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../installation/" class="md-tabs__link">
+          
+  
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../guards-reference/" class="md-tabs__link">
+          
+  
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../console/" class="md-tabs__link">
+          
+  
+  
+  Console
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../contributing/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Contributing
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="DAM — Detachable Action Monitor" class="md-nav__button md-logo" aria-label="DAM — Detachable Action Monitor" data-md-component="logo">
+      
+  <img src="../assets/logo.svg" alt="logo">
+
+    </a>
+    DAM — Detachable Action Monitor
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/ez945y/DAM" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ez945y/DAM
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quick-stack/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stackfile Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guards-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guards
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../boundary-callbacks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Boundary Callbacks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../loopback-logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Loopback Logging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../DAM_Specification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experiments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Experiments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Console
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Console
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../console/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../services-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+  
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#0" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0. 開發總原則
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0. 開發總原則">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#01" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.1 軟體工程原則
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#02" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.2 程式碼品質要求
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#03-git" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.3 Git 工作流
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.3 Git 工作流">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        分支策略
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tag" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tag 慣例
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        開發流程
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#commit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Commit 格式
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PR 規範
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#04-cicd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.4 CI/CD 管線設計
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#05-docker-compose" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.5 開發環境（Docker Compose）
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.5 開發環境（Docker Compose）">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        目錄結構
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        服務說明
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 限制
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        常用指令
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-phase-1-core-safety-engine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Phase 1 — Core Safety Engine
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Phase 1 — Core Safety Engine">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#10-phase-1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.0 Phase 1 模組依賴圖
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#1a" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1A — 核心資料型別（凍結第一）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#1b" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1B — 邊界節點與約束
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#1c-callbackregistry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1C — CallbackRegistry
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#1d-guard-abc-decision-decisionaggregator" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1D — Guard ABC + Decision + DecisionAggregator
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#1e-boundarycontainer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1E — BoundaryContainer（三種類型）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#1f-fallbackregistry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1F — FallbackRegistry + 內建策略
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#1g-injectionpool-resolver" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1G — InjectionPool + Resolver
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#1h-guardruntime-dag" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1H — GuardRuntime（循序版，暫無 DAG）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#1i-motionguardl2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1I — MotionGuard（L2）— 第一個也是最重要的守衛
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#1j-stackfile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1J — Stackfile 解析器（基礎版）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#1k" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1K — 測試工具集
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1 退出標準
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-phase-2-lerobot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Phase 2 — LeRobot 硬體整合
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Phase 2 — LeRobot 硬體整合">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#20-phase-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.0 Phase 2 目標與邊界
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#20-phase-2_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.0 Phase 2 模組依賴圖
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#201-docker-compose-phase-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.0.1 Docker Compose 擴充（Phase 2）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2a-lerobot-adaptersso101-act" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2A — LeRobot Adapters（so101 + ACT）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2b-lerobotrunner" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2B — LeRobotRunner
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2c-rust-observationbus" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2C — Rust ObservationBus
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2d-rust-metricbus-riskcontroller" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2D — Rust MetricBus + RiskController
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2e-rust-watchdogtimer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2E — Rust WatchdogTimer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2f-ood-guardl0" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2F — OOD Guard（L0）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2g-execution-guardl3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2G — Execution Guard（L3）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2h-mcap-context-capture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2H — MCAP Context Capture
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2i-stackfile-hardware-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2I — Stackfile hardware + policy 解析
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2 退出標準
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-phase-3-ros2-runtime" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Phase 3 — ROS2 整合 + 進階 Runtime
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Phase 3 — ROS2 整合 + 進階 Runtime">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#30-phase-3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.0 Phase 3 模組依賴圖
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        開發內容
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        測試要求
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3 退出標準
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-phase-4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Phase 4 — 模擬層
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Phase 4 — 模擬層">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        開發內容
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        測試要求
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4 退出標準
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-phase-5-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Phase 5 — 可觀測性 &amp; UI
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Phase 5 — 可觀測性 &amp; UI">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        開發內容
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        測試要求
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 5 退出標準
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. 目錄結構參考
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. 里程碑時間線（建議）
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="dam">DAM 開發計畫書<a class="headerlink" href="#dam" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>Detachable Action Monitor — 分階段開發計畫與測試規範
+2026 年 4 月</p>
+</blockquote>
+<hr />
+<h2 id="0">0. 開發總原則<a class="headerlink" href="#0" title="Permanent link">&para;</a></h2>
+<h3 id="01">0.1 軟體工程原則<a class="headerlink" href="#01" title="Permanent link">&para;</a></h3>
+<p>本專案遵循以下核心原則：</p>
+<ul>
+<li><strong>每個 Phase 產出可運行、可測試的系統</strong>，才進入下一個 Phase。不允許「先寫完全部再測」。</li>
+<li><strong>測試先行（Test-First）</strong>：凍結資料型別 → 寫測試 → 實現邏輯 → 通過測試。Safety regression test 永遠先於功能代碼。</li>
+<li><strong>最小依賴引入</strong>：Phase 1 純 Python 無任何硬體依賴；Phase 2 才引入 Rust/PyO3；Phase 4 才引入模擬器。每個 Phase 的依賴範圍是硬邊界。</li>
+<li><strong>CI 門檻（CI Gate）</strong>：所有 PR 必須通過 CI 全流程才能合併。不存在「先 merge 再修」。</li>
+</ul>
+<h3 id="02">0.2 程式碼品質要求<a class="headerlink" href="#02" title="Permanent link">&para;</a></h3>
+<p><strong>Python（Control Plane — <code>dam/</code> 目錄）</strong></p>
+<table>
+<thead>
+<tr>
+<th>項目</th>
+<th>要求</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>型別提示</td>
+<td>所有公開接口強制 strict type hints，使用 <code>mypy --strict</code> 檢查</td>
+</tr>
+<tr>
+<td>格式化</td>
+<td><code>ruff format</code>（或 <code>black</code>），CI 中強制執行</td>
+</tr>
+<tr>
+<td>Lint</td>
+<td><code>ruff check</code>（或 <code>flake8</code>），零警告</td>
+</tr>
+<tr>
+<td>資料結構</td>
+<td>核心型別用 <code>@dataclass(frozen=True)</code>，不可變優先</td>
+</tr>
+<tr>
+<td>異常處理</td>
+<td>守衛 <code>check()</code> 內部的異常由框架統一 <code>try/except</code>，不允許守衛吞掉異常</td>
+</tr>
+<tr>
+<td>import 副作用</td>
+<td><code>@dam.guard</code> / <code>@dam.callback</code> 在 import 時完成簽名檢查；不允許其他 import 時副作用</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Rust（Data Plane — <code>dam-rs/</code> 目錄）</strong></p>
+<table>
+<thead>
+<tr>
+<th>項目</th>
+<th>要求</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>格式化</td>
+<td><code>cargo fmt</code>，CI 強制</td>
+</tr>
+<tr>
+<td>Lint</td>
+<td><code>cargo clippy -- -D warnings</code>，零警告</td>
+</tr>
+<tr>
+<td><code>unsafe</code></td>
+<td>僅限 PyO3 FFI 邊界和零拷貝緩衝區。每個 <code>unsafe</code> 塊必須附帶 <code>// SAFETY:</code> 註解說明為何安全</td>
+</tr>
+<tr>
+<td>測試</td>
+<td><code>cargo test</code>，Rust 側的單元測試覆蓋所有 bus 操作和 WatchdogTimer 邏輯</td>
+</tr>
+<tr>
+<td>PyO3 接口</td>
+<td>最小暴露面——只暴露 Python 必須調用的函數，內部 Rust 實現不暴露</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Stackfile / YAML</strong></p>
+<table>
+<thead>
+<tr>
+<th>項目</th>
+<th>要求</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Schema 驗證</td>
+<td><code>dam validate --stack &lt;file&gt;</code> 必須通過，CI 對所有範例 Stackfile 執行驗證</td>
+</tr>
+<tr>
+<td>範例文件</td>
+<td>每個 Phase 附帶至少一個完整的範例 Stackfile，作為文件也作為測試輸入</td>
+</tr>
+</tbody>
+</table>
+<h3 id="03-git">0.3 Git 工作流<a class="headerlink" href="#03-git" title="Permanent link">&para;</a></h3>
+<h4 id="_1">分支策略<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>分支</th>
+<th>說明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>main</code></td>
+<td>主幹整合分支。所有穩定功能與修復最終落地於此。Official release tags 直接從 <code>main</code> 切出。<strong>保護分支，不可直接推送。</strong></td>
+</tr>
+<tr>
+<td><code>dev</code></td>
+<td>持續開發分支。所有 <code>issue/&lt;num&gt;</code> 分支基於此建立，完成後透過 PR 合回 <code>dev</code>，再從 <code>dev</code> 往 <code>main</code> 整合。</td>
+</tr>
+<tr>
+<td><code>issue/&lt;num&gt;</code></td>
+<td>對應特定 GitHub Issue 的功能或修復分支，從 <code>dev</code> 分出，完成後透過 PR 合回 <code>dev</code>。</td>
+</tr>
+<tr>
+<td><code>release/[data-plane\|control-plane]/vX.Y.&lt;Z+1&gt;</code></td>
+<td>維護分支，用於舊版本的緊急熱修復（hotfix）。從現有版本 Tag 切出，末次 commit 打新 Tag。相關修復應 cherry-pick 或 merge 回 <code>main</code>。未來亦可用於支援 pre-release 階段。</td>
+</tr>
+</tbody>
+</table>
+<h4 id="tag">Tag 慣例<a class="headerlink" href="#tag" title="Permanent link">&para;</a></h4>
+<p>DAM 包含兩個可獨立發布的元件，使用不同 Tag 前綴觸發 CI/CD：</p>
+<table>
+<thead>
+<tr>
+<th>元件</th>
+<th>Tag 前綴</th>
+<th>說明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Python Control Plane（<code>dam/</code>）</td>
+<td><code>control-plane/vX.Y.Z</code></td>
+<td>Python 守衛框架、邊界評估、適配器</td>
+</tr>
+<tr>
+<td>Rust Data Plane（<code>dam-rs/</code>）</td>
+<td><code>data-plane/vX.Y.Z</code></td>
+<td>ObservationBus、ActionBus、WatchdogTimer、E-Stop</td>
+</tr>
+</tbody>
+</table>
+<h4 id="_2">開發流程<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h4>
+<ol>
+<li>從 <code>dev</code> 建立 <code>issue/&lt;num&gt;</code> 分支</li>
+<li>實作功能，確保附帶對應測試</li>
+<li>開 PR 到 <code>dev</code>，CI 全通過後合併</li>
+<li>累積足夠功能後，從 <code>dev</code> 開 PR 到 <code>main</code></li>
+<li>Release 時在 <code>main</code> 打對應 Tag（<code>control-plane/vX.Y.Z</code> 或 <code>data-plane/vX.Y.Z</code>）</li>
+</ol>
+<h4 id="commit">Commit 格式<a class="headerlink" href="#commit" title="Permanent link">&para;</a></h4>
+<p><code>&lt;type&gt;(&lt;scope&gt;): &lt;description&gt;</code></p>
+<ul>
+<li><strong>type</strong>：<code>feat</code>, <code>fix</code>, <code>test</code>, <code>refactor</code>, <code>docs</code>, <code>ci</code></li>
+<li><strong>scope</strong>：<code>core</code>, <code>guard</code>, <code>boundary</code>, <code>adapter</code>, <code>rust</code>, <code>stackfile</code>, <code>cli</code></li>
+<li><strong>範例</strong>：<code>feat(guard): implement MotionGuard L2 with joint limit clamping</code></li>
+</ul>
+<h4 id="pr">PR 規範<a class="headerlink" href="#pr" title="Permanent link">&para;</a></h4>
+<ul>
+<li>每個 PR 必須附帶測試，且 CI 全通過才能合併</li>
+<li>PR 標題格式同 Commit 格式</li>
+<li>PR 描述需包含：變更摘要、測試方法、相關 Issue 編號</li>
+</ul>
+<h3 id="04-cicd">0.4 CI/CD 管線設計<a class="headerlink" href="#04-cicd" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># .github/workflows/ci.yml 概念結構</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DAM CI</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="nt">on</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">push</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">pull_request</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="nt">jobs</span><span class="p">:</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span><span class="c1"># ── Python 檢查 ─────────────────────────────────────</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">  </span><span class="nt">python-lint</span><span class="p">:</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">    </span><span class="nt">steps</span><span class="p">:</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ruff format --check dam/</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ruff check dam/</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mypy --strict dam/</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">  </span><span class="nt">python-unit</span><span class="p">:</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">    </span><span class="nt">steps</span><span class="p">:</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pytest tests/unit/ -v --tb=short</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="w">  </span><span class="nt">python-integration</span><span class="p">:</span>
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="w">    </span><span class="nt">steps</span><span class="p">:</span>
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pytest tests/integration/ -v --tb=short</span>
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="w">  </span><span class="nt">safety-regression</span><span class="p">:</span>
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a><span class="w">    </span><span class="nt">steps</span><span class="p">:</span>
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pytest tests/safety/ -v --tb=short -x</span><span class="w">  </span><span class="c1"># -x: 第一個失敗立即停止</span>
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a><span class="w">    </span><span class="c1"># 此 job 失敗會阻擋合併（required check）</span>
+<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>
+<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a><span class="w">  </span><span class="c1"># ── Rust 檢查 ────────────────────────────────────────</span>
+<a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a><span class="w">  </span><span class="nt">rust-check</span><span class="p">:</span>
+<a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a><span class="w">    </span><span class="nt">steps</span><span class="p">:</span>
+<a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cargo fmt --check</span>
+<a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cargo clippy -- -D warnings</span>
+<a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cargo test</span>
+<a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>
+<a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a><span class="w">  </span><span class="c1"># ── Stackfile 驗證 ───────────────────────────────────</span>
+<a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a><span class="w">  </span><span class="nt">stackfile-validate</span><span class="p">:</span>
+<a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a><span class="w">    </span><span class="nt">steps</span><span class="p">:</span>
+<a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dam validate --stack examples/*.yaml</span>
+<a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a>
+<a id="__codelineno-0-39" name="__codelineno-0-39" href="#__codelineno-0-39"></a><span class="w">  </span><span class="c1"># ── Nightly（不阻擋合併，但追蹤趨勢）─────────────────</span>
+<a id="__codelineno-0-40" name="__codelineno-0-40" href="#__codelineno-0-40"></a><span class="w">  </span><span class="nt">nightly-fuzz</span><span class="p">:</span>
+<a id="__codelineno-0-41" name="__codelineno-0-41" href="#__codelineno-0-41"></a><span class="w">    </span><span class="nt">schedule</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cron(&#39;0 3 * * *&#39;)</span>
+<a id="__codelineno-0-42" name="__codelineno-0-42" href="#__codelineno-0-42"></a><span class="w">    </span><span class="nt">steps</span><span class="p">:</span>
+<a id="__codelineno-0-43" name="__codelineno-0-43" href="#__codelineno-0-43"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pytest tests/property/ -v --hypothesis-seed=random</span>
+</code></pre></div>
+<p><strong>CI 門檻等級</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>檢查項目</th>
+<th>觸發時機</th>
+<th>是否阻擋合併</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Python lint + type check</td>
+<td>每次 push/PR</td>
+<td><strong>是</strong></td>
+</tr>
+<tr>
+<td>Python unit test</td>
+<td>每次 push/PR</td>
+<td><strong>是</strong></td>
+</tr>
+<tr>
+<td>Python integration test</td>
+<td>每次 push/PR</td>
+<td><strong>是</strong></td>
+</tr>
+<tr>
+<td>Safety regression test</td>
+<td>每次 push/PR</td>
+<td><strong>是（最高優先級）</strong></td>
+</tr>
+<tr>
+<td>Rust fmt + clippy + test</td>
+<td>每次 push/PR（Phase 2 起）</td>
+<td><strong>是</strong></td>
+</tr>
+<tr>
+<td>Stackfile schema 驗證</td>
+<td>每次 push/PR</td>
+<td><strong>是</strong></td>
+</tr>
+<tr>
+<td>Property/fuzz test</td>
+<td>每日凌晨</td>
+<td>否（追蹤趨勢）</td>
+</tr>
+<tr>
+<td>Hardware-in-the-loop</td>
+<td>手動觸發（Release 前）</td>
+<td>否（Release gate）</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="05-docker-compose">0.5 開發環境（Docker Compose）<a class="headerlink" href="#05-docker-compose" title="Permanent link">&para;</a></h3>
+<p>本專案以 <strong>Docker Compose</strong> 作為標準開發環境，取代 Python 虛擬環境，確保所有開發者與 CI 環境一致。</p>
+<h4 id="_3">目錄結構<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>docker/
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>├── Dockerfile.dev     ← 互動式開發容器（含 dev 工具）
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>└── Dockerfile.test    ← CI 測試容器（入口點為 pytest）
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>docker-compose.yml     ← 服務定義
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>pyproject.toml         ← 工具鏈設定（ruff / mypy / pytest）的唯一來源
+</code></pre></div>
+<h4 id="_4">服務說明<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>服務</th>
+<th>用途</th>
+<th>指令</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dev</code></td>
+<td>互動式開發 shell，掛載專案目錄</td>
+<td><code>docker compose run dev</code></td>
+</tr>
+<tr>
+<td><code>test</code></td>
+<td>完整測試套件（排除硬體標記）</td>
+<td><code>docker compose run test</code></td>
+</tr>
+<tr>
+<td><code>lint</code></td>
+<td>格式檢查 + 型別檢查</td>
+<td><code>docker compose run lint</code></td>
+</tr>
+</tbody>
+</table>
+<h4 id="phase">Phase 限制<a class="headerlink" href="#phase" title="Permanent link">&para;</a></h4>
+<ul>
+<li><strong>Phase 1</strong>：僅 Python 容器，無 Rust 工具鏈</li>
+<li><strong>Phase 2 起</strong>：加入 <code>rust-builder</code> 服務，包含 <code>rustup</code> + <code>cargo</code> + <code>maturin</code>（PyO3 建構工具）</li>
+<li><strong>硬體測試</strong>（<code>@pytest.mark.hardware</code>）：在 CI 中永遠跳過（<code>-m "not hardware"</code>），只在有實體硬體的環境手動執行</li>
+</ul>
+<h4 id="_5">常用指令<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># 啟動互動式開發 shell</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>docker<span class="w"> </span>compose<span class="w"> </span>run<span class="w"> </span>dev
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="c1"># 僅跑 unit tests</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>docker<span class="w"> </span>compose<span class="w"> </span>run<span class="w"> </span><span class="nb">test</span><span class="w"> </span>pytest<span class="w"> </span>tests/unit/<span class="w"> </span>-v
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="c1"># 僅跑 safety regression</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>docker<span class="w"> </span>compose<span class="w"> </span>run<span class="w"> </span><span class="nb">test</span><span class="w"> </span>pytest<span class="w"> </span>tests/safety/<span class="w"> </span>-v<span class="w"> </span>-x
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="c1"># 格式化 + lint + 型別檢查</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>docker<span class="w"> </span>compose<span class="w"> </span>run<span class="w"> </span>lint
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="c1"># 進入開發容器後跑完整 CI 流程</span>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>docker<span class="w"> </span>compose<span class="w"> </span>run<span class="w"> </span>dev<span class="w"> </span>bash<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;ruff format dam/ tests/ &amp;&amp; ruff check dam/ &amp;&amp; mypy --strict dam/ &amp;&amp; pytest tests/ -m &#39;not hardware&#39;&quot;</span>
+</code></pre></div>
+<hr />
+<h2 id="1-phase-1-core-safety-engine">1. Phase 1 — Core Safety Engine<a class="headerlink" href="#1-phase-1-core-safety-engine" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p>純 Python，無硬體依賴，完全可在 CI 中測試</p>
+</blockquote>
+<h3 id="10-phase-1">1.0 Phase 1 模組依賴圖<a class="headerlink" href="#10-phase-1" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>[1A] Core Data Types ─────────────┐
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>                                   ├──→ [1D] Guard ABC + Decision
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>[1B] BoundaryNode + Constraint ───┤     │
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>                                   │     ▼
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>[1C] CallbackRegistry ────────────┼──→ [1E] BoundaryContainers
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>                                   │     │
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>[1F] FallbackRegistry ────────────┤     │
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>                                   │     ▼
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>[1G] InjectionPool + Resolver ────┼──→ [1H] GuardRuntime (sequential)
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>                                   │     │
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>                                   │     ▼
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a>                                   ├──→ [1I] MotionGuard (L2)
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>                                   │     │
+<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>                                   │     ▼
+<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a>                                   └──→ [1J] Stackfile Parser
+<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a>                                         │
+<a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a>                                         ▼
+<a id="__codelineno-3-18" name="__codelineno-3-18" href="#__codelineno-3-18"></a>                                   [1K] Testing Utilities
+<a id="__codelineno-3-19" name="__codelineno-3-19" href="#__codelineno-3-19"></a>                                         │
+<a id="__codelineno-3-20" name="__codelineno-3-20" href="#__codelineno-3-20"></a>                                         ▼
+<a id="__codelineno-3-21" name="__codelineno-3-21" href="#__codelineno-3-21"></a>                                   [EXIT] dam.step() 全週期 mock 測試通過
+</code></pre></div>
+<h3 id="1a">1A — 核心資料型別（凍結第一）<a class="headerlink" href="#1a" title="Permanent link">&para;</a></h3>
+<p><strong>開發內容</strong>：</p>
+<p>定義並凍結所有核心 dataclass，後續所有 Phase 依賴這些型別。一旦凍結，只能新增欄位（附帶預設值），不可修改已有欄位語義。</p>
+<table>
+<thead>
+<tr>
+<th>模組</th>
+<th>型別</th>
+<th>要點</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dam/types/observation.py</code></td>
+<td><code>Observation</code></td>
+<td>timestamp, joint_positions, joint_velocities, end_effector_pose, force_torque, images, metadata</td>
+</tr>
+<tr>
+<td><code>dam/types/action.py</code></td>
+<td><code>ActionProposal</code>, <code>ValidatedAction</code></td>
+<td>ActionProposal 含 confidence + policy_name；ValidatedAction 含 was_clamped + original_proposal 回溯</td>
+</tr>
+<tr>
+<td><code>dam/types/result.py</code></td>
+<td><code>GuardResult</code>, <code>Decision(IntEnum)</code>, <code>GuardDecision(IntEnum)</code></td>
+<td>GuardResult 含 factory 方法：<code>.pass_()</code>, <code>.reject(reason)</code>, <code>.clamp(action)</code>, <code>.fault(exc, source)</code></td>
+</tr>
+<tr>
+<td><code>dam/types/risk.py</code></td>
+<td><code>RiskLevel(IntEnum)</code>, <code>CycleResult</code></td>
+<td>CycleResult 是 <code>dam.step()</code> 的完整返回值</td>
+</tr>
+</tbody>
+</table>
+<p><strong>測試</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>測試類型</th>
+<th>內容</th>
+<th>文件</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Unit</td>
+<td>所有 dataclass 的建構、序列化/反序列化、factory 方法</td>
+<td><code>tests/unit/test_types.py</code></td>
+</tr>
+<tr>
+<td>Unit</td>
+<td>Decision IntEnum 排序正確性（PASS &lt; CLAMP &lt; REJECT &lt; FAULT）</td>
+<td><code>tests/unit/test_types.py</code></td>
+</tr>
+<tr>
+<td>Unit</td>
+<td>凍結性驗證：<code>frozen=True</code> 的 dataclass 不可修改欄位</td>
+<td><code>tests/unit/test_types.py</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>完成標準</strong>：所有型別定義完成，unit test 全通過，<code>mypy --strict</code> 通過。</p>
+<hr />
+<h3 id="1b">1B — 邊界節點與約束<a class="headerlink" href="#1b" title="Permanent link">&para;</a></h3>
+<p><strong>開發內容</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>模組</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dam/boundary/node.py</code></td>
+<td><code>BoundaryNode</code>：node_id, constraints dict, fallback, timeout_sec</td>
+</tr>
+<tr>
+<td><code>dam/boundary/constraint.py</code></td>
+<td><code>BoundaryConstraint</code>：max_speed, bounds, upper_limits, lower_limits, callback list</td>
+</tr>
+</tbody>
+</table>
+<p>約束值在載入時預解析為原生型別（float, np.ndarray），不在每週期重新解析。</p>
+<p><strong>測試</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>測試類型</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Unit</td>
+<td>BoundaryNode 建構、約束條件存取</td>
+</tr>
+<tr>
+<td>Unit</td>
+<td>約束值預解析：字串 → float/ndarray 正確轉換</td>
+</tr>
+<tr>
+<td>Unit</td>
+<td>bounds 格式驗證（3D 邊界框）</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="1c-callbackregistry">1C — CallbackRegistry<a class="headerlink" href="#1c-callbackregistry" title="Permanent link">&para;</a></h3>
+<p><strong>開發內容</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>模組</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dam/registry/callback.py</code></td>
+<td><code>CallbackRegistry</code>：register(name, fn)、get(name)、list_all()</td>
+</tr>
+<tr>
+<td><code>dam/decorators.py</code></td>
+<td><code>@dam.callback("name")</code> 裝飾器——import 時執行 <code>inspect.signature</code> 並快取</td>
+</tr>
+</tbody>
+</table>
+<p>M:N 映射：一個 callback 可被多個 YAML 節點引用，一個節點可引用多個 callback。</p>
+<p><strong>測試</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>測試類型</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Unit</td>
+<td>註冊、查找、重複名稱衝突拋錯</td>
+</tr>
+<tr>
+<td>Unit</td>
+<td>簽名檢查：未知參數名在 import 時拋 ValueError</td>
+</tr>
+<tr>
+<td>Unit</td>
+<td>簽名快取驗證：同一函式只 inspect 一次</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="1d-guard-abc-decision-decisionaggregator">1D — Guard ABC + Decision + DecisionAggregator<a class="headerlink" href="#1d-guard-abc-decision-decisionaggregator" title="Permanent link">&para;</a></h3>
+<p><strong>開發內容</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>模組</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dam/guard/base.py</code></td>
+<td><code>Guard</code> ABC：check(**kwargs) → GuardResult, get_layer(), get_name(), on_violation()</td>
+</tr>
+<tr>
+<td><code>dam/guard/aggregator.py</code></td>
+<td><code>DecisionAggregator</code>：aggregate(List[GuardResult]) → GuardResult，使用 max(IntEnum)</td>
+</tr>
+<tr>
+<td><code>dam/guard/layer.py</code></td>
+<td><code>GuardLayer(IntEnum)</code>：L0=0, L1=1, L2=2, L3=3, L4=4</td>
+</tr>
+<tr>
+<td><code>dam/decorators.py</code></td>
+<td><code>@dam.guard(layer="L2")</code> 裝飾器——在裝飾時將字串轉為 GuardLayer IntEnum</td>
+</tr>
+</tbody>
+</table>
+<p><strong>測試</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>測試類型</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Unit</td>
+<td>DecisionAggregator：REJECT &gt; CLAMP &gt; PASS 優先級正確</td>
+</tr>
+<tr>
+<td>Unit</td>
+<td>空結果列表處理（應 PASS）</td>
+</tr>
+<tr>
+<td>Unit</td>
+<td>FAULT 被視為 REJECT</td>
+</tr>
+<tr>
+<td>Unit</td>
+<td><code>@dam.guard</code> 裝飾器：layer 字串轉 IntEnum 正確，無效字串拋錯</td>
+</tr>
+<tr>
+<td>Safety</td>
+<td>含 REJECT 的任何組合，聚合結果必須為 REJECT</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="1e-boundarycontainer">1E — BoundaryContainer（三種類型）<a class="headerlink" href="#1e-boundarycontainer" title="Permanent link">&para;</a></h3>
+<p><strong>開發內容</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>模組</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dam/boundary/container.py</code></td>
+<td><code>BoundaryContainer</code> ABC：evaluate(), get_active_node(), advance(), reset(), snapshot(), restore()</td>
+</tr>
+<tr>
+<td><code>dam/boundary/single.py</code></td>
+<td><code>SingleNodeContainer</code>：單節點，永不切換</td>
+</tr>
+<tr>
+<td><code>dam/boundary/list_container.py</code></td>
+<td><code>ListContainer</code>：有序節點清單，依序切換</td>
+</tr>
+<tr>
+<td><code>dam/boundary/graph.py</code></td>
+<td><code>GraphContainer</code>：帶條件邊的有向圖，支持循環</td>
+</tr>
+</tbody>
+</table>
+<p><strong>測試</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>測試類型</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Unit</td>
+<td>SingleNodeContainer：evaluate 永遠返回同一節點約束</td>
+</tr>
+<tr>
+<td>Unit</td>
+<td>ListContainer：advance 按順序切換、到末尾行為、reset 回到起點</td>
+</tr>
+<tr>
+<td>Unit</td>
+<td>GraphContainer：條件分支正確路由、循環不死鎖</td>
+</tr>
+<tr>
+<td>Unit</td>
+<td>snapshot/restore 狀態一致性（暫停後恢復回同一節點）</td>
+</tr>
+<tr>
+<td>Property</td>
+<td>Hypothesis：隨機 advance 序列後 snapshot → restore → 狀態一致</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="1f-fallbackregistry">1F — FallbackRegistry + 內建策略<a class="headerlink" href="#1f-fallbackregistry" title="Permanent link">&para;</a></h3>
+<p><strong>開發內容</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>模組</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dam/fallback/registry.py</code></td>
+<td><code>FallbackRegistry</code>：register(strategy)、execute_with_escalation(name, ctx, bus)</td>
+</tr>
+<tr>
+<td><code>dam/fallback/builtin.py</code></td>
+<td>內建策略：<code>emergency_stop</code>, <code>hold_position</code>, <code>safe_retreat</code></td>
+</tr>
+<tr>
+<td><code>dam/fallback/chain.py</code></td>
+<td>升級鏈解析：啟動時解析 <code>escalates_to</code> 為物件指針鏈結</td>
+</tr>
+</tbody>
+</table>
+<p>升級鏈在啟動時解析為物件指針串列，運行時只需走指針。最終回退（terminal fallback）永遠是 <code>emergency_stop</code>。</p>
+<p><strong>測試</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>測試類型</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Unit</td>
+<td>升級鏈按順序執行</td>
+</tr>
+<tr>
+<td>Unit</td>
+<td>終端回退永遠是 emergency_stop（不可跳過）</td>
+</tr>
+<tr>
+<td>Unit</td>
+<td>未知策略名稱拋 ValueError</td>
+</tr>
+<tr>
+<td>Safety</td>
+<td>回退鏈中任何一環失敗 → 直接升級到 emergency_stop</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="1g-injectionpool-resolver">1G — InjectionPool + Resolver<a class="headerlink" href="#1g-injectionpool-resolver" title="Permanent link">&para;</a></h3>
+<p><strong>開發內容</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>模組</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dam/injection/pool.py</code></td>
+<td><code>RuntimePool</code>（Rust 側每週期更新）、<code>ConfigPool</code>（Stackfile 靜態）</td>
+</tr>
+<tr>
+<td><code>dam/injection/resolver.py</code></td>
+<td><code>InjectionResolver</code>：register(fn, valid_keys)、call(fn, pool)、build_pool()</td>
+</tr>
+<tr>
+<td><code>dam/injection/static.py</code></td>
+<td>啟動時預分割邏輯：<code>_static_kwargs</code>（frozen dict）、<code>_runtime_keys</code>（list）</td>
+</tr>
+</tbody>
+</table>
+<p><strong>關鍵行為</strong>：
+- import 時：<code>inspect.signature()</code> 快取為 <code>list[str]</code>
+- 啟動時：根據 <code>sig_keys</code> 與 <code>RUNTIME_POOL_KEYS</code> 交集，預分割為 <code>_static_kwargs</code> 和 <code>_runtime_keys</code>
+- 每週期：只做 <code>{k: runtime_pool[k] for k in guard._runtime_keys}</code>（2–4 次 dict 查找）</p>
+<p><strong>測試</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>測試類型</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Unit</td>
+<td>未知參數名 → import 時拋 ValueError</td>
+</tr>
+<tr>
+<td>Unit</td>
+<td>_static_kwargs 正確取自 config_pool</td>
+</tr>
+<tr>
+<td>Unit</td>
+<td>_runtime_keys 只包含 RUNTIME_POOL_KEYS 中的鍵</td>
+</tr>
+<tr>
+<td>Unit</td>
+<td>每週期調用不觸發 inspect（驗證快取有效）</td>
+</tr>
+<tr>
+<td>Unit</td>
+<td>名稱衝突時 runtime pool 覆蓋 config pool</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="1h-guardruntime-dag">1H — GuardRuntime（循序版，暫無 DAG）<a class="headerlink" href="#1h-guardruntime-dag" title="Permanent link">&para;</a></h3>
+<p><strong>開發內容</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>模組</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dam/runtime/guard_runtime.py</code></td>
+<td><code>GuardRuntime</code>：validate(obs, action), step(), run(task), start_task(), pause_task(), resume_task(), stop_task()</td>
+</tr>
+</tbody>
+</table>
+<p>Phase 1 為循序執行版本（逐一調用每個守衛的 check()）。Stage DAG 並行版在 Phase 3 實現。</p>
+<p><strong>關鍵行為</strong>：
+- <code>validate()</code> 內部用 try/except 包裝每個 <code>guard.check()</code>，異常 → <code>GuardResult.fault()</code>
+- Fault 在 aggregator 中被視為 REJECT
+- <code>step()</code> 完成 sense → validate → act 一個完整週期，返回 <code>CycleResult</code></p>
+<p><strong>測試</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>測試類型</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Unit</td>
+<td>單守衛 PASS → ValidatedAction 正確傳遞</td>
+</tr>
+<tr>
+<td>Unit</td>
+<td>單守衛 REJECT → fallback 被觸發</td>
+</tr>
+<tr>
+<td>Unit</td>
+<td>守衛異常 → FAULT → 視為 REJECT</td>
+</tr>
+<tr>
+<td>Integration</td>
+<td>多守衛循序執行 + DecisionAggregator 聚合結果正確</td>
+</tr>
+<tr>
+<td>Integration</td>
+<td>start_task → step 多次 → stop_task 生命週期完整</td>
+</tr>
+<tr>
+<td>Safety</td>
+<td>任何守衛拋異常，動作不可到達（ValidatedAction 為 None）</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="1i-motionguardl2">1I — MotionGuard（L2）— 第一個也是最重要的守衛<a class="headerlink" href="#1i-motionguardl2" title="Permanent link">&para;</a></h3>
+<p><strong>開發內容</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>模組</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dam/guard/builtin/motion.py</code></td>
+<td><code>MotionGuard</code>：關節限制 clamp、速度限制、加速度限制、工作空間邊界 REJECT</td>
+</tr>
+</tbody>
+</table>
+<p><strong>檢查邏輯</strong>：
+1. <code>joint_positions</code> 超出 <code>upper_limits</code> / <code>lower_limits</code> → CLAMP 到限制值
+2. <code>joint_velocities</code> 超出 <code>max_velocity</code> → CLAMP 縮放
+3. <code>end_effector_pose</code> 超出 <code>bounds</code> → REJECT
+4. 加速度估算（當前速度 - 上一速度 / dt）超出限制 → CLAMP</p>
+<p><strong>測試</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>測試類型</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Unit</td>
+<td>關節限制內 → PASS</td>
+</tr>
+<tr>
+<td>Unit</td>
+<td>單關節超限 → CLAMP 到邊界值</td>
+</tr>
+<tr>
+<td>Unit</td>
+<td>末端超出工作空間 → REJECT</td>
+</tr>
+<tr>
+<td>Unit</td>
+<td>速度超限 → CLAMP 且比例正確</td>
+</tr>
+<tr>
+<td>Safety regression</td>
+<td><code>tests/safety/test_motion_regression.py</code>：所有已知危險場景必須 REJECT 或 CLAMP</td>
+</tr>
+<tr>
+<td>Property</td>
+<td>Hypothesis：任意關節值，CLAMP 後必然在限制內</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="1j-stackfile">1J — Stackfile 解析器（基礎版）<a class="headerlink" href="#1j-stackfile" title="Permanent link">&para;</a></h3>
+<p><strong>開發內容</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>模組</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dam/config/parser.py</code></td>
+<td><code>StackfileLoader</code>：load(path), validate(path)</td>
+</tr>
+<tr>
+<td><code>dam/config/schema.py</code></td>
+<td>JSON Schema 或 Pydantic 模型定義 Stackfile 結構</td>
+</tr>
+</tbody>
+</table>
+<p>Phase 1 只需支援：<code>guards</code>、<code>boundaries</code>、<code>tasks</code>、<code>safety</code> 區塊。<code>hardware</code>、<code>policy</code>、<code>simulation</code> 在後續 Phase 實現。</p>
+<p><strong>測試</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>測試類型</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Unit</td>
+<td>正確 YAML → 正確解析</td>
+</tr>
+<tr>
+<td>Unit</td>
+<td>缺少必要欄位 → 明確錯誤訊息</td>
+</tr>
+<tr>
+<td>Unit</td>
+<td>未知守衛名稱 → 拒絕載入</td>
+</tr>
+<tr>
+<td>Unit</td>
+<td>boundaries 約束值型別驗證（max_speed 必須為數字）</td>
+</tr>
+<tr>
+<td>Integration</td>
+<td>完整範例 Stackfile 解析 → GuardRuntime 正確初始化</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="1k">1K — 測試工具集<a class="headerlink" href="#1k" title="Permanent link">&para;</a></h3>
+<p><strong>開發內容</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>模組</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dam/testing/mocks.py</code></td>
+<td>MockSourceAdapter, MockPolicyAdapter, MockSinkAdapter, MockSimulatorAdapter</td>
+</tr>
+<tr>
+<td><code>dam/testing/helpers.py</code></td>
+<td>inject_and_call(), assert_rejects(), assert_clamps(), assert_passes()</td>
+</tr>
+<tr>
+<td><code>dam/testing/pipeline.py</code></td>
+<td>run_pipeline(stack, obs_seq, actions) → List[CycleResult]</td>
+</tr>
+<tr>
+<td><code>dam/testing/safety.py</code></td>
+<td>safety_regression(scenarios) — 批次驗證已知危險場景</td>
+</tr>
+</tbody>
+</table>
+<p><strong>測試</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>測試類型</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Unit</td>
+<td>Mock 適配器行為正確（回放序列、記錄結果）</td>
+</tr>
+<tr>
+<td>Integration</td>
+<td>run_pipeline 完整流程：mock source → guard → mock sink</td>
+</tr>
+</tbody>
+</table>
+<h3 id="phase-1">Phase 1 退出標準<a class="headerlink" href="#phase-1" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># 這段測試必須通過，Phase 1 才算完成</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="k">def</span><span class="w"> </span><span class="nf">test_phase1_exit_criterion</span><span class="p">():</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;dam.step() 在純 Python mock 環境中跑完一個完整的 sense→validate→act 週期&quot;&quot;&quot;</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>    <span class="n">runtime</span> <span class="o">=</span> <span class="n">GuardRuntime</span><span class="o">.</span><span class="n">from_stackfile</span><span class="p">(</span><span class="s2">&quot;examples/stackfiles/test.yaml&quot;</span><span class="p">)</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="n">runtime</span><span class="o">.</span><span class="n">register_source</span><span class="p">(</span><span class="s2">&quot;main&quot;</span><span class="p">,</span> <span class="n">MockSourceAdapter</span><span class="p">([</span><span class="n">obs1</span><span class="p">,</span> <span class="n">obs2</span><span class="p">,</span> <span class="n">obs3</span><span class="p">]))</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    <span class="n">runtime</span><span class="o">.</span><span class="n">register_policy</span><span class="p">(</span><span class="n">MockPolicyAdapter</span><span class="p">([</span><span class="n">action1</span><span class="p">,</span> <span class="n">action2</span><span class="p">,</span> <span class="n">action3</span><span class="p">]))</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>    <span class="n">sink</span> <span class="o">=</span> <span class="n">MockSinkAdapter</span><span class="p">()</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>    <span class="n">runtime</span><span class="o">.</span><span class="n">register_sink</span><span class="p">(</span><span class="n">sink</span><span class="p">)</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>    <span class="n">runtime</span><span class="o">.</span><span class="n">start_task</span><span class="p">(</span><span class="s2">&quot;test_task&quot;</span><span class="p">)</span>
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>    <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">3</span><span class="p">):</span>
+<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a>        <span class="n">result</span> <span class="o">=</span> <span class="n">runtime</span><span class="o">.</span><span class="n">step</span><span class="p">()</span>
+<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a>        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="n">CycleResult</span><span class="p">)</span>
+<a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a>        <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">risk_level</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+<a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a>    <span class="n">runtime</span><span class="o">.</span><span class="n">stop_task</span><span class="p">()</span>
+<a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a>
+<a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a>    <span class="c1"># 至少有一些動作到達了 sink（不是全部被 REJECT）</span>
+<a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a>    <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">sink</span><span class="o">.</span><span class="n">received</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span>
+</code></pre></div>
+<hr />
+<h2 id="2-phase-2-lerobot">2. Phase 2 — LeRobot 硬體整合<a class="headerlink" href="#2-phase-2-lerobot" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p>第一次接觸真實硬體。硬體目標：<strong>SO-ARM101 follower arm</strong>；策略目標：<strong>LeRobot ACT</strong>。</p>
+</blockquote>
+<h3 id="20-phase-2">2.0 Phase 2 目標與邊界<a class="headerlink" href="#20-phase-2" title="Permanent link">&para;</a></h3>
+<p><strong>硬體</strong>：SO-ARM101 follower arm（6 關節，Feetech STS3215 伺服，LeRobot USB 介面）
+<strong>策略</strong>：LeRobot ACT（<code>lerobot/act</code> 類型，pretrained checkpoint）
+<strong>任務</strong>：桌面 pick-and-place，單一物體
+<strong>參考 Stackfile</strong>：<code>examples/so101_act_pick_place.yaml</code></p>
+<p><strong>Phase 2 新增依賴（硬性邊界）</strong>：
+- <code>lerobot</code> Python SDK（<code>pip install lerobot</code>）
+- <code>maturin</code>（PyO3 建構工具，Rust → Python wheel）
+- Rust toolchain（<code>rustup</code>）
+- Phase 2 Docker 服務：<code>rust-builder</code>（含 Rust + maturin）</p>
+<p><strong>Phase 2 不引入</strong>：
+- ROS2（Phase 3）
+- 模擬器（Phase 4）
+- Stage DAG 並行執行（Phase 3）</p>
+<h3 id="20-phase-2_1">2.0 Phase 2 模組依賴圖<a class="headerlink" href="#20-phase-2_1" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>[Phase 1 完整系統] ────────────────────────────────┐
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>                                                     │
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>[2A] LeRobot Adapters (Source/Sink/Policy) ──────────┤
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>                                                     │
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>[2B] LeRobotRunner ──────────────────────────────────┤
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>                                                     │
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>[2C] Rust ObservationBus (MCAP ring buffer) ─────────┤
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>                                                     │
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>[2D] Rust MetricBus + RiskController ────────────────┤
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>                                                     │
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>[2E] Rust WatchdogTimer ─────────────────────────────┤
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>                                                     │
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>[2F] OOD Guard (L0) ─────────────────────────────────┤
+<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a>                                                     │
+<a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a>[2G] Execution Guard (L3) ───────────────────────────┤
+<a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a>                                                     │
+<a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a>[2H] MCAP Context Capture ───────────────────────────┤
+<a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a>                                                     │
+<a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a>[2I] Stackfile hardware + policy 解析 ───────────────┘
+<a id="__codelineno-5-20" name="__codelineno-5-20" href="#__codelineno-5-20"></a>                                                     │
+<a id="__codelineno-5-21" name="__codelineno-5-21" href="#__codelineno-5-21"></a>                                                     ▼
+<a id="__codelineno-5-22" name="__codelineno-5-22" href="#__codelineno-5-22"></a>                                   [EXIT] so101 arm pick-and-place
+<a id="__codelineno-5-23" name="__codelineno-5-23" href="#__codelineno-5-23"></a>                                          ACT policy + L0+L2+L3 guards
+<a id="__codelineno-5-24" name="__codelineno-5-24" href="#__codelineno-5-24"></a>                                          人為觸發違規 → fallback + E-Stop
+</code></pre></div>
+<h3 id="201-docker-compose-phase-2">2.0.1 Docker Compose 擴充（Phase 2）<a class="headerlink" href="#201-docker-compose-phase-2" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># 在 docker-compose.yml 新增：</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="nt">services</span><span class="p">:</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span><span class="nt">rust-builder</span><span class="p">:</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">rust:1.78-slim</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">    </span><span class="nt">working_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/workspace</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">    </span><span class="nt">volumes</span><span class="p">:</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">.:/workspace</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cargo-cache:/root/.cargo</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">&gt;</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="w">      </span><span class="no">bash -c &quot;cargo build --release &amp;&amp;</span>
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="w">               </span><span class="no">maturin develop --release&quot;</span>
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a>
+<a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="w">  </span><span class="nt">test-hardware</span><span class="p">:</span>
+<a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a><span class="w">    </span><span class="c1"># 同 test，但不排除 hardware 標記（需實體設備）</span>
+<a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a><span class="w">    </span><span class="nt">build</span><span class="p">:</span>
+<a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a><span class="w">      </span><span class="nt">context</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">.</span>
+<a id="__codelineno-6-17" name="__codelineno-6-17" href="#__codelineno-6-17"></a><span class="w">      </span><span class="nt">dockerfile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">docker/Dockerfile.test</span>
+<a id="__codelineno-6-18" name="__codelineno-6-18" href="#__codelineno-6-18"></a><span class="w">    </span><span class="nt">volumes</span><span class="p">:</span>
+<a id="__codelineno-6-19" name="__codelineno-6-19" href="#__codelineno-6-19"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">.:/workspace</span>
+<a id="__codelineno-6-20" name="__codelineno-6-20" href="#__codelineno-6-20"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/dev:/dev</span><span class="w">      </span><span class="c1"># USB 裝置直通</span>
+<a id="__codelineno-6-21" name="__codelineno-6-21" href="#__codelineno-6-21"></a><span class="w">    </span><span class="nt">privileged</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-6-22" name="__codelineno-6-22" href="#__codelineno-6-22"></a><span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pytest tests/ -v -m &quot;hardware&quot;</span>
+<a id="__codelineno-6-23" name="__codelineno-6-23" href="#__codelineno-6-23"></a>
+<a id="__codelineno-6-24" name="__codelineno-6-24" href="#__codelineno-6-24"></a><span class="nt">volumes</span><span class="p">:</span>
+<a id="__codelineno-6-25" name="__codelineno-6-25" href="#__codelineno-6-25"></a><span class="w">  </span><span class="nt">cargo-cache</span><span class="p">:</span>
+</code></pre></div>
+<h3 id="2a-lerobot-adaptersso101-act">2A — LeRobot Adapters（so101 + ACT）<a class="headerlink" href="#2a-lerobot-adaptersso101-act" title="Permanent link">&para;</a></h3>
+<p><strong>目標介面</strong>（LeRobot SDK）：
+- <code>robot.get_observation()</code> → <code>{"observation.state": tensor, "observation.images.top": tensor, ...}</code>
+- <code>robot.send_action(action_dict)</code> → 發送到伺服馬達
+- <code>policy.select_action(obs_dict)</code> → <code>{"action": tensor[6]}</code>（ACT 回傳 chunk，取第一步）</p>
+<table>
+<thead>
+<tr>
+<th>模組</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dam/adapter/lerobot/source.py</code></td>
+<td><code>LeRobotSourceAdapter</code>：<code>read() → Observation</code>；將 lerobot obs dict 轉換為 DAM <code>Observation</code> dataclass</td>
+</tr>
+<tr>
+<td><code>dam/adapter/lerobot/sink.py</code></td>
+<td><code>LeRobotSinkAdapter</code>：<code>write(ValidatedAction)</code>；將 <code>target_joint_positions</code> 轉回 lerobot action dict</td>
+</tr>
+<tr>
+<td><code>dam/adapter/lerobot/policy.py</code></td>
+<td><code>LeRobotPolicyAdapter</code>：<code>predict(Observation) → ActionProposal</code>；處理 ACT chunk（<code>n_action_steps</code>），每步取 index 0</td>
+</tr>
+</tbody>
+</table>
+<p><strong>so101 關節映射</strong>（<code>Observation.joint_positions</code> index）：
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>0: shoulder_pan
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>1: shoulder_lift
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>2: elbow_flex
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>3: wrist_flex
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>4: wrist_roll
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>5: gripper
+</code></pre></div></p>
+<p><strong>測試</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>類型</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Unit</td>
+<td>mock robot dict → <code>Observation</code> 欄位正確映射</td>
+</tr>
+<tr>
+<td>Unit</td>
+<td><code>ValidatedAction</code> → lerobot action dict 格式正確</td>
+</tr>
+<tr>
+<td>Unit</td>
+<td>ACT chunk 截斷：輸出只有 index 0</td>
+</tr>
+<tr>
+<td>Integration <code>@pytest.mark.hardware</code></td>
+<td>真實 so101 連線後 <code>source.read()</code> 不為 None</td>
+</tr>
+</tbody>
+</table>
+<h3 id="2b-lerobotrunner">2B — LeRobotRunner<a class="headerlink" href="#2b-lerobotrunner" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>模組</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dam/runner/lerobot.py</code></td>
+<td><code>LeRobotRunner</code>：從 Stackfile <code>hardware</code> 區塊建構 robot + policy；封裝 <code>GuardRuntime.step()</code> 成自動迴圈</td>
+</tr>
+</tbody>
+</table>
+<p><strong>主要行為</strong>：
+- <code>from_stackfile(path)</code> — 讀取 <code>hardware.preset</code>、<code>hardware.sources</code>、<code>policy.*</code>，建構 robot 和 policy 物件
+- <code>run(task, n_cycles=None)</code> — 啟動迴圈，每 <code>1/control_frequency_hz</code> 秒呼叫一次 <code>step()</code>
+- <code>step()</code> — 代理到內部 <code>GuardRuntime.step()</code>，傳回 <code>CycleResult</code>
+- <code>stop()</code> — 優雅停止（先 <code>hold_position</code> 再斷線）</p>
+<p><strong>測試</strong>：Mock runner unit test；真實硬體 integration test 標記 <code>@pytest.mark.hardware</code>。</p>
+<h3 id="2c-rust-observationbus">2C — Rust ObservationBus<a class="headerlink" href="#2c-rust-observationbus" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>模組</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dam-rs/crates/observation-bus/</code></td>
+<td>MCAP-backed 無鎖環形緩衝區</td>
+</tr>
+<tr>
+<td><code>dam-rs/crates/observation-bus/src/pyo3.rs</code></td>
+<td>PyO3 綁定：<code>write(obs)</code>, <code>read_latest()</code>, <code>read_window(duration)</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Rust 測試</strong>：
+- <code>cargo test</code>：寫入/讀取正確性、併發讀寫安全性、環形覆蓋行為
+- 基準測試（<code>cargo bench</code>）：讀寫延遲 &lt; 100μs</p>
+<p><strong>Python 側測試</strong>：
+- Unit：透過 PyO3 調用 write/read_latest，驗證資料一致性</p>
+<h3 id="2d-rust-metricbus-riskcontroller">2D — Rust MetricBus + RiskController<a class="headerlink" href="#2d-rust-metricbus-riskcontroller" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>模組</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dam-rs/crates/metric-bus/</code></td>
+<td>每個守衛的 SPSC 通道</td>
+</tr>
+<tr>
+<td><code>dam-rs/crates/risk-controller/</code></td>
+<td>窗口化風險聚合；atomic emergency flag</td>
+</tr>
+</tbody>
+</table>
+<p><strong>測試</strong>：
+- Rust：窗口化計算正確性、emergency flag 原子性
+- Python：透過 PyO3 推送 metric → 查詢 risk_level 正確</p>
+<h3 id="2e-rust-watchdogtimer">2E — Rust WatchdogTimer<a class="headerlink" href="#2e-rust-watchdogtimer" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>模組</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dam-rs/crates/watchdog/</code></td>
+<td>週期截止時間強制；超時 → E-Stop</td>
+</tr>
+</tbody>
+</table>
+<p><strong>測試</strong>：
+- Rust：設定 10ms deadline，sleep 20ms → 驗證 E-Stop 觸發
+- 安全測試：<strong>Python GIL 被阻塞時，WatchdogTimer 仍然能觸發 E-Stop</strong></p>
+<h3 id="2f-ood-guardl0">2F — OOD Guard（L0）<a class="headerlink" href="#2f-ood-guardl0" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>模組</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dam/guard/builtin/ood.py</code></td>
+<td>Autoencoder 重建誤差偵測，接收完整 obs</td>
+</tr>
+</tbody>
+</table>
+<p><strong>測試</strong>：
+- Unit：正常 obs → PASS；人造 OOD obs → REJECT
+- Safety regression：已知 OOD 場景必須 REJECT</p>
+<h3 id="2g-execution-guardl3">2G — Execution Guard（L3）<a class="headerlink" href="#2g-execution-guardl3" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>模組</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dam/guard/builtin/execution.py</code></td>
+<td>邊界容器約束評估 + 節點超時</td>
+</tr>
+</tbody>
+</table>
+<p><strong>測試</strong>：
+- Unit：約束內 → PASS；違反 → REJECT；超時 → REJECT
+- Integration：與 BoundaryContainer 整合測試</p>
+<h3 id="2h-mcap-context-capture">2H — MCAP Context Capture<a class="headerlink" href="#2h-mcap-context-capture" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>模組</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dam/logging/mcap_capture.py</code></td>
+<td>違規時保存 ±30 秒的 ObservationBus 快照</td>
+</tr>
+</tbody>
+</table>
+<p><strong>測試</strong>：
+- Unit：mock 違規 → 驗證 MCAP 文件生成且包含正確時間範圍</p>
+<h3 id="2i-stackfile-hardware-policy">2I — Stackfile hardware + policy 解析<a class="headerlink" href="#2i-stackfile-hardware-policy" title="Permanent link">&para;</a></h3>
+<p><code>StackfileLoader.load()</code> 已支援 Phase 2 所有區塊（<code>hardware</code>、<code>policy</code>、<code>loopback</code>、<code>risk_controller</code>）。
+Phase 2 新增的工作：<code>LeRobotRunner.from_stackfile()</code> 讀取這些區塊建構真實物件。</p>
+<table>
+<thead>
+<tr>
+<th>解析目標</th>
+<th>來源欄位</th>
+<th>結果物件</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>robot 實例</td>
+<td><code>hardware.sources.follower_arm</code></td>
+<td><code>lerobot.Koch</code> 或 <code>lerobot.ManipulatorRobot</code></td>
+</tr>
+<tr>
+<td>policy 實例</td>
+<td><code>policy.pretrained_path</code>, <code>policy.device</code></td>
+<td><code>lerobot.ACT</code> loaded from checkpoint</td>
+</tr>
+<tr>
+<td>關節限制</td>
+<td><code>hardware.joints</code> 覆蓋 preset</td>
+<td>傳入 <code>MotionGuard</code> config_pool</td>
+</tr>
+<tr>
+<td>workspace</td>
+<td><code>boundaries.*.nodes.*.constraints.bounds</code></td>
+<td>傳入 <code>MotionGuard</code> config_pool</td>
+</tr>
+</tbody>
+</table>
+<h3 id="phase-2">Phase 2 退出標準<a class="headerlink" href="#phase-2" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># 這段必須在真實硬體上通過（@pytest.mark.hardware）</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="k">def</span><span class="w"> </span><span class="nf">test_phase2_exit_criterion</span><span class="p">():</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;so101 + ACT pick-and-place with L0+L2+L3 guards, real hardware.&quot;&quot;&quot;</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>    <span class="n">runner</span> <span class="o">=</span> <span class="n">LeRobotRunner</span><span class="o">.</span><span class="n">from_stackfile</span><span class="p">(</span><span class="s2">&quot;examples/so101_act_pick_place.yaml&quot;</span><span class="p">)</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>    <span class="n">runner</span><span class="o">.</span><span class="n">start_task</span><span class="p">(</span><span class="s2">&quot;pick_and_place&quot;</span><span class="p">)</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>    <span class="c1"># 正常跑 10 個週期</span>
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>    <span class="n">results</span> <span class="o">=</span> <span class="p">[</span><span class="n">runner</span><span class="o">.</span><span class="n">step</span><span class="p">()</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">10</span><span class="p">)]</span>
+<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>    <span class="k">assert</span> <span class="nb">all</span><span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="n">CycleResult</span><span class="p">)</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">)</span>
+<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a>    <span class="k">assert</span> <span class="nb">all</span><span class="p">(</span><span class="n">r</span><span class="o">.</span><span class="n">risk_level</span> <span class="ow">in</span> <span class="p">(</span><span class="n">RiskLevel</span><span class="o">.</span><span class="n">NORMAL</span><span class="p">,</span> <span class="n">RiskLevel</span><span class="o">.</span><span class="n">ELEVATED</span><span class="p">)</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">)</span>
+<a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>
+<a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a>    <span class="c1"># 人為觸發：手動推動機器臂超出 bounds</span>
+<a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a>    <span class="c1"># （實際測試在 MCAP 記錄分析中確認）</span>
+<a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a>
+<a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a>    <span class="n">runner</span><span class="o">.</span><span class="n">stop</span><span class="p">()</span>
+<a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a>
+<a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a><span class="c1"># 退出標準清單：</span>
+<a id="__codelineno-8-18" name="__codelineno-8-18" href="#__codelineno-8-18"></a><span class="c1"># ✓ L0（OOD）+ L2（Motion）+ L3（Execution）守衛全部啟用</span>
+<a id="__codelineno-8-19" name="__codelineno-8-19" href="#__codelineno-8-19"></a><span class="c1"># ✓ 關節位置正確映射到 Observation.joint_positions</span>
+<a id="__codelineno-8-20" name="__codelineno-8-20" href="#__codelineno-8-20"></a><span class="c1"># ✓ ValidatedAction 正確回送到 robot.send_action()</span>
+<a id="__codelineno-8-21" name="__codelineno-8-21" href="#__codelineno-8-21"></a><span class="c1"># ✓ 人為觸發違規 → REJECT → hold_position fallback 觸發</span>
+<a id="__codelineno-8-22" name="__codelineno-8-22" href="#__codelineno-8-22"></a><span class="c1"># ✓ 連續 2 次 REJECT → RiskLevel.ELEVATED → 最終 E-Stop</span>
+<a id="__codelineno-8-23" name="__codelineno-8-23" href="#__codelineno-8-23"></a><span class="c1"># ✓ /tmp/dam_loopback.mcap 生成，含 ±30s 違規前後片段</span>
+</code></pre></div>
+<hr />
+<h2 id="3-phase-3-ros2-runtime">3. Phase 3 — ROS2 整合 + 進階 Runtime<a class="headerlink" href="#3-phase-3-ros2-runtime" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p>相同守衛棧，不同硬體介面——只需更換 Stackfile</p>
+</blockquote>
+<h3 id="30-phase-3">3.0 Phase 3 模組依賴圖<a class="headerlink" href="#30-phase-3" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>[Phase 2 完整系統] ────────────────────────────────┐
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>                                                     │
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>[3A] ROS2 Source/Sink Adapter ───────────────────────┤
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>[3B] ROS2Runner ─────────────────────────────────────┤
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>[3C] Rust ActionBus ─────────────────────────────────┤
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>[3D] Rust Hardware Guard (L4) ───────────────────────┤
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>[3E] Stage DAG 並行執行 ─────────────────────────────┤
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>[3F] process_group 跨進程隔離 ───────────────────────┤
+<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>[3G] Hot Reload（雙緩衝 + 柵欄）──────────────────────┤
+<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a>[3H] 雙模式入口（run / step）────────────────────────┘
+<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a>                                                     │
+<a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a>                                                     ▼
+<a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a>                                              [EXIT] ROS2 arm 使用相同守衛棧
+<a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a>                                                     只更換 Stackfile sources/sinks
+</code></pre></div>
+<h3 id="_6">開發內容<a class="headerlink" href="#_6" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>模組</th>
+<th>關鍵要點</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>3A ROS2 Adapters</strong></td>
+<td>從 Stackfile 讀 topic 名稱自動建立 subscriber/publisher</td>
+</tr>
+<tr>
+<td><strong>3B ROS2Runner</strong></td>
+<td>與 rclpy executor 整合，timer callback 模式</td>
+</tr>
+<tr>
+<td><strong>3C Rust ActionBus</strong></td>
+<td>fallback 透過 PyO3 寫入；硬體從 Rust 端讀取</td>
+</tr>
+<tr>
+<td><strong>3D Hardware Guard (L4)</strong></td>
+<td>純 Rust 實現，監控電流/溫度，獨立於 Python 觸發 E-Stop</td>
+</tr>
+<tr>
+<td><strong>3E Stage DAG</strong></td>
+<td><code>list[list[Guard]]</code> 啟動時構建；Stage 內守衛並行（ThreadPoolExecutor）；Stage 間循序</td>
+</tr>
+<tr>
+<td><strong>3F process_group</strong></td>
+<td>共享內存傳遞 obs，跨進程守衛隔離；只能引用 config pool 鍵</td>
+</tr>
+<tr>
+<td><strong>3G Hot Reload</strong></td>
+<td>文件監控 → 只解析變更區段 → 重建 _static_kwargs → 週期柵欄 → 雙緩衝原子交換</td>
+</tr>
+<tr>
+<td><strong>3H 雙模式</strong></td>
+<td><code>dam.run()</code>（託管循環）vs <code>dam.step()</code>（被動步進）</td>
+</tr>
+</tbody>
+</table>
+<h3 id="_7">測試要求<a class="headerlink" href="#_7" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>測試類型</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Unit</td>
+<td>ROS2 Adapter：mock rclpy 測試 subscribe/publish</td>
+</tr>
+<tr>
+<td>Unit</td>
+<td>Stage DAG：2 個守衛並行，驗證兩者都被調用</td>
+</tr>
+<tr>
+<td>Unit</td>
+<td>Hot Reload：修改 Stackfile → _static_kwargs 正確更新</td>
+</tr>
+<tr>
+<td>Integration</td>
+<td>完整 Stage DAG + DecisionAggregator 管線測試</td>
+</tr>
+<tr>
+<td>Safety</td>
+<td>L4 Hardware Guard：Rust 側 E-Stop 在 Python 線程被阻塞時仍能觸發</td>
+</tr>
+<tr>
+<td>Safety</td>
+<td>Hot Reload 期間的週期不能丟失（柵欄不能阻塞超過 cycle_budget_ms）</td>
+</tr>
+</tbody>
+</table>
+<h3 id="phase-3">Phase 3 退出標準<a class="headerlink" href="#phase-3" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>相同的守衛棧在 ROS2 機器臂上運行——不修改任何守衛代碼，
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>只更換 Stackfile 中的 sources/sinks 聲明。
+</code></pre></div>
+<hr />
+<h2 id="4-phase-4">4. Phase 4 — 模擬層<a class="headerlink" href="#4-phase-4" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p>刻意排在最後：外部模擬器依賴重、啟動慢，且前三個 Phase 必須在沒有模擬的情況下正常工作。</p>
+</blockquote>
+<h3 id="_8">開發內容<a class="headerlink" href="#_8" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>模組</th>
+<th>關鍵要點</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>4A SimulatorAdapter ABC</strong></td>
+<td>介面：reset(), step(action), has_collision(), is_available()</td>
+</tr>
+<tr>
+<td><strong>4B IsaacSimAdapter</strong></td>
+<td>Isaac Sim 後端；從 Stackfile 載入場景</td>
+</tr>
+<tr>
+<td><strong>4C GazeboAdapter</strong></td>
+<td>Gazebo 後端</td>
+</tr>
+<tr>
+<td><strong>4D SimPreflightGuard (L1)</strong></td>
+<td>多步前瞻：在影子線程上用 policy + simulator 預跑；截止前返回結果，超時 → TIMEOUT 不阻塞</td>
+</tr>
+<tr>
+<td><strong>4E Stackfile <code>simulation:</code> 區塊</strong></td>
+<td>將 SimulatorAdapter 注入 runtime pool</td>
+</tr>
+</tbody>
+</table>
+<h3 id="_9">測試要求<a class="headerlink" href="#_9" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>測試類型</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Unit</td>
+<td>L1 前瞻邏輯：mock simulator 有碰撞 → REJECT</td>
+</tr>
+<tr>
+<td>Unit</td>
+<td>L1 超時處理：simulator 太慢 → TIMEOUT 但不阻塞主循環</td>
+</tr>
+<tr>
+<td>Unit</td>
+<td>SimulatorAdapter.is_available() == False → L1 優雅跳過</td>
+</tr>
+<tr>
+<td>Integration</td>
+<td>完整 Stage DAG 含 L1 並行 L2：L1 REJECT 優先於 L2 PASS</td>
+</tr>
+</tbody>
+</table>
+<h3 id="phase-4">Phase 4 退出標準<a class="headerlink" href="#phase-4" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>L1 守衛在 Isaac Sim 中拒絕了一個會造成碰撞的動作，
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>且該拒絕發生在動作送到真實硬體之前。
+</code></pre></div>
+<hr />
+<h2 id="5-phase-5-ui">5. Phase 5 — 可觀測性 &amp; UI<a class="headerlink" href="#5-phase-5-ui" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p>不要在 Phase 2 穩定於真實硬體前動手。可觀測性只有在有東西可觀測時才有用。</p>
+</blockquote>
+<h3 id="_10">開發內容<a class="headerlink" href="#_10" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>模組</th>
+<th>關鍵要點</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>5A WebSocket Telemetry</strong></td>
+<td>即時事件推送（obs、guard results、risk level）</td>
+</tr>
+<tr>
+<td><strong>5B REST API</strong></td>
+<td>Boundary CRUD、Runtime Control（start/stop/e-stop）、Risk Log 查詢</td>
+</tr>
+<tr>
+<td><strong>5C Web Dashboard</strong></td>
+<td>觀測值檢視器、守衛狀態、風險等級、節點切換可視化</td>
+</tr>
+<tr>
+<td><strong>5D 分佈式追蹤檢視器</strong></td>
+<td>trace_id 鏈接的守衛結果時間線</td>
+</tr>
+</tbody>
+</table>
+<h3 id="_11">測試要求<a class="headerlink" href="#_11" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>測試類型</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Unit</td>
+<td>WebSocket 訊息格式正確</td>
+</tr>
+<tr>
+<td>Unit</td>
+<td>REST API 端點回應正確（使用 TestClient）</td>
+</tr>
+<tr>
+<td>Integration</td>
+<td>完整 pipeline + telemetry 整合：step → 守衛結果即時推送</td>
+</tr>
+<tr>
+<td>E2E</td>
+<td>Dashboard 在瀏覽器中正確顯示即時資料</td>
+</tr>
+</tbody>
+</table>
+<h3 id="phase-5">Phase 5 退出標準<a class="headerlink" href="#phase-5" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>操作員透過 Web Dashboard 即時觀察：
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>- 每個守衛每週期的決策結果
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>- 風險等級變化
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>- 節點切換歷程
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>- 點擊 trace_id 跳轉到對應的完整守衛管線結果
+</code></pre></div>
+<hr />
+<h2 id="6">6. 目錄結構參考<a class="headerlink" href="#6" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>dam/
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>├── dam/                          # Python Control Plane
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>│   ├── __init__.py               # 公開 API：dam.step, dam.run, dam.Runner
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>│   ├── types/                    # [1A] 核心資料型別
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>│   │   ├── observation.py
+<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>│   │   ├── action.py
+<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a>│   │   ├── result.py
+<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a>│   │   └── risk.py
+<a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a>│   ├── guard/                    # [1D, 1I, 2F, 2G] 守衛系統
+<a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a>│   │   ├── base.py               # Guard ABC, GuardLayer IntEnum
+<a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a>│   │   ├── aggregator.py         # DecisionAggregator
+<a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a>│   │   ├── layer.py              # GuardLayer(IntEnum)
+<a id="__codelineno-13-13" name="__codelineno-13-13" href="#__codelineno-13-13"></a>│   │   └── builtin/
+<a id="__codelineno-13-14" name="__codelineno-13-14" href="#__codelineno-13-14"></a>│   │       ├── motion.py      # [1I] L2
+<a id="__codelineno-13-15" name="__codelineno-13-15" href="#__codelineno-13-15"></a>│   │       ├── ood.py            # [2F] L0
+<a id="__codelineno-13-16" name="__codelineno-13-16" href="#__codelineno-13-16"></a>│   │       ├── execution.py      # [2G] L3
+<a id="__codelineno-13-17" name="__codelineno-13-17" href="#__codelineno-13-17"></a>│   │       └── sim_preflight.py  # [4D] L1
+<a id="__codelineno-13-18" name="__codelineno-13-18" href="#__codelineno-13-18"></a>│   ├── boundary/                 # [1B, 1E] 邊界系統
+<a id="__codelineno-13-19" name="__codelineno-13-19" href="#__codelineno-13-19"></a>│   │   ├── node.py
+<a id="__codelineno-13-20" name="__codelineno-13-20" href="#__codelineno-13-20"></a>│   │   ├── constraint.py
+<a id="__codelineno-13-21" name="__codelineno-13-21" href="#__codelineno-13-21"></a>│   │   ├── container.py          # ABC
+<a id="__codelineno-13-22" name="__codelineno-13-22" href="#__codelineno-13-22"></a>│   │   ├── single.py
+<a id="__codelineno-13-23" name="__codelineno-13-23" href="#__codelineno-13-23"></a>│   │   ├── list_container.py
+<a id="__codelineno-13-24" name="__codelineno-13-24" href="#__codelineno-13-24"></a>│   │   └── graph.py
+<a id="__codelineno-13-25" name="__codelineno-13-25" href="#__codelineno-13-25"></a>│   ├── registry/                 # [1C, 1F] 註冊中心
+<a id="__codelineno-13-26" name="__codelineno-13-26" href="#__codelineno-13-26"></a>│   │   ├── callback.py
+<a id="__codelineno-13-27" name="__codelineno-13-27" href="#__codelineno-13-27"></a>│   │   └── fallback.py
+<a id="__codelineno-13-28" name="__codelineno-13-28" href="#__codelineno-13-28"></a>│   ├── fallback/                 # [1F] 回退系統
+<a id="__codelineno-13-29" name="__codelineno-13-29" href="#__codelineno-13-29"></a>│   │   ├── registry.py
+<a id="__codelineno-13-30" name="__codelineno-13-30" href="#__codelineno-13-30"></a>│   │   ├── builtin.py
+<a id="__codelineno-13-31" name="__codelineno-13-31" href="#__codelineno-13-31"></a>│   │   └── chain.py
+<a id="__codelineno-13-32" name="__codelineno-13-32" href="#__codelineno-13-32"></a>│   ├── injection/                # [1G] 注入池
+<a id="__codelineno-13-33" name="__codelineno-13-33" href="#__codelineno-13-33"></a>│   │   ├── pool.py
+<a id="__codelineno-13-34" name="__codelineno-13-34" href="#__codelineno-13-34"></a>│   │   ├── resolver.py
+<a id="__codelineno-13-35" name="__codelineno-13-35" href="#__codelineno-13-35"></a>│   │   └── static.py
+<a id="__codelineno-13-36" name="__codelineno-13-36" href="#__codelineno-13-36"></a>│   ├── runtime/                  # [1H] 守衛運行時
+<a id="__codelineno-13-37" name="__codelineno-13-37" href="#__codelineno-13-37"></a>│   │   └── guard_runtime.py
+<a id="__codelineno-13-38" name="__codelineno-13-38" href="#__codelineno-13-38"></a>│   ├── adapter/                  # [2A, 3A] 適配器
+<a id="__codelineno-13-39" name="__codelineno-13-39" href="#__codelineno-13-39"></a>│   │   ├── lerobot/
+<a id="__codelineno-13-40" name="__codelineno-13-40" href="#__codelineno-13-40"></a>│   │   └── ros2/
+<a id="__codelineno-13-41" name="__codelineno-13-41" href="#__codelineno-13-41"></a>│   ├── runner/                   # [2B, 3B] Runner
+<a id="__codelineno-13-42" name="__codelineno-13-42" href="#__codelineno-13-42"></a>│   │   ├── lerobot.py
+<a id="__codelineno-13-43" name="__codelineno-13-43" href="#__codelineno-13-43"></a>│   │   └── ros2.py
+<a id="__codelineno-13-44" name="__codelineno-13-44" href="#__codelineno-13-44"></a>│   ├── config/                   # [1J] 配置
+<a id="__codelineno-13-45" name="__codelineno-13-45" href="#__codelineno-13-45"></a>│   │   ├── parser.py
+<a id="__codelineno-13-46" name="__codelineno-13-46" href="#__codelineno-13-46"></a>│   │   └── schema.py
+<a id="__codelineno-13-47" name="__codelineno-13-47" href="#__codelineno-13-47"></a>│   ├── logging/                  # [2H] 日誌
+<a id="__codelineno-13-48" name="__codelineno-13-48" href="#__codelineno-13-48"></a>│   │   └── mcap_capture.py
+<a id="__codelineno-13-49" name="__codelineno-13-49" href="#__codelineno-13-49"></a>│   ├── decorators.py             # @dam.guard, @dam.callback, @dam.fallback
+<a id="__codelineno-13-50" name="__codelineno-13-50" href="#__codelineno-13-50"></a>│   ├── testing/                  # [1K] 測試工具
+<a id="__codelineno-13-51" name="__codelineno-13-51" href="#__codelineno-13-51"></a>│   │   ├── mocks.py
+<a id="__codelineno-13-52" name="__codelineno-13-52" href="#__codelineno-13-52"></a>│   │   ├── helpers.py
+<a id="__codelineno-13-53" name="__codelineno-13-53" href="#__codelineno-13-53"></a>│   │   ├── pipeline.py
+<a id="__codelineno-13-54" name="__codelineno-13-54" href="#__codelineno-13-54"></a>│   │   └── safety.py
+<a id="__codelineno-13-55" name="__codelineno-13-55" href="#__codelineno-13-55"></a>│   └── cli.py                    # dam run / dam validate / dam replay
+<a id="__codelineno-13-56" name="__codelineno-13-56" href="#__codelineno-13-56"></a>│
+<a id="__codelineno-13-57" name="__codelineno-13-57" href="#__codelineno-13-57"></a>├── dam-rs/                       # Rust Data Plane
+<a id="__codelineno-13-58" name="__codelineno-13-58" href="#__codelineno-13-58"></a>│   ├── crates/
+<a id="__codelineno-13-59" name="__codelineno-13-59" href="#__codelineno-13-59"></a>│   │   ├── observation-bus/      # [2C]
+<a id="__codelineno-13-60" name="__codelineno-13-60" href="#__codelineno-13-60"></a>│   │   ├── action-bus/           # [3C]
+<a id="__codelineno-13-61" name="__codelineno-13-61" href="#__codelineno-13-61"></a>│   │   ├── metric-bus/           # [2D]
+<a id="__codelineno-13-62" name="__codelineno-13-62" href="#__codelineno-13-62"></a>│   │   ├── risk-controller/      # [2D]
+<a id="__codelineno-13-63" name="__codelineno-13-63" href="#__codelineno-13-63"></a>│   │   ├── watchdog/             # [2E]
+<a id="__codelineno-13-64" name="__codelineno-13-64" href="#__codelineno-13-64"></a>│   │   └── hardware-guard/       # [3D] L4
+<a id="__codelineno-13-65" name="__codelineno-13-65" href="#__codelineno-13-65"></a>│   └── Cargo.toml
+<a id="__codelineno-13-66" name="__codelineno-13-66" href="#__codelineno-13-66"></a>│
+<a id="__codelineno-13-67" name="__codelineno-13-67" href="#__codelineno-13-67"></a>├── tests/
+<a id="__codelineno-13-68" name="__codelineno-13-68" href="#__codelineno-13-68"></a>│   ├── unit/                     # 每次 commit 執行
+<a id="__codelineno-13-69" name="__codelineno-13-69" href="#__codelineno-13-69"></a>│   ├── integration/              # 每次 commit 執行
+<a id="__codelineno-13-70" name="__codelineno-13-70" href="#__codelineno-13-70"></a>│   ├── safety/                   # 每次 commit 執行（阻擋合併）
+<a id="__codelineno-13-71" name="__codelineno-13-71" href="#__codelineno-13-71"></a>│   ├── property/                 # 每日 nightly
+<a id="__codelineno-13-72" name="__codelineno-13-72" href="#__codelineno-13-72"></a>│   └── hardware/                 # 手動觸發（@pytest.mark.hardware）
+<a id="__codelineno-13-73" name="__codelineno-13-73" href="#__codelineno-13-73"></a>│
+<a id="__codelineno-13-74" name="__codelineno-13-74" href="#__codelineno-13-74"></a>├── scripts/
+<a id="__codelineno-13-75" name="__codelineno-13-75" href="#__codelineno-13-75"></a>│   └── tests.sh                  # 一鍵跑全部測試（整合測試使用非預設端口）
+<a id="__codelineno-13-76" name="__codelineno-13-76" href="#__codelineno-13-76"></a>│
+<a id="__codelineno-13-77" name="__codelineno-13-77" href="#__codelineno-13-77"></a>├── .github/workflows/ci.yml
+<a id="__codelineno-13-78" name="__codelineno-13-78" href="#__codelineno-13-78"></a>├── pyproject.toml
+<a id="__codelineno-13-79" name="__codelineno-13-79" href="#__codelineno-13-79"></a>└── README.md
+</code></pre></div>
+<hr />
+<h2 id="7">7. 里程碑時間線（建議）<a class="headerlink" href="#7" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Phase</th>
+<th>估計工期</th>
+<th>前置條件</th>
+<th>交付物</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Phase 1</strong></td>
+<td>4–6 週</td>
+<td>無</td>
+<td>純 Python 安全引擎 + MotionGuard + 測試套件</td>
+</tr>
+<tr>
+<td><strong>Phase 2</strong></td>
+<td>4–6 週</td>
+<td>Phase 1 退出標準通過</td>
+<td>LeRobot 硬體驗證 + Rust bus + L0/L3 + MCAP</td>
+</tr>
+<tr>
+<td><strong>Phase 3</strong></td>
+<td>3–4 週</td>
+<td>Phase 2 退出標準通過</td>
+<td>ROS2 支援 + Stage DAG + Hot Reload + L4</td>
+</tr>
+<tr>
+<td><strong>Phase 4</strong></td>
+<td>2–3 週</td>
+<td>Phase 3 退出標準通過</td>
+<td>L1 SimPreflight + Isaac Sim/Gazebo</td>
+</tr>
+<tr>
+<td><strong>Phase 5</strong></td>
+<td>3–4 週</td>
+<td>Phase 2 穩定</td>
+<td>Dashboard + API + 追蹤器</td>
+</tr>
+</tbody>
+</table>
+<p>總計約 16–23 週（4–6 個月），具體取決於團隊規模與硬體到位時間。Phase 5 可與 Phase 3/4 並行開發。</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/ez945y/DAM" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.path", "navigation.top", "navigation.footer", "search.highlight", "search.suggest", "content.code.annotate", "content.code.copy", "content.tooltips", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
