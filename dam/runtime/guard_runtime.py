@@ -80,6 +80,7 @@ class GuardRuntime:
         self._control_frequency_hz = control_frequency_hz
         self._enforcement_mode = enforcement_mode
         self._cycle_id = 0
+        self._prev_validated_positions: list[float] | None = None
         self._active_task: str | None = None
         self._active_containers: list[BoundaryContainer] = []
         self._active_container_names: list[str] = []
@@ -414,6 +415,7 @@ class GuardRuntime:
             kinematics_resolver=self._kinematics_resolver,
             hardware_status=self._collect_hardware_status(obs),
             risk_controller=self._risk_controller,
+            prev_validated_positions=self._prev_validated_positions,
         )
         return self._engine.validate(obs, action, trace_id, ctx, now=now)
 
@@ -478,6 +480,10 @@ class GuardRuntime:
             obs, action, trace_id, now=t_start
         )
         t_validate = time.monotonic()
+
+        # Track last sent positions for following-error detection in HardwareGuard.
+        if validated is not None and validated.target_joint_positions is not None:
+            self._prev_validated_positions = validated.target_joint_positions.tolist()
 
         if validated is not None and self._sink is not None:
             # Use apply() (ActionAdapter ABC). write() is a deprecated alias on legacy sinks.
@@ -890,10 +896,9 @@ class GuardRuntime:
     ) -> tuple[dict[str, Any], dict[str, str], dict[str, Any]]:
         _LAYER_KIND_MAP = {
             "L0": "ood",
-            "L1": "preflight",
-            "L2": "motion",
-            "L3": "execution",
-            "L4": "hardware",
+            "L1": "motion",
+            "L2": "execution",
+            "L3": "hardware",
         }
         guards_by_kind: dict[str, Any] = {}
         boundary_to_kind: dict[str, str] = {}

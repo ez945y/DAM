@@ -12,7 +12,6 @@ import { LatencyChart }      from '@/components/LatencyChart'
 import { McapCameraPlayer }  from '@/components/McapCameraPlayer'
 import { Shield, TrendingDown, Timer, Loader, AlertTriangle, Radio } from 'lucide-react'
 import { PageShell } from '@/components/PageShell'
-import { api } from '@/lib/api'
 
 function formatUptime(sec: number): string {
   if (sec <= 0) return '—'
@@ -135,57 +134,12 @@ export default function DashboardPage() {
   const router = useRouter()
   const { liveMode, toggleLiveMode } = useLiveMode()
 
-  // Camera footage toggle state (only for MCAP session fetching when NOT in live mode)
-  const [showCamera] = useState(false)
-  const [mcapSession, setMcapSession] = useState<string | null>(null)
-  const [mcapCameras, setMcapCameras] = useState<string[]>([])
-  const [cameraLoading, setCameraLoading] = useState(false)
-
-  // Derive cameras for live mode from WS data
-  const liveCameras = tele.lastCycle?.live_images ? Object.keys(tele.lastCycle.live_images) : []
-
-  // showCamera is true either when user clicked camera button OR live mode is on
-  const actuallyShowCamera = showCamera || liveMode
-
   // Auto-start cycles after demo launch brings the backend online
   useEffect(() => {
-    if (demo.readyToStart) {
-      demo.clearReady()
-      if (ctrl.status.state === 'idle' || ctrl.status.state === 'stopped') {
-        ctrl.start()
-      }
-    }
-  }, [demo, ctrl])
-
-  // Load MCAP session only when camera is shown AND NOT in live mode
-  useEffect(() => {
-    if (!showCamera || liveMode) {
-      setMcapSession(null)
-      setMcapCameras([])
-      return
-    }
-
-    setCameraLoading(true)
-    api.listMcapSessions()
-      .then(data => {
-        const sessions = data?.sessions ?? []
-        if (sessions.length > 0) {
-          const filename = sessions[0].filename
-          setMcapSession(filename)
-          return api.getMcapSession(filename)
-        }
-      })
-      .then(sessionDetail => {
-        if (sessionDetail?.stats?.cameras) {
-          setMcapCameras(sessionDetail.stats.cameras)
-        }
-      })
-      .catch(() => {
-        setMcapSession(null)
-        setMcapCameras([])
-      })
-      .finally(() => setCameraLoading(false))
-  }, [showCamera, liveMode])
+    if (!demo.readyToStart) return
+    demo.clearReady()
+    if (ctrl.status.state === 'idle' || ctrl.status.state === 'stopped') ctrl.start()
+  }, [demo.readyToStart, demo.clearReady, ctrl.status.state, ctrl.start])
 
   // Running-time display
   const [liveSegSec, setLiveSegSec] = useState(0)
@@ -324,12 +278,10 @@ export default function DashboardPage() {
           <div className="panel p-4">
             <div className="flex items-center justify-between mb-3">
               <p className="section-label">
-                {actuallyShowCamera
-                  ? liveMode ? 'Live Camera Feed' : 'Camera Footage'
-                  : 'Cycle Latency'}
+                {liveMode ? 'Live Camera Feed' : 'Cycle Latency'}
               </p>
               <div className="flex items-center gap-2">
-                {!actuallyShowCamera && tele.latestPerf != null && (
+                {!liveMode && tele.latestPerf != null && (
                   <SlackIndicator
                     slackMs={tele.latestPerf.slack_ms}
                     deadlineMs={tele.latestPerf.deadline_ms}
@@ -339,46 +291,15 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {actuallyShowCamera ? (
+            {liveMode ? (
               <div className="h-80">
-                {liveMode ? (
-                  /* Live mode: show WS camera feed */
-                  <McapCameraPlayer
-                    filename=""
-                    cameras={liveCameras}
-                    currentTimestampNs={null}
-                    liveImages={tele.lastCycle?.live_images ?? null}
-                    liveMode
-                  />
-                ) : cameraLoading ? (
-                  <div className="h-full flex items-center justify-center text-dam-muted gap-2">
-                    <Loader size={16} className="animate-spin" />
-                    <span className="text-sm">Loading session…</span>
-                  </div>
-                ) : mcapSession && mcapCameras.length > 0 ? (
-                  <>
-                    <McapCameraPlayer
-                      filename={mcapSession}
-                      cameras={mcapCameras}
-                      currentTimestampNs={
-                        tele.lastCycle?.timestamp
-                          ? tele.lastCycle.timestamp * 1e9
-                          : null
-                      }
-                    />
-                    <p className="text-[10px] text-dam-muted/60 text-center mt-1">
-                      Current frame • For playback controls, go to <a href="/mcap-viewer" className="text-dam-blue hover:underline">MCAP Viewer</a>
-                    </p>
-                  </>
-                ) : mcapSession ? (
-                  <div className="h-full flex items-center justify-center text-dam-muted">
-                    <p className="text-sm">No camera footage captured yet</p>
-                  </div>
-                ) : (
-                  <div className="h-full flex items-center justify-center text-dam-muted">
-                    <p className="text-sm">No session found</p>
-                  </div>
-                )}
+                <McapCameraPlayer
+                  filename=""
+                  cameras={tele.activeCameras}
+                  currentTimestampNs={null}
+                  liveImages={tele.liveImages}
+                  liveMode
+                />
               </div>
             ) : (
               <LatencyChart
@@ -407,9 +328,9 @@ export default function DashboardPage() {
               onGuardClick={(cycleId) => router.push(`/risk-log?cycle_id=${cycleId}`)}
             />
 
-            {/* Status indicators (Persistent L0-L4) */}
+            {/* Status indicators (Persistent L0-L3) */}
             <div className="mt-4 pt-3 border-t border-dam-border/40 flex gap-4 overflow-x-auto pb-1">
-              {['L0', 'L1', 'L2', 'L3', 'L4'].map(layer => {
+              {['L0', 'L1', 'L2', 'L3'].map(layer => {
                 const layerGuards = guards.filter(g => g.layer === layer);
                 const hasGuards = layerGuards.length > 0;
 

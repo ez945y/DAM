@@ -272,21 +272,53 @@ export default function ConfigPage() {
     set('lerobot_cameras', next)
   }
 
-  const [restartMsg, setRestartMsg] = useState<string | null>(null)
+  // Ref-tracked flag so the dam-system-update handler always sees the current value.
+  const restartWaitingRef = useRef(false)
+
+  // Listen for WS system_status events to confirm restart success or failure.
+  useEffect(() => {
+    const handleUpdate = (e: Event) => {
+      if (!restartWaitingRef.current) return
+      const msg = (e as CustomEvent).detail
+      if (msg?.backend_state === 'ready') {
+        restartWaitingRef.current = false
+        setRestarting(false)
+        setRestartOk(true)
+        setTimeout(() => setRestartOk(false), 5000)
+      } else if (msg?.backend_state === 'error') {
+        restartWaitingRef.current = false
+        setRestarting(false)
+        setRestartError(msg.error || msg.message || 'Restart failed')
+      }
+    }
+    globalThis.addEventListener('dam-system-update', handleUpdate)
+    return () => globalThis.removeEventListener('dam-system-update', handleUpdate)
+  }, [])
+
+  // Timeout fallback: if no WS confirmation within 20s, surface an error.
+  useEffect(() => {
+    if (!restarting) return
+    const id = setTimeout(() => {
+      if (!restartWaitingRef.current) return
+      restartWaitingRef.current = false
+      setRestarting(false)
+      setRestartError('Restart timed out — server did not respond within 20 s')
+    }, 20000)
+    return () => clearTimeout(id)
+  }, [restarting])
 
   const handleApplyRestart = useCallback(async () => {
     setRestarting(true)
     setRestartError(null)
     setRestartOk(false)
-    setRestartMsg(null)
     try {
-      const adapter = cfg.adapter ?? 'simulation'
-      await api.restart(adapter, yaml)
-      setRestartOk(true)
-      setTimeout(() => { setRestartOk(false); setRestartMsg(null) }, 5000)
+      await api.restart(cfg.adapter ?? 'simulation', yaml)
+      // HTTP response only confirms the restart was accepted.
+      // Keep restarting=true — wait for WS system_status to confirm ready/error.
+      restartWaitingRef.current = true
     } catch (e) {
+      // HTTP-level failure (network unreachable, etc.) — give immediate feedback.
       setRestartError(e instanceof Error ? e.message : String(e))
-    } finally {
       setRestarting(false)
     }
   }, [yaml, cfg.adapter])
@@ -351,12 +383,6 @@ export default function ConfigPage() {
     >
       <input ref={jsonInputRef} type="file" accept=".json" onChange={handleImportJson} className="hidden" />
       {/* Config Sections */}
-
-      {restartMsg && (
-        <div className="flex items-center gap-2 p-2 bg-dam-blue/10 border border-dam-blue/20 rounded text-[10px] text-dam-blue animate-in fade-in slide-in-from-right-1">
-          <AlertCircle size={10} /> {restartMsg}
-        </div>
-      )}
 
       <Section title="Template">
         <TemplateGallery

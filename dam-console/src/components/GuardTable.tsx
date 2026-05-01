@@ -16,9 +16,8 @@ export const DEC_CONFIG: Record<GuardDecision | 'STANDBY', {
 const LAYER_COLORS: Record<string, string> = {
   L0: 'text-purple-400 bg-purple-950/50 border-purple-900',
   L1: 'text-dam-blue   bg-blue-950/50   border-blue-900',
-  L2: 'text-dam-blue bg-blue-950/50 border-blue-900',
-  L3: 'text-dam-orange bg-orange-950/50 border-orange-900',
-  L4: 'text-dam-red    bg-red-950/50    border-red-900',
+  L2: 'text-dam-orange bg-orange-950/50 border-orange-900',
+  L3: 'text-dam-red    bg-red-950/50    border-red-900',
 }
 
 export function GuardTable({
@@ -115,10 +114,9 @@ export function GuardTable({
 
   const LAYER_TITLES: Record<string, string> = {
     'L0': 'PERCEPTION (OOD)',
-    'L1': 'PREFLIGHT SIMULATION',
-    'L2': 'MOTION SAFETY',
-    'L3': 'TASK EXECUTION',
-    'L4': 'HARDWARE MONITORING'
+    'L1': 'PHYSICAL KINEMATICS',
+    'L2': 'TASK EXECUTION',
+    'L3': 'HARDWARE MONITORING',
   }
 
   const sorted = [...mergedList].sort((a, b) => a.layer.localeCompare(b.layer) || a.name.localeCompare(b.name))
@@ -126,8 +124,8 @@ export function GuardTable({
   // Group by layer
   const grouped: Record<string, typeof mergedList> = {}
 
-  // Ensure L0-L4 always exist for a professional "pre-flight" look
-  const coreLayers = ['L0', 'L1', 'L2', 'L3', 'L4']
+  // Ensure L0-L3 always exist for a consistent guard table layout
+  const coreLayers = ['L0', 'L1', 'L2', 'L3']
   for (const layer of coreLayers) {
     if (!grouped[layer]) grouped[layer] = []
   }

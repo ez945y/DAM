@@ -13,6 +13,8 @@ import json
 import logging
 import sqlite3
 import threading
+import time
+from collections import OrderedDict
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -102,6 +104,8 @@ except ImportError:
 _TOPIC_CYCLE = "/dam/cycle"
 _TOPIC_IMAGES_PREFIX = "/dam/images/"
 
+_READER_POOL_TTL = 30.0  # seconds before an idle reader entry is closed
+
 _DETAIL_TOPICS = {
     _TOPIC_CYCLE,
     "/dam/obs",
@@ -163,6 +167,20 @@ class McapSessionService:
         self._lock = threading.RLock()
         # Cache for freshly indexed cycles (keyed by (filename, mtime_ns))
         self._cycle_cache: dict[tuple[str, int], list[dict[str, Any]]] = {}
+        # LRU frame-JPEG cache — avoids reopening MCAP file on every scrub/playback request.
+        # Key: (filename, cam_name, target_ns).  Max 512 entries (~50 MB at ~100 KB/frame).
+        self._frame_cache: OrderedDict[tuple[str, str, int], bytes] = OrderedDict()
+        self._frame_cache_max = 512
+        # In-memory frame-list cache: avoids SQLite query + json.loads on every get_frame_jpeg.
+        # Key: (filename, cam_name, mtime_ns).  Invalidated automatically when mtime changes.
+        self._frames_mem: dict[tuple[str, str, int], list[dict[str, Any]]] = {}
+        # Reader pool: reuses SeekingReader across frame requests to avoid re-reading the MCAP
+        # footer (chunk index) on every call.  Keyed by (str(path), cam_name) so different
+        # cameras from the same file get independent file handles and can be read concurrently.
+        # Each entry carries its own threading.Lock to serialise concurrent reads of the same
+        # (file, camera) pair.  Entries expire after _READER_POOL_TTL seconds of inactivity.
+        self._reader_pool: dict[tuple[str, str], dict[str, Any]] = {}
+        self._pool_meta_lock = threading.Lock()
 
     @contextmanager
     def _connect(self) -> Generator[sqlite3.Connection, None, None]:
@@ -175,6 +193,79 @@ class McapSessionService:
             return path.stat().st_mtime_ns
         except OSError:
             return None
+
+    @contextmanager
+    def _pooled_reader(self, path: Path, cam_name: str) -> Generator[Any, None, None]:
+        """Return a cached SeekingReader for *(path, cam_name)*, opening one if needed.
+
+        Separate file handles per (path, cam_name) allow concurrent reads for different
+        cameras from the same file.  Falls back to a one-shot NonSeekingReader for
+        active (still-writing) files that lack a proper MCAP footer.
+        """
+        key = (str(path), cam_name)
+        entry: dict[str, Any] | None = None
+        one_shot_fh = None
+        one_shot_reader = None
+
+        with self._pool_meta_lock:
+            entry = self._reader_pool.get(key)
+            if entry is None:
+                fh = open(path, "rb")
+                try:
+                    reader = _make_reader(fh)
+                    entry = {
+                        "reader": reader,
+                        "fh": fh,
+                        "ts": time.monotonic(),
+                        "lock": threading.Lock(),
+                    }
+                    self._reader_pool[key] = entry
+                except Exception:
+                    # Active or incomplete file: use once, do not pool.
+                    fh.seek(0)
+                    one_shot_fh = fh
+                    try:
+                        one_shot_reader = _NonSeekingReader(fh, validate_crcs=False)
+                    except Exception:
+                        fh.close()
+                        raise
+            else:
+                entry["ts"] = time.monotonic()
+
+        if one_shot_reader is not None:
+            try:
+                yield one_shot_reader
+            finally:
+                with contextlib.suppress(Exception):
+                    one_shot_fh.close()
+            return
+
+        # Seekable path: serialise concurrent reads for the same (file, camera).
+        with entry["lock"]:
+            yield entry["reader"]
+
+        # Evict entries that have been idle longer than the TTL (brief lock).
+        now = time.monotonic()
+        with self._pool_meta_lock:
+            stale = [
+                k
+                for k, e in self._reader_pool.items()
+                if k != key and now - e["ts"] > _READER_POOL_TTL
+            ]
+            for k in stale:
+                e = self._reader_pool.pop(k)
+                with contextlib.suppress(Exception):
+                    e["fh"].close()
+
+    def close(self) -> None:
+        """Close all pooled file handles and the SQLite connection."""
+        with self._pool_meta_lock:
+            for e in self._reader_pool.values():
+                with contextlib.suppress(Exception):
+                    e["fh"].close()
+            self._reader_pool.clear()
+        with contextlib.suppress(Exception):
+            self._conn.close()
 
     @staticmethod
     def _mask_to_layers(mask: int) -> list[str]:
@@ -804,7 +895,7 @@ class McapSessionService:
         if not path:
             return None
         try:
-            with _mcap_open(path) as reader:
+            with self._pooled_reader(path, cam_name) as reader:
                 # O(1) jump using chunk index directly from time
                 msg_iter = reader.iter_messages(
                     topics=[f"/dam/images/{cam_name}"],
@@ -843,12 +934,72 @@ class McapSessionService:
             pass
         return None
 
+    def _frame_cache_get(self, key: tuple[str, str, int]) -> bytes | None:
+        """Thread-safe LRU cache lookup. Moves hit to end (most-recently-used)."""
+        with self._lock:
+            if key in self._frame_cache:
+                self._frame_cache.move_to_end(key)
+                return self._frame_cache[key]
+        return None
+
+    def _frame_cache_put(self, key: tuple[str, str, int], data: bytes) -> None:
+        """Thread-safe LRU cache insert. Evicts LRU entry when over capacity."""
+        with self._lock:
+            self._frame_cache[key] = data
+            self._frame_cache.move_to_end(key)
+            while len(self._frame_cache) > self._frame_cache_max:
+                self._frame_cache.popitem(last=False)
+
+    @staticmethod
+    def _decode_frame_payload(payload: Any) -> bytes | None:
+        """Extract JPEG bytes from a decoded msgpack/JSON image payload."""
+        if isinstance(payload, list) and len(payload) >= 5:
+            jpeg_data = payload[4]
+            if isinstance(jpeg_data, (bytes, bytearray)):
+                return bytes(jpeg_data)
+            if isinstance(jpeg_data, list):
+                return bytes(jpeg_data)
+        elif isinstance(payload, dict):
+            img = payload.get("data")
+            if img:
+                return img if isinstance(img, bytes) else base64.b64decode(img)
+        return None
+
+    def _get_frames_fast(self, filename: str, cam_name: str) -> list[dict[str, Any]]:
+        """Return the frame list for *cam_name*, using the in-memory cache first.
+
+        Falls back to ``list_frames`` (SQLite + JSON parse) only on a cache miss
+        or when the file's mtime has changed since the last cache fill.  This
+        avoids the ~10–50 ms ``json.loads`` cost on every ``get_frame_jpeg`` call
+        during playback of long sessions.
+        """
+        path = self._resolve(filename)
+        m_ns = self._mtime_ns(path) if path else None
+        if not m_ns:
+            return []
+        mem_key = (filename, cam_name, m_ns)
+        with self._lock:
+            if mem_key in self._frames_mem:
+                return self._frames_mem[mem_key]
+        frames = self.list_frames(filename, cam_name)
+        with self._lock:
+            # Evict stale entries for this (filename, cam_name) pair before inserting
+            stale = [
+                k
+                for k in self._frames_mem
+                if k[0] == filename and k[1] == cam_name and k[2] != m_ns
+            ]
+            for k in stale:
+                del self._frames_mem[k]
+            self._frames_mem[mem_key] = frames
+        return frames
+
     def get_frame_jpeg(self, filename: str, cam_name: str, frame_idx: int) -> bytes | None:
         path = self._resolve(filename)
         if not path:
             return None
 
-        frames = self.list_frames(filename, cam_name)
+        frames = self._get_frames_fast(filename, cam_name)
         if 0 <= frame_idx < len(frames):
             target_ns = frames[frame_idx].get("log_time_ns")
             if not target_ns:
@@ -856,8 +1007,13 @@ class McapSessionService:
         else:
             return None
 
+        cache_key = (filename, cam_name, target_ns)
+        cached = self._frame_cache_get(cache_key)
+        if cached is not None:
+            return cached
+
         try:
-            with _mcap_open(path) as reader:
+            with self._pooled_reader(path, cam_name) as reader:
                 # O(1) jump using chunk index; ±5 ms window handles minor timestamp drift
                 msg_iter = reader.iter_messages(
                     topics=[f"/dam/images/{cam_name}"],
@@ -870,19 +1026,10 @@ class McapSessionService:
                         payload = _msgpack.unpackb(msg.data, raw=False)
                     else:
                         payload = json.loads(msg.data)
-                    # ImageData format from Rust: [camera_name, timestamp, width, height, jpeg_bytes]
-                    # jpeg_bytes is a list of integers, convert to bytes
-                    if isinstance(payload, list) and len(payload) >= 5:
-                        jpeg_data = payload[4]
-                        if isinstance(jpeg_data, list):
-                            # Convert list of integers to bytes
-                            return bytes(jpeg_data)
-                        elif isinstance(jpeg_data, bytes):
-                            return jpeg_data
-                    elif isinstance(payload, dict):
-                        img = payload.get("data")
-                        if img:
-                            return img if isinstance(img, bytes) else base64.b64decode(img)
+                    jpeg = self._decode_frame_payload(payload)
+                    if jpeg:
+                        self._frame_cache_put(cache_key, jpeg)
+                        return jpeg
         except Exception:  # noqa: BLE001
             pass
         return None
@@ -902,6 +1049,13 @@ class McapSessionService:
                 cur.execute("DELETE FROM cycles WHERE filename=?", (filename,))
                 cur.execute("DELETE FROM frames WHERE filename=?", (filename,))
                 self._conn.commit()
+            # Release any pooled reader for this file.
+            path_str = str(path)
+            with self._pool_meta_lock:
+                for k in [k for k in self._reader_pool if k[0] == path_str]:
+                    e = self._reader_pool.pop(k)
+                    with contextlib.suppress(Exception):
+                        e["fh"].close()
             return True
         except Exception as e:
             logger.error("Failed to delete session %s: %s", filename, e)

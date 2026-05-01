@@ -76,6 +76,7 @@ class ValidationContext:
     kinematics_resolver: Any | None
     hardware_status: dict[str, Any]
     risk_controller: RiskController
+    prev_validated_positions: list[float] | None = None
 
 
 def _make_dummy_node() -> Any:
@@ -195,6 +196,7 @@ class ExecutionEngine:
             "node_start_times": ctx.node_start_times,
             "hardware_status": ctx.hardware_status or None,
             "kinematics_resolver": ctx.kinematics_resolver,
+            "prev_validated_positions": ctx.prev_validated_positions,
             "now": now,
         }
 

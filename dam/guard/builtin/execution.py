@@ -1,4 +1,4 @@
-"""Execution Guard (L3) — task-level boundary enforcement."""
+"""Execution Guard (L2) — task-level boundary enforcement."""
 
 from __future__ import annotations
 

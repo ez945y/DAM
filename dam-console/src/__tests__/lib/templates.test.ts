@@ -152,24 +152,22 @@ describe('generateYaml', () => {
     const yaml = generateYaml(cfg)
     expect(yaml).toContain('guards:')
     expect(yaml).toContain('  - L0: ood')
-    expect(yaml).toContain('  - L1: preflight')
-    expect(yaml).toContain('  - L2: motion')
-    expect(yaml).toContain('  - L3: execution')
-    expect(yaml).toContain('  - L4: hardware')
+    expect(yaml).toContain('  - L1: motion')
+    expect(yaml).toContain('  - L2: execution')
+    expect(yaml).toContain('  - L3: hardware')
     expect(yaml).not.toContain('upper_limits:')
     expect(yaml).not.toContain('lower_limits:')
     expect(yaml).not.toContain('ood_model_path:')
     expect(yaml).not.toContain('nn_threshold:')
   })
 
-  it('includes all 5 builtin guards in list format (Perception-Monitoring)', () => {
+  it('includes all 4 builtin guards in list format', () => {
     const cfg = defaultConfig('so101_act')
     const yaml = generateYaml(cfg)
     expect(yaml).toContain('- L0: ood')
-    expect(yaml).toContain('- L1: preflight')
-    expect(yaml).toContain('- L2: motion')
-    expect(yaml).toContain('- L3: execution')
-    expect(yaml).toContain('- L4: hardware')
+    expect(yaml).toContain('- L1: motion')
+    expect(yaml).toContain('- L2: execution')
+    expect(yaml).toContain('- L3: hardware')
   })
 
   it('joint limits appear in boundaries with calibrated values', () => {

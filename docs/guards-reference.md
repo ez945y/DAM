@@ -1,6 +1,6 @@
 # Guards Reference
 
-DAM provides four built-in guard layers. Guards are evaluated every cycle in layer order (L0 → L4).
+DAM provides four built-in guard layers. Guards are evaluated every cycle in layer order (L0 → L3).
 
 ---
 
@@ -9,9 +9,9 @@ DAM provides four built-in guard layers. Guards are evaluated every cycle in lay
 | Layer | Name | Class | Default |
 |-------|------|-------|---------|
 | L0 | OOD Detection | `OODGuard` | Enabled if configured |
-| L2 | Motion Safety | `MotionGuard` | Enabled via Stackfile |
-| L3 | Execution | `ExecutionGuard` | Enabled when boundaries active |
-| L4 | Hardware | `HardwareGuard` | Enabled when sink provides status |
+| L1 | Physical Kinematics | `MotionGuard` | Enabled via Stackfile |
+| L2 | Task Execution | `ExecutionGuard` | Enabled when boundaries active |
+| L3 | Hardware Monitoring | `HardwareGuard` | Enabled when sink provides status |
 
 ---
 
@@ -28,7 +28,15 @@ Rejects observations that appear out-of-distribution.
 2. **Welford z-score** (fallback) — online mean/variance estimator.
    Rejects if `max_z > z_threshold`. 30-sample warm-up period.
 
-**Training the memory bank:**
+**Training the density model:**
+
+Training fits a density model over normal observations and saves two statistics
+(`mean_train_nll`, `std_train_nll`) alongside the model weights.  At inference the
+rejection threshold is computed as:
+
+```
+threshold = mean_train_nll + nll_sigma × std_train_nll
+```
 
 ```python
 from dam.guard.builtin.ood import OODGuard
@@ -42,13 +50,14 @@ guard.save("extractor.pt", "bank.npy")
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `nn_threshold` | float | 0.5 | NN distance threshold |
+| `nn_threshold` | float | 0.5 | NN distance threshold (memory-bank detector) |
+| `nll_sigma` | float | 3.0 | Sensitivity multiplier for density-model threshold (`threshold = mean_train_nll + nll_sigma × std_train_nll`). Stackfile-configurable; higher values are more permissive. |
 | `ood_model_path` | str | None | Path to feature extractor weights |
 | `bank_path` | str | None | Path to memory bank `.npy` file |
 
 ---
 
-## MotionGuard (L2)
+## MotionGuard (L1)
 
 Enforces joint limits, velocity limits, workspace bounds, and acceleration limits.
 
@@ -71,7 +80,7 @@ Enforces joint limits, velocity limits, workspace bounds, and acceleration limit
 
 ---
 
-## ExecutionGuard (L3)
+## ExecutionGuard (L2)
 
 Evaluates active boundary node constraints each cycle.
 
@@ -85,7 +94,7 @@ Evaluates active boundary node constraints each cycle.
 
 ---
 
-## HardwareGuard (L4)
+## HardwareGuard (L3)
 
 Monitors hardware telemetry from the sink adapter.
 
@@ -96,8 +105,16 @@ Monitors hardware telemetry from the sink adapter.
 | `temperature_c` | `max_temperature_c` | 70°C |
 | `current_a` | `max_current_a` | 5.0 A |
 | `error_codes` | any non-zero | — |
+| `following_error_rad` | `max_following_error_rad` | 0.1 rad |
 
 Returns **FAULT** on any error code, **REJECT** on limit violation, **PASS** if `hardware_status` is None (graceful degradation).
+
+**Injection keys:**
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `prev_validated_positions` | ndarray | Last validated joint positions used to compute per-joint following error |
+| `max_following_error_rad` | float | Per-joint following error limit [rad]. Defaults to 0.1 rad. |
 
 ---
 

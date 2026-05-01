@@ -51,7 +51,6 @@ class OODTrainerService:
             output_name: Base name for the saved files.
             flow_epochs: Epochs for RealNVP if backend="normalizing_flow"
             flow_lr: Learning rate for RealNVP if backend="normalizing_flow"
-
         Returns:
             Dict containing the paths to the saved models and diagnostics.
         """
@@ -143,6 +142,8 @@ class OODTrainerService:
             "samples": len(obs_list),
             "flow_epochs": flow_epochs if backend == "normalizing_flow" else 0,
             "flow_lr": flow_lr if backend == "normalizing_flow" else 0,
+            "mean_train_nll": guard._mean_train_nll,
+            "std_train_nll": guard._std_train_nll,
             "timestamp": time.time(),
         }
         meta_path = self.data_dir / f"{output_name}.json"

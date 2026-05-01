@@ -32,14 +32,14 @@ describe('GuardTable', () => {
   it('renders guard names when layer is expanded', () => {
     render(<GuardTable guards={guards} />)
     // Click the L2 header to expand it
-    fireEvent.click(screen.getByText('MOTION SAFETY'))
+    fireEvent.click(screen.getByText('TASK EXECUTION'))
     expect(screen.getByText('MotionGuard')).toBeInTheDocument()
   })
 
   it('renders layer titles', () => {
     render(<GuardTable guards={guards} />)
     expect(screen.getByText('PERCEPTION (OOD)')).toBeInTheDocument()
-    expect(screen.getByText('MOTION SAFETY')).toBeInTheDocument()
     expect(screen.getByText('TASK EXECUTION')).toBeInTheDocument()
+    expect(screen.getByText('HARDWARE MONITORING')).toBeInTheDocument()
   })
 })

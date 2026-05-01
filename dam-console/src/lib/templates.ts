@@ -52,7 +52,7 @@ export interface DamConfig {
   joints: JointDef[]
   controlFrequencyHz: number
   enforcement_mode: EnforcementMode
-  guardsEnabled: Partial<Record<'ood' | 'preflight' | 'motion' | 'execution' | 'hardware', boolean>>
+  guardsEnabled: Partial<Record<'ood' | 'motion' | 'execution' | 'hardware', boolean>>
   tasks: TaskDef[]
   boundaries: BoundaryDef[]
   loopback?: LoopbackConfig
@@ -126,19 +126,19 @@ const DEFAULT_BOUNDARIES: BoundaryDef[] = [
     nodes: [{ node_id: 'default', params: {}, callback: 'ood_detector', fallback: 'emergency_stop', timeout_sec: 1 }]
   },
   {
-    name: 'bounds', layer: 'L2', type: 'single',
+    name: 'bounds', layer: 'L1', type: 'single',
     nodes: [{ node_id: 'default', params: { bounds: [[-0.4, 0.4], [-0.4, 0.4], [0.02, 0.6]] }, callback: 'workspace', fallback: 'emergency_stop', timeout_sec: 1 }]
   },
   {
-    name: 'joint_position_limits', layer: 'L2', type: 'single',
+    name: 'joint_position_limits', layer: 'L1', type: 'single',
     nodes: [{ node_id: 'default', params: { upper: [1.8243, 1.7691, 1.6026, 1.8067, 3.0741, 1.7453], lower: [-1.8243, -1.7691, -1.6026, -1.8067, -3.0741, 0] }, callback: 'joint_position_limits', fallback: 'emergency_stop', timeout_sec: null }]
   },
   {
-    name: 'joint_velocity_limit', layer: 'L2', type: 'single',
+    name: 'joint_velocity_limit', layer: 'L1', type: 'single',
     nodes: [{ node_id: 'default', params: { max_velocities: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5] }, callback: 'joint_velocity_limit', fallback: 'emergency_stop', timeout_sec: 1 }]
   },
   {
-    name: 'hardware_watchdog', layer: 'L4', type: 'single',
+    name: 'hardware_watchdog', layer: 'L3', type: 'single',
     nodes: [{ node_id: 'default', params: { max_staleness_ms: 1000 }, callback: 'hardware_limit', fallback: 'emergency_stop', timeout_sec: 0.1 }]
   },
 ]
@@ -324,10 +324,10 @@ function taskLines(t: TaskDef): string[] {
   return lines
 }
 
-const GUARD_LAYER: Record<string, string> = { ood: 'L0', preflight: 'L1', motion: 'L2', execution: 'L3', hardware: 'L4' }
+const GUARD_LAYER: Record<string, string> = { ood: 'L0', motion: 'L1', execution: 'L2', hardware: 'L3' }
 
 function guardLines(cfg: DamConfig): string[][] {
-  return (['ood', 'preflight', 'motion', 'execution', 'hardware'] as const).map(gid => {
+  return (['ood', 'motion', 'execution', 'hardware'] as const).map(gid => {
     const layer = GUARD_LAYER[gid]
     return cfg.guardsEnabled?.[gid] === false ? [`${layer}: ${gid}`, 'enabled: false'] : [`${layer}: ${gid}`]
   })
@@ -440,7 +440,7 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
   if (mode) result.enforcement_mode = mode as EnforcementMode
 
   const guardsEnabled: any = {}
-  for (const id of ['ood', 'preflight', 'motion', 'execution', 'hardware']) {
+  for (const id of ['ood', 'motion', 'execution', 'hardware']) {
     const enMatch = new RegExp(`${id}:[\\s\\S]*?enabled:\\s*(true|false)`, 'i').exec(yaml)
     if (enMatch) guardsEnabled[id] = enMatch[1].toLowerCase() === 'true'
   }
@@ -460,7 +460,7 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
 
     if (section === 'boundaries') {
       if (line.startsWith('  ') && !line.startsWith('    ')) {
-        currentBoundary = { name: trimmed.replaceAll(':', ''), layer: 'L2', type: 'single', nodes: [] }; boundaries.push(currentBoundary);
+        currentBoundary = { name: trimmed.replaceAll(':', ''), layer: 'L1', type: 'single', nodes: [] }; boundaries.push(currentBoundary);
       } else if (currentBoundary && line.startsWith('    ')) {
         if (trimmed.startsWith('layer:')) currentBoundary.layer = trimmed.replaceAll('layer:', '').trim()
         if (trimmed.startsWith('type:')) currentBoundary.type = trimmed.replaceAll('type:', '').trim()

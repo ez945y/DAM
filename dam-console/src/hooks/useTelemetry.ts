@@ -4,8 +4,8 @@ import type { CycleEvent, LogEntry, PerfSnapshot, TelemetrySnapshot } from '@/li
 
 const MAX_LATENCY = 60
 const MAX_EVENTS = 1000
-const WINDOW_MS = 60000 // 1 minute window
-const THROTTLE_MS = 100 // 0.1s refresh rate (10Hz) for smooth real-time feel
+const WINDOW_MS = 60000
+const THROTTLE_MS = 100  // 10 Hz — halves re-render rate vs original 20 Hz
 
 import { api } from '@/lib/api'
 
@@ -22,12 +22,18 @@ let gEvents: LogEntry[] = []
 let gLatency: number[] = []
 let gLatencyCycleIds: number[] = []
 const gLastLogged = new Map<string, number>()
-const gProcessedIds = new Set<number>() // Deduplication set
+const gProcessedIds = new Set<number>()
 let gCycleTimes: number[] = []
 let gRejectTimes: number[] = []
 let gClampTimes: number[] = []
 let gGuardMap: Record<string, any> = {}
 let gLiveImages: Record<string, Blob> = {}
+let gActiveCameras: string[] = []
+// Version counter replaces the shared gDirty boolean.
+// Each hook instance compares its own lastVersion against gVersion, so
+// multiple consumers (e.g. PageShell + Dashboard) update independently
+// without racing for a shared flag.
+let gVersion = 0
 let gWsConnected = false
 let gHistoryFetched = false
 
@@ -41,12 +47,14 @@ export const resetGlobalState = () => {
   gEvents = []
   gGuardMap = {}
   gLiveImages = {}
+  gActiveCameras = []
   gLatency = []
   gLatencyCycleIds = []
   gCycleTimes = []
   gRejectTimes = []
   gClampTimes = []
   gProcessedIds.clear()
+  gVersion++ // signal all hook instances to re-render with cleared state
 }
 
 export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, reset: () => void } {
@@ -65,11 +73,18 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
     windowRejects: gRejectTimes.length,
     windowClamps: gClampTimes.length,
     events: [...gEvents],
+    activeCameras: [...gActiveCameras],
+    liveImages: { ...gLiveImages },
   }))
 
   const wsRef = useRef<WebSocket | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // Per-instance version tracking — avoids the shared-flag race between
+  // multiple useTelemetry consumers (e.g. PageShell and Dashboard).
+  const lastVersionRef = useRef(gVersion)
+  // Prevent onclose from scheduling a reconnect after the component unmounts.
+  const mountedRef = useRef(true)
 
   const fetchHistory = useCallback(async () => {
     if (gHistoryFetched) return
@@ -89,15 +104,14 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
           }
         })
       })
-      // Sort descending by timestamp
       historyEntries.sort((a, b) => b.timestamp - a.timestamp)
 
-      // Merge with de-duplication
       const existingMsg = new Set(gEvents.map(e => `${e.timestamp}:${e.message}`))
       const uniqueNew = historyEntries.filter(e => !existingMsg.has(`${e.timestamp}:${e.message}`))
 
       gEvents = [...gEvents, ...uniqueNew].sort((a, b) => b.timestamp - a.timestamp).slice(0, MAX_EVENTS)
       gHistoryFetched = true
+      gVersion++
       setState(s => ({ ...s, events: [...gEvents] }))
     } catch {}
   }, [])
@@ -113,14 +127,13 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
 
     ws.onopen = () => {
       gWsConnected = true
+      gVersion++
       setState(s => ({ ...s, connected: true }))
       fetchHistory()
 
-      // Fetch boundaries that have valid callbacks defined
       api.listBoundaries().then(resp => {
         if (!resp.boundaries) return
         for (const b of resp.boundaries) {
-          // Only add if it has a constraint (meaning it's an actual guard)
           if (b.nodes?.[0]?.constraint) {
             gGuardMap[b.name] = {
               name: b.name,
@@ -130,13 +143,12 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
             }
           }
         }
+        gVersion++
         setState(s => ({ ...s, guardMap: { ...gGuardMap } }))
       }).catch(() => {})
 
       const lastMsg = gEvents[0]?.message || ''
-      const isOnlineMsg = lastMsg.includes('System Online')
-
-      if (!isOnlineMsg) {
+      if (!lastMsg.includes('System Online')) {
         gEvents = [{
           type: 'info' as const,
           message: 'System Online — Monitoring safety pipeline...',
@@ -144,12 +156,13 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
         }, ...gEvents].slice(0, MAX_EVENTS)
       }
 
+      gVersion++
       setState(s => ({ ...s, connected: true, events: [...gEvents] }))
     }
 
     ws.onmessage = (e: MessageEvent) => {
       if (typeof e.data !== 'string') {
-        // --- Binary Protocol: [magic: 0x01][name_len: 1][name][jpeg] ---
+        // Binary Protocol: [magic: 0x01][name_len: 1][name][jpeg]
         try {
           const buf = e.data as ArrayBuffer
           const view = new Uint8Array(buf)
@@ -157,11 +170,11 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
             const nameLen = view[1]
             const name = new TextDecoder().decode(view.subarray(2, 2 + nameLen))
             const jpegData = view.subarray(2 + nameLen)
-            const blob = new Blob([jpegData], { type: 'image/jpeg' })
-
-            // Optimization: Update global map and trigger a partial state update if needed.
-            // But usually, we just want this to be available for the next refersh timer tick.
-            gLiveImages[name] = blob
+            gLiveImages[name] = new Blob([jpegData], { type: 'image/jpeg' })
+            if (!gActiveCameras.includes(name)) {
+              gActiveCameras = [...gActiveCameras, name]
+            }
+            gVersion++
           }
         } catch (err) { console.error('Binary parse error:', err) }
         return
@@ -179,7 +192,7 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
               message: msg.message,
               timestamp: Date.now() / 1000
             }, ...gEvents].slice(0, MAX_EVENTS)
-            setState(s => ({ ...s, events: [...gEvents] }))
+            gVersion++
           }
         }
 
@@ -187,19 +200,14 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
         const cycle = msg as CycleEvent
         const now = Date.now()
 
-        // Attach live images from the binary buffer
-        if (cycle.active_cameras) {
-          const images: Record<string, string | Blob> = {}
-          cycle.active_cameras.forEach(name => {
-            if (gLiveImages[name]) {
-              images[name] = gLiveImages[name]!
-            }
-          })
-          cycle.live_images = images
+        // Keep gActiveCameras in sync with the latest cycle's reported cameras.
+        if (cycle.active_cameras?.length) {
+          gActiveCameras = cycle.active_cameras
         }
 
         gLatestCycle = cycle
         if (cycle.perf != null) gLatestPerf = cycle.perf
+        gVersion++
 
         const isNewCycle = !gProcessedIds.has(cycle.cycle_id)
         if (isNewCycle) {
@@ -250,25 +258,34 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
     ws.onclose = () => {
       wsRef.current = null
       gWsConnected = false
-      // Keep latency/perf data visible so charts don't flash empty on reconnect.
-      // Only connected: false so the UI can show a reconnecting indicator.
       setState(s => ({ ...s, connected: false }))
-      timerRef.current = setTimeout(connect, 3000)
+      // Only schedule reconnect while the component is still mounted.
+      if (mountedRef.current) {
+        timerRef.current = setTimeout(connect, 3000)
+      }
     }
   }, [])
 
   useEffect(() => {
+    mountedRef.current = true
     connect()
-    // Immediate first tick to ensure UI shows data even if interval hasn't fired
+
     const doTick = () => {
       const now = Date.now()
       const cutoff = now - WINDOW_MS
 
-      gCycleTimes = gCycleTimes.filter(t => t > cutoff)
-      gRejectTimes = gRejectTimes.filter(t => t > cutoff)
-      gClampTimes = gClampTimes.filter(t => t > cutoff)
+      // Only prune window arrays when the oldest entry has expired
+      if (gCycleTimes.length > 0 && gCycleTimes[0] <= cutoff) {
+        gCycleTimes = gCycleTimes.filter(t => t > cutoff)
+        gRejectTimes = gRejectTimes.filter(t => t > cutoff)
+        gClampTimes = gClampTimes.filter(t => t > cutoff)
+        gVersion++
+      }
 
-      // Always update state, even if gLatestCycle is null (shows initialConnecting)
+      // Each instance tracks its own lastVersion so consumers don't race.
+      if (lastVersionRef.current === gVersion) return
+      lastVersionRef.current = gVersion
+
       setState(s => ({
         ...s,
         lastCycle: gLatestCycle,
@@ -284,16 +301,18 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
         windowRejects: gRejectTimes.length,
         windowClamps: gClampTimes.length,
         events: [...gEvents],
+        activeCameras: [...gActiveCameras],
+        liveImages: { ...gLiveImages },
       }))
     }
 
     // Run once immediately
     doTick()
 
-    // Then run at THROTTLE_MS intervals
     refreshTimerRef.current = setInterval(doTick, THROTTLE_MS)
 
     return () => {
+      mountedRef.current = false
       if (timerRef.current) clearTimeout(timerRef.current)
       if (refreshTimerRef.current) clearInterval(refreshTimerRef.current)
       wsRef.current?.close()

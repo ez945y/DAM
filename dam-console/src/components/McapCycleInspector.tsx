@@ -109,9 +109,8 @@ const STAGE_COLORS: Record<string, string> = {
 const LAYER_COLORS: Record<string, string> = {
   L0_ms: '#A78BFA',
   L1_ms: '#34D399',
-  L2_ms: '#10B981',
-  L3_ms: '#6EE7B7',
-  L4_ms: '#F87171',
+  L2_ms: '#F97316',
+  L3_ms: '#F87171',
 }
 
 // ── Main component ────────────────────────────────────────────────────────
@@ -332,10 +331,10 @@ export function McapCycleInspector({ filename, cycleId, tsNs, fallbackDetail, ov
             </span>
           </div>
           {/* Per-layer breakdown */}
-          {(['L0_ms', 'L1_ms', 'L2_ms', 'L3_ms', 'L4_ms'] as const).some(k => (detail.latency?.[k] ?? 0) > 0) && (
+          {(['L0_ms', 'L1_ms', 'L2_ms', 'L3_ms'] as const).some(k => (detail.latency?.[k] ?? 0) > 0) && (
             <div className="pt-1.5 border-t border-dam-border/30 space-y-1.5 mt-1">
               <p className="text-[9px] font-bold text-dam-muted/60 uppercase tracking-wider">Per Layer</p>
-              {(['L0_ms', 'L1_ms', 'L2_ms', 'L3_ms', 'L4_ms'] as const).map(key => {
+              {(['L0_ms', 'L1_ms', 'L2_ms', 'L3_ms'] as const).map(key => {
                 const ms = detail.latency?.[key] ?? 0
                 if (ms === 0) return null
                 return (
