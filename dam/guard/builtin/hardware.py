@@ -60,18 +60,47 @@ class HardwareGuard(Guard):
         layer = self.get_layer()
         name = self.get_name()
 
-        # 1. Watchdog: Heartbeat Check
-        current = now if now is not None else time.monotonic()
+        # 1. Watchdog check
+        watchdog_res = self._check_watchdog(obs, now, cycle_id, max_staleness_ms, name, layer)
+        if watchdog_res:
+            return watchdog_res
 
-        # Apply a generous grace period for the very first cycle to allow for
-        # hardware warmup/init (especially slow USB cameras).
+        # 2. Health telemetry checks
+        if hardware_status is None and hasattr(obs, "metadata") and obs.metadata:
+            hardware_status = obs.metadata.get("hardware_status")
+
+        if hardware_status is not None:
+            health_res = self._check_health_telemetry(
+                hardware_status, max_temperature_c, max_current_a, name, layer
+            )
+            if health_res:
+                return health_res
+
+        # 3. Following error checks
+        return self._check_following_error(
+            obs,
+            hardware_status,
+            prev_validated_positions,
+            max_following_error_rad,
+            name,
+            layer,
+        )
+
+    def _check_watchdog(
+        self,
+        obs: Observation,
+        now: float | None,
+        cycle_id: int,
+        max_staleness_ms: float,
+        name: str,
+        layer: str,
+    ) -> GuardResult | None:
+        current = now if now is not None else time.monotonic()
         effective_limit = max_staleness_ms
         if cycle_id == 0:
             effective_limit = max(effective_limit, 5000.0)
 
-        staleness_s = current - obs.timestamp
-        staleness_ms = staleness_s * 1000.0
-
+        staleness_ms = (current - obs.timestamp) * 1000.0
         if staleness_ms > effective_limit:
             return GuardResult(
                 decision=GuardDecision.FAULT,
@@ -83,74 +112,89 @@ class HardwareGuard(Guard):
                 ),
                 fault_source="hardware",
             )
+        return None
 
-        # 2. Health: Telemetry Checks (hardware_status from sink or obs.metadata)
-        if hardware_status is None and hasattr(obs, "metadata") and obs.metadata:
-            hardware_status = obs.metadata.get("hardware_status")
+    def _check_health_telemetry(
+        self,
+        hardware_status: dict[str, Any],
+        max_temp: float,
+        max_curr: float,
+        name: str,
+        layer: str,
+    ) -> GuardResult | None:
+        # Error codes
+        error_codes: list[int] = hardware_status.get("error_codes", [])
+        non_zero = [c for c in error_codes if c != 0]
+        if non_zero:
+            return GuardResult(
+                decision=GuardDecision.FAULT,
+                guard_name=name,
+                layer=layer,
+                reason=f"Hardware error codes: {non_zero}",
+                fault_source="hardware",
+            )
 
-        if hardware_status is not None:
-            # Error codes
-            error_codes: list[int] = hardware_status.get("error_codes", [])
-            non_zero = [c for c in error_codes if c != 0]
-            if non_zero:
-                return GuardResult(
-                    decision=GuardDecision.FAULT,
-                    guard_name=name,
-                    layer=layer,
-                    reason=f"Hardware error codes: {non_zero}",
-                    fault_source="hardware",
-                )
+        # Temperature
+        temp = hardware_status.get("temperature_c")
+        if temp is not None and temp > max_temp:
+            return GuardResult(
+                decision=GuardDecision.FAULT,
+                guard_name=name,
+                layer=layer,
+                reason=f"Temperature {temp:.1f}°C exceeds limit",
+                fault_source="hardware",
+            )
 
-            # Temperature
-            temperature = hardware_status.get("temperature_c")
-            if temperature is not None and temperature > max_temperature_c:
-                return GuardResult(
-                    decision=GuardDecision.FAULT,
-                    guard_name=name,
-                    layer=layer,
-                    reason=f"Temperature {temperature:.1f}°C exceeds limit",
-                    fault_source="hardware",
-                )
+        # Current
+        curr_a = hardware_status.get("current_a")
+        if curr_a is not None and curr_a > max_curr:
+            return GuardResult(
+                decision=GuardDecision.FAULT,
+                guard_name=name,
+                layer=layer,
+                reason=f"Current {curr_a:.2f}A exceeds limit",
+                fault_source="hardware",
+            )
+        return None
 
-            # Current
-            current_a = hardware_status.get("current_a")
-            if current_a is not None and current_a > max_current_a:
-                return GuardResult(
-                    decision=GuardDecision.FAULT,
-                    guard_name=name,
-                    layer=layer,
-                    reason=f"Current {current_a:.2f}A exceeds limit",
-                    fault_source="hardware",
-                )
-
-        # 3. Following error: prefer firmware-reported value; fall back to DAM-computed.
+    def _check_following_error(
+        self,
+        obs: Observation,
+        hardware_status: dict[str, Any] | None,
+        prev_pos: list[float] | None,
+        max_err_rad: float,
+        name: str,
+        layer: str,
+    ) -> GuardResult:
+        # Prefer firmware-reported value
         if hardware_status is not None:
             fw_err = hardware_status.get("hardware_following_error")
-            if fw_err is not None and fw_err > max_following_error_rad:
+            if fw_err is not None and fw_err > max_err_rad:
                 return GuardResult(
                     decision=GuardDecision.FAULT,
                     guard_name=name,
                     layer=layer,
                     reason=(
                         f"Firmware following error {fw_err:.3f} rad exceeds limit "
-                        f"{max_following_error_rad:.3f} rad"
+                        f"{max_err_rad:.3f} rad"
                     ),
                     fault_source="hardware",
                 )
 
-        if prev_validated_positions is not None and obs.joint_positions is not None:
-            commanded = np.asarray(prev_validated_positions, dtype=np.float64)
+        # Fall back to DAM-computed
+        if prev_pos is not None and obs.joint_positions is not None:
+            commanded = np.asarray(prev_pos, dtype=np.float64)
             actual = np.asarray(obs.joint_positions, dtype=np.float64)
             n = min(len(commanded), len(actual))
             max_err = float(np.max(np.abs(commanded[:n] - actual[:n])))
-            if max_err > max_following_error_rad:
+            if max_err > max_err_rad:
                 return GuardResult(
                     decision=GuardDecision.FAULT,
                     guard_name=name,
                     layer=layer,
                     reason=(
                         f"Joint following error {max_err:.3f} rad exceeds limit "
-                        f"{max_following_error_rad:.3f} rad"
+                        f"{max_err_rad:.3f} rad"
                     ),
                     fault_source="hardware",
                 )

@@ -9,6 +9,7 @@ from collections.abc import Callable
 from enum import StrEnum
 from typing import Any
 
+from dam.config.schema import StackfileConfig
 from dam.runner.base import BaseRunner
 from dam.types.result import GuardDecision
 
@@ -43,6 +44,7 @@ class RuntimeControlService:
 
     def __init__(self) -> None:
         self._runner: BaseRunner | None = None
+        self._config: StackfileConfig | None = None
         self._stack_path: str | None = None
         self._post_step_wrapper: Callable[[Callable], Callable] | None = None
         self._state = RuntimeState.IDLE
@@ -79,6 +81,7 @@ class RuntimeControlService:
             self._startup_error = None
             self._state = RuntimeState.IDLE
             self._backend_state = BackendState.LOADING
+            self._target_hz = getattr(runner.runtime, "_control_frequency_hz", 50.0)
         self._notify_state()
 
         # Auto-apply instrumentation if a wrapper is already registered
@@ -89,6 +92,13 @@ class RuntimeControlService:
     def set_stack_path(self, stack_path: str) -> None:
         """Explicitly set the stackfile path for recheck capability."""
         self._stack_path = stack_path
+
+    def apply_config(self, config: StackfileConfig) -> None:
+        """Apply a parsed StackfileConfig to the service."""
+        with self._lock:
+            self._config = config
+            # Note: We don't need to manually update HZ here,
+            # status() will read it from self._config dynamically.
 
     def set_post_step_wrapper(self, wrapper: Callable[[Callable], Callable]) -> None:
         """Register a function that wraps runtime.step with instrumentation."""
@@ -136,12 +146,13 @@ class RuntimeControlService:
             self._startup_error = None
             self._state = RuntimeState.IDLE
             self._backend_state = BackendState.READY
+            self._target_hz = getattr(runtime, "_control_frequency_hz", 50.0)
         self._notify_state()
 
     # ── Commands ──────────────────────────────────────────────────────────────
 
     def start(
-        self, task_name: str = "default", n_cycles: int = -1, cycle_budget_ms: float = 20.0
+        self, task_name: str = "default", n_cycles: int = -1, cycle_budget_ms: float | None = None
     ) -> bool:
         """Launch the control loop in a background daemon thread."""
         with self._lock:
@@ -169,6 +180,11 @@ class RuntimeControlService:
                 self._runner.runtime.start_task(task_name)
         except Exception:  # noqa: BLE001 — start_task is best-effort
             pass
+
+        # Use the provided budget, or fallback to the runner's internal frequency
+        if cycle_budget_ms is None:
+            hz = getattr(self._runner.runtime, "_control_frequency_hz", 50.0)
+            cycle_budget_ms = 1000.0 / hz
 
         self._run_thread = threading.Thread(
             target=self._run_loop,
@@ -395,6 +411,7 @@ class RuntimeControlService:
                 return False
             self._backend_state = BackendState.READY
             self._error = None
+            self._startup_error = None  # Also clear startup error if any
         self._notify_state()
         return True
 
@@ -403,17 +420,46 @@ class RuntimeControlService:
     def status(self) -> dict[str, Any]:
         """Return a JSON-serialisable status dict."""
         with self._lock:
-            runner = self._runner
-            rt = runner.runtime if runner else None
+            rt = self._runner.runtime if self._runner else None
 
-            task_config: dict[str, Any] = getattr(rt, "_task_config", {})
-            available_tasks = list(task_config.keys())
-            planned_task = (
-                "default"
-                if "default" in task_config
-                else (available_tasks[0] if available_tasks else None)
-            )
-            planned_boundaries = list(task_config.get(planned_task, [])) if planned_task else []
+            # Base config values
+            hz = 50.0
+            task_config = {}
+
+            # 1. Use live runtime if it exists (it's the most real-time truth)
+            if rt is not None:
+                hz = getattr(rt, "_control_frequency_hz", 50.0)
+                task_config = getattr(rt, "_task_config", {})
+                available_tasks = list(task_config.keys())
+                planned_task = (
+                    "default"
+                    if "default" in task_config
+                    else (available_tasks[0] if available_tasks else None)
+                )
+                planned_boundaries = list(task_config.get(planned_task, [])) if planned_task else []
+
+            # 2. Otherwise, use the structured config object (SSOT)
+            elif self._config:
+                hz = self._config.safety.control_frequency_hz
+                # config.tasks is a dict[str, TaskConfig]
+                task_dict = {tid: tcfg.boundaries for tid, tcfg in self._config.tasks.items()}
+                available_tasks = list(self._config.tasks.keys())
+                planned_task = (
+                    "default"
+                    if "default" in task_dict
+                    else (available_tasks[0] if available_tasks else None)
+                )
+                if planned_task:
+                    planned_boundaries = task_dict.get(planned_task, [])
+
+            # 3. Last resort defaults
+            else:
+                available_tasks = []
+                planned_task = None
+                planned_boundaries = []
+
+            active_task = getattr(rt, "_active_task", None)
+            active_boundaries = list(getattr(rt, "_active_container_names", []))
 
             return {
                 "state": self._state.value,
@@ -422,9 +468,9 @@ class RuntimeControlService:
                 "error": self._error,
                 "startup_error": self._startup_error,
                 "has_runtime": rt is not None,
-                "active_task": getattr(rt, "_active_task", None),
-                "active_boundaries": list(getattr(rt, "_active_container_names", [])),
-                "control_frequency_hz": getattr(rt, "_control_frequency_hz", 50.0),
+                "active_task": active_task if active_task else planned_task,
+                "active_boundaries": active_boundaries if active_boundaries else planned_boundaries,
+                "control_frequency_hz": hz,
                 "available_tasks": available_tasks,
                 "planned_task": planned_task,
                 "planned_boundaries": planned_boundaries,

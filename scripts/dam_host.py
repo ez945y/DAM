@@ -89,15 +89,21 @@ def main() -> None:
     register_guard_classes()
 
     stack_path_str = _resolve_stackfile()
-    stack_path = Path(stack_path_str)
-
-    log.info("Starting DAM Host (Universal)...")
+    config = RuntimeFactory.load_config(stack_path_str)
 
     # 1. Prepare Shell Services
     risk_log = RiskLogService()
     boundary = BoundaryConfigService()
+
+    boundary.load_from_stackfile(
+        {name: cfg.model_dump() for name, cfg in config.boundaries.items()}
+    )
+
+    log.info("Starting DAM Host (Universal)...")
+
     control = RuntimeControlService()
     control.set_stack_path(stack_path_str)
+    control.apply_config(config)
     ood_trainer = OODTrainerService()
     telemetry = TelemetryService(history_size=1000)
 
@@ -118,25 +124,9 @@ def main() -> None:
                 # RuntimeControlService defaults to backend_state = LOADING.
                 control._notify_state()
 
-                # Build runtime (Factory handles sim vs hardware automatically)
-                # Note: We now strictly avoid using sim fallback unless requested,
-                # but dam_host uses its own logic here.
-                # Build runner (Factory handles sim vs hardware automatically)
-                runner = RuntimeFactory.build_from_stackfile(str(stack_path))
+                # Build runner from pre-parsed config
+                runner = RuntimeFactory.build_from_config(config)
                 rt = runner.runtime
-
-                # Populate boundary config service from the stackfile
-                try:
-                    import yaml
-
-                    with open(str(stack_path)) as f:
-                        raw_cfg = yaml.safe_load(f) or {}
-                    boundaries_dict = raw_cfg.get("boundaries", {})
-                    if boundaries_dict:
-                        n = boundary.load_from_stackfile(boundaries_dict)
-                        log.info("Loaded %d boundary configs from stackfile", n)
-                except Exception:
-                    log.warning("Could not load boundary configs from stackfile", exc_info=True)
 
                 # Instrumentation
                 def step_wrapper(orig_step: Callable[[], Any]) -> Callable[[], Any]:

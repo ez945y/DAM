@@ -1,5 +1,5 @@
 'use client'
-import React, { useEffect, useState, Suspense, useCallback } from 'react'
+import React, { useEffect, useState, Suspense, useCallback, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import type { McapSessionSummary, McapSessionDetail, McapCycle, McapCycleDetail } from '@/lib/api'
@@ -78,7 +78,7 @@ function SessionCard({
         <Film size={13} className={`shrink-0 mt-0.5 ${selected ? 'text-dam-blue' : 'text-dam-muted'}`} />
         <div className="flex-1 min-w-0">
           <p className="font-mono text-[11px] font-semibold text-dam-text truncate">{session.filename}</p>
-          <p className="text-[10px] text-dam-muted mt-0.5">
+          <p className="text-[10px] text-dam-muted mt-0.5" suppressHydrationWarning>
             {new Date(session.created_at * 1000).toLocaleString('en-US', {
               month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
             })}
@@ -207,26 +207,41 @@ function LiveModePanel() {
 
   // Build a live cycle timeline feed (append-only)
   const [liveCycles, setLiveCycles] = useState<McapCycle[]>([])
+  const cyclesRef = useRef<McapCycle[]>([])
+
   useEffect(() => {
     if (!lastCycle) return
-    setLiveCycles(prev => {
-      if (prev.length > 0 && (prev.at(-1)?.cycle_id ?? -1) >= lastCycle.cycle_id) return prev
-      const entry: McapCycle = {
-        cycle_id: lastCycle.cycle_id,
-        seq: lastCycle.cycle_id,
-        timestamp_ns: lastCycle.timestamp * 1e9,
-        timestamp: lastCycle.timestamp,
-        has_violation: lastCycle.was_rejected,
-        has_clamp: lastCycle.was_clamped,
-        violated_layer_mask: 0,
-        clamped_layer_mask: 0,
-        violated_layers: lastCycle.guard_statuses.filter(g => g.decision === 'FAULT' || g.decision === 'REJECT').map(g => g.layer),
-        clamped_layers: lastCycle.guard_statuses.filter(g => g.decision === 'CLAMP').map(g => g.layer),
-      }
-      const next = [...prev.slice(-499), entry] // keep last 500
-      return next
-    })
+
+    const entry: McapCycle = {
+      cycle_id: lastCycle.cycle_id,
+      seq: lastCycle.cycle_id,
+      timestamp_ns: lastCycle.timestamp * 1e9,
+      timestamp: lastCycle.timestamp,
+      has_violation: lastCycle.was_rejected,
+      has_clamp: lastCycle.was_clamped,
+      violated_layer_mask: 0,
+      clamped_layer_mask: 0,
+      violated_layers: lastCycle.guard_statuses.filter(g => g.decision === 'FAULT' || g.decision === 'REJECT').map(g => g.layer),
+      clamped_layers: lastCycle.guard_statuses.filter(g => g.decision === 'CLAMP').map(g => g.layer),
+    }
+
+    if (cyclesRef.current.length > 0 && (cyclesRef.current.at(-1)?.cycle_id ?? -1) >= entry.cycle_id) {
+      return
+    }
+
+    cyclesRef.current = [...cyclesRef.current.slice(-499), entry]
+
+    // Throttle UI update: only update liveCycles state every ~200ms or on critical events
+    // This significantly reduces re-renders of the timeline component.
   }, [lastCycle])
+
+  // Separate effect for UI sync to keep it smooth but not too frequent
+  useEffect(() => {
+    const id = setInterval(() => {
+      setLiveCycles(cyclesRef.current)
+    }, 200)
+    return () => clearInterval(id)
+  }, [])
 
   const [selectedLiveCycleId, setSelectedLiveCycleId] = useState<number | null>(null)
   // Auto-follow latest cycle unless user has selected a specific one
@@ -355,6 +370,12 @@ function McapViewerContent() {
   const [sessionsLoading, setSessionsLoading] = useState(false)
   const [cyclesLoading, setCyclesLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [initialLoading, setInitialLoading] = useState(!!searchParams.get('cycle_id') && !searchParams.get('filename'))
+  const [isMounted, setIsMounted] = useState(false)
+
+  useEffect(() => {
+    setIsMounted(true)
+  }, [])
 
   const selectSession = useCallback((filename: string) => {
     setSelectedFilename(filename)
@@ -458,7 +479,10 @@ function McapViewerContent() {
     if (liveMode) return
     const urlCycleId = searchParams.get('cycle_id')
     const urlFile = searchParams.get('filename')
-    if (!urlCycleId || urlFile) return
+    if (!urlCycleId || urlFile) {
+      setInitialLoading(false)
+      return
+    }
 
     const id = Number(urlCycleId)
     api.findMcapSession(id)
@@ -469,6 +493,9 @@ function McapViewerContent() {
         }
       })
       .catch(() => {})
+      .finally(() => {
+        setInitialLoading(false)
+      })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -521,8 +548,23 @@ function McapViewerContent() {
   const cameras = selectedDetail?.stats.cameras ?? []
   const selectedCycle = cycles.find(c => c.cycle_id === selectedCycleId)
 
+  if (!isMounted) return null
+
+  // ── LOADING STATE ──────────────────────────────────────────────────────
+  if (initialLoading) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center gap-4 text-dam-muted py-20 animate-in fade-in duration-500">
+        <Loader2 size={32} className="animate-spin text-dam-blue" />
+        <div className="text-center">
+          <p className="text-sm font-bold text-dam-text uppercase tracking-widest">Locating Session</p>
+          <p className="text-[10px] opacity-60 mt-1">Retrieving MCAP records for Cycle {searchParams.get('cycle_id')}...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="flex flex-col min-h-[calc(100vh-120px)] gap-5">
+    <div className="flex flex-col min-h-[calc(100vh-120px)] gap-5 animate-in fade-in slide-in-from-bottom-2 duration-500">
       {/* Live mode toggle — top right, consistent with Dashboard */}
       <div className="flex items-center justify-end gap-3 -mt-2 min-h-[28px]">
         <button
@@ -539,13 +581,11 @@ function McapViewerContent() {
         </button>
       </div>
 
-      {/* ── LIVE MODE ───────────────────────────────────────────────────────── */}
       {liveMode ? (
         <div className="flex gap-5 flex-1">
           <LiveModePanel />
         </div>
       ) : (
-        /* ── MCAP FILE MODE ──────────────────────────────────────────────── */
         <div className="flex gap-5 flex-1">
           {/* Left: session list */}
           <div className="w-64 shrink-0 flex flex-col gap-2">
@@ -603,25 +643,21 @@ function McapViewerContent() {
                   </div>
                 )}
 
-                {/* Timeline */}
-                  <div className="bg-dam-surface-1/50 rounded-lg p-3 min-h-[60px] relative border border-dam-border/30">
-                    <div className="flex items-center justify-between mb-2">
-                       <p className="text-[9px] font-bold text-dam-muted/50 uppercase tracking-[0.15em]">
-                        Cycle Timeline
-                      </p>
-                      {cyclesLoading && <Loader2 size={10} className="animate-spin text-dam-blue" />}
-                    </div>
-                    <div className="relative">
-                      <McapTimelineView
-                        key={selectedFilename}
-                        cycles={cycles}
-                        selectedCycleId={selectedCycleId ?? undefined}
-                        onSelectCycle={selectCycle}
-                      />
-                    </div>
+                <div className="bg-dam-surface-1/50 rounded-lg p-3 min-h-[60px] relative border border-dam-border/30">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-[9px] font-bold text-dam-muted/50 uppercase tracking-[0.15em]">
+                      Cycle Timeline
+                    </p>
+                    {cyclesLoading && <Loader2 size={10} className="animate-spin text-dam-blue" />}
                   </div>
+                  <McapTimelineView
+                    key={selectedFilename}
+                    cycles={cycles}
+                    selectedCycleId={selectedCycleId ?? undefined}
+                    onSelectCycle={selectCycle}
+                  />
+                </div>
 
-                {/* Inspector + camera */}
                 <div className="flex gap-4 flex-1 min-h-0" style={{ minHeight: 360 }}>
                   <div className="flex-1 min-w-0">
                     <p className="text-[9px] font-bold text-dam-muted/50 uppercase tracking-[0.15em] mb-2 px-1">
@@ -654,7 +690,6 @@ function McapViewerContent() {
         </div>
       )}
 
-      {/* Error toast */}
       {error && (
         <div className="fixed bottom-4 right-4 max-w-sm p-3 bg-red-500/10 border border-red-500/30 rounded-lg flex items-start gap-2 shadow-lg z-50">
           <AlertCircle size={14} className="text-red-400 shrink-0 mt-0.5" />

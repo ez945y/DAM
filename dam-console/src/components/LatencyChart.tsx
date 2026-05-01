@@ -4,6 +4,7 @@ import {
   XAxis, YAxis, Tooltip,
   ResponsiveContainer, ReferenceLine, CartesianGrid,
 } from 'recharts'
+import { BarChart2 } from 'lucide-react'
 import type { PerfSnapshot } from '@/lib/types'
 
 // ── Colour palette ────────────────────────────────────────────────────────
@@ -222,7 +223,14 @@ export function LatencyChart({ data, perf, cycleIds, onCycleClick }: LatencyChar
 
       <div className="border-t border-dam-border/30 pt-3">
         <p className="section-label mb-2">History (last {Math.min(data.length, 60)} cycles)</p>
-        <RollingHistoryChart data={data} cycleIds={cycleIds} onCycleClick={onCycleClick} />
+        {data.length > 0 ? (
+          <RollingHistoryChart data={data} cycleIds={cycleIds} onCycleClick={onCycleClick} />
+        ) : (
+          <div className="flex flex-col items-center justify-center h-28 rounded-xl border border-dashed border-dam-border/40 bg-dam-surface-1/50 text-dam-muted/60">
+            <BarChart2 size={18} className="mb-1.5 opacity-20" />
+            <span className="text-[10px] tracking-widest uppercase">No history available</span>
+          </div>
+        )}
       </div>
     </div>
   )

@@ -37,7 +37,24 @@ export function ControlPanel({ state, backendState, cycleCount, error, loading, 
   const systemReady = backendState === 'ready'
   const isActive = isRunning || isPaused || isStarting || isStopping
   const canStart = systemReady && (state === 'idle' || state === 'stopped')
-  const startLabel = isStarting ? 'Starting Loop...' : isEmergency ? 'Loop Halted' : 'Start'
+
+  let startLabel = 'Start'
+  if (isStarting) startLabel = 'Starting Loop...'
+  else if (isEmergency) startLabel = 'Loop Halted'
+
+  // Dot animation classes logic
+  let dotAnim = ''
+  if (backendState === 'faulted') dotAnim = 'bg-dam-red animate-pulse'
+  else {
+    const isSpecial = isStarting || isStopping || isRunning || isEmergency
+    if (isSpecial) {
+      if (isRunning) dotAnim = `${sc.dot} animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.4)]`
+      else if (isEmergency) dotAnim = `${sc.dot} animate-ping`
+      else dotAnim = `${sc.dot} animate-pulse`
+    } else {
+      dotAnim = sc.dot
+    }
+  }
 
   return (
     <div className="panel p-4 space-y-4">
@@ -47,7 +64,7 @@ export function ControlPanel({ state, backendState, cycleCount, error, loading, 
         <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border ${backendState === 'faulted' ? 'bg-dam-red/10 text-dam-red border-dam-red/30' : `${sc.bg} ${sc.text} ${sc.text.replaceAll('text-', 'border-').replaceAll('dam-', '')}/30`}`}>
           <Circle
             size={5}
-            className={`fill-current ${backendState === 'faulted' ? 'bg-dam-red animate-pulse' : `${sc.dot} ${state === 'running' ? 'animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.4)]' : ''} ${state === 'emergency' ? 'animate-ping' : ''} ${(isStarting || isStopping) ? 'animate-pulse' : ''}`}`}
+            className={`fill-current ${dotAnim}`}
           />
           {backendState === 'faulted' ? 'SYSTEM HALTED' : sc.label}
         </div>

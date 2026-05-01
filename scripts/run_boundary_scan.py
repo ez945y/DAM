@@ -315,6 +315,32 @@ def plot_results(rows: list[dict], outdir: Path) -> None:
     plt.close(fig)
 
 
+def _interpolate_x(xs: np.ndarray, rates: np.ndarray, target: float) -> float | None:
+    """Linear interpolation to find the x-value where interception rate hits target."""
+    for i in range(len(rates) - 1):
+        r1, r2 = rates[i], rates[i + 1]
+        if (r1 <= target <= r2) or (r1 >= target >= r2):
+            if abs(r2 - r1) < 1e-9:
+                return float(xs[i])
+            t = (target - r1) / (r2 - r1)
+            return float(xs[i] + t * (xs[i + 1] - xs[i]))
+    return None
+
+
+def _process_scenario(name: str, data: list[dict]) -> None:
+    xs = np.array([d["disturbance_value"] for d in data])
+    rates = np.array([d["interception_rate"] for d in data])
+
+    x50 = _interpolate_x(xs, rates, 0.50)
+    x90 = _interpolate_x(xs, rates, 0.90)
+    steepness = (x90 - x50) if (x50 is not None and x90 is not None) else None
+
+    x50_s = "N/A" if x50 is None else f"{x50:.4f}"
+    x90_s = "N/A" if x90 is None else f"{x90:.4f}"
+    steep_s = "N/A" if steepness is None else f"{steepness:.4f}"
+    print(f"  {name:<35}  x50={x50_s:>8}  x90={x90_s:>8}  steepness={steep_s:>8}")
+
+
 def compute_summary(rows: list[dict]) -> None:
     """Print x50/x90 and steepness per scenario."""
     scenarios: dict[str, list] = {}
@@ -323,28 +349,7 @@ def compute_summary(rows: list[dict]) -> None:
 
     print("\n── Summary ──────────────────────────────")
     for name, data in scenarios.items():
-        xs = np.array([d["disturbance_value"] for d in data])
-        rates = np.array([d["interception_rate"] for d in data])
-
-        def _interp_x(target_rate: float) -> float | None:
-            for i in range(len(rates) - 1):
-                if (
-                    rates[i] <= target_rate <= rates[i + 1]
-                    or rates[i] >= target_rate >= rates[i + 1]
-                ):
-                    if abs(rates[i + 1] - rates[i]) < 1e-9:
-                        return float(xs[i])
-                    t = (target_rate - rates[i]) / (rates[i + 1] - rates[i])
-                    return float(xs[i] + t * (xs[i + 1] - xs[i]))
-            return None
-
-        x50 = _interp_x(0.50)
-        x90 = _interp_x(0.90)
-        steepness = (x90 - x50) if (x50 is not None and x90 is not None) else None
-        x50_s = "N/A" if x50 is None else f"{x50:.4f}"
-        x90_s = "N/A" if x90 is None else f"{x90:.4f}"
-        steep_s = "N/A" if steepness is None else f"{steepness:.4f}"
-        print(f"  {name:<35}  x50={x50_s:>8}  x90={x90_s:>8}  steepness={steep_s:>8}")
+        _process_scenario(name, data)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '@/lib/api'
 import type { RuntimeStatus, BoundaryConfig } from '@/lib/types'
 
@@ -6,13 +6,13 @@ import type { RuntimeStatus, BoundaryConfig } from '@/lib/types'
 let gAccumulatedSec = 0
 let gSegmentStart: number | null = null
 let gStartedAt: number | null = null
-let gPrevState = 'idle'
 let gLastKnownStatus: RuntimeStatus = {
   state: 'idle',
   backend_state: 'loading',
   cycle_count: 0,
   error: null,
   has_runtime: false,
+  control_frequency_hz: undefined,
 }
 
 export function useRuntimeControl() {
@@ -25,25 +25,30 @@ export function useRuntimeControl() {
   const [accumulatedSec, setAccumulatedSec] = useState(gAccumulatedSec)
   const [startedAt, setStartedAt] = useState<number | null>(gStartedAt)
 
+  const prevRef = useRef(status.state)
+
   useEffect(() => {
     const curr = status.state
-    const prev = gPrevState
-    gPrevState = curr
+    const prev = prevRef.current
+    prevRef.current = curr
 
     if (curr === 'running' && prev !== 'running') {
       // Entered running state
-      const now = Date.now()
-      gSegmentStart = now
-      gStartedAt = now
-      setStartedAt(now)
+      if (gSegmentStart === null) {
+        const now = Date.now()
+        gSegmentStart = now
+        gStartedAt = now
+      }
+      setStartedAt(gStartedAt)
     } else if (curr !== 'running' && prev === 'running') {
       // Left running state — bank elapsed seconds
       if (gSegmentStart !== null) {
         const elapsed = Math.floor((Date.now() - gSegmentStart) / 1000)
         gAccumulatedSec += elapsed
         gSegmentStart = null
-        setAccumulatedSec(gAccumulatedSec)
       }
+      setAccumulatedSec(gAccumulatedSec)
+
       if (curr === 'idle') {
         // Full reset on idle (reset or fresh stop)
         gAccumulatedSec = 0
@@ -128,7 +133,15 @@ export function useRuntimeControl() {
     startedAt,
     /** Total seconds the runtime has been in "running" state this session */
     accumulatedSec,
-    start:         () => call(() => api.start({ task_name: gLastKnownStatus.planned_task || gLastKnownStatus.available_tasks?.[0] || 'default', n_cycles: -1, cycle_budget_ms: 20 })),
+    start:         () => {
+      const hz = gLastKnownStatus.control_frequency_hz || 50
+      const budget = Math.round(1000 / hz)
+      return call(() => api.start({
+        task_name: gLastKnownStatus.planned_task || gLastKnownStatus.available_tasks?.[0] || 'default',
+        n_cycles: -1,
+        cycle_budget_ms: budget
+      }))
+    },
     pause:         () => call(() => api.pause()),
     resume:        () => call(() => api.resume()),
     stop:          () => call(() => api.stop()),

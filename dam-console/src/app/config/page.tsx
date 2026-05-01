@@ -30,7 +30,7 @@ const YAML_STORAGE_KEY = 'dam_yaml_v1'
 
 function loadSaved(): DamConfig {
   try {
-    const raw = typeof globalThis.window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null
+    const raw = globalThis.window !== undefined ? localStorage.getItem(STORAGE_KEY) : null
     if (raw) {
       const parsed = JSON.parse(raw) as DamConfig
       return { ...defaultConfig(), ...parsed, templateId: '' }

@@ -25,14 +25,22 @@ logger = logging.getLogger(__name__)
 
 class RuntimeFactory:
     @staticmethod
-    def build_from_stackfile(path: str, use_sim_fallback: bool = False) -> BaseRunner:
-        """Build a Runner from the given stackfile path."""
-        from dam.runner.base import SimulationRunner
-
+    def load_config(path: str) -> StackfileConfig:
+        """Parse the Stackfile YAML into a structured Config object."""
         with open(path) as f:
             raw = yaml.safe_load(f)
+        return StackfileConfig(**raw)
 
-        config = StackfileConfig(**raw)
+    @staticmethod
+    def build_from_stackfile(path: str) -> BaseRunner:
+        """Build a Runner from the given stackfile path."""
+        config = RuntimeFactory.load_config(path)
+        return RuntimeFactory.build_from_config(config)
+
+    @staticmethod
+    def build_from_config(config: StackfileConfig) -> BaseRunner:
+        """Build a Runner from a pre-parsed StackfileConfig object."""
+        from dam.runner.base import SimulationRunner
 
         # 1. Determine Adapter Type
         adapter_type = None
@@ -53,7 +61,7 @@ class RuntimeFactory:
         logger.info("Building runtime with adapter type: %s", adapter_type)
 
         if adapter_type == "lerobot":
-            return RuntimeFactory._build_lerobot(config, path)
+            return RuntimeFactory._build_lerobot(config)
         elif adapter_type == "ros2":
             raise NotImplementedError("ROS2 runner not implemented")
 
@@ -69,7 +77,7 @@ class RuntimeFactory:
         return SimulationRunner(runtime, control_frequency_hz=hz)
 
     @staticmethod
-    def _build_lerobot(config: StackfileConfig, path: str) -> BaseRunner:
+    def _build_lerobot(config: StackfileConfig) -> BaseRunner:
         from dam.adapter.lerobot.builder import LeRobotBuilder
         from dam.adapter.lerobot.policy import LeRobotPolicyAdapter
         from dam.runner.lerobot import LeRobotRunner

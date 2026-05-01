@@ -1024,7 +1024,7 @@ export default function GuardPage() {
   useEffect(() => {
     const t = setTimeout(async () => {
       try {
-        const rawCfg = typeof globalThis.window !== 'undefined' ? localStorage.getItem('dam_config_v1') : null
+        const rawCfg = globalThis.window !== undefined ? localStorage.getItem('dam_config_v1') : null
         const cfg: DamConfig = rawCfg ? { ...defaultConfig(), ...JSON.parse(rawCfg) } : defaultConfig()
         cfg.tasks = tasks
         cfg.boundaries = boundaries
@@ -1061,7 +1061,7 @@ export default function GuardPage() {
 
 
   const handleExport = () => {
-    const rawCfg = typeof globalThis.window !== 'undefined' ? localStorage.getItem('dam_config_v1') : null
+    const rawCfg = globalThis.window !== undefined ? localStorage.getItem('dam_config_v1') : null
     const cfg: DamConfig = rawCfg ? { ...defaultConfig(), ...JSON.parse(rawCfg) } : defaultConfig()
     cfg.tasks = tasks
     cfg.boundaries = boundaries
@@ -1091,7 +1091,7 @@ export default function GuardPage() {
 
   const yamlPreview = (() => {
     try {
-      const rawCfg = typeof globalThis.window !== 'undefined' ? localStorage.getItem('dam_config_v1') : null
+      const rawCfg = globalThis.window !== undefined ? localStorage.getItem('dam_config_v1') : null
       const cfg: DamConfig = rawCfg ? { ...defaultConfig(), ...JSON.parse(rawCfg) } : defaultConfig()
       cfg.tasks = tasks
       cfg.boundaries = boundaries
@@ -1107,7 +1107,7 @@ export default function GuardPage() {
     setRestartError(null)
     setRestartOk(false)
     try {
-      const rawCfg = typeof globalThis.window !== 'undefined' ? localStorage.getItem('dam_config_v1') : null
+      const rawCfg = globalThis.window !== undefined ? localStorage.getItem('dam_config_v1') : null
       const cfg: DamConfig = rawCfg ? { ...defaultConfig(), ...JSON.parse(rawCfg) } : defaultConfig()
       cfg.tasks = tasks
       cfg.boundaries = boundaries
