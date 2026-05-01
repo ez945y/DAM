@@ -27,16 +27,30 @@ Training API
 ------------
     guard.train(observations)   # list[Observation] → build MemoryBank or fit Flow
 
+Sensitivity vs Density
+----------------------
+Training produces a **density model** (Memory Bank vectors or NVP flow weights) plus
+distribution statistics (mean_train_nll, std_train_nll) that capture how normal data
+behaves.  These statistics are embedded in the saved checkpoint.
+
+The **sensitivity threshold** is an *inference-time* parameter:
+
+    memory_bank       →  nn_threshold   (L2 distance cutoff; default 2.0)
+    normalizing_flow  →  nll_sigma      (mean + σ·std of training NLL; default 3.0)
+                         nll_threshold  (direct override; used when training stats absent)
+
 Inference (check) API
 ---------------------
-    result = guard.check(obs, nn_threshold=2.0)   # memory_bank
-    result = guard.check(obs, nll_threshold=5.0)  # normalizing_flow
+    result = guard.check(obs, nn_threshold=2.0)              # memory_bank
+    result = guard.check(obs, nll_sigma=3.0)                 # normalizing_flow (uses training stats)
+    result = guard.check(obs, nll_threshold=5.0)             # normalizing_flow (direct override)
 
 Injection keys (config pool)
 ----------------------------
     backend         : str    "memory_bank"   — which detector to use
     nn_threshold    : float  2.0             — NN distance cutoff (memory_bank)
-    nll_threshold   : float  5.0             — -log p(z) cutoff (normalizing_flow)
+    nll_sigma       : float  3.0             — σ multiplier; threshold = mean_train_nll + σ·std
+    nll_threshold   : float  5.0             — direct NLL cutoff (fallback if no training stats)
     ood_model_path  : str  | None            — path to FeatureExtractor / Flow weights (.pt)
     bank_path       : str  | None            — path to MemoryBank vectors (.npy)
 """
@@ -592,9 +606,25 @@ class RealNVPFlow:
             lp = self._model.log_prob(z_t)
         return float(-lp.cpu().item())
 
+    def neg_log_prob_batch(self, vectors: np.ndarray) -> np.ndarray:
+        """Return -log p(z) for each row of (N, dim) float32 array."""
+        if not self._is_fitted or self._model is None:
+            return np.zeros(len(vectors), dtype=np.float32)
+        import torch
+
+        z_t = torch.tensor(vectors, dtype=torch.float32).to(self._device)
+        with torch.no_grad():
+            lp = self._model.log_prob(z_t)
+        return (-lp).cpu().numpy().astype(np.float32)
+
     # ── Serialise ─────────────────────────────────────────────────────────────
 
-    def save(self, path: str) -> None:
+    def save(
+        self,
+        path: str,
+        mean_train_nll: float | None = None,
+        std_train_nll: float | None = None,
+    ) -> None:
         if self._model is not None:
             import torch
 
@@ -604,12 +634,25 @@ class RealNVPFlow:
                     "dim": self._dim,
                     "n_coupling": self._n_coupling,
                     "hidden": self._hidden,
+                    "mean_train_nll": mean_train_nll,
+                    "std_train_nll": std_train_nll,
                 },
                 path,
             )
-            logger.info("RealNVP saved to %s", path)
+            logger.info(
+                "RealNVP saved to %s (mean_nll=%s, std_nll=%s)",
+                path,
+                mean_train_nll,
+                std_train_nll,
+            )
 
-    def load(self, path: str, device: str = "cpu") -> None:
+    def load(self, path: str, device: str = "cpu") -> tuple[float | None, float | None]:
+        """Load model from checkpoint.
+
+        Returns
+        -------
+        (mean_train_nll, std_train_nll) stored at training time, or (None, None).
+        """
         import torch
 
         self._device = device
@@ -625,6 +668,7 @@ class RealNVPFlow:
         self._model.eval()
         self._is_fitted = True
         logger.info("RealNVP loaded from %s (device=%s)", path, self._device)
+        return ckpt.get("mean_train_nll"), ckpt.get("std_train_nll")
 
 
 # ── Welford fallback (unchanged from Phase 2) ────────────────────────────────
@@ -677,7 +721,8 @@ class OODGuard(Guard):
     ----------------
     backend         str    "memory_bank"  — detector variant
     nn_threshold    float  2.0            — NN distance cutoff (memory_bank)
-    nll_threshold   float  5.0            — -log p(z) cutoff (normalizing_flow)
+    nll_sigma       float  3.0            — σ multiplier; threshold = mean_train_nll + σ·std
+    nll_threshold   float  5.0            — direct NLL cutoff (fallback if no training stats)
     ood_model_path  str    None           — path to saved extractor / flow (.pt)
     bank_path       str    None           — path to MemoryBank vectors (.npy)
     """
@@ -691,6 +736,10 @@ class OODGuard(Guard):
         self._model_path: str | None = None
         self._bank_path: str | None = None
         self._device: str = "cpu"
+        # Training-distribution statistics saved at train() time.
+        # Used at inference to compute threshold = mean + nll_sigma * std.
+        self._mean_train_nll: float | None = None
+        self._std_train_nll: float | None = None
 
     # ── Training API ─────────────────────────────────────────────────────────
 
@@ -700,7 +749,19 @@ class OODGuard(Guard):
         flow_epochs: int = _FLOW_EPOCHS,
         flow_lr: float = _FLOW_LR,
     ) -> None:
-        """Build the memory bank / fit the flow from normal observations."""
+        """Build the memory bank / fit the flow from normal observations.
+
+        For the ``normalizing_flow`` backend, after fitting the flow the NLL is
+        evaluated on all training embeddings and the distribution statistics
+        (``mean_train_nll``, ``std_train_nll``) are stored in the checkpoint.
+        At inference time the caller supplies ``nll_sigma`` (default 3.0) and
+        the effective threshold is computed as::
+
+            threshold = mean_train_nll + nll_sigma * std_train_nll
+
+        This keeps the **density model** (training concern) separate from the
+        **sensitivity threshold** (inference/operational concern).
+        """
         if not observations:
             logger.warning("OODGuard.train(): empty observation list")
             return
@@ -721,6 +782,15 @@ class OODGuard(Guard):
                 if self._flow is None:
                     self._flow = RealNVPFlow(dim=vectors.shape[1], device=self._device)
                 self._flow.fit(vectors, epochs=flow_epochs, lr=flow_lr)
+                # Record training NLL distribution for later threshold computation.
+                train_nlls = self._flow.neg_log_prob_batch(vectors)
+                self._mean_train_nll = float(np.mean(train_nlls))
+                self._std_train_nll = float(np.std(train_nlls))
+                logger.info(
+                    "OODGuard: training NLL stats  mean=%.4f  std=%.4f",
+                    self._mean_train_nll,
+                    self._std_train_nll,
+                )
             except ImportError as e:
                 logger.warning("RealNVP requires torch. Falling back to MemoryBank. (%s)", e)
                 self._backend_name = "memory_bank"
@@ -732,7 +802,11 @@ class OODGuard(Guard):
         """Persist extractor weights and memory bank vectors."""
         self._extractor.save(model_path)
         if self._backend_name == "normalizing_flow" and self._flow is not None:
-            self._flow.save(model_path.replace(".pt", "_flow.pt"))
+            self._flow.save(
+                model_path.replace(".pt", "_flow.pt"),
+                mean_train_nll=self._mean_train_nll,
+                std_train_nll=self._std_train_nll,
+            )
         else:
             self._bank.save(bank_path)
 
@@ -751,7 +825,15 @@ class OODGuard(Guard):
         if self._backend_name == "normalizing_flow" and Path(flow_path).exists():
             if self._flow is None:
                 self._flow = RealNVPFlow(device=device)
-            self._flow.load(flow_path, device=device)
+            mean_nll, std_nll = self._flow.load(flow_path, device=device)
+            if mean_nll is not None:
+                self._mean_train_nll = mean_nll
+                self._std_train_nll = std_nll
+                logger.info(
+                    "OODGuard: restored training stats  mean=%.4f  std=%.4f",
+                    mean_nll,
+                    std_nll or 0.0,
+                )
         elif Path(bank_path).exists():
             self._bank.load(bank_path)
 
@@ -788,6 +870,7 @@ class OODGuard(Guard):
         self,
         obs: Observation,
         nn_threshold: float = 2.0,
+        nll_sigma: float = 3.0,
         nll_threshold: float = 5.0,
         ood_model_path: str | None = None,
         bank_path: str | None = None,
@@ -807,7 +890,13 @@ class OODGuard(Guard):
             and self._flow is not None
             and self._flow.is_fitted
         ):
-            return self._check_flow(obs, nll_threshold, name, layer)
+            # Compute threshold from training distribution stats + runtime sigma.
+            # Falls back to the direct nll_threshold when no training stats exist.
+            if self._mean_train_nll is not None and self._std_train_nll is not None:
+                effective_threshold = self._mean_train_nll + nll_sigma * self._std_train_nll
+            else:
+                effective_threshold = nll_threshold
+            return self._check_flow(obs, effective_threshold, name, layer)
         if self._bank.is_trained:
             return self._check_memory_bank(obs, nn_threshold, name, layer)
         return self._check_welford(obs, name, layer)
@@ -828,6 +917,15 @@ class OODGuard(Guard):
             joint_vec = obs.joint_positions
             has_images = obs.images is not None and len(obs.images) > 0
             self._extractor.load(model_path, joint_vec.shape[0], has_images, device=device)
+            # Also load the flow checkpoint (and restore training stats) if present.
+            flow_path = model_path.replace(".pt", "_flow.pt")
+            if self._backend_name == "normalizing_flow" and Path(flow_path).exists():
+                if self._flow is None:
+                    self._flow = RealNVPFlow(device=device)
+                mean_nll, std_nll = self._flow.load(flow_path, device=device)
+                if mean_nll is not None:
+                    self._mean_train_nll = mean_nll
+                    self._std_train_nll = std_nll
             self._model_path = model_path
             self._device = device
             changed = True
@@ -920,6 +1018,8 @@ class OODGuard(Guard):
             "bank_size": self._bank.size,
             "bank_backend": self._bank._backend,
             "flow_fitted": self._flow is not None and self._flow.is_fitted,
+            "mean_train_nll": self._mean_train_nll,
+            "std_train_nll": self._std_train_nll,
             "torch_available": self._extractor._torch_available,
             "welford_samples": self._welford.n,
         }

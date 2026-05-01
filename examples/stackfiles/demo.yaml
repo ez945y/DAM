@@ -24,10 +24,9 @@ safety:
 
 guards:
   - L0: ood
-  - L1: preflight
-  - L2: motion
-  - L3: execution
-  - L4: hardware
+  - L1: motion
+  - L2: execution
+  - L3: hardware
 
 boundaries:
   ood_detector:
@@ -38,7 +37,7 @@ boundaries:
         timeout_sec: 1
         fallback: emergency_stop
   bounds:
-    layer: L2
+    layer: L1
     type: single
     nodes:
       - callback: workspace
@@ -47,7 +46,7 @@ boundaries:
         params:
           bounds: [[-0.4000, 0.4000], [-0.4000, 0.4000], [0.0200, 0.6000]]
   joint_position_limits:
-    layer: L2
+    layer: L1
     type: single
     nodes:
       - callback: joint_position_limits
@@ -56,7 +55,7 @@ boundaries:
           upper: [1.8243, 1.7691, 1.6026, 1.8067, 3.0741, 1.7453]
           lower: [-1.8243, -1.7691, -1.6026, -1.8067, -3.0741, 0]
   joint_velocity_limit:
-    layer: L2
+    layer: L1
     type: single
     nodes:
       - callback: joint_velocity_limit
@@ -65,7 +64,7 @@ boundaries:
         params:
           max_velocities: [1.5000, 1.5000, 1.5000, 1.5000, 1.5000, 1.5000]
   hardware_watchdog:
-    layer: L4
+    layer: L3
     type: single
     nodes:
       - callback: hardware_limit

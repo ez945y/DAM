@@ -52,6 +52,7 @@ nav:
     - Boundary Callbacks: boundary-callbacks.md
     - Loopback Logging: loopback-logging.md
     - Specification: DAM_Specification.md
+    - Experiments: experiments.md
   - Console:
     - Overview: console.md
     - API Reference: services-api.md

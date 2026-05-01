@@ -17,13 +17,13 @@ https://github.com/user-attachments/assets/a10711ea-a419-4aee-ba06-de1e2d437d49
 
 
 
-**DAM** is a detachable safety middleware that sits between any machine learning policy (or controller) and robot hardware. It intercepts every proposed action, evaluates it through a layered guard stack (L0–L4), and either **passes**, **clamps**, or **rejects** it — without modifying the policy weights or hardware drivers.
+**DAM** is a detachable safety middleware that sits between any machine learning policy (or controller) and robot hardware. It intercepts every proposed action, evaluates it through a layered guard stack (L0–L3), and either **passes**, **clamps**, or **rejects** it — without modifying the policy weights or hardware drivers.
 
 This design enables strong safety boundaries while keeping the learning/policy layer fully detachable and upgradable.
 
 ### Features
 
-- **5-Layer Guard Stack**: Progressive defense from perception (L0) → hardware (L4)
+- **4-Layer Guard Stack**: Progressive defense from perception (L0) → hardware (L3)
 - **Rust Data Plane**: Deterministic, real-time-safe execution outside the Python GIL
 - **Stackfile-Driven**: Swap hardware, policies, or safety rules via YAML. Zero Python code for simple tasks.
 - **Hot-Reload Boundaries**: Update safety constraints without stopping the robot
@@ -73,7 +73,7 @@ DAM acts as a transparent safety layer:
 Policy / Controller
         │
         ▼
-Proposed Action  ──────▶  [ Guard Stack L0–L4 ]  ──────▶  Validated Action
+Proposed Action  ──────▶  [ Guard Stack L0–L3 ]  ──────▶  Validated Action
         ▲                       │      │      │                  │
         │                       │      │      │                  ▼
 Observations & State  ─────────┘      │      └──────────▶  Fallback (Hold / Retreat / E-Stop)
@@ -87,10 +87,9 @@ Observations & State  ─────────┘      │      └───�
 | Layer | Name                    | Responsibility                                      | Status      |
 |-------|-------------------------|-----------------------------------------------------|-------------|
 | L0    | OOD Detection           | Out-of-distribution observation detection           | Available   |
-| L1    | Preflight Simulation    | Shadow physics simulation and prediction            | In Progress |
-| L2    | Motion Safety           | Joint limits, workspace, velocity & dynamics        | Available   |
-| L3    | Task Execution          | Mission progress and logical consistency            | In Progress |
-| L4    | Hardware Monitoring     | Motor status, temperature, watchdogs                | Available   |
+| L1    | Physical Kinematics     | Joint limits, workspace, velocity & dynamics        | Available   |
+| L2    | Task Execution          | Mission progress and boundary enforcement           | Available   |
+| L3    | Hardware Monitoring     | Temperature, current, heartbeat, following error    | Available   |
 
 The final decision is the **most restrictive** outcome from all active layers.
 
@@ -100,11 +99,9 @@ The final decision is the **most restrictive** outcome from all active layers.
 
 **v0.2.0 (Current focus)**
 - Complete ROS 2 adapter
-- Finish L3 (Task Execution) and L4 (Hardware Monitoring)
 - Problem isolation and debugging tools
 
 **v0.3.0**
-- Mature L1 Preflight Simulation with physics engine
 - Formal safety specifications and threat modeling
 - Detailed performance benchmarks (latency, throughput, WCET)
 

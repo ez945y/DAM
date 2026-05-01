@@ -1,4 +1,4 @@
-"""Safety regression tests for HardwareGuard (L4)."""
+"""Safety regression tests for HardwareGuard (L3)."""
 
 from __future__ import annotations
 
@@ -91,8 +91,8 @@ def test_hardware_fault_propagates_to_reject():
     assert validated is None, "FAULT should cause rejection"
 
 
-def test_l4_is_hardware_layer():
-    """HardwareGuard is registered at L4 (hardware layer)."""
+def test_l3_is_hardware_layer():
+    """HardwareGuard is registered at L3 (hardware layer)."""
     g = HardwareGuard()
-    assert g.get_layer() == GuardLayer.L4
-    assert g.get_layer().value == 4
+    assert g.get_layer() == GuardLayer.L3
+    assert g.get_layer().value == 3

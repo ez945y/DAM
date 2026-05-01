@@ -188,6 +188,9 @@ export function McapCameraPlayer({
   const [gridMode, setGridMode] = useState(false)
   const [hasInitialized, setHasInitialized] = useState(false)
   const playIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // Stable ref to framesMap so loadCam doesn't need it as a closure dep
+  const framesMapRef = useRef(framesMap)
+  useEffect(() => { framesMapRef.current = framesMap }, [framesMap])
 
   // When live mode is enabled, stop playback
   useEffect(() => {
@@ -207,11 +210,12 @@ export function McapCameraPlayer({
     }
   }, [cameras, hasInitialized])
 
-  // Load frame list for a camera (lazy, cached in framesMap)
+  // Load frame list for a camera (lazy, cached in framesMap).
+  // Uses framesMapRef so this callback stays stable across frame loads,
+  // preventing the load useEffect from firing on every camera state update.
   const loadCam = useCallback((cam: string) => {
-    // In live mode, don't load frames from MCAP
     if (liveMode) return
-    if (framesMap[cam] !== undefined) return
+    if (framesMapRef.current[cam] !== undefined) return
     setLoadingCams(prev => new Set([...prev, cam]))
     api.listMcapFrames(filename, cam)
       .then(data => {
@@ -223,7 +227,7 @@ export function McapCameraPlayer({
       .finally(() => {
         setLoadingCams(prev => { const s = new Set(prev); s.delete(cam); return s })
       })
-  }, [filename, framesMap, liveMode])
+  }, [filename, liveMode])  // removed framesMap dep — use framesMapRef instead
 
   // Load all cameras for grid mode; load selected camera for single mode
   useEffect(() => {
@@ -243,13 +247,14 @@ export function McapCameraPlayer({
     setFrameIdx(nearestFrameIdx(refFrames, currentTimestampNs))
   }, [currentTimestampNs, framesMap, selectedCam, liveMode])
 
-  // Playback interval
+  // Playback interval — fixed 100 ms tick (10 fps)
   useEffect(() => {
     if (playIntervalRef.current) clearInterval(playIntervalRef.current)
     if (!playing || liveMode) return
     const refFrames = selectedCam ? framesMap[selectedCam] : Object.values(framesMap)[0]
     const total = refFrames?.length ?? 0
     if (total === 0) return
+
     playIntervalRef.current = setInterval(() => {
       setFrameIdx(prev => {
         if (prev >= total - 1) { setPlaying(false); return prev }
@@ -274,10 +279,8 @@ export function McapCameraPlayer({
     setFrameIdx(Number(e.target.value))
   }
 
-  // Derive live camera list: use liveImages keys if in live mode, else cameras prop
-  const liveCamList = liveMode
-    ? (liveImages ? Object.keys(liveImages) : cameras)
-    : cameras
+  // Camera list: in live mode, cameras prop = active_cameras from JSON cycle event
+  const liveCamList = cameras
 
   if (!liveMode && cameras.length === 0) {
     return (

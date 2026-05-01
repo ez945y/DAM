@@ -199,7 +199,7 @@ class StackfileConfig(BaseModel):
     boundaries: dict[str, ContainerConfig] = {}
     tasks: dict[str, TaskConfig] = {}
     safety: SafetyConfig = SafetyConfig()
-    # Hierarchical list of active guards (e.g. [{"L0": "ood"}, {"L1": "preflight"}])
+    # Hierarchical list of active guards (e.g. [{"L0": "ood"}, {"L1": "motion"}, {"L2": "execution"}, {"L3": "hardware"}])
     # Also supports dict format for builtin registration in Phase 1
     guards: list[dict[str, str]] | list[str] | dict[str, Any] = []
     # Phase 2+  (all optional)

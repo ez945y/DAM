@@ -6,6 +6,7 @@ import {
   Zap, Activity, Circle, ShieldCheck, Film, RotateCcw
 } from 'lucide-react'
 import { useRuntimeControl } from '@/hooks/useRuntimeControl'
+import { useTelemetry } from '@/hooks/useTelemetry'
 import type { BackendState } from '@/lib/types'
 
 const BACKEND_STYLE: Record<BackendState, { text: string; label: string; dot: string }> = {
@@ -26,6 +27,9 @@ const NAV = [
 export function Sidebar() {
   const path = usePathname()
   const { status, confirmFault, recheckHardware, loading } = useRuntimeControl()
+  // useTelemetry keeps the WebSocket connected on all pages, ensuring
+  // dam-system-update events fire globally (e.g. for config-page restart feedback).
+  const { connected } = useTelemetry()
   const bs = status.backend_state
   const sc = BACKEND_STYLE[bs] || BACKEND_STYLE.loading
 
@@ -95,9 +99,9 @@ export function Sidebar() {
         <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-dam-surface-2 border border-dam-border">
           <Activity size={11} className="text-dam-muted" />
           <span className="text-[10px] text-dam-muted font-mono">v0.3.0</span>
-          <span className={`ml-auto flex items-center gap-1 text-[10px] font-bold ${sc.text}`}>
-            <Circle size={5} className={`fill-current ${sc.dot}`} />
-            {sc.label}
+          <span className={`ml-auto flex items-center gap-1 text-[10px] font-bold ${connected ? sc.text : 'text-dam-muted'}`}>
+            <Circle size={5} className={`fill-current ${connected ? sc.dot : 'bg-dam-muted animate-pulse'}`} />
+            {connected ? sc.label : 'OFFLINE'}
           </span>
         </div>
       </div>

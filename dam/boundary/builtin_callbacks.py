@@ -126,12 +126,12 @@ def ood_detector(
     return result.decision == GuardDecision.PASS
 
 
-# ── L1: TASK PREFLIGHT ────────────────────────────────────────────────────────
+# ── L2: TASK EXECUTION (semantic) ────────────────────────────────────────────
 
 
 @boundary_callback(
     name="semantic_state",
-    layer="L1",
+    layer="L2",
     description="High-level semantic task state validation (pre/post-condition checks).",
 )
 def semantic_state(*, obs: Observation) -> bool:
@@ -139,12 +139,12 @@ def semantic_state(*, obs: Observation) -> bool:
     return True
 
 
-# ── L2: MOTION SAFETY ─────────────────────────────────────────────────────────
+# ── L1: PHYSICAL KINEMATICS ───────────────────────────────────────────────────
 
 
 @boundary_callback(
     name="joint_velocity_limit",
-    layer="L2",
+    layer="L1",
     description="Joint speed safety check (Radians or Degrees).",
 )
 def joint_velocity_limit(
@@ -175,7 +175,7 @@ def joint_velocity_limit(
 
 @boundary_callback(
     name="joint_position_limits",
-    layer="L2",
+    layer="L1",
     description="Joint position safety check (Radians or Degrees).",
 )
 def joint_position_limits(
@@ -200,7 +200,7 @@ def joint_position_limits(
 
 @boundary_callback(
     name="workspace",
-    layer="L2",
+    layer="L1",
     description="Workspace box bounds [x,y,z] min/max in metres.",
 )
 def workspace(
@@ -222,7 +222,7 @@ def workspace(
 
 @boundary_callback(
     name="check_velocity_smooth",
-    layer="L2",
+    layer="L1",
     description="Rejects if the joint velocity norm exceeds a jerk threshold.",
 )
 def check_velocity_smooth(*, obs: Observation, max_jerk_norm: float = 10.0) -> bool:
@@ -235,7 +235,7 @@ def check_velocity_smooth(*, obs: Observation, max_jerk_norm: float = 10.0) -> b
 
 @boundary_callback(
     name="check_joints_not_moving",
-    layer="L2",
+    layer="L1",
     description="Rejects if any joint velocity exceeds a near-zero threshold.",
 )
 def check_joints_not_moving(*, obs: Observation, max_speed_rad_s: float = 0.01) -> bool:
@@ -245,12 +245,12 @@ def check_joints_not_moving(*, obs: Observation, max_speed_rad_s: float = 0.01) 
     return float(np.max(np.abs(obs.joint_velocities))) <= max_speed_rad_s
 
 
-# ── L3: TASK EXECUTION ─────────────────────────────────────────────────────────
+# ── L2: TASK EXECUTION ────────────────────────────────────────────────────────
 
 
 @boundary_callback(
     name="dynamic_safety",
-    layer="L3",
+    layer="L2",
     description="Real-time obstacle avoidance and social distance monitoring.",
 )
 def dynamic_safety(*, obs: Observation) -> bool:
@@ -259,7 +259,7 @@ def dynamic_safety(*, obs: Observation) -> bool:
 
 @boundary_callback(
     name="execution_heartbeat",
-    layer="L3",
+    layer="L2",
     description="Monitor for policy execution timeouts or model hangs.",
 )
 def execution_heartbeat(*, obs: Observation, timeout_sec: float = 0.5) -> bool:
@@ -268,7 +268,7 @@ def execution_heartbeat(*, obs: Observation, timeout_sec: float = 0.5) -> bool:
 
 @boundary_callback(
     name="outcome_verifier",
-    layer="L3",
+    layer="L2",
     description="Verifies the outcome of actions against high-level goals.",
 )
 def outcome_verifier(*, obs: Observation) -> bool:
@@ -277,7 +277,7 @@ def outcome_verifier(*, obs: Observation) -> bool:
 
 @boundary_callback(
     name="check_force_torque_safe",
-    layer="L3",
+    layer="L2",
     description="Rejects if force or torque magnitude exceeds thresholds.",
 )
 def check_force_torque_safe(
@@ -292,7 +292,7 @@ def check_force_torque_safe(
 
 @boundary_callback(
     name="check_gripper_clear",
-    layer="L3",
+    layer="L2",
     description="Rejects if the gripper appears closed when it should be open.",
 )
 def check_gripper_clear(*, obs: Observation, min_gripper_opening_m: float = 0.005) -> bool:
@@ -300,12 +300,12 @@ def check_gripper_clear(*, obs: Observation, min_gripper_opening_m: float = 0.00
     return g_pos is None or float(g_pos) >= min_gripper_opening_m
 
 
-# ── L4: HARDWARE MONITORING ────────────────────────────────────────────────────
+# ── L3: HARDWARE MONITORING ───────────────────────────────────────────────────
 
 
 @boundary_callback(
     name="hardware_watchdog",
-    layer="L4",
+    layer="L3",
     description="Safety check for observation staleness.",
 )
 def hardware_watchdog(*, obs: Observation, max_staleness_ms: float = 1000.0) -> bool:

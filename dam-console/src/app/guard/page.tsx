@@ -25,9 +25,8 @@ interface GuardDef {
 const LAYER_COLORS: { [key: string]: string } = {
   L0: 'text-purple-400 border-purple-400/30 bg-purple-400/10',
   L1: 'text-dam-blue border-dam-blue/30 bg-dam-blue/10',
-  L2: 'text-dam-blue border-dam-blue/30 bg-dam-blue-dim',
-  L3: 'text-dam-orange border-dam-orange/30 bg-dam-orange/10',
-  L4: 'text-dam-red border-dam-red/30 bg-dam-red/10',
+  L2: 'text-dam-orange border-dam-orange/30 bg-dam-orange/10',
+  L3: 'text-dam-red border-dam-red/30 bg-dam-red/10',
 }
 
 
@@ -48,7 +47,7 @@ function makeNode(): ConstraintNodeDef {
   }
 }
 
-function makeBoundary(layerStr = 'L2'): BoundaryDef {
+function makeBoundary(layerStr = 'L1'): BoundaryDef {
   return { name: 'ood_detector', layer: layerStr, type: 'single', nodes: [makeNode()] }
 }
 
@@ -180,7 +179,7 @@ function NodeForm({
                 </optgroup>
               ))
             ) : (
-              ['L0', 'L1', 'L2', 'L3', 'L4'].map(layer => {
+              ['L0', 'L1', 'L2', 'L3'].map(layer => {
                 const group = callbackCatalog.filter(c => c.layer === layer)
                 if (group.length === 0) return null
                 return (
@@ -617,7 +616,7 @@ function BoundaryPickerModal({
   if (!isOpen) return null
 
   const grouped = allBoundaries.reduce((acc, b) => {
-    const layer = b.layer || 'L2'
+    const layer = b.layer || 'L1'
     if (!acc[layer]) acc[layer] = []
     acc[layer].push(b)
     return acc
@@ -888,7 +887,7 @@ export default function GuardPage() {
 
   // Expand/collapse for Boundaries section (per layer)
   const [expandedBoundaryLayers, setExpandedBoundaryLayers] = useState<Record<string, boolean>>({
-    L0: false, L1: false, L2: false, L3: false, L4: false,
+    L0: false, L1: false, L2: false, L3: false,
   })
 
   const [saved, setSaved] = useState(false)
@@ -913,7 +912,7 @@ export default function GuardPage() {
         else setBoundaries([
           {
             name: 'bounds',
-            layer: 'L2',
+            layer: 'L1',
             type: 'single',
             nodes: [{
               node_id: 'default',
@@ -935,7 +934,7 @@ export default function GuardPage() {
         setBoundaries([
           {
             name: 'bounds',
-            layer: 'L2',
+            layer: 'L1',
             type: 'single',
             nodes: [{
               node_id: 'default',
@@ -1050,7 +1049,7 @@ export default function GuardPage() {
   const removeTask = (id: string) => setTasks(prev => prev.filter(t => t.id !== id))
   const updateTask = (t: TaskDef) => setTasks(prev => prev.map(x => x.id === t.id ? t : x))
 
-  const addBoundary = (layer = 'L2') => setBoundaries(prev => [...prev, makeBoundary(layer)])
+  const addBoundary = (layer = 'L1') => setBoundaries(prev => [...prev, makeBoundary(layer)])
   const removeBoundary = (name: string) => setBoundaries(prev => prev.filter(b => b.name !== name))
   const updateBoundary = (b: BoundaryDef, origName: string) =>
     setBoundaries(prev => prev.map(x => x.name === origName ? b : x))

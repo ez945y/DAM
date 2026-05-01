@@ -179,6 +179,10 @@ export interface TelemetrySnapshot {
   windowRejects: number  // rejects in last 1m
   windowClamps: number   // clamps in last 1m
   events: LogEntry[]
+  /** Camera names seen in recent binary WS frames or cycle events. */
+  activeCameras: string[]
+  /** Most recent JPEG frame per camera, from binary WS frames. */
+  liveImages: Record<string, Blob>
 }
 
 // ── MCAP Session Types ────────────────────────────────────────────────────

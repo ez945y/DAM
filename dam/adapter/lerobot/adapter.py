@@ -143,8 +143,31 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
             "connected": self._connected,
             "latency_ms": (time.monotonic() - self._prev_time) * 1000 if self._prev_time else 0,
         }
-        if hasattr(self._robot, "get_state"):
-            status["robot_state"] = self._robot.get_state()
+        if self._connected and hasattr(self._robot, "bus"):
+            try:
+                bus = self._robot.bus
+                # STS3215 Present_Current unit is mA; convert to A.
+                currents = bus.sync_read("Present_Current")
+                if currents:
+                    status["current_a"] = max(currents.values()) / 1000.0
+
+                temps = bus.sync_read("Present_Temperature")
+                if temps:
+                    status["temperature_c"] = float(max(temps.values()))
+
+                # STS3215 has no following-error register; compute from goal vs present.
+                # 4096 steps/rev → 1 step = 2π/4096 rad.
+                goals = bus.sync_read("Goal_Position")
+                presents = bus.sync_read("Present_Position")
+                if goals and presents:
+                    _RAD_PER_STEP = 2 * math.pi / 4096
+                    errs = [
+                        abs(goals[m] - presents[m]) * _RAD_PER_STEP for m in goals if m in presents
+                    ]
+                    if errs:
+                        status["hardware_following_error"] = max(errs)
+            except Exception as exc:
+                logger.debug("get_hardware_status bus read failed: %s", exc)
         return status
 
     # ── SensorAdapter Interface (Read) ──────────────────────────────────────

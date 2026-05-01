@@ -32,8 +32,10 @@ def test_ood_trainer_success(mock_guard_class, tmp_path):
     mock_datasets.load_dataset.return_value = mock_ds
 
     with patch.dict("sys.modules", {"datasets": mock_datasets}):
-        # Mock Guard
+        # Mock Guard — set training-stats attributes to JSON-serialisable values
         mock_guard = MagicMock()
+        mock_guard._mean_train_nll = None
+        mock_guard._std_train_nll = None
         mock_guard.diagnostics.return_value = {"backend": "memory_bank"}
         mock_guard_class.return_value = mock_guard
 
