@@ -172,39 +172,22 @@ function GuardResultItem({
 }
 // ── View MCAP Button ─────────────────────────────────────────────────────
 
-function ViewMcapButton({ cycleId, tsNs }: { cycleId: number; tsNs: number }) {
+function ViewMcapButton({ cycleId, mcapFilename }: { cycleId: number; mcapFilename?: string | null }) {
   const router = useRouter()
-  const [searching, setSearching] = React.useState(false)
   const { setLiveMode } = useLiveMode()
-
-  const handleClick = async () => {
-    setLiveMode(false)
-    setSearching(true)
-    try {
-      const result = await api.findMcapSession(cycleId)
-      if (result.found && result.filename) {
-        router.push(`/mcap-viewer?filename=${encodeURIComponent(result.filename)}&cycle_id=${cycleId}&ts_ns=${tsNs}`)
-      } else {
-        // No session contains this cycle_id — navigate without filename
-        router.push(`/mcap-viewer?cycle_id=${cycleId}&ts_ns=${tsNs}`)
-      }
-    } catch {
-      router.push(`/mcap-viewer?cycle_id=${cycleId}&ts_ns=${tsNs}`)
-    } finally {
-      setSearching(false)
-    }
-  }
 
   return (
     <button
-      onClick={() => { handleClick() }}
-      disabled={searching}
-      className="mt-2 w-full flex items-center justify-center gap-2 px-3 py-2 bg-dam-blue/10 border border-dam-blue/30 text-dam-blue text-xs font-bold rounded hover:bg-dam-blue/20 disabled:opacity-60 transition-colors"
+      onClick={() => {
+        setLiveMode(false)
+        const url = mcapFilename
+          ? `/mcap-viewer?filename=${encodeURIComponent(mcapFilename)}&cycle_id=${cycleId}`
+          : `/mcap-viewer?cycle_id=${cycleId}`
+        router.push(url)
+      }}
+      className="mt-2 w-full flex items-center justify-center gap-2 px-3 py-2 bg-dam-blue/10 border border-dam-blue/30 text-dam-blue text-xs font-bold rounded hover:bg-dam-blue/20 transition-colors"
     >
-      {searching
-        ? <><span className="w-3 h-3 border-2 border-dam-blue/40 border-t-dam-blue rounded-full animate-spin" /> Locating…</>
-        : <><Play size={12} /> View in MCAP Viewer</>
-      }
+      <Play size={12} /> View in MCAP Viewer
     </button>
   )
 }
@@ -271,12 +254,18 @@ export function RiskLogTable() {
     return () => globalThis.removeEventListener('dam_live_refresh_change', sync)
   }, [])
 
-  // Auto-refresh: Switch to event-driven instead of constant polling
+  // Auto-refresh: Switch to event-driven instead of constant polling.
+  // frozen only gates the handlers — no backend API is called; MCAP freeze is
+  // managed exclusively by the MCAP viewer page.
+  const frozenRef = useRef(frozen)
+  useEffect(() => { frozenRef.current = frozen }, [frozen])
+
   useEffect(() => {
     load()
 
-    const handleUpdate = () => { load(true) }
-    const handleFocus = () => { load() }
+    const handleUpdate = () => { if (!frozenRef.current) load(true) }
+    // Always background on focus to avoid clearing visible content mid-read.
+    const handleFocus = () => { if (!frozenRef.current) load(true) }
 
     globalThis.addEventListener('dam-system-update', handleUpdate)
     globalThis.addEventListener('focus', handleFocus)
@@ -286,7 +275,7 @@ export function RiskLogTable() {
       globalThis.removeEventListener('focus', handleFocus)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [frozen, filters])
+  }, [filters])
 
   // Grouping logic: collapse consecutive identical results.
   const groupEvents = (raw: RiskEvent[]) => {
@@ -544,7 +533,7 @@ export function RiskLogTable() {
                               )}
 
                               {/* View MCAP button */}
-                              <ViewMcapButton cycleId={e.cycle_id} tsNs={Math.floor(e.timestamp * 1e9)} />
+                              <ViewMcapButton cycleId={e.cycle_id} mcapFilename={e.mcap_filename} />
                             </div>
                           </div>
                         </div>

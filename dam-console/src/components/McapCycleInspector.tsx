@@ -227,8 +227,11 @@ export function McapCycleInspector({ filename, cycleId, tsNs, fallbackDetail, ov
 
   if (error) {
     return (
-      <div className="p-4 text-red-400 text-xs bg-red-500/10 border border-red-500/20 rounded-lg">
-        {error}
+      <div className="p-4 text-red-400 text-xs bg-red-500/10 border border-red-500/20 rounded-lg space-y-2">
+        <p className="font-bold">{error}</p>
+        <p className="text-red-400/80 italic">
+          Tip: Please stop the system and refresh the page to ensure all telemetry data is synchronized.
+        </p>
       </div>
     )
   }

@@ -1,7 +1,10 @@
+import logging
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import Response
+
+logger = logging.getLogger(__name__)
 
 _SVC_UNAVAILABLE = "MCAP session service not configured"
 
@@ -18,11 +21,18 @@ def _require_mcap_path(path: Any) -> Any:
     return path
 
 
-def create_mcap_router(mcap_sessions: Any | None) -> APIRouter:
+def create_mcap_router(mcap_sessions: Any | None, control_svc: Any | None = None) -> APIRouter:
     router = APIRouter(prefix="/api/mcap")
 
     def get_mcap_service(request: Request) -> Any:
         return mcap_sessions or getattr(request.app.state, "mcap_sessions", None)
+
+    def _control_svc_ready() -> bool:
+        return (
+            control_svc is not None
+            and hasattr(control_svc, "status")
+            and hasattr(control_svc, "force_save_mcap")
+        )
 
     @router.get("/sessions", responses={503: {"description": _SVC_UNAVAILABLE}})
     def mcap_list_sessions(svc: Annotated[Any, Depends(get_mcap_service)]) -> Any:
@@ -49,6 +59,7 @@ def create_mcap_router(mcap_sessions: Any | None) -> APIRouter:
         "/sessions/{filename}",
         responses={
             404: {"description": "Session not found or failed to delete"},
+            409: {"description": "Session is currently being recorded"},
             503: {"description": _SVC_UNAVAILABLE},
         },
     )
@@ -56,6 +67,22 @@ def create_mcap_router(mcap_sessions: Any | None) -> APIRouter:
         filename: Annotated[str, Path()], svc: Annotated[Any, Depends(get_mcap_service)]
     ) -> Any:
         svc = _require_mcap_svc(svc)
+
+        if _control_svc_ready():
+            try:
+                is_running = control_svc.status().get("state") == "running"
+                sessions = svc.list_sessions()
+                is_active = bool(is_running and sessions and sessions[0]["filename"] == filename)
+                if is_active:
+                    raise HTTPException(
+                        409,
+                        "This session is currently being recorded. Stop the system before deleting.",
+                    )
+            except HTTPException:
+                raise
+            except Exception:
+                pass
+
         success = svc.delete_session(filename)
         if not success:
             raise HTTPException(404, f"Session not found or failed to delete: {filename}")

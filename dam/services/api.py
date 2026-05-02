@@ -141,6 +141,6 @@ def create_app(services: ServiceContainer | None = None) -> Any:
     app.include_router(create_control_router(services.control))
     app.include_router(create_system_router(services.control))
     app.include_router(create_ood_router(services.ood_trainer))
-    app.include_router(create_mcap_router(services.mcap_sessions))
+    app.include_router(create_mcap_router(services.mcap_sessions, services.control))
 
     return app

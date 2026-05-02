@@ -34,6 +34,12 @@ let gActiveCameras: string[] = []
 // multiple consumers (e.g. PageShell + Dashboard) update independently
 // without racing for a shared flag.
 let gVersion = 0
+// Separate version counters for heavy objects — avoids unconditional cloning
+// every tick when only unrelated fields (e.g. latency) changed.
+let gLiveImagesVer = 0
+let gGuardMapVer = 0
+let gEventsVer = 0
+let gLatencyVer = 0
 let gWsConnected = false
 let gHistoryFetched = false
 
@@ -54,7 +60,9 @@ export const resetGlobalState = () => {
   gRejectTimes = []
   gClampTimes = []
   gProcessedIds.clear()
-  gVersion++ // signal all hook instances to re-render with cleared state
+  gLiveImagesVer++
+  gGuardMapVer++
+  gVersion++
 }
 
 export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, reset: () => void } {
@@ -83,6 +91,10 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
   // Per-instance version tracking — avoids the shared-flag race between
   // multiple useTelemetry consumers (e.g. PageShell and Dashboard).
   const lastVersionRef = useRef(gVersion)
+  const lastLiveImagesVerRef = useRef(gLiveImagesVer)
+  const lastGuardMapVerRef = useRef(gGuardMapVer)
+  const lastEventsVerRef = useRef(gEventsVer)
+  const lastLatencyVerRef = useRef(gLatencyVer)
   // Prevent onclose from scheduling a reconnect after the component unmounts.
   const mountedRef = useRef(true)
 
@@ -130,6 +142,15 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
       gVersion++
       setState(s => ({ ...s, connected: true }))
       fetchHistory()
+
+      // Initialize total cycle count from backend so a page refresh shows the
+      // correct cumulative number rather than re-accumulating from WS replay.
+      api.getStatus().then(s => {
+        if (s.cycle_count > gBuffer.totalCycles) {
+          gBuffer.totalCycles = s.cycle_count
+          gVersion++
+        }
+      }).catch(() => {})
 
       api.listBoundaries().then(resp => {
         if (resp.boundaries) {
@@ -197,6 +218,7 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
           const name = new TextDecoder().decode(view.subarray(nameOffset, nameOffset + nameLen))
           const jpegData = view.subarray(nameOffset + nameLen)
           gLiveImages[name] = new Blob([jpegData], { type: 'image/jpeg' })
+          gLiveImagesVer++
 
           if (gActiveCameras.includes(name)) {
             // Already tracked
@@ -220,6 +242,7 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
               message: msg.message,
               timestamp: Date.now() / 1000
             }, ...gEvents].slice(0, MAX_EVENTS)
+            gEventsVer++
             gVersion++
           }
         }
@@ -259,6 +282,7 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
           let hasFault = false
           const logEntries: LogEntry[] = []
           const logNow = Date.now()
+          if (cycle.guard_statuses.length > 0) gGuardMapVer++
           for (const g of cycle.guard_statuses) {
             gGuardMap[g.name] = g
             if (g.decision === 'FAULT' || g.decision === 'REJECT' || g.decision === 'CLAMP') {
@@ -279,10 +303,12 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
 
           if (logEntries.length > 0) {
             gEvents = [...logEntries, ...gEvents].slice(0, MAX_EVENTS)
+            gEventsVer++
           }
 
           gLatency = [...gLatency, cycle.latency_ms['total'] || 0].slice(-MAX_LATENCY)
           gLatencyCycleIds = [...gLatencyCycleIds, cycle.cycle_id].slice(-MAX_LATENCY)
+          gLatencyVer++
         }
       } catch (err) { console.error('WS JSON error:', err) }
     }
@@ -361,11 +387,13 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
 
         // Arrays/Objects need explicit check or just clone if we know version changed
         // To be safe and fast, we check if the global array is different from state
-        if (s.events !== gEvents) {
+        if (lastEventsVerRef.current !== gEventsVer) {
+          lastEventsVerRef.current = gEventsVer
           next.events = [...gEvents]
           changed = true
         }
-        if (s.latencyHistory.length !== gLatency.length || s.latencyHistory[s.latencyHistory.length-1] !== gLatency[gLatency.length-1]) {
+        if (lastLatencyVerRef.current !== gLatencyVer) {
+          lastLatencyVerRef.current = gLatencyVer
           next.latencyHistory = [...gLatency]
           next.latencyCycleIds = [...gLatencyCycleIds]
           changed = true
@@ -374,11 +402,13 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
           next.activeCameras = [...gActiveCameras]
           changed = true
         }
-        if (s.liveImages !== gLiveImages) {
+        if (lastLiveImagesVerRef.current !== gLiveImagesVer) {
+          lastLiveImagesVerRef.current = gLiveImagesVer
           next.liveImages = { ...gLiveImages }
           changed = true
         }
-        if (s.guardMap !== gGuardMap) {
+        if (lastGuardMapVerRef.current !== gGuardMapVer) {
+          lastGuardMapVerRef.current = gGuardMapVer
           next.guardMap = { ...gGuardMap }
           changed = true
         }

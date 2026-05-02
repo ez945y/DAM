@@ -35,6 +35,11 @@ def create_control_router(control: RuntimeControlService | None) -> APIRouter:
     async def control_status() -> Any:
         return _require_control(control).status()
 
+    @router.post("/api/control/force-save-mcap")
+    async def force_save_mcap() -> Any:
+        _require_control(control).force_save_mcap()
+        return {"status": "ok"}
+
     @router.get("/api/catalog/callbacks")
     async def get_callback_catalog(grouped: Annotated[bool, Query()] = False) -> Any:
         from dam.boundary.builtin_callbacks import get_catalog

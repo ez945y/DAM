@@ -25,6 +25,7 @@ class RiskEvent(msgspec.Struct):
     guard_results: list[dict[str, Any]] = []
     latency_ms: dict[str, float] = {}
     perf: dict[str, Any] | None = None
+    mcap_filename: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dict blazingly fast using msgspec."""
@@ -50,7 +51,9 @@ class RiskLogService:
 
     # ── Recording ─────────────────────────────────────────────────────────────
 
-    def record(self, result: Any, perf: dict[str, Any] | None = None) -> None:
+    def record(
+        self, result: Any, perf: dict[str, Any] | None = None, mcap_filename: str | None = None
+    ) -> None:
         """Record a CycleResult object.
 
         Args:
@@ -82,6 +85,7 @@ class RiskLogService:
             guard_results=guard_summaries,
             latency_ms=dict(result.latency_ms),
             perf=perf,
+            mcap_filename=mcap_filename,
         )
         with self._lock:
             self._next_id += 1

@@ -30,3 +30,4 @@ class CycleResult:
     risk_level: RiskLevel = RiskLevel.NORMAL
     active_task: str | None = None
     active_boundaries: list[str] = field(default_factory=list)
+    mcap_filename: str | None = None

@@ -110,6 +110,7 @@ module = [
     "lerobot",
     "lerobot.*",
     "datasets",
+    "yaml",
 ]
 ignore_missing_imports = true
 
