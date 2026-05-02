@@ -121,8 +121,33 @@ function SessionCard({
 
 function SessionHeader({ session, detail }: { session: McapSessionSummary; detail: McapSessionDetail }) {
   const [metaOpen, setMetaOpen] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const meta = detail.metadata ?? {}
   const hasMeta = Object.keys(meta).length > 0
+
+  function handleDeleteClick() {
+    setDeleteError(null)
+    setDeleteConfirm(true)
+  }
+
+  function handleDeleteCancel() {
+    setDeleteConfirm(false)
+    setDeleteError(null)
+  }
+
+  function handleDeleteConfirm() {
+    setDeleting(true)
+    setDeleteError(null)
+    api.deleteMcapSession(session.filename)
+      .then(() => { window.location.href = '/mcap-viewer' })
+      .catch((e: Error) => {
+        setDeleteError(e.message)
+        setDeleteConfirm(false)
+        setDeleting(false)
+      })
+  }
 
   return (
     <div className="bg-dam-surface-2 border border-dam-border rounded-lg px-4 py-3 space-y-2">
@@ -168,19 +193,41 @@ function SessionHeader({ session, detail }: { session: McapSessionSummary; detai
             <Download size={11} />
             Download
           </a>
-          <button
-            onClick={() => {
-              if (confirm('Are you sure you want to delete this session?')) {
-                api.deleteMcapSession(session.filename).then(() => { window.location.href = '/mcap-viewer' })
-              }
-            }}
-            className="flex items-center justify-center p-1 text-dam-muted hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/50 rounded transition-colors"
-            title="Delete Session"
-          >
-            <Trash2 size={12} />
-          </button>
+          {deleteConfirm ? (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={handleDeleteConfirm}
+                disabled={deleting}
+                className="text-[10px] font-bold text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 px-2 py-1 rounded transition-colors"
+              >
+                {deleting ? '…' : 'Delete'}
+              </button>
+              <button
+                onClick={handleDeleteCancel}
+                disabled={deleting}
+                className="text-[10px] text-dam-muted hover:text-dam-text border border-dam-border px-2 py-1 rounded transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={handleDeleteClick}
+              className="flex items-center justify-center p-1 text-dam-muted hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/50 rounded transition-colors"
+              title="Delete Session"
+            >
+              <Trash2 size={12} />
+            </button>
+          )}
         </div>
       </div>
+
+      {deleteError && (
+        <div className="flex items-center gap-2 text-[11px] text-red-400 bg-red-500/10 border border-red-500/20 rounded px-3 py-1.5">
+          <ShieldAlert size={11} className="shrink-0" />
+          {deleteError}
+        </div>
+      )}
 
       {metaOpen && hasMeta && (
         <div className="pt-2 border-t border-dam-border/40 grid grid-cols-2 sm:grid-cols-3 gap-1">
@@ -447,10 +494,15 @@ function McapViewerContent() {
         return { ...prev }
       })
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load sessions')
-    } finally {
-      if (opts?.showSpinner) setSessionsLoading(false)
+      const msg = e instanceof Error ? e.message : String(e)
+      if (msg.includes('not configured') || msg.includes('503')) {
+        // Silently retry if backend service is still spinning up, DO NOT clear the loading spinner!
+        setTimeout(() => loadSessions(opts), 1000)
+        return
+      }
+      setError(msg || 'Failed to load sessions')
     }
+    if (opts?.showSpinner) setSessionsLoading(false)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, liveMode])
 

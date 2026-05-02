@@ -589,6 +589,11 @@ class LoopbackWriter:
         self._session_path: Path | None = None
         self._pending_session_path: Path | None = None
 
+    @property
+    def current_filename(self) -> str | None:
+        """Return the name of the MCAP file currently being written (if any)."""
+        return self._session_path.name if self._session_path else None
+
     def start(self, session_path: str | None = None) -> None:
         if self._started:
             return
@@ -651,6 +656,17 @@ class LoopbackWriter:
     def __del__(self) -> None:
         if self._started:
             self.shutdown()
+
+    def force_rotate(self) -> None:
+        """Force the Rust writer to close the current file so its footer is written.
+
+        CPython's reference counting immediately invokes Rust's Drop when the last
+        reference is cleared, which finalises the MCAP footer synchronously.
+        The next submit() call will open a new session file via _ensure_writer().
+        """
+        if self._started and self._mcap_writer is not None:
+            logger.info("LoopbackWriter: forced rotation triggered")
+            self._mcap_writer = None
 
     # ── Worker thread ──────────────────────────────────────────────────────
     # Thread-safe: runs in dedicated daemon thread, never blocks the control loop.

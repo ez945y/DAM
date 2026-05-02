@@ -165,7 +165,13 @@ def main() -> None:
                                         n_subs,
                                     )
                         telemetry.push(res, live_images=live_imgs if live_imgs else None)
-                        risk_log.record(res, perf=rt._metric_bus.snapshot())
+                        _loopback = getattr(rt, "_loopback", None)
+                        _sp = getattr(_loopback, "_session_path", None)
+                        risk_log.record(
+                            res,
+                            perf=rt._metric_bus.snapshot(),
+                            mcap_filename=_sp.name if _sp else None,
+                        )
                         return res
 
                     return _instrumented

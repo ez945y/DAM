@@ -240,6 +240,18 @@ class RuntimeControlService:
 
         return True
 
+    def _loopback_outside_lock(self) -> Any | None:
+        with self._lock:
+            if self._runner:
+                return getattr(self._runner.runtime, "_loopback", None)
+        return None
+
+    def force_save_mcap(self) -> None:
+        """Force the loopback writer to rotate the MCAP file immediately (zero-downtime save)."""
+        loopback = self._loopback_outside_lock()
+        if loopback is not None and hasattr(loopback, "force_rotate"):
+            loopback.force_rotate()
+
     def emergency_stop(self) -> bool:
         """Immediate emergency stop — triggers sink emergency_stop if available."""
         with self._lock:
@@ -544,6 +556,15 @@ class RuntimeControlService:
                 if self._state in (RuntimeState.RUNNING, RuntimeState.STOPPING):
                     self._state = RuntimeState.STOPPED
             self._notify_state()
+
+            # Ensure the MCAP file is closed (footer written) after the loop has definitively
+            # exited. This prevents the race condition where the last cycle might open
+            # a new, tiny orphaned file if rotation was triggered while the loop was still
+            # finalizing its last step.
+            try:
+                self.force_save_mcap()
+            except Exception:
+                logger.debug("RuntimeControlService: cleanup MCAP rotation failed", exc_info=True)
 
     def _notify_state(self) -> None:
         if self._on_state_change is not None:

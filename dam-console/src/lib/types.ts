@@ -68,6 +68,8 @@ export interface RiskEvent {
   latency_ms: Record<string, number>
   /** MetricBus snapshot captured at cycle boundary. Present when backend MetricBus is wired. */
   perf?: PerfSnapshot | null
+  /** MCAP filename where this cycle was recorded. Used for direct jump to correct file. */
+  mcap_filename?: string | null
 }
 
 export interface RiskLogStats {

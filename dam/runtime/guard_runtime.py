@@ -549,6 +549,7 @@ class GuardRuntime:
             risk_level=risk,
             active_task=self._active_task,
             active_boundaries=list(self._active_container_names),
+            mcap_filename=self._loopback.current_filename if self._loopback else None,
         )
 
     def get_latest_images(self) -> dict[str, bytes]:
@@ -759,11 +760,8 @@ class GuardRuntime:
         return results
 
     def stop(self) -> None:
-        """Signal ``run()`` to exit after the current cycle completes, then shutdown."""
+        """Signal ``run()`` to exit after the current cycle completes."""
         self._running = False
-        # Ensure loopback writer is properly shutdown
-        if self._loopback is not None:
-            self._loopback.shutdown()
 
     def shutdown(self) -> None:
         """Disconnect from hardware and stop background threads.
@@ -772,6 +770,8 @@ class GuardRuntime:
         resource leaks (semaphores, camera handles).
         """
         self._running = False
+        if hasattr(self, "_engine") and self._engine is not None:
+            self._engine.shutdown()
         if hasattr(self, "_watchdog") and self._watchdog is not None:
             with contextlib.suppress(Exception):
                 self._watchdog.disarm()

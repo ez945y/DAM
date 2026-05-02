@@ -126,6 +126,19 @@ class ExecutionEngine:
         self._enforcement_mode = enforcement_mode
         self._fallback_registry = fallback_registry
         self._metric_bus = metric_bus
+        self._thread_pool: ThreadPoolExecutor | None = None
+
+    def _get_executor(self, max_workers: int) -> ThreadPoolExecutor:
+        if self._thread_pool is None:
+            self._thread_pool = ThreadPoolExecutor(
+                max_workers=max_workers, thread_name_prefix="ExecutionEngine"
+            )
+        return self._thread_pool
+
+    def shutdown(self) -> None:
+        if self._thread_pool is not None:
+            self._thread_pool.shutdown(wait=True)
+            self._thread_pool = None
 
     # ── Public entry point ───────────────────────────────────────────────────
 
@@ -395,17 +408,17 @@ class ExecutionEngine:
             return []
         results: list[GuardResult | None] = [None] * len(pairs)
 
-        with ThreadPoolExecutor(max_workers=len(pairs)) as executor:
-            futures = {
-                executor.submit(self._run_parallel_entry, stage.name, i, g, bn, runtime_pool): i
-                for i, (g, bn) in enumerate(pairs)
-            }
-            try:
-                for future in as_completed(futures, timeout=timeout_s):
-                    idx, result = future.result()
-                    results[idx] = result
-            except FuturesTimeoutError:
-                self._fill_timed_out_results(futures, pairs, results, stage)
+        executor = self._get_executor(max_workers=max(len(pairs), 8))
+        futures = {
+            executor.submit(self._run_parallel_entry, stage.name, i, g, bn, runtime_pool): i
+            for i, (g, bn) in enumerate(pairs)
+        }
+        try:
+            for future in as_completed(futures, timeout=timeout_s):
+                idx, result = future.result()
+                results[idx] = result
+        except FuturesTimeoutError:
+            self._fill_timed_out_results(futures, pairs, results, stage)
 
         self._fill_missing_results(results, pairs, stage)
         return cast(list[GuardResult], results)
