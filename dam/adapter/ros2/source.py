@@ -34,12 +34,11 @@ class ROS2SourceAdapter(SensorAdapter):
     """
 
     # Channel-name → default topic.  Override per-channel via stackfile.
+    # Limited to channels with a well-defined ROS2 message convention; other
+    # device-specific signals should be exposed via custom robot drivers.
     _CHANNEL_DEFAULT_TOPICS: dict[str, str] = {
         "effort": "/joint_effort",
         "wrench": "/wrench",
-        "temperature": "/joint_temperature",
-        "current": "/joint_current",
-        "voltage": "/joint_voltage",
     }
 
     def __init__(

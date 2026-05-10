@@ -136,3 +136,82 @@ def test_sink_hardware_status():
     assert "topic" in status
     assert status["topic"] == "/my_topic"
     assert status["connected"] is True
+
+
+# ── Observation-channel tests ──────────────────────────────────────────────
+
+
+def test_source_supported_channels_is_nonempty():
+    adapter = ROS2SourceAdapter(node=None)
+    assert adapter.supported_channels() == {"effort", "wrench"}
+
+
+def test_set_observation_channels_subscribes_each_topic():
+    node = make_mock_node()
+    adapter = ROS2SourceAdapter(
+        node=node,
+        channel_topic_overrides={"effort": "/my_effort"},
+    )
+    adapter.set_observation_channels(["effort", "wrench"])
+    adapter.connect()
+
+    # 1 joint-state subscription + 2 channel subscriptions
+    assert node.create_subscription.call_count == 3
+    subscribed_topics = {call.args[1] for call in node.create_subscription.call_args_list}
+    assert "/my_effort" in subscribed_topics  # override
+    assert "/wrench" in subscribed_topics  # default
+
+
+def test_channel_message_appears_in_observation():
+    node = make_mock_node()
+    adapter = ROS2SourceAdapter(node=node)
+    adapter.set_observation_channels(["effort"])
+    adapter.connect()
+
+    # Feed a joint-state and a channel message
+    adapter._on_joint_state(make_mock_joint_state_msg([0.0] * 6))
+    effort_msg = MagicMock(spec=["data"])
+    effort_msg.data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+    adapter._on_channel_msg("effort", effort_msg)
+
+    obs = adapter.read()
+    assert obs.channels is not None
+    assert "effort" in obs.channels
+    np.testing.assert_array_equal(obs.channels["effort"], [1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+
+
+def test_factory_ros2_path_activates_channels_and_preserves_source_name():
+    """Stackfile-driven ROS2 build wires channels and keeps the user's source name."""
+    import tempfile
+
+    import yaml
+
+    from dam.runtime.factory import RuntimeFactory
+
+    stack = {
+        "version": "1",
+        "hardware": {
+            "preset": "generic_6dof",
+            "sources": {
+                "my_arm": {"type": "ros2", "joint_topic": "/jpos"},
+                "effort": {"type": "effort", "ref": "my_arm", "topic": "/torque"},
+                "wrench": {"type": "wrench", "ref": "my_arm"},
+            },
+            "sinks": {"cmd": {"topic": "/cmd"}},
+        },
+        "safety": {"control_frequency_hz": 10, "no_task_behavior": "emergency_stop"},
+        "guards": [],
+        "tasks": {"default": {"description": "", "boundaries": []}},
+        "boundaries": {},
+    }
+
+    with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
+        yaml.safe_dump(stack, f, sort_keys=False)
+        path = f.name
+
+    runner = RuntimeFactory.build_from_stackfile(path)
+    assert type(runner).__name__ == "ROS2Runner"
+    # Source registered under the stackfile name, not "ros2"
+    assert "my_arm" in runner.runtime._sources
+    src = runner.runtime._sources["my_arm"]
+    assert src._channel_topics == {"effort": "/torque", "wrench": "/wrench"}

@@ -33,9 +33,10 @@ class ROS2Runner(BaseRunner):
         policy: Any,
         node: Any = None,
         timer_period_s: float = 0.02,
+        source_name: str = "ros2",
     ) -> None:
         self._runtime = runtime
-        self._runtime.register_source("ros2", source)
+        self._runtime.register_source(source_name, source)
         self._runtime.register_sink(sink)
         self._runtime.register_policy(policy)
         self._node = node

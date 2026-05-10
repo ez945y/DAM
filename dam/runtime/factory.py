@@ -138,25 +138,8 @@ class RuntimeFactory:
                 robot, joint_names=builder.joint_names, degrees_mode=builder.preset.degrees_mode
             )
 
-        # Collect observation channels declared as peer sources.
-        # The source type IS the channel name (e.g. type: current, type: temperature).
-        # Validated against the adapter's supported_channels().
         supported = source.supported_channels()
-        obs_channels: list[str] = []
-        if config.hardware.sources:
-            for _sname, _scfg in config.hardware.sources.items():
-                channel = str(_scfg.type).lower()
-                if channel not in supported:
-                    continue
-                ref = (
-                    (_scfg.model_extra or {}).get("ref") if hasattr(_scfg, "model_extra") else None
-                )
-                parent = ref or main_name
-                if parent.startswith("sources."):
-                    parent = parent[len("sources.") :]
-                if parent == main_name:
-                    obs_channels.append(channel)
-
+        obs_channels = RuntimeFactory._collect_channels(config, main_name, supported)
         if obs_channels:
             source.set_observation_channels(obs_channels)
 
@@ -258,13 +241,18 @@ class RuntimeFactory:
                 break
 
         # Pre-collect channel topic overrides so the adapter can resolve them
-        # itself when set_observation_channels is later invoked.
+        # itself when set_observation_channels is later invoked.  Only channel
+        # sources (whose type is in the adapter's supported channels) contribute.
+        _probe_supported = ROS2SourceAdapter(node=None).supported_channels()
         channel_topic_overrides: dict[str, str] = {}
         if config.hardware.sources:
             for _sname, scfg in config.hardware.sources.items():
-                topic_override = (scfg.model_extra or {}).get("topic")
+                channel = str(scfg.type).lower()
+                if channel not in _probe_supported:
+                    continue
+                topic_override = scfg.topic or (scfg.model_extra or {}).get("topic")
                 if topic_override:
-                    channel_topic_overrides[str(scfg.type).lower()] = topic_override
+                    channel_topic_overrides[channel] = topic_override
 
         source = ROS2SourceAdapter(
             node=None,
@@ -274,19 +262,9 @@ class RuntimeFactory:
         )
         sink = ROS2SinkAdapter(node=None, action_topic=action_topic)
 
-        # Discover and activate channels.
-        supported = source.supported_channels()
-        obs_channels: list[str] = []
-        if config.hardware.sources:
-            for _sname, scfg in config.hardware.sources.items():
-                channel = str(scfg.type).lower()
-                if channel not in supported:
-                    continue
-                ref = (scfg.model_extra or {}).get("ref") or main_name
-                if ref.startswith("sources."):
-                    ref = ref[len("sources.") :]
-                if ref == main_name:
-                    obs_channels.append(channel)
+        obs_channels = RuntimeFactory._collect_channels(
+            config, main_name, source.supported_channels()
+        )
         if obs_channels:
             source.set_observation_channels(obs_channels)
 
@@ -296,7 +274,28 @@ class RuntimeFactory:
             sink=sink,
             policy=NoOpPolicyAdapter(),
             timer_period_s=1.0 / hz,
+            source_name=main_name,
         )
+
+    @staticmethod
+    def _collect_channels(
+        config: StackfileConfig, parent_name: str, supported: set[str]
+    ) -> list[str]:
+        """Return peer-source channels whose type is in *supported* and whose
+        `ref` points at *parent_name*."""
+        if not config.hardware or not config.hardware.sources:
+            return []
+        result: list[str] = []
+        for _sname, scfg in config.hardware.sources.items():
+            channel = str(scfg.type).lower()
+            if channel not in supported:
+                continue
+            ref = (scfg.model_extra or {}).get("ref") or parent_name
+            if ref.startswith("sources."):
+                ref = ref[len("sources.") :]
+            if ref == parent_name:
+                result.append(channel)
+        return result
 
     @staticmethod
     def _build_simulation(config: StackfileConfig) -> tuple[Any, Any, Any]:
