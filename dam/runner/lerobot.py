@@ -93,8 +93,8 @@ class LeRobotRunner(BaseRunner):
         """Build robot + policy from Stackfile hardware/policy config.
 
         This is the primary production entry point.  The Stackfile must contain
-        a ``hardware:`` section with at least ``preset`` and
-        ``sources.follower_arm.port``.
+        a ``hardware:`` section with at least ``preset`` and a
+        lerobot-typed source with a ``port``.
 
         The robot is connected immediately.  Call ``runner.stop()`` to
         disconnect cleanly.

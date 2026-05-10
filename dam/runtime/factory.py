@@ -89,6 +89,14 @@ class RuntimeFactory:
         builder = LeRobotBuilder(config.hardware, config.policy, control_frequency_hz=hz)
         robot = builder.build_robot()
 
+        # Identify main source name (usually the first lerobot one)
+        main_name = "arm"
+        if config.hardware.sources:
+            for name, s in config.hardware.sources.items():
+                if str(s.type).lower() == "lerobot":
+                    main_name = name
+                    break
+
         # Build adapters
         use_unified = False
         sinks = config.hardware.sinks or {}
@@ -124,6 +132,28 @@ class RuntimeFactory:
                 robot, joint_names=builder.joint_names, degrees_mode=builder.preset.degrees_mode
             )
 
+        # Collect observation channels declared as peer sources.
+        # The source type IS the channel name (e.g. type: current, type: temperature).
+        # Validated against the adapter's supported_channels().
+        supported = source.supported_channels()
+        obs_channels: list[str] = []
+        if config.hardware.sources:
+            for _sname, _scfg in config.hardware.sources.items():
+                channel = str(_scfg.type).lower()
+                if channel not in supported:
+                    continue
+                ref = (
+                    (_scfg.model_extra or {}).get("ref") if hasattr(_scfg, "model_extra") else None
+                )
+                parent = ref or main_name
+                if parent.startswith("sources."):
+                    parent = parent[len("sources.") :]
+                if parent == main_name:
+                    obs_channels.append(channel)
+
+        if obs_channels:
+            source.set_observation_channels(obs_channels)
+
         policy_res = builder.build_policy()
         policy = None
         if policy_res:
@@ -139,14 +169,6 @@ class RuntimeFactory:
             else:
                 policy = LeRobotPolicyAdapter(policy_res, joint_names=builder.joint_names)
 
-        # Identify main source name (usually the first lerobot one)
-        main_name = "arm"
-        if config.hardware.sources:
-            for name, s in config.hardware.sources.items():
-                if str(s.type).lower() == "lerobot":
-                    main_name = name
-                    break
-
         runtime.register_source(main_name, source)
         runtime.register_sink(sink)
         if policy:
@@ -159,6 +181,8 @@ class RuntimeFactory:
                     continue  # already registered
 
                 type_str = str(src_cfg.type).lower()
+                if type_str in supported:
+                    continue  # observation channel, handled above
                 if type_str in ("opencv", "camera", "usb"):
                     from dam.adapter.opencv.source import OpenCVSourceAdapter
 

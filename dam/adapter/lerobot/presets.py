@@ -107,6 +107,17 @@ GENERIC_6DOF = RobotPreset(
     joints=[JointSpec(f"joint_{i}", -math.pi, math.pi) for i in range(6)],
 )
 
+# ── Extended observation register map (STS3215 servos) ───────────────────────
+# Stackfile name → (bus register name, unit conversion divisor).
+# Divisor of 1 means raw value; 1000 means mA→A; 10 means 0.1V→V.
+STS3215_REGISTER_MAP: dict[str, tuple[str, float]] = {
+    "current": ("Present_Current", 1000.0),
+    "temperature": ("Present_Temperature", 1.0),
+    "load": ("Present_Load", 1.0),
+    "voltage": ("Present_Voltage", 10.0),
+    "velocity": ("Present_Velocity", 1.0),
+}
+
 # ── Registry ──────────────────────────────────────────────────────────────────
 
 _REGISTRY: dict[str, RobotPreset] = {

@@ -3,16 +3,22 @@ version: "1"
 hardware:
   preset: so101_follower
   sources:
-    follower_arm:
+    arm:
       type: lerobot
       port: /dev/tty.usbmodem5AA90244141
       id: my_awesome_follower_arm
       cameras:
         top: { type: opencv, index_or_path: 0, width: 640, height: 480, fps: 30 }
         wrist: { type: opencv, index_or_path: 1, width: 640, height: 480, fps: 30 }
+    current:
+      type: current
+      ref: arm
+    temperature:
+      type: temperature
+      ref: arm
   sinks:
-    follower_command:
-      ref: sources.follower_arm
+    command:
+      ref: sources.arm
 
 policy:
   type: act

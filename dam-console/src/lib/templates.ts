@@ -58,6 +58,7 @@ export interface DamConfig {
   loopback?: LoopbackConfig
   simulation_dataset_repo_id?: string
   simulation_episode?: number
+  observation_channels: string[]
 }
 
 export interface TemplatePreset {
@@ -170,6 +171,7 @@ export const TEMPLATES: TemplatePreset[] = [
     config: {
       hardware_preset: 'so101_follower', adapter: 'lerobot', lerobot_port: '/dev/tty.usbmodem5AA90244141',
       lerobot_robot_id: 'my_awesome_follower_arm', lerobot_cameras: SO101_CAMERAS,
+      observation_channels: ['current'],
       policy: { type: 'act', pretrained_path: 'MikeChenYZ/act-soarm-fmb-v2', device: 'mps' },
       joints: SO101_JOINTS, controlFrequencyHz: 15, enforcement_mode: 'enforce',
       tasks: [{ id: 'soarm101', name: 'soarm101', description: 'Default task', boundaries: ['bounds', 'joint_position_limits', 'joint_velocity_limit', 'hardware_watchdog'] }],
@@ -188,6 +190,7 @@ export const TEMPLATES: TemplatePreset[] = [
     config: {
       hardware_preset: 'so101_follower', adapter: 'lerobot', lerobot_port: '/dev/tty.usbmodem5AA90244141',
       lerobot_robot_id: 'my_awesome_follower_arm', lerobot_cameras: SO101_CAMERAS,
+      observation_channels: ['current'],
       policy: { type: 'diffusion', pretrained_path: 'MikeChenYZ/dp-soarm-fmb', device: 'mps', noise_scheduler_type: 'DDIM', num_inference_steps: 15 },
       joints: SO101_JOINTS, controlFrequencyHz: 15, enforcement_mode: 'enforce',
       tasks: [{ id: 'soarm101', name: 'soarm101', description: 'Default task', boundaries: ['bounds', 'joint_position_limits', 'joint_velocity_limit', 'hardware_watchdog'] }],
@@ -223,7 +226,7 @@ export function defaultConfig(templateId = ''): DamConfig {
   const base: DamConfig = {
     templateId: '', // Always empty for stateless behavior
     hardware_preset: 'custom', adapter: 'simulation', lerobot_port: '', lerobot_robot_id: '',
-    lerobot_cameras: [], lerobot_calibration_path: '', ros2NodeName: 'dam_node', ros2JointTopic: '/joint_states',
+    lerobot_cameras: [], lerobot_calibration_path: '', observation_channels: [], ros2NodeName: 'dam_node', ros2JointTopic: '/joint_states',
     ros2CmdTopic: '/joint_commands', ros2Namespace: '/dam', ros2WrenchTopic: '', ros2Qos: 'reliable',
     policy: { type: 'noop', pretrained_path: '', device: 'cpu' },
     joints: SO101_JOINTS, controlFrequencyHz: 10, enforcement_mode: 'monitor',
@@ -348,11 +351,14 @@ const SCHEMA: YamlSection[] = [
         scalar('episode', cfg => cfg.simulation_episode ?? 0),
         scalar('degrees_mode', () => 'true'),
       ], cfg => cfg.adapter === 'simulation' && !!cfg.simulation_dataset_repo_id),
-      block('follower_arm', [
+      block('arm', [
         scalar('type', () => 'lerobot'), scalar('port', cfg => cfg.lerobot_port),
         scalar('id', cfg => cfg.lerobot_robot_id), scalar('calibration_path', cfg => cfg.lerobot_calibration_path || null),
         custom((cfg, indent) => [`${indent}cameras:`, ...cfg.lerobot_cameras.flatMap(c => cameraLines(c).map(l => `${indent}  ${l}`))], cfg => cfg.lerobot_cameras.length > 0)
       ], cfg => cfg.adapter === 'lerobot'),
+      custom((cfg, indent) => cfg.observation_channels.flatMap(ch => [
+        `${indent}${ch}:`, `${indent}  type: ${ch}`, `${indent}  ref: arm`
+      ]), cfg => cfg.adapter === 'lerobot' && cfg.observation_channels.length > 0),
       block('ros2_source', [
         scalar('type', () => 'ros2'), scalar('node_name', cfg => cfg.ros2NodeName),
         scalar('joint_topic', cfg => cfg.ros2JointTopic), scalar('cmd_topic', cfg => cfg.ros2CmdTopic),
@@ -362,7 +368,7 @@ const SCHEMA: YamlSection[] = [
     ]),
     block('sinks', [
       block('main', [scalar('ref', () => 'sources.main')], cfg => cfg.adapter === 'simulation' && !!cfg.simulation_dataset_repo_id),
-      block('follower_command', [scalar('ref', () => 'sources.follower_arm')], cfg => cfg.adapter === 'lerobot'),
+      block('command', [scalar('ref', () => 'sources.arm')], cfg => cfg.adapter === 'lerobot'),
       block('ros2_sink', [scalar('ref', () => 'sources.ros2_source')], cfg => cfg.adapter === 'ros2'),
     ]),
   ]),
@@ -513,6 +519,24 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
     } else if (inCameras && line.startsWith('    ') && !line.startsWith('      ')) { inCameras = false; }
   }
   if (cameras.length > 0) result.lerobot_cameras = cameras
+
+  // Channels are peer sources whose name == type and that carry `ref: <parent>`.
+  // We don't hardcode the channel allowlist — that's the adapter's responsibility
+  // server-side (validated against supported_channels()).
+  const adapterTypes = new Set(['lerobot', 'ros2', 'opencv', 'camera', 'usb', 'dataset', 'simulation', 'mock'])
+  const obsChannels: string[] = []
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^\s{4}(\w+):\s*$/)
+    if (!m) continue
+    const name = m[1]
+    const next1 = lines[i + 1]?.trim() ?? ''
+    const next2 = lines[i + 2]?.trim() ?? ''
+    const typeMatch = next1.match(/^type:\s+(\w+)/)
+    if (typeMatch && typeMatch[1] === name && next2.startsWith('ref:') && !adapterTypes.has(name)) {
+      obsChannels.push(name)
+    }
+  }
+  if (obsChannels.length > 0) result.observation_channels = obsChannels
 
   if (yaml.includes('loopback:')) {
     result.loopback = {

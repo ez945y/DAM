@@ -91,6 +91,11 @@ class LeRobotSourceAdapter(SensorAdapter):
         self._prev_time: float | None = None
         self._connected = False
 
+        from dam.adapter.lerobot.presets import STS3215_REGISTER_MAP
+
+        self._register_map = STS3215_REGISTER_MAP
+        self._observation_channels: list[str] = []
+
         # Pinocchio FK (optional — initialised only when urdf_path is provided)
         self._pin_model = None
         self._pin_data = None
@@ -181,6 +186,12 @@ class LeRobotSourceAdapter(SensorAdapter):
                 },
             )
 
+    def supported_channels(self) -> set[str]:
+        return set(self._register_map)
+
+    def set_observation_channels(self, channels: list[str]) -> None:
+        self._observation_channels = list(channels)
+
     def is_healthy(self) -> bool:
         return self._connected and self._robot is not None
 
@@ -254,12 +265,15 @@ class LeRobotSourceAdapter(SensorAdapter):
         # falls back to None so guards skip the workspace check gracefully.
         ee_pose = self._compute_ee_pose(positions)
 
+        channels = self._read_channels()
+
         return Observation(
             timestamp=now,
             joint_positions=positions,
             joint_velocities=velocities,
             end_effector_pose=ee_pose,
             images=images,
+            channels=channels,
         )
 
     # ── Legacy API: observation.state tensor ──────────────────────────────
@@ -309,6 +323,25 @@ class LeRobotSourceAdapter(SensorAdapter):
         )
 
     # ── Helpers ────────────────────────────────────────────────────────────
+
+    def _read_channels(self) -> dict[str, np.ndarray] | None:
+        if not self._observation_channels or not hasattr(self._robot, "bus"):
+            return None
+        bus = self._robot.bus
+        result: dict[str, np.ndarray] = {}
+        for name in self._observation_channels:
+            register, divisor = self._register_map[name]
+            try:
+                raw = bus.sync_read(register)
+                if raw:
+                    values = np.array(
+                        [raw.get(mid, 0) / divisor for mid in sorted(raw)],
+                        dtype=np.float64,
+                    )
+                    result[name] = values
+            except Exception:
+                logger.debug("Observation channel '%s' read failed", name)
+        return result if result else None
 
     @staticmethod
     def _is_gripper_joint(name: str) -> bool:

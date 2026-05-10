@@ -57,9 +57,10 @@ class CycleRecord:
     # ── Observation (pre-converted lists, no numpy) ───────────────────────────
     obs_timestamp: float
     obs_joint_positions: list[float]
-    obs_joint_velocities: list[float] | None
-    obs_end_effector_pose: list[float] | None
-    obs_force_torque: list[float] | None
+    # All optional observation channels — joint_velocities, end_effector_pose,
+    # force_torque, current, temperature, etc.  Populated dynamically from
+    # whatever the adapter provides; no hardcoded field names.
+    obs_channels: dict[str, list[float]]
     obs_metadata: dict[str, Any]
 
     # ── Action (pre-converted lists, no numpy) ────────────────────────────────

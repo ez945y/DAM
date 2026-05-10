@@ -54,6 +54,11 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
         self._degrees_mode = degrees_mode
         self._obs_hz = obs_hz
 
+        from dam.adapter.lerobot.presets import STS3215_REGISTER_MAP
+
+        self._register_map = STS3215_REGISTER_MAP
+        self._observation_channels: list[str] = []
+
         # Sensor state
         n_joints = len(self._joint_names)
         self._prev_positions: np.ndarray = np.zeros(n_joints, dtype=np.float64)
@@ -134,6 +139,12 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
         if self._connected:
             self._connected = False
             logger.info("LeRobotAdapter disconnected")
+
+    def supported_channels(self) -> set[str]:
+        return set(self._register_map)
+
+    def set_observation_channels(self, channels: list[str]) -> None:
+        self._observation_channels = list(channels)
 
     def is_healthy(self) -> bool:
         return self._connected and self._robot is not None
@@ -261,13 +272,35 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
         # Update heartbeat clock only AFTER successful conversion
         self._prev_time = now
 
+        channels = self._read_channels()
+
         return Observation(
             timestamp=now,
             joint_positions=positions,
             joint_velocities=velocities,
             end_effector_pose=ee_pose,
             images=images,
+            channels=channels,
         )
+
+    def _read_channels(self) -> dict[str, np.ndarray] | None:
+        if not self._observation_channels or not hasattr(self._robot, "bus"):
+            return None
+        bus = self._robot.bus
+        result: dict[str, np.ndarray] = {}
+        for name in self._observation_channels:
+            register, divisor = self._register_map[name]
+            try:
+                raw = bus.sync_read(register)
+                if raw:
+                    values = np.array(
+                        [raw.get(mid, 0) / divisor for mid in sorted(raw)],
+                        dtype=np.float64,
+                    )
+                    result[name] = values
+            except Exception:
+                logger.debug("Extended observation '%s' read failed", name)
+        return result if result else None
 
     def _estimate_velocity(self, positions: np.ndarray, now: float) -> np.ndarray:
         if self._prev_time is not None:

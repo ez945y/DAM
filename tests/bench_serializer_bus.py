@@ -64,9 +64,11 @@ def create_test_cycle(
         active_boundaries=("boundary_0", "boundary_1"),
         obs_timestamp=time.time(),
         obs_joint_positions=[0.1] * 7,
-        obs_joint_velocities=[0.05] * 7,
-        obs_end_effector_pose=[1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 1.0],
-        obs_force_torque=[0.1] * 6,
+        obs_channels={
+            "joint_velocities": [0.05] * 7,
+            "end_effector_pose": [1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 1.0],
+            "force_torque": [0.1] * 6,
+        },
         obs_metadata={},
         action_positions=[0.1] * 7,
         action_velocities=[0.05] * 7,
@@ -134,12 +136,7 @@ def benchmark_python_serialization(num_cycles: int = 1000) -> dict:
             "timestamp": rec.obs_timestamp,
             "joint_positions": rec.obs_joint_positions,
         }
-        if rec.obs_joint_velocities:
-            obs_msg["joint_velocities"] = rec.obs_joint_velocities
-        if rec.obs_end_effector_pose:
-            obs_msg["end_effector_pose"] = rec.obs_end_effector_pose
-        if rec.obs_force_torque:
-            obs_msg["force_torque"] = rec.obs_force_torque
+        obs_msg.update(rec.obs_channels)
         _json(obs_msg)
 
         # 3. /dam/action

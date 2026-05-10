@@ -48,6 +48,23 @@ class SensorAdapter(ABC):
         """Close connection gracefully."""
         ...
 
+    def supported_channels(self) -> set[str]:
+        """Return the set of observation channel names this adapter can provide.
+
+        Subclasses that support device-specific channels (e.g. servo current,
+        temperature) must override this.  The default returns an empty set,
+        meaning no extra channels are available.
+        """
+        return set()
+
+    def set_observation_channels(self, channels: list[str]) -> None:
+        """Activate the given observation channels for reading.
+
+        Called by the factory after validating against supported_channels().
+        Subclasses that support channels must override this.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not support observation channels")
+
 
 class PolicyAdapter(ABC):
     """Wraps any policy model behind a single predict() contract.

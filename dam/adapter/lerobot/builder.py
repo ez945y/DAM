@@ -111,14 +111,11 @@ class LeRobotBuilder:
                 ) from e
 
         sources = self._hardware.sources or {}
-        # Prefer 'follower_arm'; fall back to first defined source
-        src_cfg = sources.get("follower_arm") or (
-            next(iter(sources.values()), None) if sources else None
-        )
+        src_cfg = next((s for s in sources.values() if str(s.type).lower() == "lerobot"), None)
         if src_cfg is None:
             raise ValueError(
-                "hardware.sources is empty — cannot build robot. "
-                "Add a 'follower_arm' source with port and id to your Stackfile."
+                "hardware.sources has no lerobot-typed source — cannot build robot. "
+                "Add a source with `type: lerobot` (port, id) to your Stackfile."
             )
 
         robot_cfg = self._make_robot_config(src_cfg)

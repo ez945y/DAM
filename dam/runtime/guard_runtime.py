@@ -660,6 +660,17 @@ class GuardRuntime:
         def _to_list(arr: Any) -> list[float] | None:
             return arr.tolist() if arr is not None else None
 
+        obs_channels: dict[str, list[float]] = {}
+        if obs.joint_velocities is not None:
+            obs_channels["joint_velocities"] = obs.joint_velocities.tolist()
+        if obs.end_effector_pose is not None:
+            obs_channels["end_effector_pose"] = obs.end_effector_pose.tolist()
+        if obs.force_torque is not None:
+            obs_channels["force_torque"] = obs.force_torque.tolist()
+        if obs.channels:
+            for k, v in obs.channels.items():
+                obs_channels[k] = v.tolist()
+
         rec = CycleRecord(
             cycle_id=self._cycle_id - 1,
             trace_id=trace_id,
@@ -669,9 +680,7 @@ class GuardRuntime:
             active_cameras=tuple(obs.images.keys()) if obs.images else (),
             obs_timestamp=obs.timestamp,
             obs_joint_positions=obs.joint_positions.tolist(),
-            obs_joint_velocities=_to_list(obs.joint_velocities),
-            obs_end_effector_pose=_to_list(obs.end_effector_pose),
-            obs_force_torque=_to_list(obs.force_torque),
+            obs_channels=obs_channels,
             obs_metadata=dict(obs.metadata),
             action_positions=action.target_joint_positions.tolist(),
             action_velocities=_to_list(action.target_joint_velocities),

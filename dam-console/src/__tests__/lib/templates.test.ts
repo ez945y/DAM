@@ -240,7 +240,7 @@ describe('generateYaml', () => {
   it('includes adapter section for lerobot', () => {
     const cfg = defaultConfig('so101_act')
     const yaml = generateYaml(cfg)
-    expect(yaml).toContain('follower_arm:')
+    expect(yaml).toContain('arm:')
     expect(yaml).toContain('type: lerobot')
   })
 

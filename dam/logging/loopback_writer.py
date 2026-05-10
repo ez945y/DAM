@@ -195,7 +195,7 @@ def _record_to_dict(
                 except Exception:  # noqa: BLE001 — skip if encoding fails
                     pass
 
-    return {
+    result = {
         "cycle_id": rec.cycle_id,
         "obs_timestamp": rec.obs_timestamp,
         "has_violation": rec.has_violation,
@@ -206,9 +206,7 @@ def _record_to_dict(
         "active_boundaries": list(rec.active_boundaries),
         "active_cameras": list(rec.active_cameras),
         "obs_joint_positions": rec.obs_joint_positions,
-        "obs_joint_velocities": rec.obs_joint_velocities,
-        "obs_end_effector_pose": rec.obs_end_effector_pose,
-        "obs_force_torque": rec.obs_force_torque,
+        "obs_channels": rec.obs_channels,
         "action_positions": rec.action_positions,
         "action_velocities": rec.action_velocities,
         "validated_positions": rec.validated_positions,
@@ -221,6 +219,7 @@ def _record_to_dict(
         "latency_guards": rec.latency_guards,
         "image_data": image_data_list,
     }
+    return result
 
 
 def _compress_image(arr: np.ndarray | bytes) -> tuple[bytes, int, int, str]:
@@ -787,18 +786,13 @@ class LoopbackWriter:
         }
         session.write("/dam/cycle", _json(cycle_msg), log_time_ns)
 
-        # 2. /dam/obs — joint state (fields already list[float])
+        # 2. /dam/obs — joint state + any extra channels (fields already list[float])
         obs_msg: dict[str, Any] = {
             "cycle_id": rec.cycle_id,
             "timestamp": rec.obs_timestamp,
             "joint_positions": rec.obs_joint_positions,
         }
-        if rec.obs_joint_velocities is not None:
-            obs_msg["joint_velocities"] = rec.obs_joint_velocities
-        if rec.obs_end_effector_pose is not None:
-            obs_msg["end_effector_pose"] = rec.obs_end_effector_pose
-        if rec.obs_force_torque is not None:
-            obs_msg["force_torque"] = rec.obs_force_torque
+        obs_msg.update(rec.obs_channels)
         session.write("/dam/obs", _json(obs_msg), log_time_ns)
 
         # 3. /dam/action — proposal + validated result (fields already list[float])

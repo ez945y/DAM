@@ -31,9 +31,7 @@ impl SerializerBus {
     ///     "violated_layer_mask": int,
     ///     "clamped_layer_mask": int,
     ///     "obs_joint_positions": [float, ...],
-    ///     "obs_joint_velocities": [float, ...] | None,
-    ///     "obs_end_effector_pose": [float, ...] | None,
-    ///     "obs_force_torque": [float, ...] | None,
+    ///     "obs_channels": {"joint_velocities": [...], "current": [...], ...},
     ///     "action_positions": [float, ...],
     ///     "action_velocities": [float, ...] | None,
     ///     "validated_positions": [float, ...] | None,
@@ -210,19 +208,14 @@ impl SerializerBus {
             "joint_positions": record.get("obs_joint_positions").ok_or("Missing obs_joint_positions")?,
         });
 
-        if let Some(vels) = record.get("obs_joint_velocities") {
-            if !vels.is_null() {
-                msg["joint_velocities"] = vels.clone();
-            }
-        }
-        if let Some(pose) = record.get("obs_end_effector_pose") {
-            if !pose.is_null() {
-                msg["end_effector_pose"] = pose.clone();
-            }
-        }
-        if let Some(ft) = record.get("obs_force_torque") {
-            if !ft.is_null() {
-                msg["force_torque"] = ft.clone();
+        // Generic pass-through for CycleRecord.obs_channels.  Channel names are
+        // device-specific (joint_velocities, end_effector_pose, force_torque,
+        // current, temperature, …) — no privileged keys.
+        if let Some(channels) = record.get("obs_channels").and_then(|v| v.as_object()) {
+            for (name, value) in channels {
+                if !value.is_null() {
+                    msg[name] = value.clone();
+                }
             }
         }
 
@@ -336,9 +329,11 @@ mod tests {
             "violated_layer_mask": 0,
             "clamped_layer_mask": 0,
             "obs_joint_positions": [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
-            "obs_joint_velocities": [0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3],
-            "obs_end_effector_pose": [1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 1.0],
-            "obs_force_torque": [0.1, 0.2, 0.3, 0.1, 0.2, 0.3],
+            "obs_channels": {
+                "joint_velocities": [0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3],
+                "end_effector_pose": [1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 1.0],
+                "force_torque": [0.1, 0.2, 0.3, 0.1, 0.2, 0.3],
+            },
             "action_positions": [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
             "action_velocities": null,
             "validated_positions": null,

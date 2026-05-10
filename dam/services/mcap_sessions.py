@@ -38,10 +38,9 @@ _MCAP_MAGIC_SIZE = 8
 # Rust msgpack format metadata - CycleRecordData array indices
 # Structure: [cycle_id, obs_timestamp, has_violation, has_clamp, violated_layer_mask,
 #            clamped_layer_mask, active_task, active_boundaries, obs_joint_positions,
-#            obs_joint_velocities, obs_end_effector_pose, obs_force_torque,
-#            action_positions, action_velocities, validated_positions, validated_velocities,
-#            was_clamped, fallback_triggered, guard_results, latency_stages,
-#            latency_layers, latency_guards, image_data]
+#            obs_channels, action_positions, action_velocities, validated_positions,
+#            validated_velocities, was_clamped, fallback_triggered, guard_results,
+#            latency_stages, latency_layers, latency_guards, image_data]
 _IDX_CYCLE = 0
 _IDX_OBS_TIMESTAMP = 1
 _IDX_HAS_VIOLATION = 2
@@ -51,11 +50,12 @@ _IDX_CLAMPED_LAYER_MASK = 5
 _IDX_ACTIVE_TASK = 6
 _IDX_ACTIVE_BOUNDARIES = 7
 _IDX_OBS_JOINT_POSITIONS = 8
-_IDX_ACTION_POSITIONS = 12
-_IDX_WAS_CLAMPED = 16
-_IDX_GUARD_RESULTS = 18
-_IDX_LATENCY_STAGES = 19
-_IDX_LATENCY_LAYERS = 20
+_IDX_OBS_CHANNELS = 9
+_IDX_ACTION_POSITIONS = 10
+_IDX_WAS_CLAMPED = 14
+_IDX_GUARD_RESULTS = 16
+_IDX_LATENCY_STAGES = 17
+_IDX_LATENCY_LAYERS = 18
 
 # GuardResult array indices (within guard_results list)
 # Structure: [cycle_id, timestamp, guard_name, layer, layer_int, decision, reason, latency_ms, is_violation, is_clamp, fault_source]
@@ -649,14 +649,14 @@ class McapSessionService:
 
                     if topic == _TOPIC_CYCLE:
                         found = True
-                        # Rust msgpack format (array, 23 elements):
+                        # Rust msgpack format (array, 21 elements):
                         # [0]cycle_id [1]obs_timestamp [2]has_violation [3]has_clamp
                         # [4]violated_layer_mask [5]clamped_layer_mask [6]active_task
-                        # [7]active_boundaries [8]obs_joint_positions [9]obs_joint_velocities
-                        # [10]obs_end_effector_pose [11]obs_force_torque [12]action_positions
-                        # [13]action_velocities [14]validated_positions [15]validated_velocities
-                        # [16]was_clamped [17]fallback_triggered [18]guard_results
-                        # [19]latency_stages [20]latency_layers [21]latency_guards [22]image_data
+                        # [7]active_boundaries [8]obs_joint_positions [9]obs_channels
+                        # [10]action_positions [11]action_velocities [12]validated_positions
+                        # [13]validated_velocities [14]was_clamped [15]fallback_triggered
+                        # [16]guard_results [17]latency_stages [18]latency_layers
+                        # [19]latency_guards [20]image_data
                         arr_len = len(d)
 
                         detail.update(

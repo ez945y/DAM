@@ -85,13 +85,15 @@ def make_pass_record(cycle_id: int = 1) -> CycleRecord:
         active_cameras=(),
         obs_timestamp=obs.timestamp,
         obs_joint_positions=obs.joint_positions.tolist(),
-        obs_joint_velocities=obs.joint_velocities.tolist()
-        if obs.joint_velocities is not None
-        else None,
-        obs_end_effector_pose=obs.end_effector_pose.tolist()
-        if obs.end_effector_pose is not None
-        else None,
-        obs_force_torque=obs.force_torque.tolist() if obs.force_torque is not None else None,
+        obs_channels={
+            k: v.tolist()
+            for k, v in [
+                ("joint_velocities", obs.joint_velocities),
+                ("end_effector_pose", obs.end_effector_pose),
+                ("force_torque", obs.force_torque),
+            ]
+            if v is not None
+        },
         obs_metadata=obs.metadata,
         action_positions=action.target_joint_positions.tolist(),
         action_velocities=None,
@@ -126,9 +128,7 @@ def make_violation_record(cycle_id: int = 1) -> CycleRecord:
         active_cameras=rec.active_cameras,
         obs_timestamp=rec.obs_timestamp,
         obs_joint_positions=rec.obs_joint_positions,
-        obs_joint_velocities=rec.obs_joint_velocities,
-        obs_end_effector_pose=rec.obs_end_effector_pose,
-        obs_force_torque=rec.obs_force_torque,
+        obs_channels=rec.obs_channels,
         obs_metadata=rec.obs_metadata,
         action_positions=rec.action_positions,
         action_velocities=rec.action_velocities,
@@ -169,9 +169,7 @@ def make_clamp_record(cycle_id: int = 1) -> CycleRecord:
         active_cameras=rec.active_cameras,
         obs_timestamp=rec.obs_timestamp,
         obs_joint_positions=rec.obs_joint_positions,
-        obs_joint_velocities=rec.obs_joint_velocities,
-        obs_end_effector_pose=rec.obs_end_effector_pose,
-        obs_force_torque=rec.obs_force_torque,
+        obs_channels=rec.obs_channels,
         obs_metadata=rec.obs_metadata,
         action_positions=rec.action_positions,
         action_velocities=rec.action_velocities,
