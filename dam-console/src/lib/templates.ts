@@ -59,6 +59,9 @@ export interface DamConfig {
   simulation_dataset_repo_id?: string
   simulation_episode?: number
   observation_channels: string[]
+  /** Optional override map: channel name → ROS2/MCAP topic.  Empty / missing
+   *  entries fall back to the adapter's default topic for that channel. */
+  channel_topic_overrides?: Record<string, string>
 }
 
 export interface TemplatePreset {
@@ -220,6 +223,30 @@ export const TEMPLATES: TemplatePreset[] = [
       },
     },
   },
+  {
+    id: 'ros2_topic_overrides',
+    label: 'ROS2 · Topic Overrides',
+    description: 'ROS2 robot with per-channel topic overrides for non-standard publishers.',
+    badge: 'ROS2',
+    config: {
+      hardware_preset: 'generic_6dof', adapter: 'ros2', ros2NodeName: 'dam_node',
+      ros2JointTopic: '/my_robot/joint_states', ros2CmdTopic: '/my_robot/cmd',
+      ros2Namespace: '/dam', ros2WrenchTopic: '/wrench', ros2Qos: 'reliable',
+      observation_channels: ['effort', 'wrench'],
+      channel_topic_overrides: {
+        effort: '/my_robot/torque_sensor',
+        wrench: '/my_robot/ft_sensor/wrench',
+      },
+      policy: { type: 'act', pretrained_path: '', device: 'cpu' },
+      controlFrequencyHz: 15, enforcement_mode: 'monitor',
+      tasks: [{ id: 'default', name: 'default', description: 'Default task', boundaries: [] }],
+      boundaries: [],
+      loopback: {
+        backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10, pre_event_sec: 10,
+        rotate_mb: 500, rotate_minutes: 60, max_queue_depth: 64, capture_images_on_clamp: true,
+      },
+    },
+  },
 ]
 
 export function defaultConfig(templateId = ''): DamConfig {
@@ -365,11 +392,15 @@ const SCHEMA: YamlSection[] = [
       ], cfg => cfg.adapter === 'ros2'),
       // Peer-source observation channels (servo registers for lerobot, extra
       // topics for ROS2).  Parent ref points at whichever main source exists.
+      // Optional `topic:` overrides the adapter's default topic per channel.
       custom((cfg, indent) => {
         const parent = cfg.adapter === 'lerobot' ? 'arm' : 'ros2_source'
-        return cfg.observation_channels.flatMap(ch => [
-          `${indent}${ch}:`, `${indent}  type: ${ch}`, `${indent}  ref: ${parent}`,
-        ])
+        const overrides = cfg.channel_topic_overrides ?? {}
+        return cfg.observation_channels.flatMap(ch => {
+          const lines = [`${indent}${ch}:`, `${indent}  type: ${ch}`, `${indent}  ref: ${parent}`]
+          if (overrides[ch]) lines.push(`${indent}  topic: ${overrides[ch]}`)
+          return lines
+        })
       }, cfg => (cfg.adapter === 'lerobot' || cfg.adapter === 'ros2') && cfg.observation_channels.length > 0),
     ]),
     block('sinks', [
@@ -531,18 +562,23 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
   // server-side (validated against supported_channels()).
   const adapterTypes = new Set(['lerobot', 'ros2', 'opencv', 'camera', 'usb', 'dataset', 'simulation', 'mock'])
   const obsChannels: string[] = []
+  const channelTopics: Record<string, string> = {}
   for (let i = 0; i < lines.length; i++) {
     const m = lines[i].match(/^\s{4}(\w+):\s*$/)
     if (!m) continue
     const name = m[1]
     const next1 = lines[i + 1]?.trim() ?? ''
     const next2 = lines[i + 2]?.trim() ?? ''
+    const next3 = lines[i + 3]?.trim() ?? ''
     const typeMatch = next1.match(/^type:\s+(\w+)/)
     if (typeMatch && typeMatch[1] === name && next2.startsWith('ref:') && !adapterTypes.has(name)) {
       obsChannels.push(name)
+      const topicMatch = next3.match(/^topic:\s+(\S+)/)
+      if (topicMatch) channelTopics[name] = topicMatch[1]
     }
   }
   if (obsChannels.length > 0) result.observation_channels = obsChannels
+  if (Object.keys(channelTopics).length > 0) result.channel_topic_overrides = channelTopics
 
   if (yaml.includes('loopback:')) {
     result.loopback = {

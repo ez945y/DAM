@@ -539,6 +539,70 @@ export default function ConfigPage() {
           </div>
         )}
 
+        {(cfg.adapter === 'lerobot' || cfg.adapter === 'ros2') && (
+          <div className="space-y-2 pt-2 border-t border-dam-border/60">
+            <p className="text-dam-muted text-[10px] uppercase tracking-widest">Observation Channels</p>
+            <p className="text-dam-muted text-[10px]">
+              Peer-source sensors logged alongside joint state. Topic field is optional —
+              leave blank to use the adapter default.
+            </p>
+            {cfg.observation_channels.length > 0 && (
+              <div className="space-y-1.5">
+                {cfg.observation_channels.map((ch, i) => (
+                  <div key={`${ch}-${i}`} className="grid grid-cols-[8rem_1fr_auto] gap-1.5 items-center">
+                    <input
+                      value={ch}
+                      onChange={e => {
+                        const next = [...cfg.observation_channels]
+                        const oldName = next[i]
+                        next[i] = e.target.value
+                        set('observation_channels', next)
+                        const overrides = { ...(cfg.channel_topic_overrides ?? {}) }
+                        if (oldName in overrides) {
+                          overrides[e.target.value] = overrides[oldName]
+                          delete overrides[oldName]
+                          set('channel_topic_overrides', overrides)
+                        }
+                      }}
+                      className={inputCls}
+                      placeholder="effort"
+                    />
+                    <input
+                      value={cfg.channel_topic_overrides?.[ch] ?? ''}
+                      onChange={e => {
+                        const overrides = { ...(cfg.channel_topic_overrides ?? {}) }
+                        if (e.target.value) overrides[ch] = e.target.value
+                        else delete overrides[ch]
+                        set('channel_topic_overrides', overrides)
+                      }}
+                      className={inputCls}
+                      placeholder="/topic/override (optional)"
+                    />
+                    <button
+                      onClick={() => {
+                        const next = cfg.observation_channels.filter((_, idx) => idx !== i)
+                        set('observation_channels', next)
+                        const overrides = { ...(cfg.channel_topic_overrides ?? {}) }
+                        delete overrides[ch]
+                        set('channel_topic_overrides', overrides)
+                      }}
+                      className="text-dam-muted hover:text-dam-red transition-colors"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button
+              onClick={() => set('observation_channels', [...cfg.observation_channels, ''])}
+              className="flex items-center gap-1 text-xs text-dam-muted hover:text-dam-blue transition-colors"
+            >
+              <Plus size={11} /> Add channel
+            </button>
+          </div>
+        )}
+
         {cfg.adapter === 'simulation' && (
           <div className="pt-2 border-t border-dam-border/60 space-y-3">
             <div className="space-y-1">
