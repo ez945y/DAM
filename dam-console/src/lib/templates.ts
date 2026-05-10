@@ -42,12 +42,8 @@ export interface DamConfig {
   lerobot_robot_id: string
   lerobot_cameras: CameraConfig[]
   lerobot_calibration_path: string
-  ros2NodeName: string
   ros2JointTopic: string
   ros2CmdTopic: string
-  ros2Namespace: string
-  ros2WrenchTopic: string
-  ros2Qos: 'reliable' | 'best_effort'
   policy: PolicyConfig
   joints: JointDef[]
   controlFrequencyHz: number
@@ -210,8 +206,8 @@ export const TEMPLATES: TemplatePreset[] = [
     description: 'Minimal ROS2 source / sink adapter. Works with any ROS2-enabled robot.',
     badge: 'ROS2',
     config: {
-      hardware_preset: 'generic_6dof', adapter: 'ros2', ros2NodeName: 'dam_node', ros2JointTopic: '/joint_states',
-      ros2CmdTopic: '/joint_commands', ros2Namespace: '/dam', ros2WrenchTopic: '/wrench', ros2Qos: 'reliable',
+      hardware_preset: 'generic_6dof', adapter: 'ros2',
+      ros2JointTopic: '/joint_states', ros2CmdTopic: '/joint_commands',
       observation_channels: ['effort', 'wrench'],
       policy: { type: 'act', pretrained_path: '', device: 'cpu' },
       controlFrequencyHz: 15, enforcement_mode: 'monitor',
@@ -229,9 +225,8 @@ export const TEMPLATES: TemplatePreset[] = [
     description: 'ROS2 robot with per-channel topic overrides for non-standard publishers.',
     badge: 'ROS2',
     config: {
-      hardware_preset: 'generic_6dof', adapter: 'ros2', ros2NodeName: 'dam_node',
+      hardware_preset: 'generic_6dof', adapter: 'ros2',
       ros2JointTopic: '/my_robot/joint_states', ros2CmdTopic: '/my_robot/cmd',
-      ros2Namespace: '/dam', ros2WrenchTopic: '/wrench', ros2Qos: 'reliable',
       observation_channels: ['effort', 'wrench'],
       channel_topic_overrides: {
         effort: '/my_robot/torque_sensor',
@@ -254,8 +249,8 @@ export function defaultConfig(templateId = ''): DamConfig {
   const base: DamConfig = {
     templateId: '', // Always empty for stateless behavior
     hardware_preset: 'custom', adapter: 'simulation', lerobot_port: '', lerobot_robot_id: '',
-    lerobot_cameras: [], lerobot_calibration_path: '', observation_channels: [], ros2NodeName: 'dam_node', ros2JointTopic: '/joint_states',
-    ros2CmdTopic: '/joint_commands', ros2Namespace: '/dam', ros2WrenchTopic: '', ros2Qos: 'reliable',
+    lerobot_cameras: [], lerobot_calibration_path: '', observation_channels: [],
+    ros2JointTopic: '/joint_states', ros2CmdTopic: '/joint_commands',
     policy: { type: 'noop', pretrained_path: '', device: 'cpu' },
     joints: SO101_JOINTS, controlFrequencyHz: 10, enforcement_mode: 'monitor',
     guardsEnabled: {}, tasks: [], boundaries: [],
@@ -393,10 +388,8 @@ const SCHEMA: YamlSection[] = [
         custom((cfg, indent) => [`${indent}cameras:`, ...cfg.lerobot_cameras.flatMap(c => cameraLines(c).map(l => `${indent}  ${l}`))], cfg => cfg.lerobot_cameras.length > 0)
       ], cfg => cfg.adapter === 'lerobot'),
       block(MAIN_SOURCE_NAME.ros2, [
-        scalar('type', () => 'ros2'), scalar('node_name', cfg => cfg.ros2NodeName),
-        scalar('joint_topic', cfg => cfg.ros2JointTopic), scalar('cmd_topic', cfg => cfg.ros2CmdTopic),
-        scalar('namespace', cfg => cfg.ros2Namespace), scalar('wrench_topic', cfg => cfg.ros2WrenchTopic || '/wrench'),
-        scalar('qos', cfg => cfg.ros2Qos),
+        scalar('type', () => 'ros2'),
+        scalar('topic', cfg => cfg.ros2JointTopic),
       ], cfg => cfg.adapter === 'ros2'),
       // Peer-source observation channels (servo registers for lerobot, extra
       // topics for ROS2).  Parent ref points at whichever main source exists.
@@ -418,7 +411,10 @@ const SCHEMA: YamlSection[] = [
     block('sinks', [
       block('main', [scalar('ref', () => `sources.${MAIN_SOURCE_NAME.simulation}`)], cfg => cfg.adapter === 'simulation' && !!cfg.simulation_dataset_repo_id),
       block('command', [scalar('ref', () => `sources.${MAIN_SOURCE_NAME.lerobot}`)], cfg => cfg.adapter === 'lerobot'),
-      block('ros2_sink', [scalar('ref', () => `sources.${MAIN_SOURCE_NAME.ros2}`)], cfg => cfg.adapter === 'ros2'),
+      block('ros2_sink', [
+        scalar('ref', () => `sources.${MAIN_SOURCE_NAME.ros2}`),
+        scalar('topic', cfg => cfg.ros2CmdTopic),
+      ], cfg => cfg.adapter === 'ros2'),
     ]),
   ]),
   blank,
@@ -472,9 +468,11 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
     result.adapter = 'lerobot'; result.lerobot_port = getVal(/port:\s*(.*)/);
     result.lerobot_robot_id = getVal(/id:\s*(.*)/); result.lerobot_calibration_path = getVal(/calibration_path:\s*(.*)/) || '';
   } else if (yaml.includes('type: ros2')) {
-    result.adapter = 'ros2'; result.ros2NodeName = getVal(/node_name:\s*(.*)/);
-    result.ros2JointTopic = getVal(/joint_topic:\s*(.*)/); result.ros2CmdTopic = getVal(/cmd_topic:\s*(.*)/);
-    result.ros2Namespace = getVal(/namespace:\s*(.*)/); result.ros2Qos = getVal(/qos:\s*(.*)/);
+    result.adapter = 'ros2'
+    // New canonical: `topic:` on the source/sink.  Old stackfiles used
+    // `joint_topic:` / `cmd_topic:` — recover those as a fallback.
+    result.ros2JointTopic = getVal(/(?:joint_topic|topic):\s*(.*)/)
+    result.ros2CmdTopic = getVal(/cmd_topic:\s*(.*)/) ?? ''
   } else if (/preset:\s*simulation/.test(yaml)) {
     result.adapter = 'simulation'; result.simulation_dataset_repo_id = getVal(/dataset_repo_id:\s*(.*)/) ?? undefined;
     const ep = getVal(/episode:\s*(\d+)/); if (ep != null) result.simulation_episode = Number(ep);

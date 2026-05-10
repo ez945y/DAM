@@ -1,17 +1,17 @@
-"""Hot-reload support for Stackfile configuration.
+"""Event-driven Stackfile change watcher.
 
-``StackfileWatcher`` polls a Stackfile path for modification-time changes
-and invokes a callback when a change is detected.  The GuardRuntime uses
-double-buffering: the new config is stored in ``_pending_config`` and swapped
-in at the *start* of the next ``step()`` call so that a reload never happens
-mid-cycle.
+Uses ``watchfiles`` (Rust-backed notify/inotify/FSEvents/ReadDirectoryChanges)
+for low-latency edge-triggered file events, and falls back to mtime polling
+when ``watchfiles`` is not installed.  The runtime double-buffers reloads via
+``GuardRuntime.apply_pending_reload`` — the swap is applied atomically at the
+*start* of the next ``step()`` call so config never changes mid-cycle.
 
-Thread model
-------------
-- A daemon thread polls ``os.path.getmtime`` every ``poll_interval_s`` seconds.
-- On change: calls ``on_change(new_config: SafetyConfig)`` in the watcher thread.
-- The runtime's ``apply_pending_reload`` callback stores the new config under a
-  lock; ``step()`` checks and applies the swap atomically before each cycle.
+Editor-safety
+-------------
+Many editors (vim, IntelliJ) write to a temp file and then ``rename`` over
+the target.  The ``watchfiles`` backend reports this as a delete + create
+on the watched path, which still triggers our reload callback.  The polling
+fallback handles it via the next mtime read.
 """
 
 from __future__ import annotations
@@ -25,19 +25,16 @@ logger = logging.getLogger(__name__)
 
 
 class StackfileWatcher:
-    """Polls a Stackfile path for modification time changes.
-
-    Thread: starts a daemon thread that polls every ``poll_interval_s`` seconds.
-    On change: calls ``on_change(new_config)`` callback in the watcher thread.
-    The runtime uses this to double-buffer config: pending swap applied at
-    the start of the next cycle (never mid-cycle).
+    """Watches a Stackfile path and fires a callback on every change.
 
     Parameters
     ----------
-    path            : Absolute or relative path to the Stackfile YAML.
-    on_change       : Callable receiving the new ``SafetyConfig`` (or full
-                      ``StackfileConfig``) when a change is detected.
-    poll_interval_s : How often to check mtime (default 0.5 s).
+    path            : Path to the Stackfile YAML.
+    on_change       : Called with the freshly loaded ``StackfileConfig`` on
+                      every detected change.  Invoked from the watcher
+                      thread; the callback must be thread-safe.
+    poll_interval_s : Used only by the polling fallback; ignored by the
+                      event-driven backend.  Default 0.5 s.
     """
 
     def __init__(
@@ -46,78 +43,101 @@ class StackfileWatcher:
         on_change: Callable[..., None],
         poll_interval_s: float = 0.5,
     ) -> None:
-        self._path = path
+        self._path = os.path.abspath(path)
         self._on_change = on_change
         self._poll_interval_s = poll_interval_s
-        self._last_mtime: float | None = None
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
 
     # ── Public API ─────────────────────────────────────────────────────────
 
     def start(self) -> None:
-        """Start the background polling thread."""
         if self._thread is not None and self._thread.is_alive():
             logger.warning("StackfileWatcher: already running")
             return
 
         self._stop_event.clear()
-
-        # Snapshot current mtime so we only fire on *changes*
-        try:
-            self._last_mtime = os.path.getmtime(self._path)
-        except OSError:
-            self._last_mtime = None
-
+        target, backend = self._select_backend()
         self._thread = threading.Thread(
-            target=self._poll_loop,
+            target=target,
             name=f"StackfileWatcher({os.path.basename(self._path)})",
             daemon=True,
         )
         self._thread.start()
-        logger.info(
-            "StackfileWatcher started: watching '%s' every %.2fs",
-            self._path,
-            self._poll_interval_s,
-        )
+        logger.info("StackfileWatcher started (%s): watching '%s'", backend, self._path)
 
     def stop(self) -> None:
-        """Signal the background thread to exit and wait for it to finish."""
         self._stop_event.set()
         if self._thread is not None:
-            self._thread.join(timeout=self._poll_interval_s * 3)
+            self._thread.join(timeout=max(self._poll_interval_s * 3, 2.0))
             if self._thread.is_alive():
                 logger.warning("StackfileWatcher: thread did not exit cleanly")
             self._thread = None
         logger.info("StackfileWatcher stopped")
 
     def is_running(self) -> bool:
-        """Return True if the watcher thread is alive."""
         return self._thread is not None and self._thread.is_alive()
 
     # ── Internal ───────────────────────────────────────────────────────────
 
+    def _select_backend(self) -> tuple[Callable[[], None], str]:
+        """Return (loop_target, label).  Prefer event-driven, fall back to polling."""
+        try:
+            import watchfiles  # noqa: F401
+        except ImportError:
+            return self._poll_loop, "polling — watchfiles not installed"
+        return self._event_loop, "event-driven via watchfiles"
+
+    def _event_loop(self) -> None:
+        from watchfiles import watch
+
+        try:
+            # `watch` yields a set of (Change, path) tuples whenever something
+            # below the watched path changes.  Debounce so a rapid burst of
+            # writes (editor rename-over-tmp) collapses into one reload.
+            for _changes in watch(
+                self._path,
+                stop_event=self._stop_event,
+                debounce=50,
+                rust_timeout=200,
+                raise_interrupt=False,
+            ):
+                if self._stop_event.is_set():
+                    break
+                self._reload()
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "StackfileWatcher: event loop crashed (%s); falling back to polling",
+                exc,
+                exc_info=True,
+            )
+            self._poll_loop()
+
     def _poll_loop(self) -> None:
+        last_mtime: float | None
+        try:
+            last_mtime = os.path.getmtime(self._path)
+        except OSError:
+            last_mtime = None
+
         while not self._stop_event.is_set():
-            self._check_once()
+            try:
+                mtime = os.path.getmtime(self._path)
+                if last_mtime is None or mtime != last_mtime:
+                    last_mtime = mtime
+                    self._reload()
+            except OSError:
+                # File temporarily missing (editor rename) — try again next tick
+                pass
             self._stop_event.wait(timeout=self._poll_interval_s)
 
-    def _check_once(self) -> None:
+    def _reload(self) -> None:
         try:
-            mtime = os.path.getmtime(self._path)
-        except OSError:
-            return  # file temporarily missing — skip
+            from dam.config.loader import StackfileLoader
 
-        if self._last_mtime is None or mtime != self._last_mtime:
-            self._last_mtime = mtime
-            try:
-                from dam.config.loader import StackfileLoader
-
-                new_config = StackfileLoader.load(self._path)
-                logger.info(
-                    "StackfileWatcher: change detected in '%s', invoking callback",
-                    self._path,
-                )
-                self._on_change(new_config)
-            except Exception as exc:
-                logger.error("StackfileWatcher: failed to reload '%s': %s", self._path, exc)
+            new_config = StackfileLoader.load(self._path)
+        except Exception:  # noqa: BLE001
+            logger.error("StackfileWatcher: failed to reload '%s'", self._path, exc_info=True)
+            return
+        logger.info("StackfileWatcher: change detected in '%s'", self._path)
+        self._on_change(new_config)

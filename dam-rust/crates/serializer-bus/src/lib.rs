@@ -186,6 +186,7 @@ impl SerializerBus {
 
         Ok(serde_json::json!({
             "cycle_id": record.get("cycle_id").ok_or("Missing cycle_id")?,
+            "config_version": record.get("config_version").cloned().unwrap_or(serde_json::json!(0)),
             "timestamp": record.get("obs_timestamp").ok_or("Missing obs_timestamp")?,
             "active_task": record.get("active_task"),
             "active_boundaries": record.get("active_boundaries").ok_or("Missing active_boundaries")?,

@@ -191,3 +191,99 @@ def test_hot_reload_not_mid_cycle():
             assert rt._pending_config is None
     finally:
         os.unlink(path)
+
+
+# ── Validate-then-commit + config_version tests ───────────────────────────
+
+
+def test_config_version_starts_at_zero_and_bumps_on_swap():
+    """config_version is 0 until first swap, then increments by 1 each commit."""
+    from dam.config.loader import StackfileLoader
+    from dam.runtime.guard_runtime import GuardRuntime
+
+    with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False, mode="w") as f:
+        f.write(_STACKFILE_V1)
+        path = f.name
+
+    try:
+        rt = GuardRuntime.from_stackfile(path)
+        assert rt._config_version == 0
+
+        new_config = StackfileLoader.load(path)
+        rt._apply_config_swap(new_config)
+        assert rt._config_version == 1
+
+        rt._apply_config_swap(new_config)
+        assert rt._config_version == 2
+    finally:
+        os.unlink(path)
+
+
+def test_failed_swap_keeps_previous_config(caplog):
+    """A swap that throws during pool build leaves runtime untouched."""
+    from unittest.mock import patch
+
+    from dam.config.loader import StackfileLoader
+    from dam.runtime.guard_runtime import GuardRuntime
+
+    with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False, mode="w") as f:
+        f.write(_STACKFILE_V1)
+        path = f.name
+
+    try:
+        rt = GuardRuntime.from_stackfile(path)
+        prior_pool = dict(rt._config_pool)
+        prior_version = rt._config_version
+
+        new_config = StackfileLoader.load(path)
+        # Inject a failure in the pure builder
+        with patch.object(
+            GuardRuntime, "_build_config_pool", side_effect=ValueError("shape mismatch")
+        ):
+            rt._apply_config_swap(new_config)
+
+        # Pool and version should be unchanged
+        assert rt._config_pool == prior_pool
+        assert rt._config_version == prior_version
+        assert any("REJECTED" in r.message for r in caplog.records)
+    finally:
+        os.unlink(path)
+
+
+def test_cycle_record_carries_config_version():
+    """CycleRecord defaults config_version to 0 and propagates the runtime value."""
+    from dam.guard.layer import GuardLayer
+    from dam.logging.cycle_record import CycleRecord
+    from dam.types.result import GuardResult
+
+    base = CycleRecord(
+        cycle_id=0,
+        trace_id="t",
+        triggered_at=0.0,
+        active_task=None,
+        active_boundaries=(),
+        active_cameras=(),
+        obs_timestamp=0.0,
+        obs_joint_positions=[0.0],
+        obs_channels={},
+        obs_metadata={},
+        action_positions=[0.0],
+        action_velocities=None,
+        validated_positions=None,
+        validated_velocities=None,
+        was_clamped=False,
+        fallback_triggered=None,
+        guard_results=(GuardResult.success(guard_name="g", layer=GuardLayer.L0),),
+        latency_stages={},
+        latency_layers={},
+        latency_guards={},
+        has_violation=False,
+        has_clamp=False,
+        violated_layer_mask=0,
+        clamped_layer_mask=0,
+    )
+    # Default
+    assert base.config_version == 0
+
+    bumped = CycleRecord(**{**base.__dict__, "config_version": 7})
+    assert bumped.config_version == 7

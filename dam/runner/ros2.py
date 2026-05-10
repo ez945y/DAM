@@ -68,7 +68,6 @@ class ROS2Runner(BaseRunner):
         # Extract ROS2-specific config if present
         joint_state_topic = "/joint_states"
         action_topic = "/arm_controller/joint_trajectory"
-        ee_topic = "/tool_pose"
         timer_period_s = 0.02
 
         if config.hardware is not None:
@@ -78,17 +77,12 @@ class ROS2Runner(BaseRunner):
             if ros2_cfg is not None:
                 joint_state_topic = getattr(ros2_cfg, "joint_state_topic", joint_state_topic)
                 action_topic = getattr(ros2_cfg, "action_topic", action_topic)
-                ee_topic = getattr(ros2_cfg, "ee_topic", ee_topic)
                 timer_period_s = getattr(ros2_cfg, "timer_period_s", timer_period_s)
 
         if config.runtime is not None:
             timer_period_s = 1.0 / config.runtime.control_frequency_hz
 
-        source = ROS2SourceAdapter(
-            node=node,
-            joint_state_topic=joint_state_topic,
-            ee_topic=ee_topic,
-        )
+        source = ROS2SourceAdapter(node=node, joint_state_topic=joint_state_topic)
         sink = ROS2SinkAdapter(node=node, action_topic=action_topic)
 
         # Use policy_obj if provided; otherwise use a no-op policy

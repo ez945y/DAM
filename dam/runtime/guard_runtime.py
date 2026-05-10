@@ -129,10 +129,14 @@ class GuardRuntime:
             )
             self._loopback.start()
 
-        # Hot reload double-buffer
+        # Hot reload double-buffer.  config_version is bumped on every
+        # successful swap so MCAP readers can correlate cycles ↔ config.
         self._pending_config: StackfileConfig | None = None
         self._hot_reload_lock = threading.Lock()
         self._config_pool = dict(config_pool)
+        # 0 = initial config, never hot-reloaded.  Bumped on every successful
+        # swap; readers can use it to distinguish "no swap yet" from "swap N".
+        self._config_version: int = 0
 
         self._running = False
         self._live_img_no_data_warned = False  # one-shot warning for missing camera images
@@ -336,59 +340,77 @@ class GuardRuntime:
         with self._hot_reload_lock:
             self._pending_config = new_config
 
-    def _apply_config_swap(self, new_config: StackfileConfig) -> None:
-        """Rebuild configuration-based parameters for all guards from the new config."""
-        new_config_pool: dict[str, Any] = {}
+    @staticmethod
+    def _build_config_pool(new_config: StackfileConfig) -> dict[str, Any]:
+        """Pure function: merge boundary node params into a fresh config pool.
 
-        # Extract guard params from boundary node params — single authoritative source.
-        # All guard-specific parameters (motion limits, OOD model paths, …) live here,
-        # not in the guards: section.
-        for _bname, bcfg in new_config.boundaries.items():
+        Restrictive-merge semantics for known safety keys (max_speed, upper,
+        max_velocity, max_acceleration use minimum; lower uses maximum).
+        Returns a brand-new dict; never touches runtime state.  May raise
+        ``TypeError`` / ``ValueError`` if shapes mismatch under ``np.minimum`` /
+        ``np.maximum`` — caller treats that as a validation failure.
+        """
+        pool: dict[str, Any] = {}
+        for bname, bcfg in new_config.boundaries.items():
             for ncfg in bcfg.nodes:
-                c_params = ncfg.params
-                for pk, pv in c_params.items():
-                    if pk in new_config_pool:
-                        old_v = new_config_pool[pk]
-                        # ── Restrictive Merging for known safety parameters ──
-                        if pk == "max_speed":
-                            new_config_pool[pk] = min(old_v, pv)
-                        elif pk in ("upper", "max_velocity", "max_acceleration"):
-                            new_config_pool[pk] = np.minimum(
-                                np.asarray(old_v, dtype=float), np.asarray(pv, dtype=float)
-                            ).tolist()
-                        elif pk == "lower":
-                            new_config_pool[pk] = np.maximum(
-                                np.asarray(old_v, dtype=float), np.asarray(pv, dtype=float)
-                            ).tolist()
-                        else:
-                            # Generic overwrite with warning for unknown parameters
-                            if not np.array_equal(old_v, pv):
-                                logger.warning(
-                                    "GuardRuntime: Parameter '%s' overwritten by boundary '%s' "
-                                    "(prev: %s, new: %s)",
-                                    pk,
-                                    _bname,
-                                    old_v,
-                                    pv,
-                                )
-                            new_config_pool[pk] = pv
+                for pk, pv in ncfg.params.items():
+                    if pk not in pool:
+                        pool[pk] = pv
+                        continue
+                    old_v = pool[pk]
+                    if pk == "max_speed":
+                        pool[pk] = min(old_v, pv)
+                    elif pk in ("upper", "max_velocity", "max_acceleration"):
+                        pool[pk] = np.minimum(
+                            np.asarray(old_v, dtype=float), np.asarray(pv, dtype=float)
+                        ).tolist()
+                    elif pk == "lower":
+                        pool[pk] = np.maximum(
+                            np.asarray(old_v, dtype=float), np.asarray(pv, dtype=float)
+                        ).tolist()
                     else:
-                        new_config_pool[pk] = pv
+                        if not np.array_equal(old_v, pv):
+                            logger.warning(
+                                "GuardRuntime: Parameter '%s' overwritten by boundary '%s' "
+                                "(prev: %s, new: %s)",
+                                pk,
+                                bname,
+                                old_v,
+                                pv,
+                            )
+                        pool[pk] = pv
+        return pool
 
-        # Apply guard enabled and guard-specific params from guards: section
-        self._apply_guards_config(new_config, new_config_pool)
+    def _apply_config_swap(self, new_config: StackfileConfig) -> None:
+        """Validate then commit a new config.
 
-        self._config_pool = new_config_pool
-        # Re-run injection precompute for all guards with new pool
+        Build the candidate pool as a pure computation first; only mutate
+        runtime state once it succeeds.  A failed swap leaves the runtime on
+        the previous config — no half-applied state.  ``_build_config_pool``
+        already logs per-parameter overwrites, so this method stays quiet
+        unless something interesting (commit / reject) happens.
+        """
+        try:
+            candidate_pool = self._build_config_pool(new_config)
+        except Exception:
+            logger.error(
+                "GuardRuntime: config swap REJECTED; keeping previous config (v%d)",
+                self._config_version,
+                exc_info=True,
+            )
+            return
+
+        # Commit: from here on, mutations are simple assignments.
+        self._config_pool = candidate_pool
+        self._apply_guards_config(new_config, candidate_pool)
         for g in self._guards:
-            precompute_injection(g, new_config_pool)
-
-        # Reset node start times to 'now' upon config swap to avoid stale timeouts
+            precompute_injection(g, candidate_pool)
         now = time.monotonic()
         for cname in self._node_start_times:
             self._node_start_times[cname] = now
 
-        logger.info("GuardRuntime: config swap applied (hot reload) and timers reset")
+        self._config_version += 1
+        logger.info("GuardRuntime: config swap committed (v%d)", self._config_version)
 
     # ── Core validate (thin wrapper → ExecutionEngine) ───────────────────────
 
@@ -691,6 +713,7 @@ class GuardRuntime:
             has_clamp=has_clamp,
             violated_layer_mask=violated_layer_mask,
             clamped_layer_mask=clamped_layer_mask,
+            config_version=self._config_version,
         )
         # Determine if we should capture images this cycle
         want_images = obs.images is not None and (

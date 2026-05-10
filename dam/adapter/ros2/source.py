@@ -28,7 +28,6 @@ class ROS2SourceAdapter(SensorAdapter):
     Expected msg interface (duck-typed)
     ------------------------------------
     JointState msg: ``msg.name``, ``msg.position``, ``msg.velocity``
-    Pose msg:       ``msg.pose.position``, ``msg.pose.orientation``  (optional)
     Channel msgs:   any iterable of floats via ``msg.data`` (Float64MultiArray)
                     or ``msg.wrench.force/torque`` (WrenchStamped, for ``wrench``)
     """
@@ -45,12 +44,10 @@ class ROS2SourceAdapter(SensorAdapter):
         self,
         node: Any,
         joint_state_topic: str = "/joint_states",
-        ee_topic: str = "/tool_pose",
         channel_topic_overrides: dict[str, str] | None = None,
     ) -> None:
         self._node = node
         self._joint_state_topic = joint_state_topic
-        self._ee_topic = ee_topic
         self._latest_msg: Any | None = None
         self._last_msg_time: float | None = None
         self._subscription: Any | None = None

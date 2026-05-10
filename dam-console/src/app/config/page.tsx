@@ -528,12 +528,12 @@ export default function ConfigPage() {
             <p className="text-dam-muted text-[10px] uppercase tracking-widest">ROS2 Settings</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label htmlFor="ros2-namespace" className="text-dam-muted text-xs">Namespace</label>
-                <input id="ros2-namespace" value={cfg.ros2Namespace} onChange={e => set('ros2Namespace', e.target.value)} className={`w-full ${inputCls}`} />
-              </div>
-              <div className="space-y-1">
                 <label htmlFor="ros2-joint-topic" className="text-dam-muted text-xs">Joint states topic</label>
                 <input id="ros2-joint-topic" value={cfg.ros2JointTopic} onChange={e => set('ros2JointTopic', e.target.value)} className={`w-full ${inputCls}`} />
+              </div>
+              <div className="space-y-1">
+                <label htmlFor="ros2-cmd-topic" className="text-dam-muted text-xs">Command topic</label>
+                <input id="ros2-cmd-topic" value={cfg.ros2CmdTopic} onChange={e => set('ros2CmdTopic', e.target.value)} className={`w-full ${inputCls}`} />
               </div>
             </div>
           </div>

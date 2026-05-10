@@ -12,8 +12,7 @@ hardware:
   sources:
     ros2_source:
       type: ros2
-      joint_topic: /my_robot/joint_states
-      ee_topic: /my_robot/tool_pose
+      topic: /my_robot/joint_states
     effort:
       type: effort
       ref: ros2_source

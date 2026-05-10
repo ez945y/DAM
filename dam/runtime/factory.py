@@ -211,60 +211,46 @@ class RuntimeFactory:
         runtime = GuardRuntime._from_config(config)
         hz = config.safety.control_frequency_hz if config.safety else 50.0
 
-        # Identify main ros2 source (the one with type=ros2)
-        main_name = "ros2"
-        main_cfg: Any = None
+        # Identify the main ROS2 source (type=ros2).
+        main_name, main_cfg = "ros2", None
         if config.hardware.sources:
             for name, s in config.hardware.sources.items():
                 if str(s.type).lower() == "ros2":
-                    main_name = name
-                    main_cfg = s
+                    main_name, main_cfg = name, s
                     break
 
+        # Main-source topic: prefer the declared `topic` field on
+        # HardwareSourceConfig, fall back to `joint_topic` (extras) for
+        # readability, then default.
         joint_topic = "/joint_states"
-        ee_topic = "/tool_pose"
-        action_topic = "/arm_controller/joint_trajectory"
         if main_cfg is not None:
             extra = main_cfg.model_extra or {}
-            joint_topic = extra.get("joint_topic") or extra.get("topic") or joint_topic
-            ee_topic = extra.get("ee_topic") or ee_topic
+            joint_topic = main_cfg.topic or extra.get("joint_topic") or joint_topic
 
-        # Sink topic comes from the matching sink config if present
-        if config.hardware.sinks:
-            for sink_cfg in config.hardware.sinks.values():
-                action_topic = (
-                    (sink_cfg.model_extra or {}).get("cmd_topic")
-                    or (sink_cfg.model_extra or {}).get("topic")
-                    or sink_cfg.topic
-                    or action_topic
-                )
-                break
+        # Pick the sink that references the main source; fall back to the
+        # first sink if no `ref` matches (legacy stackfiles).
+        action_topic = "/arm_controller/joint_trajectory"
+        chosen_sink = RuntimeFactory._find_sink_for(config, main_name)
+        if chosen_sink is not None and chosen_sink.topic:
+            action_topic = chosen_sink.topic
 
-        # Pre-collect channel topic overrides so the adapter can resolve them
-        # itself when set_observation_channels is later invoked.  Only channel
-        # sources (whose type is in the adapter's supported channels) contribute.
-        _probe_supported = ROS2SourceAdapter(node=None).supported_channels()
+        # Collect per-channel topic overrides from the declared `topic` field
+        # on each peer-source whose type matches a supported channel.
+        supported = ROS2SourceAdapter(node=None).supported_channels()
         channel_topic_overrides: dict[str, str] = {}
-        if config.hardware.sources:
-            for _sname, scfg in config.hardware.sources.items():
-                channel = str(scfg.type).lower()
-                if channel not in _probe_supported:
-                    continue
-                topic_override = scfg.topic or (scfg.model_extra or {}).get("topic")
-                if topic_override:
-                    channel_topic_overrides[channel] = topic_override
+        for _sname, scfg in (config.hardware.sources or {}).items():
+            channel = str(scfg.type).lower()
+            if channel in supported and scfg.topic:
+                channel_topic_overrides[channel] = scfg.topic
 
         source = ROS2SourceAdapter(
             node=None,
             joint_state_topic=joint_topic,
-            ee_topic=ee_topic,
             channel_topic_overrides=channel_topic_overrides or None,
         )
         sink = ROS2SinkAdapter(node=None, action_topic=action_topic)
 
-        obs_channels = RuntimeFactory._collect_channels(
-            config, main_name, source.supported_channels()
-        )
+        obs_channels = RuntimeFactory._collect_channels(config, main_name, supported)
         if obs_channels:
             source.set_observation_channels(obs_channels)
 
@@ -272,10 +258,59 @@ class RuntimeFactory:
             runtime=runtime,
             source=source,
             sink=sink,
-            policy=NoOpPolicyAdapter(),
+            policy=RuntimeFactory._build_policy(config) or NoOpPolicyAdapter(),
             timer_period_s=1.0 / hz,
             source_name=main_name,
         )
+
+    @staticmethod
+    def _find_sink_for(config: StackfileConfig, source_name: str) -> Any:
+        """Return the sink whose `ref` points at *source_name*; None if absent."""
+        if not config.hardware or not config.hardware.sinks:
+            return None
+        for sink_cfg in config.hardware.sinks.values():
+            ref = sink_cfg.ref or ""
+            if ref.startswith("sources."):
+                ref = ref[len("sources.") :]
+            if ref == source_name:
+                return sink_cfg
+        # No matching ref — fall back to the first sink so a single-sink
+        # stackfile (the common case) still works without explicit refs.
+        return next(iter(config.hardware.sinks.values()), None)
+
+    @staticmethod
+    def _build_policy(config: StackfileConfig) -> Any:
+        """Construct a policy adapter from `config.policy`, or None.
+
+        Shared between the lerobot and ros2 factory paths so any robot can
+        load any policy (the underlying loader is hardware-agnostic).
+        """
+        if not config.policy or not config.policy.pretrained_path:
+            return None
+        try:
+            from dam.adapter.lerobot.builder import LeRobotBuilder
+            from dam.adapter.lerobot.policy import LeRobotPolicyAdapter
+            from dam.config.schema import HardwareConfig
+
+            fake_hw = HardwareConfig(preset="generic_6dof")
+            builder = LeRobotBuilder(fake_hw, config.policy)
+            policy_res = builder.build_policy()
+            if not policy_res:
+                return None
+            if isinstance(policy_res, tuple):
+                p_obj, pre, post = policy_res
+            else:
+                p_obj, pre, post = policy_res, None, None
+            return LeRobotPolicyAdapter(
+                p_obj,
+                preprocessor=pre,
+                postprocessor=post,
+                joint_names=builder.joint_names,
+                device=config.policy.device,
+            )
+        except Exception:  # noqa: BLE001 — policy is optional; fall back to no-op
+            logger.warning("Policy load failed; runtime will use a no-op policy", exc_info=True)
+            return None
 
     @staticmethod
     def _collect_channels(

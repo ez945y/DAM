@@ -44,6 +44,10 @@ pub struct CycleRecordData {
     pub latency_layers: HashMap<String, f64>,
     pub latency_guards: HashMap<String, f64>,
     pub image_data: Vec<ImageData>,
+    /// Provenance: runtime config swap counter (0 = initial / unknown).
+    /// `serde(default)` lets older Python writers omit this field.
+    #[serde(default)]
+    pub config_version: u64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -286,6 +290,7 @@ mod tests {
             latency_layers: HashMap::new(),
             latency_guards: HashMap::new(),
             image_data: vec![],
+            config_version: 0,
         }
     }
 

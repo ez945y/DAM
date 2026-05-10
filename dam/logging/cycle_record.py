@@ -84,3 +84,8 @@ class CycleRecord:
     has_clamp: bool  # any CLAMP this cycle
     violated_layer_mask: int  # bitmask: bit i → layer Li had REJECT/FAULT
     clamped_layer_mask: int  # bitmask: bit i → layer Li had CLAMP
+
+    # ── Provenance ────────────────────────────────────────────────────────────
+    # 0 = initial config; bumped by GuardRuntime on every successful hot-reload
+    # swap.  Readers join cycles to the config that produced them via this id.
+    config_version: int = 0

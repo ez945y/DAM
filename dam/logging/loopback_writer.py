@@ -197,6 +197,7 @@ def _record_to_dict(
 
     result = {
         "cycle_id": rec.cycle_id,
+        "config_version": rec.config_version,
         "obs_timestamp": rec.obs_timestamp,
         "has_violation": rec.has_violation,
         "has_clamp": rec.has_clamp,
@@ -398,6 +399,7 @@ class _WriterSession:
             "dam.Cycle",
             {
                 "cycle_id": {"type": "integer"},
+                "config_version": {"type": "integer"},
                 "timestamp": {"type": "number"},
                 "active_task": {"type": ["string", "null"]},
                 "active_boundaries": {"type": "array", "items": {"type": "string"}},
@@ -771,6 +773,7 @@ class LoopbackWriter:
         #    All fields are already plain Python types; no numpy here.
         cycle_msg: dict[str, Any] = {
             "cycle_id": rec.cycle_id,
+            "config_version": rec.config_version,
             "timestamp": rec.obs_timestamp,
             "active_task": rec.active_task,
             "active_boundaries": list(rec.active_boundaries),
