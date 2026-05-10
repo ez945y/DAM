@@ -657,19 +657,14 @@ class GuardRuntime:
                 has_clamp = True
 
         # ── Pre-convert numpy → list so the writer thread is numpy-free ──────────
+        # Observation.iter_channels() owns the name → field mapping; the
+        # runtime stays oblivious to which channels exist.
         def _to_list(arr: Any) -> list[float] | None:
             return arr.tolist() if arr is not None else None
 
-        obs_channels: dict[str, list[float]] = {}
-        if obs.joint_velocities is not None:
-            obs_channels["joint_velocities"] = obs.joint_velocities.tolist()
-        if obs.end_effector_pose is not None:
-            obs_channels["end_effector_pose"] = obs.end_effector_pose.tolist()
-        if obs.force_torque is not None:
-            obs_channels["force_torque"] = obs.force_torque.tolist()
-        if obs.channels:
-            for k, v in obs.channels.items():
-                obs_channels[k] = v.tolist()
+        obs_channels: dict[str, list[float]] = {
+            name: arr.tolist() for name, arr in obs.iter_channels()
+        }
 
         rec = CycleRecord(
             cycle_id=self._cycle_id - 1,

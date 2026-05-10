@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -59,3 +60,26 @@ class Observation:
                 "channels",
                 {k: np.asarray(v, dtype=np.float64).copy() for k, v in self.channels.items()},
             )
+
+    # Typed fields that should also appear as named channels in the cycle
+    # record / MCAP.  Defining the mapping here keeps the name → field
+    # association in exactly one place; the runtime iterates blindly.
+    _TYPED_CHANNEL_FIELDS: tuple[str, ...] = (
+        "joint_velocities",
+        "end_effector_pose",
+        "force_torque",
+    )
+
+    def iter_channels(self) -> Iterator[tuple[str, np.ndarray]]:
+        """Yield every named array carried by this Observation.
+
+        Includes the typed optional fields (joint_velocities, end_effector_pose,
+        force_torque) and every entry in the dynamic ``channels`` dict.
+        Order is stable: typed fields first, then dynamic-dict insertion order.
+        """
+        for name in self._TYPED_CHANNEL_FIELDS:
+            value = getattr(self, name)
+            if value is not None:
+                yield name, value
+        if self.channels:
+            yield from self.channels.items()

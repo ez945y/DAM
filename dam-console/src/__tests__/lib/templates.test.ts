@@ -2,11 +2,12 @@ import {
   TEMPLATES,
   defaultConfig,
   generateYaml,
+  parseConfigFromYaml,
 } from '@/lib/templates'
 
 describe('TEMPLATES', () => {
-  it('has 4 presets', () => {
-    expect(TEMPLATES).toHaveLength(4)
+  it('has 5 presets', () => {
+    expect(TEMPLATES).toHaveLength(5)
   })
 
   it('every template has required fields', () => {
@@ -306,5 +307,64 @@ describe('generateYaml', () => {
     const oodParamPos = yaml.indexOf('ood_model_path')
     expect(oodParamPos).toBeGreaterThan(-1)
     expect(oodParamPos).toBeGreaterThan(guardsEnd)
+  })
+})
+
+describe('observation channel round-trip', () => {
+  it('preserves observation_channels + channel_topic_overrides through emit→parse', () => {
+    const cfg = defaultConfig('ros2_topic_overrides')
+    const yaml = generateYaml(cfg)
+
+    // Sanity: emitter wrote what we expected
+    expect(yaml).toMatch(/effort:\s*\n\s*type: effort\s*\n\s*ref: ros2_source\s*\n\s*topic: \/my_robot\/torque_sensor/)
+    expect(yaml).toMatch(/wrench:\s*\n\s*type: wrench\s*\n\s*ref: ros2_source\s*\n\s*topic: \/my_robot\/ft_sensor\/wrench/)
+
+    const parsed = parseConfigFromYaml(yaml)
+    expect(parsed.observation_channels).toEqual(['effort', 'wrench'])
+    expect(parsed.channel_topic_overrides).toEqual({
+      effort: '/my_robot/torque_sensor',
+      wrench: '/my_robot/ft_sensor/wrench',
+    })
+  })
+
+  it('omits topic line when no override is set', () => {
+    const cfg = defaultConfig('ros2_minimal')  // has channels but no overrides
+    const yaml = generateYaml(cfg)
+
+    // ros2_minimal declares effort + wrench with NO topic overrides
+    expect(yaml).toContain('effort:')
+    expect(yaml).toContain('wrench:')
+    // No `topic:` line under either channel block
+    expect(yaml).not.toMatch(/wrench:\s*\n\s*type: wrench\s*\n\s*ref: ros2_source\s*\n\s*topic:/)
+
+    const parsed = parseConfigFromYaml(yaml)
+    expect(parsed.observation_channels).toEqual(['effort', 'wrench'])
+    expect(parsed.channel_topic_overrides).toBeUndefined()
+  })
+
+  it('lerobot channels round-trip without overrides', () => {
+    const cfg = defaultConfig('so101_act')  // observation_channels: ['current']
+    const yaml = generateYaml(cfg)
+    expect(yaml).toMatch(/current:\s*\n\s*type: current\s*\n\s*ref: arm/)
+
+    const parsed = parseConfigFromYaml(yaml)
+    expect(parsed.observation_channels).toEqual(['current'])
+    expect(parsed.channel_topic_overrides).toBeUndefined()
+  })
+
+  it('blank or duplicate channel names are dropped by the emitter', () => {
+    const cfg = defaultConfig('ros2_minimal')
+    cfg.observation_channels = ['effort', '', 'effort', 'wrench']
+    const yaml = generateYaml(cfg)
+
+    // effort emitted once, wrench once, empty skipped
+    const effortMatches = yaml.match(/^\s{4}effort:$/gm) ?? []
+    const wrenchMatches = yaml.match(/^\s{4}wrench:$/gm) ?? []
+    expect(effortMatches).toHaveLength(1)
+    expect(wrenchMatches).toHaveLength(1)
+    expect(yaml).not.toMatch(/^\s{4}:$/m)
+
+    const parsed = parseConfigFromYaml(yaml)
+    expect(parsed.observation_channels).toEqual(['effort', 'wrench'])
   })
 })

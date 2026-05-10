@@ -357,6 +357,14 @@ function taskLines(t: TaskDef): string[] {
 
 const GUARD_LAYER: Record<string, string> = { ood: 'L0', motion: 'L1', execution: 'L2', hardware: 'L3' }
 
+// Stackfile source-block name per adapter.  Used in three places (sources
+// block key, channel ref, sink ref) — keep them in sync via this single map.
+const MAIN_SOURCE_NAME: Record<DamConfig['adapter'], string> = {
+  lerobot: 'arm',
+  ros2: 'ros2_source',
+  simulation: 'main',
+}
+
 function guardLines(cfg: DamConfig): string[][] {
   return (['ood', 'motion', 'execution', 'hardware'] as const).map(gid => {
     const layer = GUARD_LAYER[gid]
@@ -379,12 +387,12 @@ const SCHEMA: YamlSection[] = [
         scalar('episode', cfg => cfg.simulation_episode ?? 0),
         scalar('degrees_mode', () => 'true'),
       ], cfg => cfg.adapter === 'simulation' && !!cfg.simulation_dataset_repo_id),
-      block('arm', [
+      block(MAIN_SOURCE_NAME.lerobot, [
         scalar('type', () => 'lerobot'), scalar('port', cfg => cfg.lerobot_port),
         scalar('id', cfg => cfg.lerobot_robot_id), scalar('calibration_path', cfg => cfg.lerobot_calibration_path || null),
         custom((cfg, indent) => [`${indent}cameras:`, ...cfg.lerobot_cameras.flatMap(c => cameraLines(c).map(l => `${indent}  ${l}`))], cfg => cfg.lerobot_cameras.length > 0)
       ], cfg => cfg.adapter === 'lerobot'),
-      block('ros2_source', [
+      block(MAIN_SOURCE_NAME.ros2, [
         scalar('type', () => 'ros2'), scalar('node_name', cfg => cfg.ros2NodeName),
         scalar('joint_topic', cfg => cfg.ros2JointTopic), scalar('cmd_topic', cfg => cfg.ros2CmdTopic),
         scalar('namespace', cfg => cfg.ros2Namespace), scalar('wrench_topic', cfg => cfg.ros2WrenchTopic || '/wrench'),
@@ -395,7 +403,7 @@ const SCHEMA: YamlSection[] = [
       // Optional `topic:` overrides the adapter's default topic per channel.
       // Skip blank / duplicate names — UI can hold transient empty rows.
       custom((cfg, indent) => {
-        const parent = cfg.adapter === 'lerobot' ? 'arm' : 'ros2_source'
+        const parent = MAIN_SOURCE_NAME[cfg.adapter]
         const overrides = cfg.channel_topic_overrides ?? {}
         const seen = new Set<string>()
         return cfg.observation_channels.flatMap(ch => {
@@ -408,9 +416,9 @@ const SCHEMA: YamlSection[] = [
       }, cfg => (cfg.adapter === 'lerobot' || cfg.adapter === 'ros2') && cfg.observation_channels.length > 0),
     ]),
     block('sinks', [
-      block('main', [scalar('ref', () => 'sources.main')], cfg => cfg.adapter === 'simulation' && !!cfg.simulation_dataset_repo_id),
-      block('command', [scalar('ref', () => 'sources.arm')], cfg => cfg.adapter === 'lerobot'),
-      block('ros2_sink', [scalar('ref', () => 'sources.ros2_source')], cfg => cfg.adapter === 'ros2'),
+      block('main', [scalar('ref', () => `sources.${MAIN_SOURCE_NAME.simulation}`)], cfg => cfg.adapter === 'simulation' && !!cfg.simulation_dataset_repo_id),
+      block('command', [scalar('ref', () => `sources.${MAIN_SOURCE_NAME.lerobot}`)], cfg => cfg.adapter === 'lerobot'),
+      block('ros2_sink', [scalar('ref', () => `sources.${MAIN_SOURCE_NAME.ros2}`)], cfg => cfg.adapter === 'ros2'),
     ]),
   ]),
   blank,
