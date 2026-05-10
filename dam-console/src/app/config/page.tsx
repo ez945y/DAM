@@ -548,18 +548,23 @@ export default function ConfigPage() {
             </p>
             {cfg.observation_channels.length > 0 && (
               <div className="space-y-1.5">
-                {cfg.observation_channels.map((ch, i) => (
-                  <div key={`${ch}-${i}`} className="grid grid-cols-[8rem_1fr_auto] gap-1.5 items-center">
+                {cfg.observation_channels.map((_ch, i) => {
+                  // Always read the current name from state by index to avoid
+                  // closure-stale references after rename.
+                  const currentName = cfg.observation_channels[i]
+                  return (
+                  <div key={i} className="grid grid-cols-[8rem_1fr_auto] gap-1.5 items-center">
                     <input
-                      value={ch}
+                      value={currentName}
                       onChange={e => {
+                        const newName = e.target.value
                         const next = [...cfg.observation_channels]
                         const oldName = next[i]
-                        next[i] = e.target.value
+                        next[i] = newName
                         set('observation_channels', next)
                         const overrides = { ...(cfg.channel_topic_overrides ?? {}) }
-                        if (oldName in overrides) {
-                          overrides[e.target.value] = overrides[oldName]
+                        if (oldName && oldName in overrides && newName) {
+                          overrides[newName] = overrides[oldName]
                           delete overrides[oldName]
                           set('channel_topic_overrides', overrides)
                         }
@@ -568,11 +573,13 @@ export default function ConfigPage() {
                       placeholder="effort"
                     />
                     <input
-                      value={cfg.channel_topic_overrides?.[ch] ?? ''}
+                      value={cfg.channel_topic_overrides?.[currentName] ?? ''}
                       onChange={e => {
+                        const name = cfg.observation_channels[i]
+                        if (!name) return  // ignore edits to unnamed channels
                         const overrides = { ...(cfg.channel_topic_overrides ?? {}) }
-                        if (e.target.value) overrides[ch] = e.target.value
-                        else delete overrides[ch]
+                        if (e.target.value) overrides[name] = e.target.value
+                        else delete overrides[name]
                         set('channel_topic_overrides', overrides)
                       }}
                       className={inputCls}
@@ -580,10 +587,10 @@ export default function ConfigPage() {
                     />
                     <button
                       onClick={() => {
-                        const next = cfg.observation_channels.filter((_, idx) => idx !== i)
-                        set('observation_channels', next)
+                        const name = cfg.observation_channels[i]
+                        set('observation_channels', cfg.observation_channels.filter((_, idx) => idx !== i))
                         const overrides = { ...(cfg.channel_topic_overrides ?? {}) }
-                        delete overrides[ch]
+                        if (name) delete overrides[name]
                         set('channel_topic_overrides', overrides)
                       }}
                       className="text-dam-muted hover:text-dam-red transition-colors"
@@ -591,7 +598,8 @@ export default function ConfigPage() {
                       <Trash2 size={12} />
                     </button>
                   </div>
-                ))}
+                  )
+                })}
               </div>
             )}
             <button

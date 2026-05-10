@@ -393,10 +393,14 @@ const SCHEMA: YamlSection[] = [
       // Peer-source observation channels (servo registers for lerobot, extra
       // topics for ROS2).  Parent ref points at whichever main source exists.
       // Optional `topic:` overrides the adapter's default topic per channel.
+      // Skip blank / duplicate names — UI can hold transient empty rows.
       custom((cfg, indent) => {
         const parent = cfg.adapter === 'lerobot' ? 'arm' : 'ros2_source'
         const overrides = cfg.channel_topic_overrides ?? {}
+        const seen = new Set<string>()
         return cfg.observation_channels.flatMap(ch => {
+          if (!ch || seen.has(ch)) return []
+          seen.add(ch)
           const lines = [`${indent}${ch}:`, `${indent}  type: ${ch}`, `${indent}  ref: ${parent}`]
           if (overrides[ch]) lines.push(`${indent}  topic: ${overrides[ch]}`)
           return lines
