@@ -29,13 +29,25 @@ class ROS2SourceAdapter(SensorAdapter):
     ------------------------------------
     JointState msg: ``msg.name``, ``msg.position``, ``msg.velocity``
     Pose msg:       ``msg.pose.position``, ``msg.pose.orientation``  (optional)
+    Channel msgs:   any iterable of floats via ``msg.data`` (Float64MultiArray)
+                    or ``msg.wrench.force/torque`` (WrenchStamped, for ``wrench``)
     """
+
+    # Channel-name → default topic.  Override per-channel via stackfile.
+    _CHANNEL_DEFAULT_TOPICS: dict[str, str] = {
+        "effort": "/joint_effort",
+        "wrench": "/wrench",
+        "temperature": "/joint_temperature",
+        "current": "/joint_current",
+        "voltage": "/joint_voltage",
+    }
 
     def __init__(
         self,
         node: Any,
         joint_state_topic: str = "/joint_states",
         ee_topic: str = "/tool_pose",
+        channel_topic_overrides: dict[str, str] | None = None,
     ) -> None:
         self._node = node
         self._joint_state_topic = joint_state_topic
@@ -45,6 +57,12 @@ class ROS2SourceAdapter(SensorAdapter):
         self._subscription: Any | None = None
         self._lock = threading.Lock()
         self._connected = False
+
+        # Channel state: name → (topic, np.ndarray | None)
+        self._channel_topic_overrides: dict[str, str] = dict(channel_topic_overrides or {})
+        self._channel_topics: dict[str, str] = {}
+        self._channel_data: dict[str, np.ndarray] = {}
+        self._channel_subscriptions: dict[str, Any] = {}
 
     # ── SensorAdapter ABC ──────────────────────────────────────────────────
 
@@ -64,6 +82,14 @@ class ROS2SourceAdapter(SensorAdapter):
                 self._on_joint_state,
                 10,  # QoS depth
             )
+            for channel, topic in self._channel_topics.items():
+                self._channel_subscriptions[channel] = self._node.create_subscription(
+                    None,
+                    topic,
+                    lambda msg, ch=channel: self._on_channel_msg(ch, msg),
+                    10,
+                )
+                logger.info("ROS2SourceAdapter channel '%s' ← topic '%s'", channel, topic)
             self._connected = True
             logger.info("ROS2SourceAdapter connected to topic '%s'", self._joint_state_topic)
         except Exception as exc:
@@ -74,6 +100,7 @@ class ROS2SourceAdapter(SensorAdapter):
         """Return the latest buffered Observation (from ``_latest_msg``)."""
         with self._lock:
             msg = self._latest_msg
+            channels = {k: v.copy() for k, v in self._channel_data.items()} or None
 
         if msg is None:
             # Return a zero observation so callers don't crash
@@ -81,9 +108,22 @@ class ROS2SourceAdapter(SensorAdapter):
                 timestamp=time.monotonic(),
                 joint_positions=np.zeros(6),
                 joint_velocities=np.zeros(6),
+                channels=channels,
             )
 
-        return self._convert(msg)
+        return self._convert(msg, channels)
+
+    def supported_channels(self) -> set[str]:
+        return set(self._CHANNEL_DEFAULT_TOPICS)
+
+    def set_observation_channels(self, channels: list[str]) -> None:
+        """Activate the given channels.  Resolve each to a topic via the
+        per-channel override map passed at construction, falling back to the
+        adapter's default topic for that channel."""
+        for ch in channels:
+            self._channel_topics[ch] = self._channel_topic_overrides.get(
+                ch, self._CHANNEL_DEFAULT_TOPICS[ch]
+            )
 
     def is_healthy(self) -> bool:
         """Return True if node is not None and a message was received recently (< 1 s)."""
@@ -101,6 +141,12 @@ class ROS2SourceAdapter(SensorAdapter):
                 self._node.destroy_subscription(self._subscription)
             except Exception as exc:
                 logger.warning("ROS2SourceAdapter.disconnect() error: %s", exc)
+        for sub in self._channel_subscriptions.values():
+            try:
+                self._node.destroy_subscription(sub)
+            except Exception as exc:  # noqa: BLE001 — best-effort cleanup
+                logger.debug("ROS2SourceAdapter channel disconnect: %s", exc)
+        self._channel_subscriptions.clear()
         self._subscription = None
         self._connected = False
         logger.info("ROS2SourceAdapter disconnected")
@@ -113,9 +159,26 @@ class ROS2SourceAdapter(SensorAdapter):
             self._latest_msg = msg
             self._last_msg_time = time.monotonic()
 
+    def _on_channel_msg(self, channel: str, msg: Any) -> None:
+        """Callback for an observation-channel topic.  Duck-typed extraction."""
+        data: Any
+        if hasattr(msg, "data"):
+            data = msg.data
+        elif hasattr(msg, "wrench"):
+            w = msg.wrench
+            data = [w.force.x, w.force.y, w.force.z, w.torque.x, w.torque.y, w.torque.z]
+        else:
+            data = msg
+        try:
+            arr = np.asarray(data, dtype=np.float64).flatten()
+        except Exception:  # noqa: BLE001 — unparseable message
+            return
+        with self._lock:
+            self._channel_data[channel] = arr
+
     # ── Internal conversion ────────────────────────────────────────────────
 
-    def _convert(self, msg: Any) -> Observation:
+    def _convert(self, msg: Any, channels: dict[str, np.ndarray] | None) -> Observation:
         """Convert a duck-typed JointState msg to an Observation."""
         positions = np.asarray(msg.position, dtype=np.float64).flatten()
         n = len(positions)
@@ -130,4 +193,5 @@ class ROS2SourceAdapter(SensorAdapter):
             timestamp=time.monotonic(),
             joint_positions=positions,
             joint_velocities=velocities,
+            channels=channels,
         )

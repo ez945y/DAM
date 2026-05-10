@@ -237,6 +237,20 @@ describe('generateYaml', () => {
     expect(yaml).toContain('/joint_states')
   })
 
+  it('emits observation channels as peer sources for lerobot', () => {
+    const cfg = defaultConfig('so101_act')
+    const yaml = generateYaml(cfg)
+    expect(yaml).toContain('current:')
+    expect(yaml).toMatch(/current:\s*\n\s*type: current\s*\n\s*ref: arm/)
+  })
+
+  it('emits observation channels as peer sources for ros2', () => {
+    const cfg = defaultConfig('ros2_minimal')
+    const yaml = generateYaml(cfg)
+    expect(yaml).toMatch(/effort:\s*\n\s*type: effort\s*\n\s*ref: ros2_source/)
+    expect(yaml).toMatch(/wrench:\s*\n\s*type: wrench\s*\n\s*ref: ros2_source/)
+  })
+
   it('includes adapter section for lerobot', () => {
     const cfg = defaultConfig('so101_act')
     const yaml = generateYaml(cfg)

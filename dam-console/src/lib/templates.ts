@@ -209,6 +209,7 @@ export const TEMPLATES: TemplatePreset[] = [
     config: {
       hardware_preset: 'generic_6dof', adapter: 'ros2', ros2NodeName: 'dam_node', ros2JointTopic: '/joint_states',
       ros2CmdTopic: '/joint_commands', ros2Namespace: '/dam', ros2WrenchTopic: '/wrench', ros2Qos: 'reliable',
+      observation_channels: ['effort', 'wrench'],
       policy: { type: 'act', pretrained_path: '', device: 'cpu' },
       controlFrequencyHz: 15, enforcement_mode: 'monitor',
       tasks: [{ id: 'default', name: 'default', description: 'Default task', boundaries: [] }],
@@ -356,15 +357,20 @@ const SCHEMA: YamlSection[] = [
         scalar('id', cfg => cfg.lerobot_robot_id), scalar('calibration_path', cfg => cfg.lerobot_calibration_path || null),
         custom((cfg, indent) => [`${indent}cameras:`, ...cfg.lerobot_cameras.flatMap(c => cameraLines(c).map(l => `${indent}  ${l}`))], cfg => cfg.lerobot_cameras.length > 0)
       ], cfg => cfg.adapter === 'lerobot'),
-      custom((cfg, indent) => cfg.observation_channels.flatMap(ch => [
-        `${indent}${ch}:`, `${indent}  type: ${ch}`, `${indent}  ref: arm`
-      ]), cfg => cfg.adapter === 'lerobot' && cfg.observation_channels.length > 0),
       block('ros2_source', [
         scalar('type', () => 'ros2'), scalar('node_name', cfg => cfg.ros2NodeName),
         scalar('joint_topic', cfg => cfg.ros2JointTopic), scalar('cmd_topic', cfg => cfg.ros2CmdTopic),
         scalar('namespace', cfg => cfg.ros2Namespace), scalar('wrench_topic', cfg => cfg.ros2WrenchTopic || '/wrench'),
         scalar('qos', cfg => cfg.ros2Qos),
       ], cfg => cfg.adapter === 'ros2'),
+      // Peer-source observation channels (servo registers for lerobot, extra
+      // topics for ROS2).  Parent ref points at whichever main source exists.
+      custom((cfg, indent) => {
+        const parent = cfg.adapter === 'lerobot' ? 'arm' : 'ros2_source'
+        return cfg.observation_channels.flatMap(ch => [
+          `${indent}${ch}:`, `${indent}  type: ${ch}`, `${indent}  ref: ${parent}`,
+        ])
+      }, cfg => (cfg.adapter === 'lerobot' || cfg.adapter === 'ros2') && cfg.observation_channels.length > 0),
     ]),
     block('sinks', [
       block('main', [scalar('ref', () => 'sources.main')], cfg => cfg.adapter === 'simulation' && !!cfg.simulation_dataset_repo_id),

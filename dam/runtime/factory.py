@@ -42,15 +42,21 @@ class RuntimeFactory:
         """Build a Runner from a pre-parsed StackfileConfig object."""
         from dam.runner.base import SimulationRunner
 
-        # 1. Determine Adapter Type
+        # 1. Determine Adapter Type — pick the first source whose type is a
+        # known adapter, so peer channel sources (current, effort, …) don't
+        # accidentally drive routing.
+        _ADAPTER_TYPES = ("lerobot", "ros2")
         adapter_type = None
         hw_config = config.hardware
         if hw_config:
             if hw_config.preset == "simulation":
                 adapter_type = "simulation"
             elif hw_config.sources:
-                first_src = next(iter(hw_config.sources.values()))
-                adapter_type = str(first_src.type or "simulation").lower()
+                for src in hw_config.sources.values():
+                    t = str(src.type or "").lower()
+                    if t in _ADAPTER_TYPES:
+                        adapter_type = t
+                        break
 
         if not adapter_type:
             raise ValueError(
@@ -63,7 +69,7 @@ class RuntimeFactory:
         if adapter_type == "lerobot":
             return RuntimeFactory._build_lerobot(config)
         elif adapter_type == "ros2":
-            raise NotImplementedError("ROS2 runner not implemented")
+            return RuntimeFactory._build_ros2(config)
 
         # Explicit Simulation or fall-through — reuse already-parsed config
         runtime = GuardRuntime._from_config(config)
@@ -213,7 +219,84 @@ class RuntimeFactory:
 
     @staticmethod
     def _build_ros2(config: StackfileConfig) -> BaseRunner:
-        raise NotImplementedError("ROS2 adapter factory not implemented yet")
+        from dam.adapter.ros2._noop_policy import NoOpPolicyAdapter
+        from dam.adapter.ros2.sink import ROS2SinkAdapter
+        from dam.adapter.ros2.source import ROS2SourceAdapter
+        from dam.runner.ros2 import ROS2Runner
+
+        assert config.hardware is not None
+        runtime = GuardRuntime._from_config(config)
+        hz = config.safety.control_frequency_hz if config.safety else 50.0
+
+        # Identify main ros2 source (the one with type=ros2)
+        main_name = "ros2"
+        main_cfg: Any = None
+        if config.hardware.sources:
+            for name, s in config.hardware.sources.items():
+                if str(s.type).lower() == "ros2":
+                    main_name = name
+                    main_cfg = s
+                    break
+
+        joint_topic = "/joint_states"
+        ee_topic = "/tool_pose"
+        action_topic = "/arm_controller/joint_trajectory"
+        if main_cfg is not None:
+            extra = main_cfg.model_extra or {}
+            joint_topic = extra.get("joint_topic") or extra.get("topic") or joint_topic
+            ee_topic = extra.get("ee_topic") or ee_topic
+
+        # Sink topic comes from the matching sink config if present
+        if config.hardware.sinks:
+            for sink_cfg in config.hardware.sinks.values():
+                action_topic = (
+                    (sink_cfg.model_extra or {}).get("cmd_topic")
+                    or (sink_cfg.model_extra or {}).get("topic")
+                    or sink_cfg.topic
+                    or action_topic
+                )
+                break
+
+        # Pre-collect channel topic overrides so the adapter can resolve them
+        # itself when set_observation_channels is later invoked.
+        channel_topic_overrides: dict[str, str] = {}
+        if config.hardware.sources:
+            for _sname, scfg in config.hardware.sources.items():
+                topic_override = (scfg.model_extra or {}).get("topic")
+                if topic_override:
+                    channel_topic_overrides[str(scfg.type).lower()] = topic_override
+
+        source = ROS2SourceAdapter(
+            node=None,
+            joint_state_topic=joint_topic,
+            ee_topic=ee_topic,
+            channel_topic_overrides=channel_topic_overrides or None,
+        )
+        sink = ROS2SinkAdapter(node=None, action_topic=action_topic)
+
+        # Discover and activate channels.
+        supported = source.supported_channels()
+        obs_channels: list[str] = []
+        if config.hardware.sources:
+            for _sname, scfg in config.hardware.sources.items():
+                channel = str(scfg.type).lower()
+                if channel not in supported:
+                    continue
+                ref = (scfg.model_extra or {}).get("ref") or main_name
+                if ref.startswith("sources."):
+                    ref = ref[len("sources.") :]
+                if ref == main_name:
+                    obs_channels.append(channel)
+        if obs_channels:
+            source.set_observation_channels(obs_channels)
+
+        return ROS2Runner(
+            runtime=runtime,
+            source=source,
+            sink=sink,
+            policy=NoOpPolicyAdapter(),
+            timer_period_s=1.0 / hz,
+        )
 
     @staticmethod
     def _build_simulation(config: StackfileConfig) -> tuple[Any, Any, Any]:

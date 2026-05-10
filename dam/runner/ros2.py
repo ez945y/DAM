@@ -7,6 +7,7 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any
 
+from dam.runner.base import BaseRunner
 from dam.types.risk import CycleResult
 
 if TYPE_CHECKING:
@@ -15,7 +16,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class ROS2Runner:
+class ROS2Runner(BaseRunner):
     """
     High-level runner that:
     1. Builds GuardRuntime from a Stackfile
@@ -126,6 +127,29 @@ class ROS2Runner:
     def step(self) -> CycleResult:
         """Execute one control cycle via the runtime."""
         return self._runtime.step()
+
+    # ── BaseRunner abstract methods ────────────────────────────────────────
+
+    @property
+    def runtime(self) -> GuardRuntime:
+        return self._runtime
+
+    def connect(self) -> None:
+        """Connect all source/sink adapters."""
+        for src in self._runtime._sources.values():
+            if hasattr(src, "connect"):
+                src.connect()
+        sink = getattr(self._runtime, "_sink", None)
+        if sink is not None and hasattr(sink, "connect"):
+            sink.connect()
+
+    def verify(self) -> None:
+        """No-op preflight — ROS2 connectivity is checked lazily on first read."""
+        return None
+
+    def shutdown(self) -> None:
+        """Alias for stop() — BaseRunner contract."""
+        self.stop()
 
     def run(self, task: str, n_cycles: int = -1) -> list[CycleResult]:
         """Run the control loop for ``n_cycles`` cycles (or forever if -1).
