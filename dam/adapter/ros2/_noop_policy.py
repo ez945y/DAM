@@ -1,6 +1,8 @@
 """NoOpPolicyAdapter — placeholder policy that returns zero actions.
 
-Used by ROS2Runner.from_stackfile() when no policy object is provided.
+The ROS2 factory path falls back to this when the stackfile has no
+``policy:`` section, so the runtime can still spin and execute guards
+without a real policy loaded.
 """
 
 from __future__ import annotations

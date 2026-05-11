@@ -32,14 +32,23 @@ class RuntimeFactory:
         return StackfileConfig(**raw)
 
     @staticmethod
-    def build_from_stackfile(path: str) -> BaseRunner:
-        """Build a Runner from the given stackfile path."""
+    def build_from_stackfile(path: str, *, ros2_node: Any = None) -> BaseRunner:
+        """Build a Runner from the given stackfile path.
+
+        ``ros2_node`` is forwarded to the ROS2 adapter when the stackfile
+        selects the ros2 adapter; ignored otherwise.  Passing ``None`` for a
+        ros2 stackfile produces a mock-mode adapter that won't actually
+        subscribe to any topics — fine for tests, broken for production.
+        """
         config = RuntimeFactory.load_config(path)
-        return RuntimeFactory.build_from_config(config)
+        return RuntimeFactory.build_from_config(config, ros2_node=ros2_node)
 
     @staticmethod
-    def build_from_config(config: StackfileConfig) -> BaseRunner:
-        """Build a Runner from a pre-parsed StackfileConfig object."""
+    def build_from_config(config: StackfileConfig, *, ros2_node: Any = None) -> BaseRunner:
+        """Build a Runner from a pre-parsed StackfileConfig object.
+
+        See ``build_from_stackfile`` for ``ros2_node`` semantics.
+        """
         from dam.runner.base import SimulationRunner
 
         # 1. Determine Adapter Type — pick the first source whose type is a
@@ -69,7 +78,7 @@ class RuntimeFactory:
         if adapter_type == "lerobot":
             return RuntimeFactory._build_lerobot(config)
         elif adapter_type == "ros2":
-            return RuntimeFactory._build_ros2(config)
+            return RuntimeFactory._build_ros2(config, ros2_node=ros2_node)
 
         # Explicit Simulation or fall-through — reuse already-parsed config
         runtime = GuardRuntime._from_config(config)
@@ -201,7 +210,7 @@ class RuntimeFactory:
         return LeRobotRunner(runtime=runtime, robot=robot, control_frequency_hz=hz)
 
     @staticmethod
-    def _build_ros2(config: StackfileConfig) -> BaseRunner:
+    def _build_ros2(config: StackfileConfig, *, ros2_node: Any = None) -> BaseRunner:
         from dam.adapter.ros2._noop_policy import NoOpPolicyAdapter
         from dam.adapter.ros2.sink import ROS2SinkAdapter
         from dam.adapter.ros2.source import ROS2SourceAdapter
@@ -220,19 +229,37 @@ class RuntimeFactory:
                     break
 
         # Main-source topic: prefer the declared `topic` field on
-        # HardwareSourceConfig, fall back to `joint_topic` (extras) for
-        # readability, then default.
+        # HardwareSourceConfig, fall back to `joint_topic` (extras), then default.
         joint_topic = "/joint_states"
+        source_qos = "best_effort"  # sensors default to best_effort in ROS2
+        source_qos_depth = 10
         if main_cfg is not None:
             extra = main_cfg.model_extra or {}
             joint_topic = main_cfg.topic or extra.get("joint_topic") or joint_topic
+            source_qos = extra.get("qos", source_qos)
+            source_qos_depth = int(extra.get("qos_depth", source_qos_depth))
 
         # Pick the sink that references the main source; fall back to the
         # first sink if no `ref` matches (legacy stackfiles).
         action_topic = "/arm_controller/joint_trajectory"
+        sink_qos = "reliable"  # commands default to reliable
+        sink_qos_depth = 10
         chosen_sink = RuntimeFactory._find_sink_for(config, main_name)
-        if chosen_sink is not None and chosen_sink.topic:
-            action_topic = chosen_sink.topic
+        if chosen_sink is not None:
+            if chosen_sink.topic:
+                action_topic = chosen_sink.topic
+            sink_extra = chosen_sink.model_extra or {}
+            sink_qos = sink_extra.get("qos", sink_qos)
+            sink_qos_depth = int(sink_extra.get("qos_depth", sink_qos_depth))
+
+        # Joint names for JointTrajectory publication.  Pulled from
+        # hardware.joints (its keys are the joint names), then sink-level
+        # `joint_names:` override (extras), then empty.
+        joint_names = list((config.hardware.joints or {}).keys())
+        if chosen_sink is not None:
+            override = (chosen_sink.model_extra or {}).get("joint_names")
+            if override:
+                joint_names = list(override)
 
         # Collect per-channel topic overrides from the declared `topic` field
         # on each peer-source whose type matches a supported channel.
@@ -244,11 +271,19 @@ class RuntimeFactory:
                 channel_topic_overrides[channel] = scfg.topic
 
         source = ROS2SourceAdapter(
-            node=None,
+            node=ros2_node,
             joint_state_topic=joint_topic,
             channel_topic_overrides=channel_topic_overrides or None,
+            qos=source_qos,
+            qos_depth=source_qos_depth,
         )
-        sink = ROS2SinkAdapter(node=None, action_topic=action_topic)
+        sink = ROS2SinkAdapter(
+            node=ros2_node,
+            action_topic=action_topic,
+            joint_names=joint_names,
+            qos=sink_qos,
+            qos_depth=sink_qos_depth,
+        )
 
         obs_channels = RuntimeFactory._collect_channels(config, main_name, supported)
         if obs_channels:
@@ -259,6 +294,7 @@ class RuntimeFactory:
             source=source,
             sink=sink,
             policy=RuntimeFactory._build_policy(config) or NoOpPolicyAdapter(),
+            node=ros2_node,
             timer_period_s=1.0 / hz,
             source_name=main_name,
         )

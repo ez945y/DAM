@@ -315,14 +315,13 @@ describe('observation channel round-trip', () => {
     const cfg = defaultConfig('ros2_topic_overrides')
     const yaml = generateYaml(cfg)
 
-    // Sanity: emitter wrote what we expected
-    expect(yaml).toMatch(/effort:\s*\n\s*type: effort\s*\n\s*ref: ros2_source\s*\n\s*topic: \/my_robot\/torque_sensor/)
+    // effort is JointState-derived → no topic line; wrench has its own topic
+    expect(yaml).toMatch(/effort:\s*\n\s*type: effort\s*\n\s*ref: ros2_source\s*(?!\s*topic:)/)
     expect(yaml).toMatch(/wrench:\s*\n\s*type: wrench\s*\n\s*ref: ros2_source\s*\n\s*topic: \/my_robot\/ft_sensor\/wrench/)
 
     const parsed = parseConfigFromYaml(yaml)
     expect(parsed.observation_channels).toEqual(['effort', 'wrench'])
     expect(parsed.channel_topic_overrides).toEqual({
-      effort: '/my_robot/torque_sensor',
       wrench: '/my_robot/ft_sensor/wrench',
     })
   })

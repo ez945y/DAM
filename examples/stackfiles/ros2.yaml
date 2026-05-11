@@ -1,11 +1,14 @@
 version: "1"
 
-# ROS2 stackfile demonstrating per-channel topic overrides.
+# ROS2 stackfile demonstrating observation channels.
 #
-# Pattern: each peer-source declares `type: <channel>` and (optionally)
-# `topic: /custom/topic` to redirect the subscription away from the
-# ROS2SourceAdapter's default for that channel.  Drop the `topic:` line to
-# keep the adapter default.
+# Two flavours of channel, matching ROS2 conventions:
+#
+#   * `effort` is JointState-derived — no `topic:` line, because effort
+#     already arrives in the same sensor_msgs/JointState callback as position
+#     and velocity.
+#   * `wrench` is its own subscription (geometry_msgs/WrenchStamped); the
+#     `topic:` line overrides the adapter default `/wrench`.
 
 hardware:
   preset: generic_6dof
@@ -16,7 +19,6 @@ hardware:
     effort:
       type: effort
       ref: ros2_source
-      topic: /my_robot/torque_sensor    # override default /joint_effort
     wrench:
       type: wrench
       ref: ros2_source

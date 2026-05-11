@@ -45,63 +45,6 @@ class ROS2Runner(BaseRunner):
         self._active_task: str | None = None
         self._timer: Any | None = None
 
-    @classmethod
-    def from_stackfile(cls, path: str, node: Any = None, policy_obj: Any = None) -> ROS2Runner:
-        """Build a ROS2Runner from a Stackfile YAML.
-
-        Reads ``hardware.ros2.*`` keys if present.  Gracefully degrades if
-        rclpy is not installed — uses mock adapters.
-
-        Args:
-            path:       Path to stackfile.yaml
-            node:       Optional rclpy Node object (duck-typed; None for testing)
-            policy_obj: Optional policy object with predict() / select_action()
-        """
-        from dam.adapter.ros2.sink import ROS2SinkAdapter
-        from dam.adapter.ros2.source import ROS2SourceAdapter
-        from dam.config.loader import StackfileLoader
-        from dam.runtime.guard_runtime import GuardRuntime
-
-        config = StackfileLoader.load(path)
-        runtime = GuardRuntime.from_stackfile(path)
-
-        # Extract ROS2-specific config if present
-        joint_state_topic = "/joint_states"
-        action_topic = "/arm_controller/joint_trajectory"
-        timer_period_s = 0.02
-
-        if config.hardware is not None:
-            hw = config.hardware
-            # Look for ros2 sub-config via model's extra fields
-            ros2_cfg = getattr(hw, "ros2", None)
-            if ros2_cfg is not None:
-                joint_state_topic = getattr(ros2_cfg, "joint_state_topic", joint_state_topic)
-                action_topic = getattr(ros2_cfg, "action_topic", action_topic)
-                timer_period_s = getattr(ros2_cfg, "timer_period_s", timer_period_s)
-
-        if config.runtime is not None:
-            timer_period_s = 1.0 / config.runtime.control_frequency_hz
-
-        source = ROS2SourceAdapter(node=node, joint_state_topic=joint_state_topic)
-        sink = ROS2SinkAdapter(node=node, action_topic=action_topic)
-
-        # Use policy_obj if provided; otherwise use a no-op policy
-        if policy_obj is None:
-            from dam.adapter.ros2._noop_policy import NoOpPolicyAdapter
-
-            policy = NoOpPolicyAdapter()
-        else:
-            policy = policy_obj
-
-        return cls(
-            runtime=runtime,
-            source=source,
-            sink=sink,
-            policy=policy,
-            node=node,
-            timer_period_s=timer_period_s,
-        )
-
     def start_task(self, task_name: str) -> None:
         """Activate a task in the runtime."""
         self._runtime.start_task(task_name)

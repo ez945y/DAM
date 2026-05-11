@@ -228,8 +228,9 @@ export const TEMPLATES: TemplatePreset[] = [
       hardware_preset: 'generic_6dof', adapter: 'ros2',
       ros2JointTopic: '/my_robot/joint_states', ros2CmdTopic: '/my_robot/cmd',
       observation_channels: ['effort', 'wrench'],
+      // effort is JointState-derived; no topic override possible.
+      // wrench is its own subscription and accepts a topic override.
       channel_topic_overrides: {
-        effort: '/my_robot/torque_sensor',
         wrench: '/my_robot/ft_sensor/wrench',
       },
       policy: { type: 'act', pretrained_path: '', device: 'cpu' },
