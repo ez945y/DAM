@@ -363,6 +363,7 @@ def register_all() -> None:
     _safe_reg("workspace", workspace)
     _safe_reg("check_velocity_smooth", check_velocity_smooth)
     _safe_reg("check_joints_not_moving", check_joints_not_moving)
+    _safe_reg("proxsuite_qp", proxsuite_qp)
     _safe_reg("dynamic_safety", dynamic_safety)
     _safe_reg("execution_heartbeat", execution_heartbeat)
     _safe_reg("outcome_verifier", outcome_verifier)

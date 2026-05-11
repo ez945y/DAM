@@ -126,3 +126,62 @@ def test_motion_guard_falls_back_to_box_clamp_when_no_qp_param(proxsuite):
     assert result.decision == GuardDecision.CLAMP
     # box-clamp path doesn't mention proxsuite
     assert "proxsuite" not in (result.reason or "")
+
+
+def test_factory_loads_qp_stackfile_with_callback_registered(proxsuite):
+    """Regression: loading a stackfile that references `proxsuite_qp` should not
+    fail with 'Callback not found'.  Asserts the callback is in the registry."""
+    import tempfile
+
+    import yaml
+
+    from dam.boundary.builtin_callbacks import register_all
+    from dam.config.loader import StackfileLoader
+    from dam.registry.callback import get_global_registry
+
+    register_all()
+    reg = get_global_registry()
+    assert "proxsuite_qp" in reg.list_all(), (
+        "proxsuite_qp must be in the callback registry — without this the "
+        "QP example stackfile fails to load"
+    )
+
+    stack = {
+        "version": "1",
+        "hardware": {
+            "preset": "generic_6dof",
+            "joints": {f"j{i}": {} for i in range(6)},
+            "sources": {"arm": {"type": "lerobot", "port": "/dev/null"}},
+            "sinks": {"cmd": {"ref": "sources.arm"}},
+        },
+        "safety": {"control_frequency_hz": 50, "no_task_behavior": "emergency_stop"},
+        "guards": [{"L1": "motion"}],
+        "boundaries": {
+            "qp_safety_filter": {
+                "layer": "L1",
+                "type": "single",
+                "nodes": [
+                    {
+                        "callback": "proxsuite_qp",
+                        "fallback": "emergency_stop",
+                        "params": {"qp_solver": "proxsuite", "slack_weight": 1.0e8},
+                    }
+                ],
+            },
+        },
+        "tasks": {"default": {"description": "", "boundaries": ["qp_safety_filter"]}},
+    }
+    with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
+        yaml.safe_dump(stack, f)
+        path = f.name
+
+    config = StackfileLoader.load(path)
+    assert "qp_safety_filter" in config.boundaries
+    # The config pool built from this stackfile must carry qp_solver/slack_weight
+    from dam.runtime.guard_runtime import GuardRuntime
+
+    pool = GuardRuntime._build_config_pool(config)
+    assert pool["qp_solver"] == "proxsuite"
+    assert pool["slack_weight"] == 1.0e8
+    # dt auto-injected from safety.control_frequency_hz
+    assert pool["dt"] == pytest.approx(0.02)
