@@ -91,27 +91,48 @@ class StackfileWatcher:
     def _event_loop(self) -> None:
         from watchfiles import watch
 
-        try:
-            # `watch` yields a set of (Change, path) tuples whenever something
-            # below the watched path changes.  Debounce so a rapid burst of
-            # writes (editor rename-over-tmp) collapses into one reload.
-            for _changes in watch(
-                self._path,
-                stop_event=self._stop_event,
-                debounce=50,
-                rust_timeout=200,
-                raise_interrupt=False,
-            ):
-                if self._stop_event.is_set():
-                    break
-                self._reload()
-        except Exception as exc:  # noqa: BLE001
-            logger.error(
-                "StackfileWatcher: event loop crashed (%s); falling back to polling",
-                exc,
-                exc_info=True,
-            )
-            self._poll_loop()
+        # Reconnect with capped exponential backoff before giving up on the
+        # event-driven backend.  A transient FS error (e.g. brief unmount)
+        # shouldn't permanently demote the watcher to polling for the
+        # process lifetime.
+        backoff = 0.5
+        max_attempts = 5
+        for attempt in range(1, max_attempts + 1):
+            if self._stop_event.is_set():
+                return
+            try:
+                # `watch` yields a set of (Change, path) tuples whenever
+                # something below the watched path changes.  Debounce so a
+                # rapid burst of writes (editor rename-over-tmp) collapses
+                # into one reload.
+                for _changes in watch(
+                    self._path,
+                    stop_event=self._stop_event,
+                    debounce=50,
+                    rust_timeout=200,
+                    raise_interrupt=False,
+                ):
+                    if self._stop_event.is_set():
+                        return
+                    self._reload()
+                return  # watch returned cleanly (stop_event set)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "StackfileWatcher: event loop crashed (attempt %d/%d): %s",
+                    attempt,
+                    max_attempts,
+                    exc,
+                )
+                self._stop_event.wait(timeout=backoff)
+                backoff = min(backoff * 2, 8.0)
+
+        logger.error(
+            "StackfileWatcher: event-driven backend gave up after %d attempts; "
+            "falling back to polling for the remaining process lifetime",
+            max_attempts,
+            exc_info=True,
+        )
+        self._poll_loop()
 
     def _poll_loop(self) -> None:
         last_mtime: float | None

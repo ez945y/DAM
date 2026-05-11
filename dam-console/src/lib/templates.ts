@@ -277,6 +277,26 @@ export const TEMPLATES: TemplatePreset[] = [
       },
     },
   },
+  {
+    id: 'ros2_qp',
+    label: 'ROS2 · ACT + QP',
+    description: 'ROS2 robot with ProxSuite QP safety filter at L1.  Same opt-in pattern as the lerobot template.',
+    badge: 'ROS2',
+    config: {
+      hardware_preset: 'generic_6dof', adapter: 'ros2',
+      ros2JointTopic: '/joint_states', ros2CmdTopic: '/joint_commands',
+      observation_channels: ['effort'],
+      policy: { type: 'act', pretrained_path: '', device: 'cpu' },
+      joints: SO101_JOINTS, controlFrequencyHz: 50, enforcement_mode: 'enforce',
+      tasks: [{ id: 'default', name: 'default', description: 'QP-protected motion',
+        boundaries: ['joint_position_limits', 'joint_velocity_limit', 'qp_safety_filter', 'hardware_watchdog'] }],
+      boundaries: [...DEFAULT_BOUNDARIES.filter(b => b.name !== 'ood_detector'), QP_SAFETY_BOUNDARY],
+      loopback: {
+        backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10, pre_event_sec: 10,
+        rotate_mb: 500, rotate_minutes: 60, max_queue_depth: 64, capture_images_on_clamp: true,
+      },
+    },
+  },
 ]
 
 export function defaultConfig(templateId = ''): DamConfig {

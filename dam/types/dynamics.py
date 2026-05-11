@@ -72,6 +72,12 @@ class DynamicsContext:
         self._frame_ids: dict[str, int] = dict(frame_ids or {})
         self._jac_cache: dict[int, np.ndarray] = {}
         self._last_q: np.ndarray | None = None
+        # The first registered frame is treated as the "primary" end-effector
+        # frame for safety filters (workspace CBF, force projection) that
+        # don't want to know specific URDF link names.
+        self._default_frame_id: int | None = (
+            next(iter(self._frame_ids.values())) if self._frame_ids else None
+        )
 
     # ── Properties ─────────────────────────────────────────────────────────
 
@@ -98,6 +104,11 @@ class DynamicsContext:
             return 0
         n: int = int(self._model.nq)
         return n
+
+    @property
+    def default_frame_id(self) -> int | None:
+        """The primary end-effector frame id (used by workspace CBF / FK)."""
+        return self._default_frame_id
 
     def frame_id(self, name: str) -> int:
         """Look up the pinocchio frame id by human-readable name."""

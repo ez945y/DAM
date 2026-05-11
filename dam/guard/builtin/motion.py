@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 import numpy as np
 
@@ -40,9 +41,15 @@ class MotionGuard(Guard):
         # the optional QP filter instead of independent box-clamps.  Params
         # are simply more entries in the same config_pool that already
         # carries `upper` / `lower` / `max_velocity` — every L1 boundary's
-        # constraints fuse into one solve.
+        # constraints fuse into one solve.  ``dt`` + ``dynamics`` are
+        # auto-injected by GuardRuntime; ``cbf_alpha`` opts the workspace
+        # `bounds` constraint into a discrete-CBF formulation when those
+        # are available.
         qp_solver: str | None = None,
         slack_weight: float = 1e6,
+        cbf_alpha: float = 1.0,
+        dt: float = 0.02,
+        dynamics: Any = None,
     ) -> GuardResult:
         # Resolve aliases
         if max_velocity is None:
@@ -102,10 +109,15 @@ class MotionGuard(Guard):
         # fuse them in one optimisation.  Identical inputs, different solver.
         if qp_solver == "proxsuite":
             qp_result = self._qp_clamp(
+                obs=obs,
                 action=action,
                 upper=upper,
                 lower=lower,
+                bounds=bounds,
                 slack_weight=slack_weight,
+                cbf_alpha=cbf_alpha,
+                dt=dt,
+                dynamics=dynamics,
             )
             if qp_result is not None:
                 return qp_result
@@ -263,12 +275,17 @@ class MotionGuard(Guard):
     def _qp_clamp(
         self,
         *,
+        obs: Observation,
         action: ActionProposal,
         upper: np.ndarray | None,
         lower: np.ndarray | None,
+        bounds: np.ndarray | None,
         slack_weight: float,
+        cbf_alpha: float,
+        dt: float,
+        dynamics: Any,
     ) -> GuardResult | None:
-        """Run ProxSuite QP fusing position bounds + slack.
+        """Run ProxSuite QP fusing position bounds + workspace CBF + slack.
 
         Returns ``GuardResult.clamp(...)`` if the QP altered the action,
         ``GuardResult.success(...)`` if the nominal action is feasible,
@@ -276,14 +293,53 @@ class MotionGuard(Guard):
         path (proxsuite missing, solve failed, etc.).
         """
         from dam.runtime.qp_solver import available as qp_available
-        from dam.runtime.qp_solver import solve_box_with_slack
+        from dam.runtime.qp_solver import solve_box_with_slack, workspace_cbf_constraints
 
         if not qp_available():
             return None
 
         u_nom = action.target_joint_positions
+
+        # ── Optional workspace CBF (consumes DynamicsContext when present) ──
+        extra_A: np.ndarray | None = None
+        extra_ub: np.ndarray | None = None
+        cbf_active = False
+        if (
+            bounds is not None
+            and dynamics is not None
+            and getattr(dynamics, "available", False)
+            and getattr(dynamics, "default_frame_id", None) is not None
+        ):
+            try:
+                fid = dynamics.default_frame_id
+                # Refresh once per cycle — DynamicsContext dedups same-q calls
+                dynamics.update(obs.joint_positions)
+                ee_pose = dynamics.frame_placement(fid)
+                ee_pos = np.asarray(ee_pose.translation, dtype=np.float64)
+                J = dynamics.frame_jacobian(fid)[:3]
+                # Slice Jacobian + q to the joints this guard controls
+                n_u = u_nom.shape[0]
+                J = J[:, :n_u]
+                q = np.asarray(obs.joint_positions[:n_u], dtype=np.float64)
+                extra_A, extra_ub = workspace_cbf_constraints(
+                    q=q,
+                    ee_pos=ee_pos,
+                    J_linear=J,
+                    bounds=bounds,
+                    cbf_alpha=float(cbf_alpha),
+                    dt=float(dt),
+                )
+                cbf_active = True
+            except Exception:  # noqa: BLE001
+                logger.debug("workspace CBF skipped (Jacobian/frame failed)", exc_info=True)
+
         u_qp = solve_box_with_slack(
-            u_nom, upper=upper, lower=lower, slack_weight=float(slack_weight)
+            u_nom,
+            upper=upper,
+            lower=lower,
+            slack_weight=float(slack_weight),
+            extra_A=extra_A,
+            extra_ub=extra_ub,
         )
         if u_qp is None:
             return None
@@ -301,9 +357,14 @@ class MotionGuard(Guard):
             original_proposal=action,
         )
         delta = float(np.linalg.norm(u_qp - u_nom))
+        reason = (
+            f"proxsuite QP clamp (Δ={delta:.4f} rad, λ={slack_weight:g}"
+            + (f", workspace CBF α={cbf_alpha:g}" if cbf_active else "")
+            + ")"
+        )
         return GuardResult.clamp(
             clamped_action=clamped_action,
             guard_name=name,
             layer=layer,
-            reason=f"proxsuite QP clamp (Δ={delta:.4f} rad, λ={slack_weight:g})",
+            reason=reason,
         )

@@ -287,3 +287,42 @@ def test_cycle_record_carries_config_version():
 
     bumped = CycleRecord(**{**base.__dict__, "config_version": 7})
     assert bumped.config_version == 7
+
+
+def test_event_loop_retries_on_transient_failure(monkeypatch):
+    """A transient watchfiles error doesn't permanently demote to polling."""
+    import dam.config.hot_reload as hr
+    from dam.config.hot_reload import StackfileWatcher
+
+    call_count = {"n": 0}
+
+    # First two calls raise, third returns an empty iterable (clean stop).
+    def fake_watch(path, **kwargs):
+        call_count["n"] += 1
+        stop_event = kwargs.get("stop_event")
+        if call_count["n"] <= 2:
+            raise RuntimeError(f"simulated transient failure {call_count['n']}")
+        if stop_event is not None:
+            stop_event.set()
+        return iter([])
+
+    # Inject a fake watchfiles module via sys.modules so the lazy import
+    # inside _event_loop pulls our stub instead of the real lib.
+    import sys
+    import types
+
+    fake_module = types.SimpleNamespace(watch=fake_watch)
+    monkeypatch.setitem(sys.modules, "watchfiles", fake_module)
+
+    with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False, mode="w") as f:
+        f.write(_STACKFILE_V1)
+        path = f.name
+
+    try:
+        w = StackfileWatcher(path=path, on_change=lambda _cfg: None, poll_interval_s=0.05)
+        w._stop_event.clear()
+        w._event_loop()  # blocks until stop_event set inside fake_watch
+        # Two crashes + one clean exit = 3 attempts before stop
+        assert call_count["n"] == 3
+    finally:
+        os.unlink(path)

@@ -185,3 +185,37 @@ def test_factory_loads_qp_stackfile_with_callback_registered(proxsuite):
     assert pool["slack_weight"] == 1.0e8
     # dt auto-injected from safety.control_frequency_hz
     assert pool["dt"] == pytest.approx(0.02)
+
+
+def test_workspace_cbf_keeps_action_inside_box(proxsuite):
+    """CBF constraints from a Jacobian + bounds prevent the action from
+    pushing the EE out of the workspace box."""
+    from dam.runtime.qp_solver import solve_box_with_slack, workspace_cbf_constraints
+
+    # Simple 2-DoF planar arm: J_linear maps q̇ → ee velocity.  Take
+    # J = I so u directly perturbs ee_pos.
+    n = 2
+    q = np.zeros(n)
+    ee = np.array([0.0, 0.0, 0.5])  # already at z=0.5
+    J_lin = np.array([[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]])  # u affects x, y only
+    bounds = np.array([[-0.4, 0.4], [-0.4, 0.4], [0.02, 0.6]])  # ee_z in [0.02, 0.6]
+
+    A_extra, b_extra = workspace_cbf_constraints(
+        q=q, ee_pos=ee, J_linear=J_lin, bounds=bounds, cbf_alpha=1.0, dt=0.02
+    )
+    # 6 rows = 3 upper + 3 lower bounds
+    assert A_extra.shape == (6, n)
+    assert b_extra.shape == (6,)
+
+    # Nominal command pushes ee_x to 1.0 (way outside [-0.4, 0.4])
+    u_nom = np.array([1.0, 0.0])
+    u_qp = solve_box_with_slack(
+        u_nom,
+        slack_weight=1e8,
+        extra_A=A_extra,
+        extra_ub=b_extra,
+    )
+    assert u_qp is not None
+    # CBF pulled u back so projected ee_x stays at-or-below 0.4
+    projected_ee_x = ee[0] + (J_lin @ (u_qp - q))[0]
+    assert projected_ee_x <= 0.41

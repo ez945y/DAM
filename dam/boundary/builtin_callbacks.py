@@ -269,33 +269,6 @@ def proxsuite_qp(
 
 
 @boundary_callback(
-    name="dynamic_safety",
-    layer="L2",
-    description="Real-time obstacle avoidance and social distance monitoring.",
-)
-def dynamic_safety(*, obs: Observation) -> bool:
-    return True
-
-
-@boundary_callback(
-    name="execution_heartbeat",
-    layer="L2",
-    description="Monitor for policy execution timeouts or model hangs.",
-)
-def execution_heartbeat(*, obs: Observation, timeout_sec: float = 0.5) -> bool:
-    return True
-
-
-@boundary_callback(
-    name="outcome_verifier",
-    layer="L2",
-    description="Verifies the outcome of actions against high-level goals.",
-)
-def outcome_verifier(*, obs: Observation) -> bool:
-    return True
-
-
-@boundary_callback(
     name="check_force_torque_safe",
     layer="L2",
     description="Rejects if force or torque magnitude exceeds thresholds.",
@@ -364,9 +337,6 @@ def register_all() -> None:
     _safe_reg("check_velocity_smooth", check_velocity_smooth)
     _safe_reg("check_joints_not_moving", check_joints_not_moving)
     _safe_reg("proxsuite_qp", proxsuite_qp)
-    _safe_reg("dynamic_safety", dynamic_safety)
-    _safe_reg("execution_heartbeat", execution_heartbeat)
-    _safe_reg("outcome_verifier", outcome_verifier)
     _safe_reg("check_force_torque_safe", check_force_torque_safe)
     _safe_reg("check_gripper_clear", check_gripper_clear)
     _safe_reg("hardware_watchdog", hardware_watchdog)
