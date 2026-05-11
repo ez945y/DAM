@@ -72,14 +72,21 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
 
         self._connected = False
 
-        # Pinocchio FK
+        # Pinocchio FK + Jacobian (DynamicsContext defaults to sentinel
+        # "unavailable" so guards that gate on ``ctx.available`` short-circuit
+        # when no URDF was provided).
+        from dam.types.dynamics import DynamicsContext
+
         self._pin_model = None
         self._pin_data = None
         self._pin_ee_frame_id: int | None = None
+        self._dynamics: DynamicsContext = DynamicsContext.unavailable()
         if urdf_path is not None:
             self._init_pinocchio(urdf_path)
 
     def _init_pinocchio(self, urdf_path: str) -> None:
+        from dam.types.dynamics import DynamicsContext
+
         try:
             import pinocchio as pin
 
@@ -92,9 +99,26 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
             self._pin_model = pin.buildReducedModel(full_model, lock_ids, q_ref)
             self._pin_data = self._pin_model.createData()
             self._pin_ee_frame_id = self._pin_model.getFrameId("gripper_link")
+            self._dynamics = DynamicsContext(
+                model=self._pin_model,
+                data=self._pin_data,
+                joint_names=list(self._ARM_JOINT_NAMES),
+                frame_ids={"gripper_link": self._pin_ee_frame_id},
+            )
             logger.info("LeRobotAdapter: pinocchio FK initialized from %s", urdf_path)
         except Exception as exc:
             logger.warning("LeRobotAdapter: pinocchio FK unavailable — %s", exc)
+            self._dynamics = DynamicsContext.unavailable()
+
+    @property
+    def dynamics(self) -> Any:
+        """Shared FK/Jacobian context — guards consume this via injection pool.
+
+        Refreshed each ``read()`` cycle with the latest joint configuration.
+        Returns a no-op sentinel (``available == False``) when no URDF was
+        supplied at construction.
+        """
+        return self._dynamics
 
     # ── Shared Lifecycle ────────────────────────────────────────────────────
 
@@ -309,15 +333,19 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
         return np.zeros_like(positions)
 
     def _compute_ee_pose(self, positions_rad: np.ndarray) -> np.ndarray | None:
-        if self._pin_model is None:
+        """Refresh shared DynamicsContext for this cycle and read EE pose.
+
+        Side effect: ``self._dynamics.update(q)`` runs once per cycle here.
+        Downstream guards (CBF, manipulability, …) consume the same context
+        via the injection pool and get cached Jacobians for free.
+        """
+        if not self._dynamics.available:
             return None
         try:
             import pinocchio as pin
 
-            q = positions_rad[: self._pin_model.nq].astype(np.float64)
-            pin.forwardMotions(self._pin_model, self._pin_data, q)
-            pin.updateFramePlacements(self._pin_model, self._pin_data)
-            o_mf = self._pin_data.oMf[self._pin_ee_frame_id]
+            self._dynamics.update(positions_rad)
+            o_mf = self._dynamics.frame_placement(self._pin_ee_frame_id)
             quat = pin.Quaternion(o_mf.rotation)
             return np.array([*o_mf.translation, quat.x, quat.y, quat.z, quat.w])
         except Exception:  # noqa: BLE001 — FK failure is non-fatal; caller checks for None

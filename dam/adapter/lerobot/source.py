@@ -96,15 +96,20 @@ class LeRobotSourceAdapter(SensorAdapter):
         self._register_map = STS3215_REGISTER_MAP
         self._observation_channels: list[str] = []
 
-        # Pinocchio FK (optional — initialised only when urdf_path is provided)
+        # Pinocchio FK + Jacobian (sentinel "unavailable" until init succeeds).
+        from dam.types.dynamics import DynamicsContext
+
         self._pin_model = None
         self._pin_data = None
         self._pin_ee_frame_id: int | None = None
+        self._dynamics: DynamicsContext = DynamicsContext.unavailable()
         if urdf_path is not None:
             self._init_pinocchio(urdf_path)
 
     def _init_pinocchio(self, urdf_path: str) -> None:
         """Load URDF and build a reduced pinocchio model for the 5 arm joints."""
+        from dam.types.dynamics import DynamicsContext
+
         try:
             import pinocchio as pin
 
@@ -117,23 +122,31 @@ class LeRobotSourceAdapter(SensorAdapter):
             self._pin_model = pin.buildReducedModel(full_model, lock_ids, q_ref)
             self._pin_data = self._pin_model.createData()
             self._pin_ee_frame_id = self._pin_model.getFrameId("gripper_link")
+            self._dynamics = DynamicsContext(
+                model=self._pin_model,
+                data=self._pin_data,
+                joint_names=list(self._ARM_JOINT_NAMES),
+                frame_ids={"gripper_link": self._pin_ee_frame_id},
+            )
             logger.info("LeRobotSourceAdapter: pinocchio FK initialised from %s", urdf_path)
         except Exception as exc:
             logger.warning("LeRobotSourceAdapter: pinocchio FK unavailable — %s", exc)
+            self._dynamics = DynamicsContext.unavailable()
+
+    @property
+    def dynamics(self) -> Any:
+        """Shared FK/Jacobian context — exposed via injection pool to guards."""
+        return self._dynamics
 
     def _compute_ee_pose(self, positions_rad: np.ndarray) -> np.ndarray | None:
-        """Run forward motions and return [x,y,z,qx,qy,qz,qw] or None."""
-        if self._pin_model is None:
+        """Refresh DynamicsContext + return EE pose [x,y,z,qx,qy,qz,qw] or None."""
+        if not self._dynamics.available:
             return None
         try:
             import pinocchio as pin
 
-            # Take first N arm joints (positions_rad is already in radians)
-            n_arm = self._pin_model.nq
-            q = positions_rad[:n_arm].astype(np.float64)
-            pin.forwardMotions(self._pin_model, self._pin_data, q)
-            pin.updateFramePlacements(self._pin_model, self._pin_data)
-            o_mf = self._pin_data.oMf[self._pin_ee_frame_id]
+            self._dynamics.update(positions_rad)
+            o_mf = self._dynamics.frame_placement(self._pin_ee_frame_id)
             quat = pin.Quaternion(o_mf.rotation)
             return np.array(
                 [*o_mf.translation, quat.x, quat.y, quat.z, quat.w],

@@ -344,41 +344,49 @@ class GuardRuntime:
     def _build_config_pool(new_config: StackfileConfig) -> dict[str, Any]:
         """Pure function: merge boundary node params into a fresh config pool.
 
-        Restrictive-merge semantics for known safety keys (max_speed, upper,
-        max_velocity, max_acceleration use minimum; lower uses maximum).
+        Merge strategy is data-defined: each parameter name resolves to a
+        :mod:`dam.runtime.merge_policy` callable via the registry.  Unknown
+        names default to last-write-wins with a warning when values disagree.
+
+        Auto-injects ``dt`` from ``safety.control_frequency_hz`` so any guard
+        declaring ``dt`` in its check() signature receives the control period
+        without the stackfile having to repeat it inside boundary params.
+
         Returns a brand-new dict; never touches runtime state.  May raise
-        ``TypeError`` / ``ValueError`` if shapes mismatch under ``np.minimum`` /
-        ``np.maximum`` — caller treats that as a validation failure.
+        ``TypeError`` / ``ValueError`` from a registered merge strategy when
+        shapes mismatch — caller treats that as a validation failure.
         """
+        from dam.runtime.merge_policy import resolve as resolve_merge
+
         pool: dict[str, Any] = {}
+
+        # Auto-inject dt so QP / CBF / any time-aware guard can pick it up
+        # without the stackfile manually duplicating it in every boundary.
+        if new_config.safety and new_config.safety.control_frequency_hz > 0:
+            pool["dt"] = 1.0 / new_config.safety.control_frequency_hz
+
         for bname, bcfg in new_config.boundaries.items():
             for ncfg in bcfg.nodes:
                 for pk, pv in ncfg.params.items():
                     if pk not in pool:
                         pool[pk] = pv
                         continue
-                    old_v = pool[pk]
-                    if pk == "max_speed":
-                        pool[pk] = min(old_v, pv)
-                    elif pk in ("upper", "max_velocity", "max_acceleration"):
-                        pool[pk] = np.minimum(
-                            np.asarray(old_v, dtype=float), np.asarray(pv, dtype=float)
-                        ).tolist()
-                    elif pk == "lower":
-                        pool[pk] = np.maximum(
-                            np.asarray(old_v, dtype=float), np.asarray(pv, dtype=float)
-                        ).tolist()
-                    else:
-                        if not np.array_equal(old_v, pv):
-                            logger.warning(
-                                "GuardRuntime: Parameter '%s' overwritten by boundary '%s' "
-                                "(prev: %s, new: %s)",
-                                pk,
-                                bname,
-                                old_v,
-                                pv,
-                            )
-                        pool[pk] = pv
+                    merge_fn = resolve_merge(pk)
+                    merged = merge_fn(pool[pk], pv)
+                    # Only the default ``overwrite`` strategy can silently
+                    # drop information — warn so the user notices a real
+                    # conflict (registered strategies are deliberate).
+                    if merge_fn.__name__ == "overwrite" and not np.array_equal(pool[pk], pv):
+                        logger.warning(
+                            "GuardRuntime: Parameter '%s' overwritten by boundary "
+                            "'%s' (prev: %s, new: %s).  Register a merge strategy "
+                            "in dam.runtime.merge_policy if this isn't desired.",
+                            pk,
+                            bname,
+                            pool[pk],
+                            pv,
+                        )
+                    pool[pk] = merged
         return pool
 
     def _apply_config_swap(self, new_config: StackfileConfig) -> None:
@@ -438,8 +446,23 @@ class GuardRuntime:
             hardware_status=self._collect_hardware_status(obs),
             risk_controller=self._risk_controller,
             prev_validated_positions=self._prev_validated_positions,
+            dynamics=self._select_dynamics(),
         )
         return self._engine.validate(obs, action, trace_id, ctx, now=now)
+
+    def _select_dynamics(self) -> Any:
+        """Return the first source's ``dynamics`` context that's available.
+
+        Each adapter that owns kinematic state exposes a ``DynamicsContext``
+        via a ``dynamics`` property.  Sources without dynamics (mock,
+        dataset, ros2 today) just don't have the attribute, or expose the
+        sentinel ``unavailable()``.  Guards see ``None`` and skip gracefully.
+        """
+        for src in self._sources.values():
+            d = getattr(src, "dynamics", None)
+            if d is not None and getattr(d, "available", False):
+                return d
+        return None
 
     def _collect_hardware_status(self, obs: Observation) -> dict[str, Any]:
         """Merge hardware status from sink and observation metadata."""
@@ -883,13 +906,17 @@ class GuardRuntime:
             list(guards_by_kind.keys()),
         )
 
+        # Build the initial pool the same way hot reload does so guards see
+        # boundary params (and auto-injected ``dt``) from cycle 0.
+        initial_pool = cls._build_config_pool(config)
+
         return cls(
             guards=list(guards_by_kind.values()),
             boundary_containers=boundary_containers,
             fallback_registry=fallback_registry,
             task_config=task_config,
             always_active=always_active,
-            config_pool={},
+            config_pool=initial_pool,
             control_frequency_hz=config.safety.control_frequency_hz,
             enforcement_mode=config.safety.enforcement_mode,
             risk_controller_config=config.risk_controller,

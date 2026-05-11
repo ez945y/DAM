@@ -77,6 +77,9 @@ class ValidationContext:
     hardware_status: dict[str, Any]
     risk_controller: RiskController
     prev_validated_positions: list[float] | None = None
+    # DynamicsContext (FK + cached Jacobians) refreshed by the sensor adapter
+    # in its read() path.  Guards consume it via the ``dynamics`` injection key.
+    dynamics: Any | None = None
 
 
 def _make_dummy_node() -> Any:
@@ -209,6 +212,7 @@ class ExecutionEngine:
             "node_start_times": ctx.node_start_times,
             "hardware_status": ctx.hardware_status or None,
             "kinematics_resolver": ctx.kinematics_resolver,
+            "dynamics": ctx.dynamics,
             "prev_validated_positions": ctx.prev_validated_positions,
             "now": now,
         }
