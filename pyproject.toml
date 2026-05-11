@@ -65,9 +65,14 @@ services = [
     "msgspec>=0.18.6", # high-performance JSON serialization
 ]
 
+# Safety filters — optional QP-based clamping (CBF, slack, …)
+safety = [
+    "proxsuite>=0.6",  # real-time dense QP solver (~10–50 µs / solve at n=10)
+]
+
 # Everything (CI matrix / dev-full service)
 full = [
-    "dam[dev,torch,lerobot,services]",
+    "dam[dev,torch,lerobot,services,safety]",
 ]
 
 [tool.ruff]

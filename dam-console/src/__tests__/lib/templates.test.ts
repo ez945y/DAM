@@ -6,8 +6,8 @@ import {
 } from '@/lib/templates'
 
 describe('TEMPLATES', () => {
-  it('has 5 presets', () => {
-    expect(TEMPLATES).toHaveLength(5)
+  it('has 6 presets', () => {
+    expect(TEMPLATES).toHaveLength(6)
   })
 
   it('every template has required fields', () => {

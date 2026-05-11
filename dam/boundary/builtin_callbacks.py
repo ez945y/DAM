@@ -245,6 +245,26 @@ def check_joints_not_moving(*, obs: Observation, max_speed_rad_s: float = 0.01) 
     return float(np.max(np.abs(obs.joint_velocities))) <= max_speed_rad_s
 
 
+@boundary_callback(
+    name="proxsuite_qp",
+    layer="L1",
+    description="Activate ProxSuite-based QP fusion for L1 motion clamping. "
+    "All sibling L1 boundary params (upper/lower/max_velocity) are fused into "
+    "one QP with slack; the same MotionGuard runs the solve.",
+)
+def proxsuite_qp(
+    *,
+    obs: Observation,
+    qp_solver: str = "proxsuite",
+    slack_weight: float = 1e6,
+) -> bool:
+    """Marker callback — its params flow into the pool, MotionGuard picks
+    them up via injection and switches its solver.  No detection logic of
+    its own: it never rejects.
+    """
+    return True
+
+
 # ── L2: TASK EXECUTION ────────────────────────────────────────────────────────
 
 

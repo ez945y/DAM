@@ -35,6 +35,14 @@ class MotionGuard(Guard):
         max_accelerations: np.ndarray | None = None,  # Alias for consistency
         bounds: np.ndarray | None = None,
         use_degrees: bool = False,  # New: Support intuitive degree input
+        # QP path — when a boundary opts in via `qp_solver: "proxsuite"`
+        # (data-driven, no special guard class), MotionGuard dispatches to
+        # the optional QP filter instead of independent box-clamps.  Params
+        # are simply more entries in the same config_pool that already
+        # carries `upper` / `lower` / `max_velocity` — every L1 boundary's
+        # constraints fuse into one solve.
+        qp_solver: str | None = None,
+        slack_weight: float = 1e6,
     ) -> GuardResult:
         # Resolve aliases
         if max_velocity is None:
@@ -87,6 +95,22 @@ class MotionGuard(Guard):
         layer = self.get_layer()
         name = self.get_name()
         max_ratio = 1.0  # Initialize to avoid UnboundLocalError during logging
+
+        # ── QP solver dispatch ────────────────────────────────────────────────
+        # If any active L1 boundary contributed `qp_solver: "proxsuite"` to
+        # the pool, treat every constraint in the pool as a soft CBF and
+        # fuse them in one optimisation.  Identical inputs, different solver.
+        if qp_solver == "proxsuite":
+            qp_result = self._qp_clamp(
+                action=action,
+                upper=upper,
+                lower=lower,
+                slack_weight=slack_weight,
+            )
+            if qp_result is not None:
+                return qp_result
+            # qp_solver requested but proxsuite unavailable or solve failed —
+            # fall through to the box-clamp path so the runtime stays safe.
 
         # 0. Timing and Velocity estimation
         # We need a stable dt. If this guard is called multiple times per cycle,
@@ -233,3 +257,53 @@ class MotionGuard(Guard):
             )
 
         return GuardResult.success(guard_name=name, layer=layer)
+
+    # ── QP-based clamp (optional, depends on proxsuite) ───────────────────────
+
+    def _qp_clamp(
+        self,
+        *,
+        action: ActionProposal,
+        upper: np.ndarray | None,
+        lower: np.ndarray | None,
+        slack_weight: float,
+    ) -> GuardResult | None:
+        """Run ProxSuite QP fusing position bounds + slack.
+
+        Returns ``GuardResult.clamp(...)`` if the QP altered the action,
+        ``GuardResult.success(...)`` if the nominal action is feasible,
+        or ``None`` to signal the caller to fall back to the box-clamp
+        path (proxsuite missing, solve failed, etc.).
+        """
+        from dam.runtime.qp_solver import available as qp_available
+        from dam.runtime.qp_solver import solve_box_with_slack
+
+        if not qp_available():
+            return None
+
+        u_nom = action.target_joint_positions
+        u_qp = solve_box_with_slack(
+            u_nom, upper=upper, lower=lower, slack_weight=float(slack_weight)
+        )
+        if u_qp is None:
+            return None
+
+        layer = self.get_layer()
+        name = self.get_name()
+
+        if np.allclose(u_qp, u_nom, atol=1e-9):
+            return GuardResult.success(guard_name=name, layer=layer)
+
+        clamped_action = ValidatedAction(
+            target_joint_positions=u_qp,
+            target_joint_velocities=action.target_joint_velocities,
+            was_clamped=True,
+            original_proposal=action,
+        )
+        delta = float(np.linalg.norm(u_qp - u_nom))
+        return GuardResult.clamp(
+            clamped_action=clamped_action,
+            guard_name=name,
+            layer=layer,
+            reason=f"proxsuite QP clamp (Δ={delta:.4f} rad, λ={slack_weight:g})",
+        )
