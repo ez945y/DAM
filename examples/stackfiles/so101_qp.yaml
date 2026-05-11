@@ -3,18 +3,19 @@ version: "1"
 # SO-ARM101 with ProxSuite-based QP safety filter at L1.
 #
 # How this differs from `demo.yaml`:
-# --------------------------------
-# The boundaries `joint_position_limits` and `joint_velocity_limit` still
-# contribute their `upper` / `lower` / `max_velocities` params to the L1
-# pool.  In `demo.yaml` MotionGuard clamps each axis independently.  Here
-# the extra `qp_safety_filter` boundary opts into ProxSuite — MotionGuard
-# sees `qp_solver: proxsuite` in the pool and fuses every constraint into
-# a single QP with slack, returning the least-perturbing safe action.
+# ----------------------------------
+# Same boundaries, same callbacks.  The ONLY difference is two extra
+# params (`qp_solver`, `slack_weight`) carried alongside the existing
+# `upper`/`lower` on any L1 boundary — MotionGuard reads `qp_solver` from
+# the merged config pool and switches its solver.  No special boundary
+# type, no marker callback: `qp_solver` is just another param, treated
+# uniformly via the merge_policy registry.
 #
-# Same params, same boundary callbacks, same merge_policy registry — the
-# only change is the new boundary entry below.  If proxsuite isn't
-# installed the runtime silently falls back to the box-clamp path, so
-# this file remains safe to load anywhere.
+# `bounds` on the workspace boundary picks up CBF semantics automatically
+# when the QP is active (`dynamics` is injected by the runtime).
+#
+# If proxsuite isn't installed the runtime silently falls back to the
+# box-clamp path — this file remains safe to load anywhere.
 
 hardware:
   preset: so101_follower
@@ -51,6 +52,10 @@ boundaries:
         params:
           upper: [1.8243, 1.7691, 1.6026, 1.8067, 3.0741, 1.7453]
           lower: [-1.8243, -1.7691, -1.6026, -1.8067, -3.0741, 0]
+          # Two-line opt-in to the QP solver.  Drop these to revert to
+          # independent box-clamp.
+          qp_solver: proxsuite
+          slack_weight: 1.0e8
 
   joint_velocity_limit:
     layer: L1
@@ -61,17 +66,6 @@ boundaries:
         fallback: emergency_stop
         params:
           max_velocities: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5]
-
-  # Opt-in QP filter.  Removing this boundary reverts to box-clamp.
-  qp_safety_filter:
-    layer: L1
-    type: single
-    nodes:
-      - callback: proxsuite_qp
-        fallback: emergency_stop
-        params:
-          qp_solver: proxsuite
-          slack_weight: 1.0e8
 
   hardware_watchdog:
     layer: L3
@@ -86,7 +80,7 @@ boundaries:
 tasks:
   soarm101:
     description: "QP-protected motion"
-    boundaries: [joint_position_limits, joint_velocity_limit, qp_safety_filter, hardware_watchdog]
+    boundaries: [joint_position_limits, joint_velocity_limit, hardware_watchdog]
 
 loopback:
   backend: mcap

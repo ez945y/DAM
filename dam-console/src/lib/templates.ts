@@ -143,18 +143,20 @@ const DEFAULT_BOUNDARIES: BoundaryDef[] = [
   },
 ]
 
-// Opt-in L1 QP boundary.  Same shape as every other boundary — just a
-// callback name + params.  Stackfiles include it to switch MotionGuard
-// onto the ProxSuite path; omitting it keeps box-clamp behavior.
-const QP_SAFETY_BOUNDARY: BoundaryDef = {
-  name: 'qp_safety_filter', layer: 'L1', type: 'single',
-  nodes: [{
-    node_id: 'default',
-    params: { qp_solver: 'proxsuite', slack_weight: 1e8 },
-    callback: 'proxsuite_qp',
-    fallback: 'emergency_stop',
-    timeout_sec: null,
-  }],
+// Helper: take a copy of DEFAULT_BOUNDARIES with `qp_solver` + `slack_weight`
+// merged onto the joint_position_limits boundary's params.  These two keys
+// are normal pool entries — MotionGuard reads `qp_solver` and switches its
+// solver.  No special boundary, no marker callback: just data.
+function withQpSolver(boundaries: BoundaryDef[]): BoundaryDef[] {
+  return boundaries.map(b =>
+    b.name !== 'joint_position_limits' ? b : {
+      ...b,
+      nodes: b.nodes.map(n => ({
+        ...n,
+        params: { ...n.params, qp_solver: 'proxsuite', slack_weight: 1e8 },
+      })),
+    }
+  )
 }
 
 export const TEMPLATES: TemplatePreset[] = [
@@ -207,8 +209,8 @@ export const TEMPLATES: TemplatePreset[] = [
       policy: { type: 'act', pretrained_path: 'MikeChenYZ/act-soarm-fmb-v2', device: 'mps' },
       joints: SO101_JOINTS, controlFrequencyHz: 50, enforcement_mode: 'enforce',
       tasks: [{ id: 'soarm101', name: 'soarm101', description: 'QP-protected motion',
-        boundaries: ['joint_position_limits', 'joint_velocity_limit', 'qp_safety_filter', 'hardware_watchdog'] }],
-      boundaries: [...DEFAULT_BOUNDARIES, QP_SAFETY_BOUNDARY],
+        boundaries: ['bounds', 'joint_position_limits', 'joint_velocity_limit', 'hardware_watchdog'] }],
+      boundaries: withQpSolver(DEFAULT_BOUNDARIES),
       loopback: {
         backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10, pre_event_sec: 10,
         rotate_mb: 500, rotate_minutes: 60, max_queue_depth: 64, capture_images_on_clamp: true,
@@ -289,8 +291,8 @@ export const TEMPLATES: TemplatePreset[] = [
       policy: { type: 'act', pretrained_path: '', device: 'cpu' },
       joints: SO101_JOINTS, controlFrequencyHz: 50, enforcement_mode: 'enforce',
       tasks: [{ id: 'default', name: 'default', description: 'QP-protected motion',
-        boundaries: ['joint_position_limits', 'joint_velocity_limit', 'qp_safety_filter', 'hardware_watchdog'] }],
-      boundaries: [...DEFAULT_BOUNDARIES.filter(b => b.name !== 'ood_detector'), QP_SAFETY_BOUNDARY],
+        boundaries: ['joint_position_limits', 'joint_velocity_limit', 'hardware_watchdog'] }],
+      boundaries: withQpSolver(DEFAULT_BOUNDARIES.filter(b => b.name !== 'ood_detector')),
       loopback: {
         backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10, pre_event_sec: 10,
         rotate_mb: 500, rotate_minutes: 60, max_queue_depth: 64, capture_images_on_clamp: true,
