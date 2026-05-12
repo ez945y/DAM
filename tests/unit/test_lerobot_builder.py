@@ -413,5 +413,5 @@ class TestBuildRobot:
             },
         ):
             sys.modules["lerobot.robots"].make_robot_from_config = fake_make_robot
-            with pytest.raises(ValueError, match="no lerobot-typed source"):
+            with pytest.raises(ValueError, match="no motor-typed source"):
                 builder.build_robot()

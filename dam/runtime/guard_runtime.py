@@ -212,6 +212,7 @@ class GuardRuntime:
         self._active_containers = []
         self._active_container_names = []
         self._node_start_times = {}
+        self._cycle_id = 0  # Reset so HardwareGuard applies first-cycle grace period
         now = time.monotonic()
 
         # Determine all active boundaries (always_active + task boundaries)
@@ -234,15 +235,16 @@ class GuardRuntime:
         if self._boundary_to_kind:
             self._stages = self._build_stages_for_task(active_bnames)
 
-        # Preflight: call each guard once per boundary it will handle
+        # Preflight: call each guard once per group
         stages_to_preflight = self._stages or []
         for stage in stages_to_preflight:
-            pairs = (
-                stage.guard_boundary_pairs
-                if stage.guard_boundary_pairs
-                else [(g, cast("str | None", None)) for g in stage.guards]
-            )
-            for g, pair_bname in pairs:
+            if stage.guard_boundary_pairs:
+                entries = [
+                    (g, bnames[0] if bnames else None) for g, bnames in stage.guard_boundary_pairs
+                ]
+            else:
+                entries = [(g, None) for g in stage.guards]
+            for g, pair_bname in entries:
                 try:
                     kwargs = dict(g._static_kwargs)
                     kwargs.update(
@@ -268,13 +270,17 @@ class GuardRuntime:
     def _build_stages_for_task(self, active_bnames: list[str]) -> list[Any]:
         """Build Stage DAG from active boundaries using singleton guard instances.
 
-        Groups active boundaries by the layer of their assigned guard, then creates
-        one Stage per layer.  Each stage carries ``guard_boundary_pairs`` so the
-        same guard instance is invoked once per boundary with that boundary's params.
+        Groups active boundaries by the layer of their assigned guard, then
+        creates one Stage per layer.  When multiple boundaries map to the
+        **same guard instance** (e.g. joint_position_limits, joint_velocity_limit,
+        bounds all map to MotionGuard), they form a **group**: the guard
+        runs once with the merged config pool, and results are fanned out
+        to every boundary name in the group.  No boundary is privileged.
         """
         from dam.guard.stage import Stage
 
-        layer_to_pairs: dict[int, list[tuple[Any, str | None]]] = {}
+        # Collect boundaries per layer, grouped by guard instance
+        layer_to_groups: dict[int, dict[int, tuple[Any, list[str]]]] = {}
         layer_to_name: dict[int, str] = {}
 
         for bname in active_bnames:
@@ -285,12 +291,18 @@ class GuardRuntime:
             if guard is None:
                 continue
             layer_val = guard.get_layer().value
-            layer_to_pairs.setdefault(layer_val, []).append((guard, bname))
             layer_to_name[layer_val] = guard.get_layer().name
+            groups = layer_to_groups.setdefault(layer_val, {})
+            gid = id(guard)
+            if gid not in groups:
+                groups[gid] = (guard, [bname])
+            else:
+                groups[gid][1].append(bname)
 
         stages = []
-        for layer_val in sorted(layer_to_pairs):
-            pairs = layer_to_pairs[layer_val]
+        for layer_val in sorted(layer_to_groups):
+            groups = layer_to_groups[layer_val]
+            pairs = [(guard, bnames) for guard, bnames in groups.values()]
             stages.append(
                 Stage(
                     name=layer_to_name[layer_val],
@@ -365,9 +377,26 @@ class GuardRuntime:
         if new_config.safety and new_config.safety.control_frequency_hz > 0:
             pool["dt"] = 1.0 / new_config.safety.control_frequency_hz
 
+        # Structural keys that belong to Container/Node config, never to the
+        # guard pool.  Defence-in-depth against parser bugs that might
+        # accidentally leak these into node params.
+        _STRUCTURAL = {
+            "layer",
+            "type",
+            "callback",
+            "fallback",
+            "timeout_sec",
+            "node_id",
+            "nodes",
+            "loop",
+            "params",
+        }
+
         for bname, bcfg in new_config.boundaries.items():
             for ncfg in bcfg.nodes:
                 for pk, pv in ncfg.params.items():
+                    if pk in _STRUCTURAL:
+                        continue
                     if pk not in pool:
                         pool[pk] = pv
                         continue
@@ -464,18 +493,15 @@ class GuardRuntime:
                 return d
         return None
 
-    def _collect_hardware_status(self, obs: Observation) -> dict[str, Any]:
-        """Merge hardware status from sink and observation metadata."""
-        hardware_status: dict[str, Any] = {}
-        if self._sink is not None and hasattr(self._sink, "get_hardware_status"):
-            with contextlib.suppress(Exception):
-                sink_status = self._sink.get_hardware_status()
-                if sink_status:
-                    hardware_status.update(sink_status)
-        obs_hw_status = obs.metadata.get("hardware_status")
-        if obs_hw_status:
-            hardware_status.update(obs_hw_status)
-        return hardware_status
+    def _collect_hardware_status(self, obs: Observation) -> dict[str, Any] | None:
+        """Return hardware status from observation metadata.
+
+        Telemetry (temperature, current, voltage) is read by the source
+        adapter during its ``read()`` call and bundled into
+        ``obs.metadata["hardware_status"]``.  No additional bus I/O here
+        — guards must never block on hardware reads.
+        """
+        return obs.metadata.get("hardware_status") or None
 
     # ── step() — single cycle ───────────────────────────────────────────────
 

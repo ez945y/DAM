@@ -27,8 +27,20 @@ class GuardResult:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def success(cls, guard_name: str, layer: GuardLayer) -> GuardResult:
-        return cls(decision=GuardDecision.PASS, guard_name=guard_name, layer=layer)
+    def success(
+        cls,
+        guard_name: str,
+        layer: GuardLayer,
+        reason: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> GuardResult:
+        return cls(
+            decision=GuardDecision.PASS,
+            guard_name=guard_name,
+            layer=layer,
+            reason=reason,
+            metadata=metadata or {},
+        )
 
     @classmethod
     def reject(cls, reason: str, guard_name: str, layer: GuardLayer) -> GuardResult:

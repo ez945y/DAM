@@ -1,16 +1,19 @@
 """HardwareGuard (L3) — hardware health and heartbeat monitoring.
 
-Checks actuator temperature, current draw, and error codes reported by the
-hardware status, as well as the freshness of the latest observation.
+Checks observation freshness (watchdog), actuator temperature, current draw,
+and error codes reported by the hardware_status dict.
+
+Following error (Goal vs Present position) is a *motion control* concern that
+belongs at L1, not here.  Use boundary callbacks (e.g. ``joint_position_limits``)
+for positional safety.
 """
 
 from __future__ import annotations
 
 import logging
+import statistics
 import time
 from typing import Any
-
-import numpy as np
 
 import dam
 from dam.guard.base import Guard
@@ -19,10 +22,27 @@ from dam.types.result import GuardDecision, GuardResult
 
 logger = logging.getLogger(__name__)
 
+_SENSOR_OUTLIER_RATIO = 2.0
+_SENSOR_OUTLIER_ABS = 30.0
+_WATCHDOG_MS = 500.0
+_FIRST_CYCLE_GRACE_MS = 5000.0
+
+
+def _jlabel(keys: Any, motor: str) -> str:
+    try:
+        idx = list(keys).index(motor)
+        return f"J{idx + 1}"
+    except ValueError:
+        return motor
+
+
+def _jmap(readings: dict[str, float]) -> dict[str, float]:
+    return {f"J{i + 1}": v for i, (_, v) in enumerate(readings.items())}
+
 
 @dam.guard(layer="L3")
 class HardwareGuard(Guard):
-    """L3 hardware safety guard: health (temp/current/following-error) and watchdog (heartbeat).
+    """L3 hardware safety guard: watchdog (heartbeat) + health telemetry.
 
     Injection keys
     --------------
@@ -30,38 +50,30 @@ class HardwareGuard(Guard):
         The current observation to check for freshness.
     hardware_status : dict | None
         Optional telemetry from ActionAdapter/SensorAdapter.
-    prev_validated_positions : list[float] | None
-        Joint positions of the last validated action (injected by runtime).
-        Used to compute per-joint following error against obs.joint_positions.
     now : float | None
         Current monotonic time (passed from runtime to avoid redundant calls).
 
     Config-pool keys (optional)
     ---------------------------
-    max_staleness_ms       : float   default 500.0
-    max_temperature_c      : float   default 70.0
-    max_current_a          : float   default 5.0
-    max_following_error_rad: float   default 0.3
+    max_temperature_c : float   default 80.0
+    max_current_a     : float   default 5.0
     """
 
     def check(
         self,
         obs: Observation,
         hardware_status: dict[str, Any] | None = None,
-        prev_validated_positions: list[float] | None = None,
         now: float | None = None,
         cycle_id: int = 1,
-        max_staleness_ms: float = 500.0,
-        max_temperature_c: float = 70.0,
+        max_temperature_c: float = 80.0,
         max_current_a: float = 5.0,
-        max_following_error_rad: float = 0.3,
         **kwargs: Any,
     ) -> GuardResult:
         layer = self.get_layer()
         name = self.get_name()
 
-        # 1. Watchdog check
-        watchdog_res = self._check_watchdog(obs, now, cycle_id, max_staleness_ms, name, layer)
+        # 1. Watchdog — fixed 500ms, generous first-cycle grace
+        watchdog_res = self._check_watchdog(obs, now, cycle_id, name, layer)
         if watchdog_res:
             return watchdog_res
 
@@ -76,40 +88,28 @@ class HardwareGuard(Guard):
             if health_res:
                 return health_res
 
-        # 3. Following error checks
-        return self._check_following_error(
-            obs,
-            hardware_status,
-            prev_validated_positions,
-            max_following_error_rad,
-            name,
-            layer,
-        )
+        reason = self._telemetry_summary(hardware_status)
+        telemetry = self._extract_telemetry(hardware_status)
+        return GuardResult.success(guard_name=name, layer=layer, metadata=telemetry, reason=reason)
 
     def _check_watchdog(
         self,
         obs: Observation,
         now: float | None,
         cycle_id: int,
-        max_staleness_ms: float,
         name: str,
         layer: str,
     ) -> GuardResult | None:
         current = now if now is not None else time.monotonic()
-        effective_limit = max_staleness_ms
-        if cycle_id == 0:
-            effective_limit = max(effective_limit, 5000.0)
+        limit_ms = _FIRST_CYCLE_GRACE_MS if cycle_id == 0 else _WATCHDOG_MS
 
         staleness_ms = (current - obs.timestamp) * 1000.0
-        if staleness_ms > effective_limit:
+        if staleness_ms > limit_ms:
             return GuardResult(
                 decision=GuardDecision.FAULT,
                 guard_name=name,
                 layer=layer,
-                reason=(
-                    f"Hardware heartbeat lost: data is {staleness_ms:.1f}ms stale "
-                    f"(limit {effective_limit}ms)"
-                ),
+                reason=(f"Heartbeat lost: {staleness_ms:.0f}ms stale (limit {limit_ms:.0f}ms)"),
                 fault_source="hardware",
             )
         return None
@@ -134,69 +134,108 @@ class HardwareGuard(Guard):
                 fault_source="hardware",
             )
 
-        # Temperature
-        temp = hardware_status.get("temperature_c")
-        if temp is not None and temp > max_temp:
-            return GuardResult(
-                decision=GuardDecision.FAULT,
-                guard_name=name,
-                layer=layer,
-                reason=f"Temperature {temp:.1f}°C exceeds limit",
-                fault_source="hardware",
-            )
+        # Per-motor temperature check
+        temps: dict[str, float] | None = hardware_status.get("temperatures")
+        if temps:
+            over = {m: t for m, t in temps.items() if t > max_temp}
+            if over:
+                suspects = _detect_sensor_outliers(temps)
+                real = {m: t for m, t in over.items() if m not in suspects}
+                keys = temps.keys()
+                all_str = " ".join(
+                    f"{_jlabel(keys, m)}:{t:.0f}°{'⚠' if m in suspects else ''}"
+                    for m, t in temps.items()
+                )
+                if suspects:
+                    sus_str = ", ".join(f"{_jlabel(keys, m)}={temps[m]:.0f}°" for m in suspects)
+                    logger.warning("Suspect temp sensor: %s (all: %s)", sus_str, all_str)
+                if real:
+                    detail = ", ".join(f"{_jlabel(keys, m)}={t:.1f}°" for m, t in real.items())
+                    return GuardResult(
+                        decision=GuardDecision.FAULT,
+                        guard_name=name,
+                        layer=layer,
+                        reason=f"Temp>{max_temp}°: {detail} ({all_str})",
+                        fault_source="hardware",
+                    )
+        else:
+            temp = hardware_status.get("temperature_c")
+            if temp is not None and temp > max_temp:
+                return GuardResult(
+                    decision=GuardDecision.FAULT,
+                    guard_name=name,
+                    layer=layer,
+                    reason=f"Temp {temp:.1f}° > {max_temp}° limit",
+                    fault_source="hardware",
+                )
 
-        # Current
-        curr_a = hardware_status.get("current_a")
-        if curr_a is not None and curr_a > max_curr:
-            return GuardResult(
-                decision=GuardDecision.FAULT,
-                guard_name=name,
-                layer=layer,
-                reason=f"Current {curr_a:.2f}A exceeds limit",
-                fault_source="hardware",
-            )
+        # Per-motor current check (overcurrent only — zero current is normal when idle)
+        currents: dict[str, float] | None = hardware_status.get("currents")
+        if currents:
+            over = {m: c for m, c in currents.items() if c > max_curr}
+            if over:
+                keys = currents.keys()
+                detail = ", ".join(f"{_jlabel(keys, m)}={c:.2f}A" for m, c in over.items())
+                return GuardResult(
+                    decision=GuardDecision.FAULT,
+                    guard_name=name,
+                    layer=layer,
+                    reason=f"Current>{max_curr}A: {detail}",
+                    fault_source="hardware",
+                )
+        else:
+            curr_a = hardware_status.get("current_a")
+            if curr_a is not None and curr_a > max_curr:
+                return GuardResult(
+                    decision=GuardDecision.FAULT,
+                    guard_name=name,
+                    layer=layer,
+                    reason=f"Current {curr_a:.2f}A > {max_curr}A limit",
+                    fault_source="hardware",
+                )
+
         return None
 
-    def _check_following_error(
-        self,
-        obs: Observation,
-        hardware_status: dict[str, Any] | None,
-        prev_pos: list[float] | None,
-        max_err_rad: float,
-        name: str,
-        layer: str,
-    ) -> GuardResult:
-        # Prefer firmware-reported value
-        if hardware_status is not None:
-            fw_err = hardware_status.get("hardware_following_error")
-            if fw_err is not None and fw_err > max_err_rad:
-                return GuardResult(
-                    decision=GuardDecision.FAULT,
-                    guard_name=name,
-                    layer=layer,
-                    reason=(
-                        f"Firmware following error {fw_err:.3f} rad exceeds limit "
-                        f"{max_err_rad:.3f} rad"
-                    ),
-                    fault_source="hardware",
-                )
+    @staticmethod
+    def _telemetry_summary(hardware_status: dict[str, Any] | None) -> str:
+        if not hardware_status:
+            return ""
+        parts = []
+        temps = hardware_status.get("temperatures")
+        if temps:
+            jt = _jmap(temps)
+            parts.append("T[" + " ".join(f"{j}:{t:.0f}°" for j, t in jt.items()) + "]")
+        currents = hardware_status.get("currents")
+        if currents:
+            jc = _jmap(currents)
+            parts.append("I[" + " ".join(f"{j}:{c:.2f}A" for j, c in jc.items()) + "]")
+        voltages = hardware_status.get("voltages")
+        if voltages:
+            jv = _jmap(voltages)
+            parts.append("V[" + " ".join(f"{j}:{v:.1f}V" for j, v in jv.items()) + "]")
+        return " ".join(parts)
 
-        # Fall back to DAM-computed
-        if prev_pos is not None and obs.joint_positions is not None:
-            commanded = np.asarray(prev_pos, dtype=np.float64)
-            actual = np.asarray(obs.joint_positions, dtype=np.float64)
-            n = min(len(commanded), len(actual))
-            max_err = float(np.max(np.abs(commanded[:n] - actual[:n])))
-            if max_err > max_err_rad:
-                return GuardResult(
-                    decision=GuardDecision.FAULT,
-                    guard_name=name,
-                    layer=layer,
-                    reason=(
-                        f"Joint following error {max_err:.3f} rad exceeds limit "
-                        f"{max_err_rad:.3f} rad"
-                    ),
-                    fault_source="hardware",
-                )
+    @staticmethod
+    def _extract_telemetry(hardware_status: dict[str, Any] | None) -> dict[str, Any]:
+        if not hardware_status:
+            return {}
+        out: dict[str, Any] = {}
+        for key in ("temperatures", "currents", "voltages"):
+            if key in hardware_status:
+                out[key] = _jmap(hardware_status[key])
+        return out
 
-        return GuardResult.success(guard_name=name, layer=layer)
+
+def _detect_sensor_outliers(readings: dict[str, float]) -> set[str]:
+    """Flag motors whose reading is far above the median — likely sensor faults."""
+    if len(readings) < 3:
+        return set()
+    vals = list(readings.values())
+    med = statistics.median(vals)
+    if med <= 0:
+        return set()
+    return {
+        m
+        for m, v in readings.items()
+        if v > med * _SENSOR_OUTLIER_RATIO and v - med > _SENSOR_OUTLIER_ABS
+    }

@@ -273,10 +273,32 @@ class RuntimeControlService:
         return True
 
     def reset(self) -> bool:
-        """Reset to IDLE (only from STOPPED or EMERGENCY)."""
+        """Reset to IDLE (only from STOPPED or EMERGENCY).
+
+        When resetting from EMERGENCY, the hardware is reconnected so the
+        next ``start()`` doesn't fail with "not connected".  If reconnection
+        fails, the system transitions to a startup error instead.
+        """
         with self._lock:
             if self._state not in (RuntimeState.STOPPED, RuntimeState.EMERGENCY, RuntimeState.IDLE):
                 return False
+            was_emergency = self._state == RuntimeState.EMERGENCY
+            runner = self._runner
+            backend_ready = self._backend_state == BackendState.READY
+
+        # Reconnect hardware after emergency stop (shutdown disconnects the robot).
+        # Skip if confirm_fault() already reconnected (backend_state == READY).
+        if was_emergency and runner is not None and not backend_ready:
+            try:
+                runner.connect()
+                runner.verify()
+                logger.info("RuntimeControlService: hardware reconnected after reset")
+            except Exception as exc:
+                logger.error("RuntimeControlService: reconnect on reset failed: %s", exc)
+                self.set_startup_error(str(exc))
+                return False
+
+        with self._lock:
             self._state = RuntimeState.IDLE
             self._error = None
         self._notify_state()
@@ -417,13 +439,32 @@ class RuntimeControlService:
             return False
 
     def confirm_fault(self) -> bool:
-        """Transitions back from FAULTED to READY."""
+        """Transitions back from FAULTED to READY, reconnecting hardware.
+
+        After an emergency stop the runner is shut down (robot disconnected).
+        We must reconnect before the next start() otherwise the first cycle
+        will fail with "not connected".
+        """
         with self._lock:
             if self._backend_state != BackendState.FAULTED:
                 return False
-            self._backend_state = BackendState.READY
             self._error = None
-            self._startup_error = None  # Also clear startup error if any
+            self._startup_error = None
+            runner = self._runner
+
+        # Reconnect hardware — mirrors the recheck_hardware() connect path
+        if runner is not None:
+            try:
+                runner.connect()
+                runner.verify()
+                logger.info("RuntimeControlService: hardware reconnected after fault confirmation")
+            except Exception as exc:
+                logger.error("RuntimeControlService: reconnect after confirm_fault failed: %s", exc)
+                self.set_startup_error(str(exc))
+                return False
+
+        with self._lock:
+            self._backend_state = BackendState.READY
         self._notify_state()
         return True
 

@@ -4,12 +4,21 @@ hardware:
   preset: so101_follower
   sources:
     arm:
-      type: lerobot
+      type: motor
       port: /dev/tty.usbmodem5AA90244141
       id: my_awesome_follower_arm
-      cameras:
-        top: { type: opencv, index_or_path: 0, width: 640, height: 480, fps: 30 }
-        wrist: { type: opencv, index_or_path: 1, width: 640, height: 480, fps: 30 }
+    top:
+      type: opencv
+      index_or_path: 0
+      width: 640
+      height: 480
+      fps: 30
+    wrist:
+      type: opencv
+      index_or_path: 1
+      width: 640
+      height: 480
+      fps: 30
     current:
       type: current
       ref: arm
@@ -71,6 +80,22 @@ boundaries:
         fallback: emergency_stop
         params:
           max_velocities: [1.5000, 1.5000, 1.5000, 1.5000, 1.5000, 1.5000]
+  temperature_guard:
+    layer: L3
+    type: single
+    nodes:
+      - callback: temperature_limit
+        fallback: emergency_stop
+        params:
+          max_temperature_c: 55.0
+  current_guard:
+    layer: L3
+    type: single
+    nodes:
+      - callback: current_limit
+        fallback: emergency_stop
+        params:
+          max_current_a: 1.5
   hardware_watchdog:
     layer: L3
     type: single
@@ -84,7 +109,7 @@ boundaries:
 tasks:
   soarm101:
     description: "Default task"
-    boundaries: [bounds, joint_position_limits, joint_velocity_limit, hardware_watchdog]
+    boundaries: [bounds, joint_position_limits, joint_velocity_limit, temperature_guard, current_guard, hardware_watchdog]
 
 loopback:
   backend: mcap

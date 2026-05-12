@@ -3,9 +3,9 @@
 Why this lives at runtime level (not as a Guard class)
 ------------------------------------------------------
 Every L1 boundary already contributes constraints (``upper``, ``lower``,
-``max_velocity``) via boundary node params — the merge_policy registry
-fuses them into one canonical pool.  Treating each constraint as a CBF
-candidate just means *swapping the L1 solver*: instead of independent
+``max_velocity``, ``bounds``) via boundary node params — the merge_policy
+registry fuses them into one canonical pool.  Treating each constraint as
+a CBF candidate just means *swapping the L1 solver*: instead of independent
 box-clamps for each constraint, all of them feed into a single QP that
 finds the least-perturbing safe action.
 
@@ -18,13 +18,17 @@ The QP
 ::
 
     min  ½ ‖u − u_nom‖²  +  ½ Σ_i  λ_i · δ_i²
-    s.t. lower_i  −  δ_lo,i  ≤  u_i   (joint position lower bound, soft)
-         u_i  −  δ_up,i      ≤  upper_i      (joint position upper bound, soft)
+    s.t. lower_i  −  δ_lo,i  ≤  u_i           (joint position lower, soft)
+         u_i  −  δ_up,i      ≤  upper_i        (joint position upper, soft)
+         q_i − v_max_i·dt − δ_vlo,i ≤ u_i      (velocity lower, soft)
+         u_i − δ_vup,i ≤ q_i + v_max_i·dt      (velocity upper, soft)
+         A_cbf · u − δ_cbf ≤ b_cbf              (workspace CBF, soft)
          δ_*  ≥  0
 
-Slack permits otherwise-infeasible combinations of constraints to still
-yield a clamped action; ``slack_weight`` (merge: ``take_max`` — stricter
-boundary wins) controls how aggressively each slack is penalised.
+Position, velocity and workspace constraints each get independent slack
+variables so the optimiser can violate the least-critical constraint
+when the feasible region is empty.  ``slack_weight`` (merge: ``take_max``
+— stricter boundary wins) controls how aggressively each slack is penalised.
 """
 
 from __future__ import annotations
@@ -109,33 +113,33 @@ def solve_box_with_slack(
     *,
     upper: np.ndarray | None = None,
     lower: np.ndarray | None = None,
+    vel_upper: np.ndarray | None = None,
+    vel_lower: np.ndarray | None = None,
     slack_weight: float = 1e6,
     extra_A: np.ndarray | None = None,
     extra_ub: np.ndarray | None = None,
 ) -> np.ndarray | None:
-    """Least-perturbation clamp to a box [lower, upper] with slack variables.
+    """Least-perturbation clamp with position + velocity bounds + workspace CBF.
 
-    Returns the QP-clamped vector (same length as *u_nom*), or ``None`` when
-    proxsuite is unavailable, the problem is infeasible, or the solver
-    fails — the caller should fall back to its naive clamp logic.
+    All constraints are soft (via independent slack variables) so the QP
+    stays feasible even when constraints conflict.  Returns the clamped
+    vector (same length as *u_nom*), or ``None`` on solver failure.
 
     Parameters
     ----------
     u_nom
         Nominal control (the policy's proposed action), shape (n,).
     upper, lower
-        Per-element bounds, shape (n,).  Either or both may be ``None`` to
-        omit that side.
+        Per-element joint position bounds, shape (n,).
+    vel_upper, vel_lower
+        Per-element velocity-derived position bounds, shape (n,).
+        Typically ``q_current ± max_velocity * dt``.  Each gets its own
+        slack so position and velocity violations are penalised independently.
     slack_weight
-        Penalty on each slack variable.  Larger → constraint enforced more
-        strictly.  ``1e6`` is a reasonable default for ``rad``-scale joint
-        limits; safety-critical bounds may want ``1e8``+.
+        Penalty on each slack variable.
     extra_A, extra_ub
-        Optional extra linear constraints of the form ``extra_A @ u ≤
-        extra_ub``.  Used to inject workspace / obstacle CBF constraints
-        derived from a Jacobian by the caller — kept generic here so the
-        solver doesn't need to know the geometry.  Same ``slack_weight`` is
-        applied (separate slack per constraint).
+        Optional linear constraints ``extra_A @ u ≤ extra_ub``
+        (e.g. workspace CBF).  Same ``slack_weight`` per row.
     """
     if not _PROXSUITE_AVAILABLE:
         return None
@@ -145,19 +149,27 @@ def solve_box_with_slack(
 
     upper_arr = np.asarray(upper, dtype=np.float64) if upper is not None else None
     lower_arr = np.asarray(lower, dtype=np.float64) if lower is not None else None
+    vu_arr = np.asarray(vel_upper, dtype=np.float64) if vel_upper is not None else None
+    vl_arr = np.asarray(vel_lower, dtype=np.float64) if vel_lower is not None else None
     A_extra = np.asarray(extra_A, dtype=np.float64) if extra_A is not None else None
     b_extra = np.asarray(extra_ub, dtype=np.float64) if extra_ub is not None else None
     n_extra = A_extra.shape[0] if A_extra is not None else 0
 
-    # Decision vector: x = [u (n), δ_up (n), δ_lo (n), δ_extra (n_extra)]
-    # Total slack dim grows with the number of caller-supplied constraints.
-    n_slack = 2 * n + n_extra
+    # Count constraint groups (each group gets n slack variables, except extra)
+    n_pos_up = n if upper_arr is not None else 0
+    n_pos_lo = n if lower_arr is not None else 0
+    n_vel_up = n if vu_arr is not None else 0
+    n_vel_lo = n if vl_arr is not None else 0
+    n_slack = n_pos_up + n_pos_lo + n_vel_up + n_vel_lo + n_extra
+
+    # Decision vector: x = [u (n), δ_pos_up, δ_pos_lo, δ_vel_up, δ_vel_lo, δ_extra]
     dim = n + n_slack
 
     # Hessian:  diag(I_n, λI_n_slack)
     H = np.zeros((dim, dim), dtype=np.float64)
     H[:n, :n] = np.eye(n)
-    H[n:, n:] = float(slack_weight) * np.eye(n_slack)
+    if n_slack > 0:
+        H[n:, n:] = float(slack_weight) * np.eye(n_slack)
     # Gradient: g = [-u_nom, 0, …]
     g = np.zeros(dim, dtype=np.float64)
     g[:n] = -np.asarray(u_nom, dtype=np.float64)
@@ -166,36 +178,68 @@ def solve_box_with_slack(
     constraint_rows: list[np.ndarray] = []
     lb_parts: list[np.ndarray] = []
     ub_parts: list[np.ndarray] = []
+    slack_offset = n  # tracks where the next slack block starts
+
     if upper_arr is not None:
-        # u − δ_up ≤ upper
+        # u − δ_pos_up ≤ upper
         row = np.zeros((n, dim))
         row[:, :n] = np.eye(n)
-        row[:, n : 2 * n] = -np.eye(n)
+        row[:, slack_offset : slack_offset + n] = -np.eye(n)
         constraint_rows.append(row)
         lb_parts.append(np.full(n, -np.inf))
         ub_parts.append(upper_arr)
+        slack_offset += n
+
     if lower_arr is not None:
-        # u + δ_lo ≥ lower
+        # u + δ_pos_lo ≥ lower  →  lower ≤ u + δ_pos_lo
         row = np.zeros((n, dim))
         row[:, :n] = np.eye(n)
-        row[:, 2 * n : 2 * n + n] = np.eye(n)
+        row[:, slack_offset : slack_offset + n] = np.eye(n)
         constraint_rows.append(row)
         lb_parts.append(lower_arr)
         ub_parts.append(np.full(n, np.inf))
+        slack_offset += n
+
+    if vu_arr is not None:
+        # u − δ_vel_up ≤ vel_upper  (= q + max_vel * dt)
+        row = np.zeros((n, dim))
+        row[:, :n] = np.eye(n)
+        row[:, slack_offset : slack_offset + n] = -np.eye(n)
+        constraint_rows.append(row)
+        lb_parts.append(np.full(n, -np.inf))
+        ub_parts.append(vu_arr)
+        slack_offset += n
+
+    if vl_arr is not None:
+        # u + δ_vel_lo ≥ vel_lower  (= q - max_vel * dt)
+        row = np.zeros((n, dim))
+        row[:, :n] = np.eye(n)
+        row[:, slack_offset : slack_offset + n] = np.eye(n)
+        constraint_rows.append(row)
+        lb_parts.append(vl_arr)
+        ub_parts.append(np.full(n, np.inf))
+        slack_offset += n
+
     if A_extra is not None and b_extra is not None and n_extra > 0:
         # A_extra·u − δ_extra ≤ b_extra
         row = np.zeros((n_extra, dim))
         row[:, :n] = A_extra
-        row[:, 3 * n : 3 * n + n_extra] = -np.eye(n_extra)
+        row[:, slack_offset : slack_offset + n_extra] = -np.eye(n_extra)
         constraint_rows.append(row)
         lb_parts.append(np.full(n_extra, -np.inf))
         ub_parts.append(b_extra)
+        slack_offset += n_extra
+
     # All slacks ≥ 0
-    slack_row = np.zeros((n_slack, dim))
-    slack_row[:, n:] = np.eye(n_slack)
-    constraint_rows.append(slack_row)
-    lb_parts.append(np.zeros(n_slack))
-    ub_parts.append(np.full(n_slack, np.inf))
+    if n_slack > 0:
+        slack_row = np.zeros((n_slack, dim))
+        slack_row[:, n:] = np.eye(n_slack)
+        constraint_rows.append(slack_row)
+        lb_parts.append(np.zeros(n_slack))
+        ub_parts.append(np.full(n_slack, np.inf))
+
+    if not constraint_rows:
+        return u_nom.copy()
 
     C = np.vstack(constraint_rows)
     lb = np.concatenate(lb_parts)

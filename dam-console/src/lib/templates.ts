@@ -143,13 +143,15 @@ const DEFAULT_BOUNDARIES: BoundaryDef[] = [
   },
 ]
 
-// Helper: take a copy of DEFAULT_BOUNDARIES with `qp_solver` + `slack_weight`
-// merged onto the joint_position_limits boundary's params.  These two keys
-// are normal pool entries — MotionGuard reads `qp_solver` and switches its
-// solver.  No special boundary, no marker callback: just data.
+// Helper: add `qp_solver` + `slack_weight` to ANY L1 motion boundary.
+// MotionGuard reads `qp_solver` from the merged config pool and fuses
+// all L1 constraints (position, velocity, workspace bounds) into one
+// ProxSuite QP solve.  Each boundary stays decoupled in definition —
+// the guard handles fusion automatically with a per-cycle cache.
 function withQpSolver(boundaries: BoundaryDef[]): BoundaryDef[] {
+  const L1_MOTION = new Set(['joint_position_limits', 'joint_velocity_limit', 'bounds'])
   return boundaries.map(b =>
-    b.name !== 'joint_position_limits' ? b : {
+    !L1_MOTION.has(b.name) ? b : {
       ...b,
       nodes: b.nodes.map(n => ({
         ...n,
@@ -210,26 +212,7 @@ export const TEMPLATES: TemplatePreset[] = [
       joints: SO101_JOINTS, controlFrequencyHz: 50, enforcement_mode: 'enforce',
       tasks: [{ id: 'soarm101', name: 'soarm101', description: 'QP-protected motion',
         boundaries: ['bounds', 'joint_position_limits', 'joint_velocity_limit', 'hardware_watchdog'] }],
-      boundaries: withQpSolver(DEFAULT_BOUNDARIES),
-      loopback: {
-        backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10, pre_event_sec: 10,
-        rotate_mb: 500, rotate_minutes: 60, max_queue_depth: 64, capture_images_on_clamp: true,
-      },
-    },
-  },
-  {
-    id: 'so101_diffusion',
-    label: 'SO-101 · Diffusion',
-    description: 'SO-ARM101 with Diffusion Policy (DDIM scheduler, 15 steps).',
-    badge: 'LeRobot',
-    config: {
-      hardware_preset: 'so101_follower', adapter: 'lerobot', lerobot_port: '/dev/tty.usbmodem5AA90244141',
-      lerobot_robot_id: 'my_awesome_follower_arm', lerobot_cameras: SO101_CAMERAS,
-      observation_channels: ['current'],
-      policy: { type: 'diffusion', pretrained_path: 'MikeChenYZ/dp-soarm-fmb', device: 'mps', noise_scheduler_type: 'DDIM', num_inference_steps: 15 },
-      joints: SO101_JOINTS, controlFrequencyHz: 15, enforcement_mode: 'enforce',
-      tasks: [{ id: 'soarm101', name: 'soarm101', description: 'Default task', boundaries: ['bounds', 'joint_position_limits', 'joint_velocity_limit', 'hardware_watchdog'] }],
-      boundaries: DEFAULT_BOUNDARIES,
+      boundaries: withQpSolver(DEFAULT_BOUNDARIES.filter(b => b.name !== 'ood_detector')),
       loopback: {
         backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10, pre_event_sec: 10,
         rotate_mb: 500, rotate_minutes: 60, max_queue_depth: 64, capture_images_on_clamp: true,
@@ -238,8 +221,8 @@ export const TEMPLATES: TemplatePreset[] = [
   },
   {
     id: 'ros2_minimal',
-    label: 'ROS2 Minimal',
-    description: 'Minimal ROS2 source / sink adapter. Works with any ROS2-enabled robot.',
+    label: 'ROS2',
+    description: 'ROS2 source / sink adapter with observation channels. Works with any ROS2-enabled robot.',
     badge: 'ROS2',
     config: {
       hardware_preset: 'generic_6dof', adapter: 'ros2',
@@ -249,50 +232,6 @@ export const TEMPLATES: TemplatePreset[] = [
       controlFrequencyHz: 15, enforcement_mode: 'monitor',
       tasks: [{ id: 'default', name: 'default', description: 'Default task', boundaries: [] }],
       boundaries: [],
-      loopback: {
-        backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10, pre_event_sec: 10,
-        rotate_mb: 500, rotate_minutes: 60, max_queue_depth: 64, capture_images_on_clamp: true,
-      },
-    },
-  },
-  {
-    id: 'ros2_topic_overrides',
-    label: 'ROS2 · Topic Overrides',
-    description: 'ROS2 robot with per-channel topic overrides for non-standard publishers.',
-    badge: 'ROS2',
-    config: {
-      hardware_preset: 'generic_6dof', adapter: 'ros2',
-      ros2JointTopic: '/my_robot/joint_states', ros2CmdTopic: '/my_robot/cmd',
-      observation_channels: ['effort', 'wrench'],
-      // effort is JointState-derived; no topic override possible.
-      // wrench is its own subscription and accepts a topic override.
-      channel_topic_overrides: {
-        wrench: '/my_robot/ft_sensor/wrench',
-      },
-      policy: { type: 'act', pretrained_path: '', device: 'cpu' },
-      controlFrequencyHz: 15, enforcement_mode: 'monitor',
-      tasks: [{ id: 'default', name: 'default', description: 'Default task', boundaries: [] }],
-      boundaries: [],
-      loopback: {
-        backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10, pre_event_sec: 10,
-        rotate_mb: 500, rotate_minutes: 60, max_queue_depth: 64, capture_images_on_clamp: true,
-      },
-    },
-  },
-  {
-    id: 'ros2_qp',
-    label: 'ROS2 · ACT + QP',
-    description: 'ROS2 robot with ProxSuite QP safety filter at L1.  Same opt-in pattern as the lerobot template.',
-    badge: 'ROS2',
-    config: {
-      hardware_preset: 'generic_6dof', adapter: 'ros2',
-      ros2JointTopic: '/joint_states', ros2CmdTopic: '/joint_commands',
-      observation_channels: ['effort'],
-      policy: { type: 'act', pretrained_path: '', device: 'cpu' },
-      joints: SO101_JOINTS, controlFrequencyHz: 50, enforcement_mode: 'enforce',
-      tasks: [{ id: 'default', name: 'default', description: 'QP-protected motion',
-        boundaries: ['joint_position_limits', 'joint_velocity_limit', 'hardware_watchdog'] }],
-      boundaries: withQpSolver(DEFAULT_BOUNDARIES.filter(b => b.name !== 'ood_detector')),
       loopback: {
         backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10, pre_event_sec: 10,
         rotate_mb: 500, rotate_minutes: 60, max_queue_depth: 64, capture_images_on_clamp: true,
@@ -376,11 +315,6 @@ const custom = (lines: CustomNode['lines'], when?: CustomNode['when']): CustomNo
 // Item renderers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function cameraLines(cam: CameraConfig): string[] {
-  const inner = `type: ${cam.source_type}, ${cam.source_type === 'udp' ? `url: "${cam.udp_url ?? ''}"` : `index_or_path: ${cam.index ?? 0}`}, width: ${cam.width}, height: ${cam.height}, fps: ${cam.fps}`;
-  return [`${cam.name}: { ${inner} }`]
-}
-
 function boundaryLines(b: BoundaryDef): string[] {
   const lines: string[] = [`${b.name}:`, `  layer: ${b.layer}`, `  type: ${b.type}`, `  nodes:`]
   for (const node of b.nodes) {
@@ -412,7 +346,7 @@ const GUARD_LAYER: Record<string, string> = { ood: 'L0', motion: 'L1', execution
 // Stackfile source-block name per adapter.  Used in three places (sources
 // block key, channel ref, sink ref) — keep them in sync via this single map.
 const MAIN_SOURCE_NAME: Record<DamConfig['adapter'], string> = {
-  lerobot: 'arm',
+  lerobot: 'arm',  // adapter value is still 'lerobot' in UI; emits `type: motor`
   ros2: 'ros2_source',
   simulation: 'main',
 }
@@ -440,10 +374,23 @@ const SCHEMA: YamlSection[] = [
         scalar('degrees_mode', () => 'true'),
       ], cfg => cfg.adapter === 'simulation' && !!cfg.simulation_dataset_repo_id),
       block(MAIN_SOURCE_NAME.lerobot, [
-        scalar('type', () => 'lerobot'), scalar('port', cfg => cfg.lerobot_port),
+        scalar('type', () => 'motor'), scalar('port', cfg => cfg.lerobot_port),
         scalar('id', cfg => cfg.lerobot_robot_id), scalar('calibration_path', cfg => cfg.lerobot_calibration_path || null),
-        custom((cfg, indent) => [`${indent}cameras:`, ...cfg.lerobot_cameras.flatMap(c => cameraLines(c).map(l => `${indent}  ${l}`))], cfg => cfg.lerobot_cameras.length > 0)
       ], cfg => cfg.adapter === 'lerobot'),
+      // Cameras as peer-level opencv sources (flat, uniform with motor/ros2)
+      custom((cfg, indent) => {
+        return cfg.lerobot_cameras.flatMap(cam => {
+          const idx = cam.source_type === 'udp' ? `"${cam.udp_url ?? ''}"` : String(cam.index ?? 0)
+          return [
+            `${indent}${cam.name}:`,
+            `${indent}  type: opencv`,
+            `${indent}  index_or_path: ${idx}`,
+            `${indent}  width: ${cam.width}`,
+            `${indent}  height: ${cam.height}`,
+            `${indent}  fps: ${cam.fps}`,
+          ]
+        })
+      }, cfg => cfg.adapter === 'lerobot' && cfg.lerobot_cameras.length > 0),
       block(MAIN_SOURCE_NAME.ros2, [
         scalar('type', () => 'ros2'),
         scalar('topic', cfg => cfg.ros2JointTopic),
@@ -521,7 +468,7 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
     return m ? m[1].trim().replace(/^"(.*)"$/, '$1') : null
   }
 
-  if (yaml.includes('type: lerobot')) {
+  if (yaml.includes('type: motor') || yaml.includes('type: lerobot')) {
     result.adapter = 'lerobot'; result.lerobot_port = getVal(/port:\s*(.*)/);
     result.lerobot_robot_id = getVal(/id:\s*(.*)/); result.lerobot_calibration_path = getVal(/calibration_path:\s*(.*)/) || '';
   } else if (yaml.includes('type: ros2')) {
@@ -571,10 +518,13 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
     if (section === 'boundaries') {
       if (line.startsWith('  ') && !line.startsWith('    ')) {
         currentBoundary = { name: trimmed.replaceAll(':', ''), layer: 'L1', type: 'single', nodes: [] }; boundaries.push(currentBoundary);
+        currentNode = null  // reset — don't leak previous boundary's last node
       } else if (currentBoundary && line.startsWith('    ')) {
-        if (trimmed.startsWith('layer:')) currentBoundary.layer = trimmed.replaceAll('layer:', '').trim()
-        if (trimmed.startsWith('type:')) currentBoundary.type = trimmed.replaceAll('type:', '').trim()
-        if (trimmed.startsWith('- node_id:') || trimmed.startsWith('- callback:')) {
+        // Container-level structural keys — must NOT fall through to node params
+        if (trimmed.startsWith('layer:')) { currentBoundary.layer = trimmed.replaceAll('layer:', '').trim() }
+        else if (trimmed.startsWith('type:')) { currentBoundary.type = trimmed.replaceAll('type:', '').trim() }
+        else if (trimmed.startsWith('nodes:')) { /* skip header */ }
+        else if (trimmed.startsWith('- node_id:') || trimmed.startsWith('- callback:')) {
           const isNodeId = trimmed.startsWith('- node_id:');
           currentNode = { node_id: isNodeId ? trimmed.replaceAll('- node_id:', '').trim() : 'default', params: {}, callback: isNodeId ? null : trimmed.replaceAll('- callback:', '').trim(), fallback: 'emergency_stop', timeout_sec: 1 };
           currentBoundary.nodes.push(currentNode);
@@ -582,6 +532,7 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
           if (trimmed.startsWith('callback:')) currentNode.callback = trimmed.replaceAll('callback:', '').trim()
           else if (trimmed.startsWith('fallback:')) currentNode.fallback = trimmed.replaceAll('fallback:', '').trim()
           else if (trimmed.startsWith('timeout_sec:')) currentNode.timeout_sec = Number(trimmed.replaceAll('timeout_sec:', '').trim())
+          else if (trimmed === 'params:') { /* skip params header */ }
           else {
             const colonIdx = trimmed.indexOf(':'); if (colonIdx !== -1) {
               const key = trimmed.substring(0, colonIdx).trim(); const valRaw = trimmed.substring(colonIdx + 1).trim();
@@ -606,7 +557,13 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
   if (boundaries.length > 0) result.boundaries = boundaries
   if (tasks.length > 0) result.tasks = tasks
 
-  const cameras: CameraConfig[] = []; let inCameras = false;
+  // Parse cameras from BOTH formats:
+  // 1. Legacy nested: cameras: { top: { type: opencv, ... } }
+  // 2. New flat peer sources: top:\n  type: opencv\n  index_or_path: 0\n  ...
+  const cameras: CameraConfig[] = [];
+
+  // Legacy nested format
+  let inCameras = false;
   for (const line of lines) {
     if (line.includes('cameras:')) { inCameras = true; continue }
     if (inCameras && line.includes('{')) {
@@ -622,12 +579,33 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
       }
     } else if (inCameras && line.startsWith('    ') && !line.startsWith('      ')) { inCameras = false; }
   }
+
+  // New flat peer-source opencv format
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^\s{4}(\w+):\s*$/)
+    if (!m) continue
+    const name = m[1]
+    const next1 = lines[i + 1]?.trim() ?? ''
+    if (next1 === 'type: opencv') {
+      const cam: any = { name, source_type: 'opencv', width: 640, height: 480, fps: 30, index: 0 }
+      for (let j = i + 2; j < lines.length && lines[j].startsWith('      '); j++) {
+        const kv = lines[j].trim()
+        if (kv.startsWith('index_or_path:')) cam.index = Number(kv.split(':')[1].trim())
+        else if (kv.startsWith('width:')) cam.width = Number(kv.split(':')[1].trim())
+        else if (kv.startsWith('height:')) cam.height = Number(kv.split(':')[1].trim())
+        else if (kv.startsWith('fps:')) cam.fps = Number(kv.split(':')[1].trim())
+      }
+      // Avoid duplicates if legacy already caught this name
+      if (!cameras.some(c => c.name === name)) cameras.push(cam)
+    }
+  }
+
   if (cameras.length > 0) result.lerobot_cameras = cameras
 
   // Channels are peer sources whose name == type and that carry `ref: <parent>`.
   // We don't hardcode the channel allowlist — that's the adapter's responsibility
   // server-side (validated against supported_channels()).
-  const adapterTypes = new Set(['lerobot', 'ros2', 'opencv', 'camera', 'usb', 'dataset', 'simulation', 'mock'])
+  const adapterTypes = new Set(['motor', 'lerobot', 'ros2', 'opencv', 'camera', 'usb', 'dataset', 'simulation', 'mock'])
   const obsChannels: string[] = []
   const channelTopics: Record<string, string> = {}
   for (let i = 0; i < lines.length; i++) {

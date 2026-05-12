@@ -159,14 +159,24 @@ class LeRobotSourceAdapter(SensorAdapter):
     # ── SensorAdapter ABC ──────────────────────────────────────────────────
 
     def connect(self) -> None:
-        if hasattr(self._robot, "connect"):
-            self._robot.connect()
-        self._connected = True
-        logger.info(
-            "LeRobotSourceAdapter connected  joints=%s  degrees_mode=%s",
-            self._joint_names,
-            self._degrees_mode,
-        )
+        try:
+            if hasattr(self._robot, "connect"):
+                self._robot.connect()
+            self._connected = True
+            self._prev_time = time.monotonic()
+            logger.info(
+                "LeRobotSourceAdapter connected  joints=%s  degrees_mode=%s",
+                self._joint_names,
+                self._degrees_mode,
+            )
+        except Exception as e:
+            err_msg = str(e).lower()
+            if "already connected" in err_msg or "already open" in err_msg:
+                self._connected = True
+                self._prev_time = time.monotonic()
+                logger.info("LeRobotSourceAdapter: already connected, synchronizing state.")
+            else:
+                raise
 
     def verify(self) -> None:
         """Run an aggregate preflight check on all hardware.
@@ -188,11 +198,8 @@ class LeRobotSourceAdapter(SensorAdapter):
             return self._convert(raw)
         except Exception as e:
             logger.error("LeRobotSourceAdapter hardware read failure: %s", e)
-            # Create a fallback Observation with hardware_status fault
-            import time
-
             return Observation(
-                timestamp=time.perf_counter(),
+                timestamp=time.monotonic(),
                 joint_positions=self._prev_positions,
                 metadata={
                     "hardware_status": {"error_codes": [-1], "reason": f"Hardware read error: {e}"}
@@ -279,6 +286,11 @@ class LeRobotSourceAdapter(SensorAdapter):
         ee_pose = self._compute_ee_pose(positions)
 
         channels = self._read_channels()
+        hw_status = self._read_hardware_status()
+
+        metadata: dict[str, Any] = {}
+        if hw_status:
+            metadata["hardware_status"] = hw_status
 
         return Observation(
             timestamp=now,
@@ -287,6 +299,7 @@ class LeRobotSourceAdapter(SensorAdapter):
             end_effector_pose=ee_pose,
             images=images,
             channels=channels,
+            metadata=metadata,
         )
 
     # ── Legacy API: observation.state tensor ──────────────────────────────
@@ -336,6 +349,32 @@ class LeRobotSourceAdapter(SensorAdapter):
         )
 
     # ── Helpers ────────────────────────────────────────────────────────────
+
+    def _read_hardware_status(self) -> dict[str, Any] | None:
+        """Read temperature, current, voltage from the servo bus in one pass."""
+        if not hasattr(self._robot, "bus"):
+            return None
+        bus = self._robot.bus
+        status: dict[str, Any] = {}
+        try:
+            temps = bus.sync_read("Present_Temperature")
+            if temps:
+                per_motor_c = {k: float(v) for k, v in temps.items()}
+                status["temperatures"] = per_motor_c
+                status["temperature_c"] = max(per_motor_c.values())
+
+            currents = bus.sync_read("Present_Current")
+            if currents:
+                per_motor_a = {k: v / 1000.0 for k, v in currents.items()}
+                status["currents"] = per_motor_a
+                status["current_a"] = max(per_motor_a.values())
+
+            voltages = bus.sync_read("Present_Voltage")
+            if voltages:
+                status["voltages"] = {k: v / 10.0 for k, v in voltages.items()}
+        except Exception as exc:
+            logger.debug("hardware status bus read failed: %s", exc)
+        return status if status else None
 
     def _read_channels(self) -> dict[str, np.ndarray] | None:
         if not self._observation_channels or not hasattr(self._robot, "bus"):

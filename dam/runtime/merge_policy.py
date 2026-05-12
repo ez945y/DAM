@@ -113,3 +113,10 @@ register("slack_weight", take_max)
 # CBF alpha — multiple boundaries → take the SMALLER (more conservative
 # / earlier braking).  Larger α defers braking, smaller α brakes earlier.
 register("cbf_alpha", take_min)
+
+# Observation-channel constraint thresholds — tightest (safest) wins.
+register("max_temperature_c", take_min)
+register("max_current_a", take_min)
+register("max_voltage_v", take_min)
+register("min_voltage_v", take_max)  # higher floor → more conservative
+register("max_force_n", take_min)

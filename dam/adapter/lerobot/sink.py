@@ -90,21 +90,19 @@ class LeRobotSinkAdapter(ActionAdapter):
                 bus = self._robot.bus
                 currents = bus.sync_read("Present_Current")
                 if currents:
-                    status["current_a"] = max(currents.values()) / 1000.0
+                    per_motor_a = {k: v / 1000.0 for k, v in currents.items()}
+                    status["currents"] = per_motor_a
+                    status["current_a"] = max(per_motor_a.values())
 
                 temps = bus.sync_read("Present_Temperature")
                 if temps:
-                    status["temperature_c"] = float(max(temps.values()))
+                    per_motor_c = {k: float(v) for k, v in temps.items()}
+                    status["temperatures"] = per_motor_c
+                    status["temperature_c"] = max(per_motor_c.values())
 
-                goals = bus.sync_read("Goal_Position")
-                presents = bus.sync_read("Present_Position")
-                if goals and presents:
-                    _RAD_PER_STEP = 2 * math.pi / 4096
-                    errs = [
-                        abs(goals[m] - presents[m]) * _RAD_PER_STEP for m in goals if m in presents
-                    ]
-                    if errs:
-                        status["hardware_following_error"] = max(errs)
+                voltages = bus.sync_read("Present_Voltage")
+                if voltages:
+                    status["voltages"] = {k: v / 10.0 for k, v in voltages.items()}
             except Exception as exc:
                 logger.debug("get_hardware_status bus read failed: %s", exc)
         return status

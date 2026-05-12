@@ -48,7 +48,7 @@ def test_fault_on_overtemperature(HG):
     result = HG.check(obs=obs, hardware_status=status, max_temperature_c=70.0)
     assert result.decision == GuardDecision.FAULT
     assert result.fault_source == "hardware"
-    assert "temperature" in result.reason.lower() or "Temperature" in result.reason
+    assert "temp" in result.reason.lower()
 
 
 def test_fault_on_overcurrent(HG):
@@ -64,7 +64,7 @@ def test_fault_on_overcurrent(HG):
     result = HG.check(obs=obs, hardware_status=status, max_current_a=5.0)
     assert result.decision == GuardDecision.FAULT
     assert result.fault_source == "hardware"
-    assert "current" in result.reason.lower() or "Current" in result.reason
+    assert "current" in result.reason.lower()
 
 
 def test_fault_on_error_code(HG):

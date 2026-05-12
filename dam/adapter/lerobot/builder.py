@@ -111,23 +111,20 @@ class LeRobotBuilder:
                 ) from e
 
         sources = self._hardware.sources or {}
-        src_cfg = next((s for s in sources.values() if str(s.type).lower() == "lerobot"), None)
+        src_cfg = next(
+            (s for s in sources.values() if str(s.type).lower() in ("motor", "lerobot")),
+            None,
+        )
         if src_cfg is None:
             raise ValueError(
-                "hardware.sources has no lerobot-typed source — cannot build robot. "
-                "Add a source with `type: lerobot` (port, id) to your Stackfile."
+                "hardware.sources has no motor-typed source — cannot build robot. "
+                "Add a source with `type: motor` (port, id) to your Stackfile."
             )
 
         robot_cfg = self._make_robot_config(src_cfg)
 
         # --- PREFLIGHT HARDWARE CHECK ---
         self._preflight_hardware_check(robot_cfg)
-
-        # Ensure camera FPS matches control frequency if not explicitly overridden by user
-        hz = self._hz
-        for cam_cfg in robot_cfg.cameras.values():
-            if cam_cfg.fps == 30:  # If it was the default we set in _build_camera_configs
-                cam_cfg.fps = int(hz)
 
         self._cached_robot = make_robot_from_config(robot_cfg)
         return self._cached_robot
@@ -202,7 +199,11 @@ class LeRobotBuilder:
         preset_name = self._preset.name
         port = src_cfg.port or "/dev/ttyUSB0"
         robot_id = src_cfg.id or "follower"
-        cam_configs = self._build_camera_configs(src_cfg.cameras or {})
+        # Legacy nested cameras from the motor source config.
+        # New flat peer-level opencv sources are handled separately by the
+        # factory as DAM OpenCVSourceAdapter instances — they don't go
+        # through lerobot's strict-resolution OpenCVCameraConfig.
+        cam_configs = self._build_camera_configs(getattr(src_cfg, "cameras", None) or {})
         # calibration_path is typed in HardwareSourceConfig; extra="allow" covers
         # any future keys.  _resolve_path handles absolute volume-mount paths.
         calibration = _resolve_path(getattr(src_cfg, "calibration_path", None))

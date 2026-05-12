@@ -6,8 +6,8 @@ import {
 } from '@/lib/templates'
 
 describe('TEMPLATES', () => {
-  it('has 7 presets', () => {
-    expect(TEMPLATES).toHaveLength(7)
+  it('has 4 presets', () => {
+    expect(TEMPLATES).toHaveLength(4)
   })
 
   it('every template has required fields', () => {
@@ -34,14 +34,6 @@ describe('defaultConfig', () => {
     const cfg = defaultConfig('so101_act')
     expect(cfg.policy.pretrained_path).toBe('MikeChenYZ/act-soarm-fmb-v2')
     expect(cfg.policy.device).toBe('mps')
-  })
-
-  it('SO-101 Diffusion has noise scheduler params', () => {
-    const cfg = defaultConfig('so101_diffusion')
-    expect(cfg.policy.type).toBe('diffusion')
-    expect(cfg.policy.noise_scheduler_type).toBe('DDIM')
-    expect(cfg.policy.num_inference_steps).toBe(15)
-    expect(cfg.policy.pretrained_path).toBe('MikeChenYZ/dp-soarm-fmb')
   })
 
   it('SO-101 joints have correct names', () => {
@@ -203,13 +195,6 @@ describe('generateYaml', () => {
     expect(yaml).not.toContain('index: 0')   // old key must not appear
   })
 
-  it('diffusion template includes noise_scheduler_type and num_inference_steps', () => {
-    const cfg = defaultConfig('so101_diffusion')
-    const yaml = generateYaml(cfg)
-    expect(yaml).toContain('noise_scheduler_type: DDIM')
-    expect(yaml).toContain('num_inference_steps: 15')
-  })
-
   it('ACT template does not include diffusion params', () => {
     const cfg = defaultConfig('so101_act')
     const yaml = generateYaml(cfg)
@@ -256,7 +241,7 @@ describe('generateYaml', () => {
     const cfg = defaultConfig('so101_act')
     const yaml = generateYaml(cfg)
     expect(yaml).toContain('arm:')
-    expect(yaml).toContain('type: lerobot')
+    expect(yaml).toContain('type: motor')
   })
 
   it('uses correct control frequency', () => {
@@ -312,7 +297,8 @@ describe('generateYaml', () => {
 
 describe('observation channel round-trip', () => {
   it('preserves observation_channels + channel_topic_overrides through emit→parse', () => {
-    const cfg = defaultConfig('ros2_topic_overrides')
+    const cfg = defaultConfig('ros2_minimal')
+    cfg.channel_topic_overrides = { wrench: '/my_robot/ft_sensor/wrench' }
     const yaml = generateYaml(cfg)
 
     // effort is JointState-derived → no topic line; wrench has its own topic

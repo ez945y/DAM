@@ -93,7 +93,7 @@ def test_motion_guard_dispatches_to_qp_when_param_set(proxsuite):
         slack_weight=1e8,
     )
     assert result.decision == GuardDecision.CLAMP
-    assert "proxsuite" in (result.reason or "")
+    assert "QP clamp" in (result.reason or "")
     clamped = result.clamped_action.target_joint_positions
     assert clamped[0] <= 1.01  # respects upper
     # The two unconstrained axes shouldn't have moved

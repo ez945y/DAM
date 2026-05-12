@@ -12,7 +12,18 @@ logger = logging.getLogger(__name__)
 
 
 class MotionGuard(Guard):
-    """L2 motion safety guard: joint limits, velocity limits, and workspace bounds."""
+    """L1 motion safety guard: joint limits, velocity limits, and workspace bounds.
+
+    Multiple L1 boundaries (joint_position_limits, joint_velocity_limit,
+    bounds) can map to the same MotionGuard instance.  The stage builder
+    collapses them into a single invocation per cycle — the merged config
+    pool already carries all constraints, so one ``check()`` call covers
+    everything.  Results are fanned out to each boundary name for the UI.
+
+    When ``qp_solver`` is present in the config pool (opt-in per boundary),
+    all constraints are fused into a single ProxSuite QP solve instead of
+    independent box-clamps.
+    """
 
     _guard_kind = "motion"
 
@@ -101,18 +112,20 @@ class MotionGuard(Guard):
 
         layer = self.get_layer()
         name = self.get_name()
+
         max_ratio = 1.0  # Initialize to avoid UnboundLocalError during logging
 
         # ── QP solver dispatch ────────────────────────────────────────────────
-        # If any active L1 boundary contributed `qp_solver: "proxsuite"` to
-        # the pool, treat every constraint in the pool as a soft CBF and
-        # fuse them in one optimisation.  Identical inputs, different solver.
+        # When any L1 boundary contributes `qp_solver: "proxsuite"` to the
+        # pool, fuse ALL constraints (position, velocity, workspace) into one
+        # QP solve.  Falls back to box-clamp path if proxsuite is unavailable.
         if qp_solver == "proxsuite":
             qp_result = self._qp_clamp(
                 obs=obs,
                 action=action,
                 upper=upper,
                 lower=lower,
+                max_velocity=max_velocity,
                 bounds=bounds,
                 slack_weight=slack_weight,
                 cbf_alpha=cbf_alpha,
@@ -279,15 +292,17 @@ class MotionGuard(Guard):
         action: ActionProposal,
         upper: np.ndarray | None,
         lower: np.ndarray | None,
+        max_velocity: np.ndarray | None,
         bounds: np.ndarray | None,
         slack_weight: float,
         cbf_alpha: float,
         dt: float,
         dynamics: Any,
     ) -> GuardResult | None:
-        """Run ProxSuite QP fusing position bounds + workspace CBF + slack.
+        """Run ProxSuite QP fusing position + velocity + workspace constraints.
 
-        Returns ``GuardResult.clamp(...)`` if the QP altered the action,
+        All active L1 constraints are solved jointly.  Returns
+        ``GuardResult.clamp(...)`` if the QP altered the action,
         ``GuardResult.success(...)`` if the nominal action is feasible,
         or ``None`` to signal the caller to fall back to the box-clamp
         path (proxsuite missing, solve failed, etc.).
@@ -299,6 +314,22 @@ class MotionGuard(Guard):
             return None
 
         u_nom = action.target_joint_positions
+        q = np.asarray(obs.joint_positions, dtype=np.float64)
+
+        # ── Velocity bounds as position constraints ──────────────────────────
+        # |v| ≤ max_vel  ⟺  q − max_vel·dt ≤ u ≤ q + max_vel·dt
+        vel_upper: np.ndarray | None = None
+        vel_lower: np.ndarray | None = None
+        if max_velocity is not None:
+            mv = np.asarray(max_velocity, dtype=np.float64)
+            n_u = u_nom.shape[0]
+            # Broadcast scalar or per-joint
+            if mv.ndim == 0:
+                mv = np.full(n_u, float(mv))
+            mv = mv[:n_u]
+            q_n = q[:n_u]
+            vel_upper = q_n + mv * dt
+            vel_lower = q_n - mv * dt
 
         # ── Optional workspace CBF (consumes DynamicsContext when present) ──
         extra_A: np.ndarray | None = None
@@ -320,9 +351,9 @@ class MotionGuard(Guard):
                 # Slice Jacobian + q to the joints this guard controls
                 n_u = u_nom.shape[0]
                 J = J[:, :n_u]
-                q = np.asarray(obs.joint_positions[:n_u], dtype=np.float64)
+                q_slice = np.asarray(obs.joint_positions[:n_u], dtype=np.float64)
                 extra_A, extra_ub = workspace_cbf_constraints(
-                    q=q,
+                    q=q_slice,
                     ee_pos=ee_pos,
                     J_linear=J,
                     bounds=bounds,
@@ -337,6 +368,8 @@ class MotionGuard(Guard):
             u_nom,
             upper=upper,
             lower=lower,
+            vel_upper=vel_upper,
+            vel_lower=vel_lower,
             slack_weight=float(slack_weight),
             extra_A=extra_A,
             extra_ub=extra_ub,
@@ -356,12 +389,39 @@ class MotionGuard(Guard):
             was_clamped=True,
             original_proposal=action,
         )
-        delta = float(np.linalg.norm(u_qp - u_nom))
-        reason = (
-            f"proxsuite QP clamp (Δ={delta:.4f} rad, λ={slack_weight:g}"
-            + (f", workspace CBF α={cbf_alpha:g}" if cbf_active else "")
-            + ")"
+        # Per-joint detail: which joints were clamped and why
+        delta = u_qp - u_nom
+        joint_details = []
+        for j in range(len(u_nom)):
+            if abs(delta[j]) < 1e-6:
+                continue
+            violations = []
+            if upper is not None and u_nom[j] > upper[j]:
+                violations.append(f"pos>{np.degrees(upper[j]):.1f}°")
+            if lower is not None and u_nom[j] < lower[j]:
+                violations.append(f"pos<{np.degrees(lower[j]):.1f}°")
+            if vel_upper is not None and u_nom[j] > vel_upper[j]:
+                violations.append("vel↑")
+            if vel_lower is not None and u_nom[j] < vel_lower[j]:
+                violations.append("vel↓")
+            cause = f"[{','.join(violations)}]" if violations else ""
+            joint_details.append(
+                f"J{j + 1}:{np.degrees(u_nom[j]):.1f}→{np.degrees(u_qp[j]):.1f}°{cause}"
+            )
+        joints_str = (
+            "; ".join(joint_details)
+            if joint_details
+            else f"Δ={float(np.linalg.norm(delta)):.4f}rad"
         )
+        constraint_tags = []
+        if upper is not None or lower is not None:
+            constraint_tags.append("pos")
+        if vel_upper is not None:
+            constraint_tags.append("vel")
+        if cbf_active:
+            constraint_tags.append("CBF")
+        reason = f"QP clamp [{'+'.join(constraint_tags)}]: {joints_str}"
+
         return GuardResult.clamp(
             clamped_action=clamped_action,
             guard_name=name,

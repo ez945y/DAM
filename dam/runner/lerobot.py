@@ -53,7 +53,14 @@ class LeRobotRunner(BaseRunner):
 
     def connect(self) -> None:
         if self._robot and hasattr(self._robot, "connect"):
-            self._robot.connect()
+            try:
+                self._robot.connect()
+            except Exception as e:
+                err_msg = str(e).lower()
+                if "already connected" in err_msg or "already open" in err_msg:
+                    logger.info("LeRobotRunner: robot already connected, synchronizing.")
+                else:
+                    raise
         logger.info("LeRobotRunner: connected hardware.")
 
     def verify(self) -> None:

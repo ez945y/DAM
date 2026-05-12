@@ -178,14 +178,14 @@ hardware:
   preset: so101_follower
   sources:
     follower_arm:
-      type: lerobot
+      type: motor
       port: /dev/tty.usbmodem5AA90244141
   sinks:
     follower_command:
       ref: sources.follower_arm
 
 policy:
-  type: lerobot
+  type: motor
   model_id: lerobot/aloha-2-mobile-aloha/2024-07-29
 
 guards:

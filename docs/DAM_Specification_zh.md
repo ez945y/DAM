@@ -816,12 +816,21 @@ hardware:
         data: obs.images.top
 
     follower_arm:                  # LeRobot 直接驅動 — 同時也是 Sink (雙向)
-      type: lerobot
+      type: motor
       port: /dev/tty.usbmodem5AA90244141
       id: my_awesome_follower_arm
-      cameras:
-        top:   { type: opencv, index: 0, width: 640, height: 480, fps: 30 }
-        wrist: { type: opencv, index: 1, width: 640, height: 480, fps: 30 }
+    top:                             # 相機是對等來源
+      type: opencv
+      index_or_path: 0
+      width: 640
+      height: 480
+      fps: 30
+    wrist:
+      type: opencv
+      index_or_path: 1
+      width: 640
+      height: 480
+      fps: 30
 
   # Sinks：驗證後的動作去向。
   sinks:
@@ -836,7 +845,7 @@ hardware:
 
 # ── 策略 (Policy) ─────────────────────────────────────────────────────────
 policy:
-  type: lerobot                    # 內建：LeRobotPolicyAdapter
+  type: act                      # 內建：ACT, diffusion, smolvla, …
   pretrained_path: MikeChenYZ/smolvla-isaac-mimic-v2
   device: mps                      # cpu | cuda | mps
   chunk_size: 10

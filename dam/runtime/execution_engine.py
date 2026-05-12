@@ -74,7 +74,7 @@ class ValidationContext:
     node_start_times: dict[str, float]
     active_task: str | None
     kinematics_resolver: Any | None
-    hardware_status: dict[str, Any]
+    hardware_status: dict[str, Any] | None
     risk_controller: RiskController
     prev_validated_positions: list[float] | None = None
     # DynamicsContext (FK + cached Jacobians) refreshed by the sensor adapter
@@ -367,18 +367,41 @@ class ExecutionEngine:
     ) -> list[GuardResult]:
         results: list[GuardResult] = []
         t_start = time.perf_counter()
-        pairs: list[tuple[Guard, str | None]] = (
-            stage.guard_boundary_pairs
-            if stage.guard_boundary_pairs
-            else [(g, cast("str | None", None)) for g in stage.guards]
-        )
-        for g, boundary_name in pairs:
-            result_name = boundary_name if boundary_name is not None else g.get_name()
+
+        # New group-based path: each pair is (guard, [boundary_names])
+        if stage.guard_boundary_pairs:
+            for g, bnames in stage.guard_boundary_pairs:
+                primary = bnames[0] if bnames else g.get_name()
+                if time.perf_counter() - t_start > timeout_s:
+                    for bn in bnames:
+                        results.append(
+                            GuardResult(
+                                decision=GuardDecision.FAULT,
+                                guard_name=bn,
+                                layer=g.get_layer(),
+                                reason=f"Stage '{stage.name}' timeout ({stage.timeout_ms}ms)",
+                                fault_source="timeout",
+                            )
+                        )
+                    continue
+                try:
+                    result = self._run_one_guard(g, primary, runtime_pool)
+                except Exception as exc:
+                    result = GuardResult.fault(exc, "guard_code", primary, g.get_layer())
+                    logger.error("Stage '%s' guard '%s' raised: %s", stage.name, primary, exc)
+                # Fan out to all boundary names in the group
+                for bn in bnames:
+                    results.append(dataclasses.replace(result, guard_name=bn))
+            return results
+
+        # Legacy flat-guard path
+        for g in stage.guards:
+            name = g.get_name()
             if time.perf_counter() - t_start > timeout_s:
                 results.append(
                     GuardResult(
                         decision=GuardDecision.FAULT,
-                        guard_name=result_name,
+                        guard_name=name,
                         layer=g.get_layer(),
                         reason=f"Stage '{stage.name}' timeout ({stage.timeout_ms}ms)",
                         fault_source="timeout",
@@ -386,10 +409,10 @@ class ExecutionEngine:
                 )
                 continue
             try:
-                result = self._run_one_guard(g, boundary_name, runtime_pool)
+                result = self._run_one_guard(g, None, runtime_pool)
             except Exception as exc:
-                result = GuardResult.fault(exc, "guard_code", result_name, g.get_layer())
-                logger.error("Stage '%s' guard '%s' raised: %s", stage.name, result_name, exc)
+                result = GuardResult.fault(exc, "guard_code", name, g.get_layer())
+                logger.error("Stage '%s' guard '%s' raised: %s", stage.name, name, exc)
             results.append(result)
         return results
 
@@ -399,33 +422,65 @@ class ExecutionEngine:
         runtime_pool: dict[str, Any],
         timeout_s: float,
     ) -> list[GuardResult]:
-        pairs: list[tuple[Guard, str | None]] = (
-            stage.guard_boundary_pairs
-            if stage.guard_boundary_pairs
-            else [(g, cast("str | None", None)) for g in stage.guards]
-        )
-        if not pairs:
-            # ThreadPoolExecutor(max_workers=0) raises ValueError — guard against it.
+        # Build a flat list for the thread pool — one entry per group
+        if stage.guard_boundary_pairs:
+            flat_pairs = [
+                (g, bnames[0] if bnames else g.get_name())
+                for g, bnames in stage.guard_boundary_pairs
+            ]
+        else:
+            flat_pairs = [(g, g.get_name()) for g in stage.guards]
+
+        if not flat_pairs:
             logger.warning(
                 "Stage '%s' has no guard pairs; skipping parallel execution.", stage.name
             )
             return []
-        results: list[GuardResult | None] = [None] * len(pairs)
 
-        executor = self._get_executor(max_workers=max(len(pairs), 8))
+        raw_results: list[GuardResult | None] = [None] * len(flat_pairs)
+        executor = self._get_executor(max_workers=max(len(flat_pairs), 8))
         futures = {
             executor.submit(self._run_parallel_entry, stage.name, i, g, bn, runtime_pool): i
-            for i, (g, bn) in enumerate(pairs)
+            for i, (g, bn) in enumerate(flat_pairs)
         }
         try:
             for future in as_completed(futures, timeout=timeout_s):
                 idx, result = future.result()
-                results[idx] = result
+                raw_results[idx] = result
         except FuturesTimeoutError:
-            self._fill_timed_out_results(futures, pairs, results, stage)
+            # Fill timed-out entries
+            for _fut, idx in futures.items():
+                if raw_results[idx] is None:
+                    g, _ = flat_pairs[idx]
+                    raw_results[idx] = GuardResult(
+                        decision=GuardDecision.FAULT,
+                        guard_name=flat_pairs[idx][1],
+                        layer=g.get_layer(),
+                        reason=f"Stage '{stage.name}' parallel timeout ({stage.timeout_ms}ms)",
+                        fault_source="timeout",
+                    )
 
-        self._fill_missing_results(results, pairs, stage)
-        return cast(list[GuardResult], results)
+        # Fan out each group result to all boundary names
+        results: list[GuardResult] = []
+        if stage.guard_boundary_pairs:
+            for i, (_g, bnames) in enumerate(stage.guard_boundary_pairs):
+                r = raw_results[i]
+                if r is None:
+                    r = GuardResult(
+                        decision=GuardDecision.FAULT,
+                        guard_name=bnames[0] if bnames else "unknown",
+                        layer=_g.get_layer(),
+                        reason=f"Stage '{stage.name}' guard did not complete",
+                        fault_source="timeout",
+                    )
+                for bn in bnames:
+                    results.append(dataclasses.replace(r, guard_name=bn))
+        else:
+            for r in raw_results:
+                if r is not None:
+                    results.append(r)
+
+        return results
 
     def _run_parallel_entry(
         self,
@@ -442,38 +497,3 @@ class ExecutionEngine:
             result = GuardResult.fault(exc, "guard_code", result_name, g.get_layer())
             logger.error("Stage '%s' guard '%s' raised: %s", stage_name, result_name, exc)
         return idx, result
-
-    def _fill_timed_out_results(
-        self,
-        futures: dict[Any, int],
-        pairs: list[tuple[Guard, str | None]],
-        results: list[GuardResult | None],
-        stage: Stage,
-    ) -> None:
-        for future, idx in futures.items():
-            if not future.done():
-                g, bn = pairs[idx]
-                results[idx] = GuardResult(
-                    decision=GuardDecision.FAULT,
-                    guard_name=bn if bn is not None else g.get_name(),
-                    layer=g.get_layer(),
-                    reason=f"Stage '{stage.name}' parallel timeout ({stage.timeout_ms}ms)",
-                    fault_source="timeout",
-                )
-
-    def _fill_missing_results(
-        self,
-        results: list[GuardResult | None],
-        pairs: list[tuple[Guard, str | None]],
-        stage: Stage,
-    ) -> None:
-        for i, r in enumerate(results):
-            if r is None:
-                g, bn = pairs[i]
-                results[i] = GuardResult(
-                    decision=GuardDecision.FAULT,
-                    guard_name=bn if bn is not None else g.get_name(),
-                    layer=g.get_layer(),
-                    reason=f"Stage '{stage.name}' guard did not complete",
-                    fault_source="timeout",
-                )

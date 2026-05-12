@@ -14,6 +14,11 @@ Design notes
 - Early exit: if any guard in a sequential stage returns REJECT or FAULT the
   runtime still collects all results before aggregating; parallel stages do the
   same via ``as_completed``.
+- Boundary groups: when multiple boundaries share the same guard instance
+  (e.g. joint_position_limits + joint_velocity_limit + bounds → MotionGuard),
+  they form a **group**.  The guard runs once with the merged config pool;
+  results are fanned out to every boundary name in the group for UI reporting.
+  No boundary is privileged — they are all peers.
 """
 
 from __future__ import annotations
@@ -34,11 +39,10 @@ class Stage:
     name               : Human-readable identifier (used for logging and debugging).
     guards             : Ordered list of Guard instances (used when guard_boundary_pairs
                          is empty — the legacy / direct-construction path).
-    guard_boundary_pairs: Ordered list of (Guard, boundary_name) pairs.  When non-empty
-                         this takes precedence over ``guards``.  Each pair runs the same
-                         guard instance against a specific named boundary so a single
-                         MotionGuard can be invoked once per active L2 boundary with that
-                         boundary's params injected.  Populated by ``start_task``.
+    guard_boundary_pairs: Ordered list of (Guard, boundary_names) pairs.  Each pair
+                         is a **group**: one guard instance with the list of boundary
+                         names it covers.  The guard runs once; results are fanned out
+                         to every name in the group for the dashboard.
     parallel  : If True, all entries run concurrently via ThreadPoolExecutor.
                 If False (default), entries run sequentially in list order.
     timeout_ms: Per-stage wall-clock timeout in milliseconds.  If the stage
@@ -48,6 +52,6 @@ class Stage:
 
     name: str
     guards: list[Guard] = field(default_factory=list)
-    guard_boundary_pairs: list[tuple[Guard, str | None]] = field(default_factory=list)
+    guard_boundary_pairs: list[tuple[Guard, list[str]]] = field(default_factory=list)
     parallel: bool = False
     timeout_ms: float = 10.0

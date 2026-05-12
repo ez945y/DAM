@@ -264,14 +264,15 @@ export function RiskLogTable() {
     load()
 
     const handleUpdate = () => { if (!frozenRef.current) load(true) }
-    // Always background on focus to avoid clearing visible content mid-read.
     const handleFocus = () => { if (!frozenRef.current) load(true) }
 
     globalThis.addEventListener('dam-system-update', handleUpdate)
+    globalThis.addEventListener('dam-risk-update', handleUpdate)
     globalThis.addEventListener('focus', handleFocus)
 
     return () => {
       globalThis.removeEventListener('dam-system-update', handleUpdate)
+      globalThis.removeEventListener('dam-risk-update', handleUpdate)
       globalThis.removeEventListener('focus', handleFocus)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps

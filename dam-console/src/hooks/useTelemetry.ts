@@ -29,6 +29,7 @@ let gClampTimes: number[] = []
 let gGuardMap: Record<string, any> = {}
 let gLiveImages: Record<string, Blob> = {}
 let gActiveCameras: string[] = []
+let gLastRiskNotify = 0
 // Version counter replaces the shared gDirty boolean.
 // Each hook instance compares its own lastVersion against gVersion, so
 // multiple consumers (e.g. PageShell + Dashboard) update independently
@@ -309,6 +310,12 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
           gLatency = [...gLatency, cycle.latency_ms['total'] || 0].slice(-MAX_LATENCY)
           gLatencyCycleIds = [...gLatencyCycleIds, cycle.cycle_id].slice(-MAX_LATENCY)
           gLatencyVer++
+
+          // Throttled notify so RiskLogTable refreshes at ~2 Hz, not 50 Hz
+          if (now - gLastRiskNotify > 500) {
+            gLastRiskNotify = now
+            globalThis.dispatchEvent(new CustomEvent('dam-risk-update'))
+          }
         }
       } catch (err) { console.error('WS JSON error:', err) }
     }

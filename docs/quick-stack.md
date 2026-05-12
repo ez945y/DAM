@@ -256,13 +256,13 @@ hardware:
 
   sources:
     follower_arm:
-      type: lerobot
+      type: motor
       port: /dev/tty.usbmodem5AA90244141
       id: my_follower_arm
 
     top_cam:
       type: opencv
-      index: 0
+      index_or_path: 0
       width: 640
       height: 480
       fps: 30

@@ -849,12 +849,21 @@ hardware:
         data: obs.images.top
 
     follower_arm:                  # LeRobot direct — also a sink (bidirectional)
-      type: lerobot
+      type: motor
       port: /dev/tty.usbmodem5AA90244141
       id: my_awesome_follower_arm
-      cameras:
-        top:   { type: opencv, index: 0, width: 640, height: 480, fps: 30 }
-        wrist: { type: opencv, index: 1, width: 640, height: 480, fps: 30 }
+    top:                             # Cameras are peer-level sources
+      type: opencv
+      index_or_path: 0
+      width: 640
+      height: 480
+      fps: 30
+    wrist:
+      type: opencv
+      index_or_path: 1
+      width: 640
+      height: 480
+      fps: 30
 
   # Sinks: where validated actions go.
   sinks:
@@ -869,7 +878,7 @@ hardware:
 
 # ── Policy ────────────────────────────────────────────────────────────────
 policy:
-  type: lerobot                    # built-in: LeRobotPolicyAdapter
+  type: act                      # built-in: ACT, diffusion, smolvla, …
   pretrained_path: MikeChenYZ/smolvla-isaac-mimic-v2
   device: mps                      # cpu | cuda | mps
   chunk_size: 10

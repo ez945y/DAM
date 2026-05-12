@@ -54,7 +54,8 @@ class RuntimeFactory:
         # 1. Determine Adapter Type — pick the first source whose type is a
         # known adapter, so peer channel sources (current, effort, …) don't
         # accidentally drive routing.
-        _ADAPTER_TYPES = ("lerobot", "ros2")
+        # "motor" is the canonical name; "lerobot" accepted for backward compat.
+        _ADAPTER_TYPES = ("motor", "lerobot", "ros2")
         adapter_type = None
         hw_config = config.hardware
         if hw_config:
@@ -64,7 +65,7 @@ class RuntimeFactory:
                 for src in hw_config.sources.values():
                     t = str(src.type or "").lower()
                     if t in _ADAPTER_TYPES:
-                        adapter_type = t
+                        adapter_type = "motor" if t in ("motor", "lerobot") else t
                         break
 
         if not adapter_type:
@@ -75,7 +76,7 @@ class RuntimeFactory:
 
         logger.info("Building runtime with adapter type: %s", adapter_type)
 
-        if adapter_type == "lerobot":
+        if adapter_type == "motor":
             return RuntimeFactory._build_lerobot(config)
         elif adapter_type == "ros2":
             return RuntimeFactory._build_ros2(config, ros2_node=ros2_node)
@@ -101,16 +102,22 @@ class RuntimeFactory:
         assert config.hardware is not None
         runtime = GuardRuntime._from_config(config)  # reuse already-parsed config
         hz = config.safety.control_frequency_hz if config.safety else 50.0
-        builder = LeRobotBuilder(config.hardware, config.policy, control_frequency_hz=hz)
-        robot = builder.build_robot()
 
-        # Identify main source name (usually the first lerobot one)
+        # Identify main source name (the first motor/lerobot-typed one)
         main_name = "arm"
         if config.hardware.sources:
             for name, s in config.hardware.sources.items():
-                if str(s.type).lower() == "lerobot":
+                if str(s.type).lower() in ("motor", "lerobot"):
                     main_name = name
                     break
+
+        # Peer-level opencv sources are registered as separate DAM
+        # OpenCVSourceAdapter instances (see DISCOVER OTHER SOURCES below).
+        # They do NOT go through lerobot's OpenCVCameraConfig — lerobot
+        # enforces strict resolution matching which crashes when the
+        # hardware returns a different native resolution.
+        builder = LeRobotBuilder(config.hardware, config.policy, control_frequency_hz=hz)
+        robot = builder.build_robot()
 
         # Build adapters
         use_unified = False
@@ -184,26 +191,23 @@ class RuntimeFactory:
                 if type_str in ("opencv", "camera", "usb"):
                     from dam.adapter.opencv.source import OpenCVSourceAdapter
 
-                    # Robustly extract index from direct field, params, or model_extra
-                    idx = 0
-                    if hasattr(src_cfg, "index") and src_cfg.index is not None:
-                        idx = src_cfg.index
-                    elif hasattr(src_cfg, "index_or_path") and src_cfg.index_or_path is not None:
-                        idx = src_cfg.index_or_path
-                    elif (
-                        hasattr(src_cfg, "params") and src_cfg.params and "index" in src_cfg.params
-                    ):
-                        idx = src_cfg.params["index"]
-                    elif (
-                        hasattr(src_cfg, "model_extra")
-                        and src_cfg.model_extra
-                        and "index" in src_cfg.model_extra
-                    ):
-                        idx = src_cfg.model_extra["index"]
-                    elif isinstance(src_cfg, dict):
-                        idx = src_cfg.get("index", src_cfg.get("index_or_path", 0))
+                    extra = src_cfg.model_extra or {}
+                    idx: int | str = (
+                        extra.get("index_or_path")
+                        or extra.get("index")
+                        or getattr(src_cfg, "index_or_path", None)
+                        or getattr(src_cfg, "index", None)
+                        or 0
+                    )
+                    width = extra.get("width")
+                    height = extra.get("height")
 
-                    cam_adapter = OpenCVSourceAdapter(index=idx, name=name)
+                    cam_adapter = OpenCVSourceAdapter(
+                        index=idx,
+                        name=name,
+                        width=width,
+                        height=height,
+                    )
                     runtime.register_source(name, cam_adapter)
                     logger.info("Registered extra source: %s (type=%s)", name, type_str)
 

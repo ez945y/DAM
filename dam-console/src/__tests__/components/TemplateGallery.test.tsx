@@ -8,9 +8,9 @@ describe('TemplateGallery', () => {
   beforeEach(() => onSelect.mockClear())
 
   it('renders all templates', () => {
-    render(<TemplateGallery templates={TEMPLATES} selected="simulation" onSelect={onSelect} />)
+    render(<TemplateGallery templates={TEMPLATES} selected="quick_start" onSelect={onSelect} />)
     for (const t of TEMPLATES) {
-      expect(screen.getByText(t.label)).toBeInTheDocument()
+      expect(screen.getAllByText(t.label).length).toBeGreaterThanOrEqual(1)
     }
   })
 
@@ -28,7 +28,7 @@ describe('TemplateGallery', () => {
   it('renders badge for each template', () => {
     render(<TemplateGallery templates={TEMPLATES} selected="" onSelect={onSelect} />)
     expect(screen.getAllByText('LeRobot').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText('ROS2')).toBeInTheDocument()
+    expect(screen.getAllByText('ROS2').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('Demo').length).toBeGreaterThanOrEqual(1)
   })
 })

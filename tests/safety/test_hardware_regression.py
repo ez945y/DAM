@@ -70,19 +70,13 @@ def test_hardware_fault_propagates_to_reject():
     rt = _make_runtime_with_hardware_guard()
     rt.start_task("default")
 
-    obs = make_obs()
+    obs = Observation(
+        timestamp=time.monotonic(),
+        joint_positions=np.zeros(6),
+        joint_velocities=np.zeros(6),
+        metadata={"hardware_status": {"temperature_c": 100.0, "current_a": 1.0, "error_codes": []}},
+    )
     action = make_action()
-
-    # Inject hardware_status with over-temperature directly into runtime_pool
-    # by patching the sink to return bad status
-    class FaultySink:
-        def apply(self, action):
-            pass
-
-        def get_hardware_status(self):
-            return {"temperature_c": 100.0, "current_a": 1.0, "error_codes": []}
-
-    rt.register_sink(FaultySink())
 
     validated, results, fallback = rt.validate(obs, action, "trace-hw")
 

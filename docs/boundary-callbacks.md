@@ -7,67 +7,150 @@ These are ready-to-use callbacks that the `ExecutionGuard` evaluates each cycle.
 
 ## Quick start
 
-```python
-from dam.boundary.builtin_callbacks import register_all
-import numpy as np
-
-# Register all built-in callbacks with sensible defaults
-register_all(
-    upper_soft=np.array([1.9, 1.7, 1.4, 1.7, 1.9, 1.9]),  # optional soft limits
-    lower_soft=np.array([-1.9, -1.7, -1.4, -1.7, -1.9, -1.9]),
-    ee_min_height_m=0.02,
-    max_force_n=50.0,
-    max_torque_nm=10.0,
-)
-```
-
-Then reference by name in your Stackfile:
+Reference callbacks by name in your Stackfile:
 
 ```yaml
 boundaries:
-  grasp_zone:
+  joint_position_limits:
+    layer: L1
+    type: single
     nodes:
-      - node_id: default
-        constraint:
-          callback:
-            - check_force_torque_safe
-            - check_joints_not_moving
+      - callback: joint_position_limits
+        fallback: emergency_stop
+        params:
+          upper: [1.8243, 1.7691, 1.6026, 1.8067, 3.0741, 1.7453]
+          lower: [-1.8243, -1.7691, -1.6026, -1.8067, -3.0741, 0]
+  temperature_guard:
+    layer: L3
+    type: single
+    nodes:
+      - callback: temperature_limit
+        fallback: emergency_stop
+        params:
+          max_temperature_c: 55.0
 ```
+
+All callbacks are auto-registered via `register_all()` at runtime startup.
 
 ---
 
-## Built-in callbacks
+## L0: Perception
 
-### `check_joint_soft_limits`
+### `ood_detector`
 
-Reject if any joint position exceeds soft limits (tighter than hard motion limits).
-Gives the robot time to decelerate before `MotionGuard` clamps.
+Out-of-distribution boundary callback — wraps OODGuard.
+Return False if the observation is flagged as out-of-distribution.
 
-```python
-register("check_joint_soft_limits", check_joint_soft_limits,
-         upper_soft=np.ones(6), lower_soft=-np.ones(6))
-```
+| Param | Default | Description |
+|---|---|---|
+| `ood_model_path` | `""` | Path to the OOD model |
+| `bank_path` | `""` | Path to the memory bank |
+| `nn_threshold` | `2.0` | Nearest-neighbour threshold |
+| `nll_threshold` | `5.0` | NLL threshold |
+| `backend` | `"memory_bank"` | OOD backend |
 
-```python
-register_all(ee_min_height_m=0.05)
-```
+---
+
+## L1: Physical Kinematics
+
+### `joint_position_limits`
+
+Return False if any joint position violates upper/lower limits.
+
+| Param | Default | Description |
+|---|---|---|
+| `upper` | SO-101 defaults | Per-joint upper limits (rad) |
+| `lower` | SO-101 defaults | Per-joint lower limits (rad) |
+| `use_degrees` | `False` | Interpret limits as degrees |
+
+### `joint_velocity_limit`
+
+Return False if any joint velocity exceeds limits.
+
+| Param | Default | Description |
+|---|---|---|
+| `max_velocities` | `[1.5]*6` | Per-joint max velocity (rad/s) |
+| `use_degrees` | `False` | Interpret limits as degrees |
+
+### `workspace`
+
+Check if end-effector is within workspace box bounds.
+
+| Param | Default | Description |
+|---|---|---|
+| `bounds` | `[[-0.4,0.4],[-0.4,0.4],[0.02,0.6]]` | [x,y,z] min/max (m) |
 
 ### `check_velocity_smooth`
 
 Reject if joint velocity norm exceeds `max_jerk_norm` per cycle.
 
-### `check_force_torque_safe`
-
-Reject if force magnitude > `max_force_n` or torque magnitude > `max_torque_nm`.
-
 ### `check_joints_not_moving`
 
-Reject if any joint moves faster than `max_speed_rad_s`. Use on stationary nodes
-(e.g. tool-change, handover).
+Reject if any joint moves faster than `max_speed_rad_s`.
+
+---
+
+## L2: Task Execution
+
+### `check_force_torque_safe`
+
+Reject if force magnitude > `max_force_n` or torque > `max_torque_nm`.
 
 ### `check_gripper_clear`
 
-Reject if `obs.metadata["gripper_pos"]` is below `min_gripper_opening_m`.
+Reject if `obs.metadata["gripper_pos"]` < `min_gripper_opening_m`.
+
+### `semantic_state`
+
+High-level semantic task state validation (placeholder).
+
+---
+
+## L3: Hardware Monitoring
+
+### `hardware_watchdog`
+
+Reject if observation is stale (age > `max_staleness_ms`).
+
+### `temperature_limit`
+
+Reject if any motor temperature exceeds threshold.
+Reads from the `temperature` observation channel.
+
+| Param | Default | Description |
+|---|---|---|
+| `max_temperature_c` | `55.0` | Max temperature (°C) |
+| `channel` | `"temperature"` | Observation channel name |
+
+### `current_limit`
+
+Reject if any motor current exceeds threshold.
+Reads from the `current` observation channel.
+
+| Param | Default | Description |
+|---|---|---|
+| `max_current_a` | `1.5` | Max current (A) |
+| `channel` | `"current"` | Observation channel name |
+
+### `voltage_limit`
+
+Reject if supply voltage is outside safe band.
+Reads from the `voltage` observation channel.
+
+| Param | Default | Description |
+|---|---|---|
+| `min_voltage_v` | `6.0` | Min safe voltage (V) |
+| `max_voltage_v` | `8.5` | Max safe voltage (V) |
+| `channel` | `"voltage"` | Observation channel name |
+
+### `force_limit`
+
+Reject if force magnitude from a force/torque observation channel exceeds limit.
+
+| Param | Default | Description |
+|---|---|---|
+| `max_force_n` | `50.0` | Max force magnitude (N) |
+| `channel` | `"force_torque"` | Observation channel name |
 
 ---
 
@@ -90,3 +173,7 @@ get_global_registry().register("check_above_table", check_above_table)
 ```
 
 Return `True` → safe, `False` → REJECT.
+
+Callbacks receive their params from the stackfile `params:` block.
+The merge-policy registry (`dam/runtime/merge_policy.py`) controls how
+multiple boundaries declaring the same param combine values.

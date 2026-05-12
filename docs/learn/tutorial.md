@@ -405,15 +405,14 @@ hardware:
   preset: so101_follower
   sources:
     follower:
-      type: lerobot
+      type: motor
       port: /dev/tty.usbmodem5AA90244141
-      cameras:
-        top:
-          type: opencv
-          index: 0
+    top:
+      type: opencv
+      index_or_path: 0
 
 policy:
-  type: lerobot
+  type: act
   model_id: lerobot/aloha-2-mobile-aloha/2024-07-29
 
 guards:
