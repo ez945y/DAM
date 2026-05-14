@@ -35,12 +35,13 @@ except ImportError:
 # Minimum valid MCAP file size: 8-byte opening magic + at least 1 byte
 _MCAP_MAGIC_SIZE = 8
 
-# Rust msgpack format metadata - CycleRecordData array indices
+# Rust msgpack format metadata - CycleRecordData array indices.
 # Structure: [cycle_id, obs_timestamp, has_violation, has_clamp, violated_layer_mask,
 #            clamped_layer_mask, active_task, active_boundaries, active_cameras,
 #            obs_joint_positions, obs_channels, action_positions, action_velocities,
 #            validated_positions, validated_velocities, was_clamped, fallback_triggered,
-#            guard_results, latency_stages, latency_layers, latency_guards, image_data]
+#            guard_results, latency_stages, latency_layers, latency_guards, image_data,
+#            config_version]
 _IDX_CYCLE = 0
 _IDX_OBS_TIMESTAMP = 1
 _IDX_HAS_VIOLATION = 2
@@ -435,30 +436,40 @@ class McapSessionService:
                             continue
                         if not _got_total_from_summary:
                             total_cycles += 1
-                        ts = d[1] if len(d) > 1 else 0.0
+                        ts = d[_IDX_OBS_TIMESTAMP] if len(d) > _IDX_OBS_TIMESTAMP else 0.0
                         if first_ts is None or ts < first_ts:
                             first_ts = ts
                         if last_ts is None or ts > last_ts:
                             last_ts = ts
 
-                        cid = d[0]
+                        cid = d[_IDX_CYCLE]
                         if cid is not None:
                             if min_cycle_id is None or cid < min_cycle_id:
                                 min_cycle_id = cid
                             if max_cycle_id is None or cid > max_cycle_id:
                                 max_cycle_id = cid
 
-                        has_violation = bool(d[2]) if len(d) > 2 else False
+                        has_violation = (
+                            bool(d[_IDX_HAS_VIOLATION]) if len(d) > _IDX_HAS_VIOLATION else False
+                        )
                         if has_violation:
                             violation_cycles += 1
-                            v_mask = d[4] if len(d) > 4 else 0
+                            v_mask = (
+                                d[_IDX_VIOLATED_LAYER_MASK]
+                                if len(d) > _IDX_VIOLATED_LAYER_MASK
+                                else 0
+                            )
                             for i in range(5):
                                 if v_mask & (1 << i):
                                     violated_layers.add(f"L{i}")
-                        has_clamp = bool(d[3]) if len(d) > 3 else False
+                        has_clamp = bool(d[_IDX_HAS_CLAMP]) if len(d) > _IDX_HAS_CLAMP else False
                         if has_clamp:
                             clamp_cycles += 1
-                            c_mask = d[5] if len(d) > 5 else 0
+                            c_mask = (
+                                d[_IDX_CLAMPED_LAYER_MASK]
+                                if len(d) > _IDX_CLAMPED_LAYER_MASK
+                                else 0
+                            )
                             for i in range(5):
                                 if c_mask & (1 << i):
                                     clamped_layers.add(f"L{i}")
@@ -561,16 +572,28 @@ class McapSessionService:
                             continue
                         cycles.append(
                             {
-                                "cycle_id": d[0],
+                                "cycle_id": d[_IDX_CYCLE],
                                 "seq": seq,
                                 "timestamp_ns": message.log_time,
                                 "timestamp": message.log_time / 1e9,
-                                "has_violation": bool(d[2]),
-                                "has_clamp": bool(d[3]),
-                                "violated_layer_mask": d[4] if len(d) > 4 else 0,
-                                "clamped_layer_mask": d[5] if len(d) > 5 else 0,
-                                "violated_layers": self._mask_to_layers(d[4] if len(d) > 4 else 0),
-                                "clamped_layers": self._mask_to_layers(d[5] if len(d) > 5 else 0),
+                                "has_violation": bool(d[_IDX_HAS_VIOLATION]),
+                                "has_clamp": bool(d[_IDX_HAS_CLAMP]),
+                                "violated_layer_mask": d[_IDX_VIOLATED_LAYER_MASK]
+                                if len(d) > _IDX_VIOLATED_LAYER_MASK
+                                else 0,
+                                "clamped_layer_mask": d[_IDX_CLAMPED_LAYER_MASK]
+                                if len(d) > _IDX_CLAMPED_LAYER_MASK
+                                else 0,
+                                "violated_layers": self._mask_to_layers(
+                                    d[_IDX_VIOLATED_LAYER_MASK]
+                                    if len(d) > _IDX_VIOLATED_LAYER_MASK
+                                    else 0
+                                ),
+                                "clamped_layers": self._mask_to_layers(
+                                    d[_IDX_CLAMPED_LAYER_MASK]
+                                    if len(d) > _IDX_CLAMPED_LAYER_MASK
+                                    else 0
+                                ),
                             }
                         )
                         seq += 1
@@ -654,7 +677,7 @@ class McapSessionService:
                     if topic not in _DETAIL_TOPICS:
                         continue
 
-                    msg_cid = d[0]
+                    msg_cid = d[_IDX_CYCLE]
                     if msg_cid != cycle_id:
                         continue
 
@@ -669,6 +692,23 @@ class McapSessionService:
                         # [16]fallback_triggered [17]guard_results [18]latency_stages
                         # [19]latency_layers [20]latency_guards [21]image_data
                         arr_len = len(d)
+                        latency_stages = (
+                            d[_IDX_LATENCY_STAGES] if arr_len > _IDX_LATENCY_STAGES else {}
+                        )
+                        latency_layers = (
+                            d[_IDX_LATENCY_LAYERS] if arr_len > _IDX_LATENCY_LAYERS else {}
+                        )
+                        obs_joint_positions = (
+                            d[_IDX_OBS_JOINT_POSITIONS]
+                            if arr_len > _IDX_OBS_JOINT_POSITIONS
+                            else []
+                        )
+                        action_positions = (
+                            d[_IDX_ACTION_POSITIONS] if arr_len > _IDX_ACTION_POSITIONS else []
+                        )
+                        guard_results = (
+                            d[_IDX_GUARD_RESULTS] if arr_len > _IDX_GUARD_RESULTS else []
+                        )
 
                         detail.update(
                             {
@@ -705,46 +745,41 @@ class McapSessionService:
                                 "active_cameras": d[_IDX_ACTIVE_CAMERAS]
                                 if arr_len > _IDX_ACTIVE_CAMERAS
                                 else [],
-                                "source_ms": d[_IDX_LATENCY_STAGES].get("source", 0.0)
-                                if arr_len > _IDX_LATENCY_STAGES
-                                and isinstance(d[_IDX_LATENCY_STAGES], dict)
+                                "source_ms": latency_stages.get("source", 0.0)
+                                if isinstance(latency_stages, dict)
                                 else 0.0,
-                                "policy_ms": d[_IDX_LATENCY_STAGES].get("policy", 0.0)
-                                if arr_len > _IDX_LATENCY_STAGES
-                                and isinstance(d[_IDX_LATENCY_STAGES], dict)
+                                "policy_ms": latency_stages.get("policy", 0.0)
+                                if isinstance(latency_stages, dict)
                                 else 0.0,
-                                "guards_ms": d[_IDX_LATENCY_STAGES].get("guards", 0.0)
-                                if arr_len > _IDX_LATENCY_STAGES
-                                and isinstance(d[_IDX_LATENCY_STAGES], dict)
+                                "guards_ms": latency_stages.get("guards", 0.0)
+                                if isinstance(latency_stages, dict)
                                 else 0.0,
-                                "sink_ms": d[_IDX_LATENCY_STAGES].get("sink", 0.0)
-                                if arr_len > _IDX_LATENCY_STAGES
-                                and isinstance(d[_IDX_LATENCY_STAGES], dict)
+                                "sink_ms": latency_stages.get("sink", 0.0)
+                                if isinstance(latency_stages, dict)
                                 else 0.0,
-                                "total_ms": d[_IDX_LATENCY_STAGES].get("total", 0.0)
-                                if arr_len > _IDX_LATENCY_STAGES
-                                and isinstance(d[_IDX_LATENCY_STAGES], dict)
+                                "total_ms": latency_stages.get("total", 0.0)
+                                if isinstance(latency_stages, dict)
                                 else 0.0,
                             }
                         )
-                        if arr_len > _IDX_OBS_JOINT_POSITIONS:
-                            detail["observation"] = {
-                                "joint_positions": d[_IDX_OBS_JOINT_POSITIONS]
-                                if isinstance(d[_IDX_OBS_JOINT_POSITIONS], list)
-                                else [],
-                                "obs_timestamp": d[_IDX_OBS_TIMESTAMP],
-                            }
-                        if arr_len > _IDX_ACTION_POSITIONS:
-                            detail["action"] = {
-                                "target_positions": d[_IDX_ACTION_POSITIONS]
-                                if isinstance(d[_IDX_ACTION_POSITIONS], list)
-                                else [],
-                                "was_clamped": d[_IDX_WAS_CLAMPED]
-                                if arr_len > _IDX_WAS_CLAMPED
-                                else False,
-                            }
-                        if arr_len > _IDX_GUARD_RESULTS and isinstance(d[_IDX_GUARD_RESULTS], list):
-                            for gr in d[_IDX_GUARD_RESULTS]:
+                        detail["observation"] = {
+                            "joint_positions": obs_joint_positions
+                            if isinstance(obs_joint_positions, list)
+                            else [],
+                            "obs_timestamp": d[_IDX_OBS_TIMESTAMP]
+                            if arr_len > _IDX_OBS_TIMESTAMP
+                            else None,
+                        }
+                        detail["action"] = {
+                            "target_positions": action_positions
+                            if isinstance(action_positions, list)
+                            else [],
+                            "was_clamped": d[_IDX_WAS_CLAMPED]
+                            if arr_len > _IDX_WAS_CLAMPED
+                            else False,
+                        }
+                        if isinstance(guard_results, list):
+                            for gr in guard_results:
                                 if isinstance(gr, list) and len(gr) >= _IDX_GR_LATENCY_MS + 1:
                                     detail["guard_results"].append(
                                         {
@@ -778,10 +813,8 @@ class McapSessionService:
                                             else None,
                                         }
                                     )
-                        if arr_len > _IDX_LATENCY_LAYERS and isinstance(
-                            d[_IDX_LATENCY_LAYERS], dict
-                        ):
-                            detail["latency"] = dict(d[_IDX_LATENCY_LAYERS])
+                        if isinstance(latency_layers, dict):
+                            detail["latency"] = dict(latency_layers)
                     elif topic == "/dam/obs":
                         detail["observation"] = {
                             "joint_positions": d.get("joint_positions", []),

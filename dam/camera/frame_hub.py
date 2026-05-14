@@ -18,9 +18,23 @@ logger = logging.getLogger(__name__)
 
 _RustImageHub: Any
 try:
-    from dam_rs import ImageHub as _RustImageHub
-except ImportError:
-    _RustImageHub = None
+    import dam_rs  # type: ignore[import-not-found]
+except ImportError as exc:
+    raise ImportError(
+        "dam_rs.ImageHub is required for DAM 0.4.0 camera recording/live preview. "
+        "Run make setup or cd dam-rust/dam-py && maturin develop --release in the "
+        "same Python environment used by make run."
+    ) from exc
+
+_RustImageHub = getattr(dam_rs, "ImageHub", None)
+if _RustImageHub is None:
+    _dam_rs_path = getattr(dam_rs, "__file__", "unknown")
+    raise ImportError(
+        "dam_rs.ImageHub is required for DAM 0.4.0 camera recording/live preview. "
+        f"The imported dam_rs at {_dam_rs_path!r} does not provide it. "
+        "Rebuild the Rust extension in the same Python environment used by make run: "
+        "cd dam-rust/dam-py && maturin develop --release"
+    )
 
 
 @dataclass(frozen=True)
@@ -39,11 +53,7 @@ class CameraFrameHub:
         self._latest: dict[str, ImageFrame] = {}
         self._latest_arrays: dict[str, Any] = {}
         self._lock = threading.Lock()
-        self._rust_hub = _RustImageHub(self._window_sec) if _RustImageHub is not None else None
-        if self._rust_hub is None:
-            logger.warning(
-                "CameraFrameHub: dam_rs.ImageHub unavailable; using Python fallback image cache"
-            )
+        self._rust_hub = _RustImageHub(self._window_sec)
 
     def put_frame(
         self,
@@ -93,10 +103,7 @@ class CameraFrameHub:
             self._trim_locked(timestamp)
 
     def latest_jpegs(self) -> dict[str, bytes]:
-        if self._rust_hub is not None:
-            return {name: bytes(data) for name, _ts, _w, _h, data in self._rust_hub.latest_all()}
-        with self._lock:
-            return {name: frame.jpeg for name, frame in self._latest.items()}
+        return {name: bytes(data) for name, _ts, _w, _h, data in self._rust_hub.latest_all()}
 
     def latest_arrays(self) -> dict[str, Any]:
         with self._lock:
@@ -116,8 +123,12 @@ class CameraFrameHub:
         window_sec: float,
         capture_images_on_clamp: bool,
     ) -> None:
-        if self._rust_hub is None or not hasattr(writer, "attach_image_hub"):
-            return
+        if not hasattr(writer, "attach_image_hub"):
+            raise RuntimeError(
+                "dam_rs.McapWriter.attach_image_hub is required for DAM 0.4.0. "
+                "The loaded dam_rs extension is stale; rebuild it with make setup or "
+                "cd dam-rust/dam-py && maturin develop --release."
+            )
         writer.attach_image_hub(
             self._rust_hub,
             float(window_sec),

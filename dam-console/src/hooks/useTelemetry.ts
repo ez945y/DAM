@@ -282,6 +282,10 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
           gVersion++
         }
 
+        if (gProcessedIds.has(cycle.cycle_id)) {
+          return
+        }
+
         const isNewer = cycle.cycle_id > (gLatestCycle?.cycle_id ?? -1)
         if (isNewer) {
           gLatestCycle = cycle

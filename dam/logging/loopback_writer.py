@@ -172,8 +172,8 @@ def _record_to_dict(
             }
         )
 
-    # Images intentionally stay out of the cycle payload. The Rust writer
-    # snapshots the shared image hub when a violation/clamp cycle arrives.
+    # Images intentionally stay out of the Python cycle payload. The Rust
+    # writer snapshots the shared ImageHub when a violation/clamp cycle arrives.
 
     result = {
         "cycle_id": rec.cycle_id,
