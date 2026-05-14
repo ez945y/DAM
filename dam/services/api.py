@@ -77,6 +77,7 @@ def create_app(services: ServiceContainer | None = None) -> Any:
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
 
+    from dam import __version__
     from dam.services.routers import (
         create_boundaries_router,
         create_control_router,
@@ -90,7 +91,7 @@ def create_app(services: ServiceContainer | None = None) -> Any:
     app = FastAPI(
         title="DAM Console API",
         description="Detachable Action Monitor — Runtime REST + WebSocket API",
-        version="0.3.0",
+        version=__version__,
     )
     app.add_middleware(
         CORSMiddleware,

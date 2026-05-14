@@ -23,6 +23,7 @@ use pyo3::types::PyBytes;
 use action_bus::ActionBus as RustActionBus;
 use image_writer::ImageWriter as RustImageWriter;
 use mcap_writer::CycleRecordData;
+use mcap_writer::ImageHub as RustImageHub;
 use mcap_writer::McapWriter as RustMcapWriter;
 use metric_bus::MetricBus as RustMetricBus;
 use observation_bus::ObservationBus as RustObsBus;
@@ -496,7 +497,71 @@ impl ImageWriter {
     }
 }
 
-// ── McapWriter ─────────────────────────────────────────────────────────────
+// ── ImageHub / McapWriter ──────────────────────────────────────────────────
+
+#[pyclass]
+struct ImageHub {
+    inner: RustImageHub,
+}
+
+#[pymethods]
+impl ImageHub {
+    #[new]
+    fn new(window_sec: f64) -> Self {
+        ImageHub {
+            inner: RustImageHub::new(window_sec),
+        }
+    }
+
+    fn submit_jpeg(&self, camera_name: &str, timestamp: f64, width: u32, height: u32, data: &[u8]) {
+        self.inner.submit_jpeg(
+            camera_name.to_string(),
+            timestamp,
+            width,
+            height,
+            data.to_vec(),
+        );
+    }
+
+    fn latest_jpeg<'py>(
+        &self,
+        py: Python<'py>,
+        camera_name: &str,
+    ) -> Option<(String, f64, u32, u32, Bound<'py, PyBytes>)> {
+        self.inner.latest_for(camera_name).map(|frame| {
+            (
+                frame.camera_name,
+                frame.timestamp,
+                frame.width,
+                frame.height,
+                PyBytes::new_bound(py, &frame.data),
+            )
+        })
+    }
+
+    fn latest_all<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> Vec<(String, f64, u32, u32, Bound<'py, PyBytes>)> {
+        self.inner
+            .latest_all()
+            .into_iter()
+            .map(|frame| {
+                (
+                    frame.camera_name,
+                    frame.timestamp,
+                    frame.width,
+                    frame.height,
+                    PyBytes::new_bound(py, &frame.data),
+                )
+            })
+            .collect()
+    }
+
+    fn __repr__(&self) -> String {
+        "ImageHub(rust)".to_string()
+    }
+}
 
 /// High-performance MCAP writer for DAM cycle records.
 ///
@@ -562,6 +627,16 @@ impl McapWriter {
             Ok(seq) => Ok(seq),
             Err(e) => Err(pyo3::exceptions::PyRuntimeError::new_err(e)),
         }
+    }
+
+    fn attach_image_hub(
+        &self,
+        image_hub: &ImageHub,
+        window_sec: f64,
+        capture_images_on_clamp: bool,
+    ) {
+        self.inner
+            .attach_image_hub(image_hub.inner.clone(), window_sec, capture_images_on_clamp);
     }
 
     /// Get the current sequence counter.
@@ -677,12 +752,14 @@ impl SerializerBus {
 
 #[pymodule]
 fn dam_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add_class::<ObservationBus>()?;
     m.add_class::<WatchdogTimer>()?;
     m.add_class::<RiskController>()?;
     m.add_class::<MetricBus>()?;
     m.add_class::<ActionBus>()?;
     m.add_class::<ImageWriter>()?;
+    m.add_class::<ImageHub>()?;
     m.add_class::<McapWriter>()?;
     m.add_class::<SerializerBus>()?;
     Ok(())

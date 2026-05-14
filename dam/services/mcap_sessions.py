@@ -37,10 +37,10 @@ _MCAP_MAGIC_SIZE = 8
 
 # Rust msgpack format metadata - CycleRecordData array indices
 # Structure: [cycle_id, obs_timestamp, has_violation, has_clamp, violated_layer_mask,
-#            clamped_layer_mask, active_task, active_boundaries, obs_joint_positions,
-#            obs_channels, action_positions, action_velocities, validated_positions,
-#            validated_velocities, was_clamped, fallback_triggered, guard_results,
-#            latency_stages, latency_layers, latency_guards, image_data]
+#            clamped_layer_mask, active_task, active_boundaries, active_cameras,
+#            obs_joint_positions, obs_channels, action_positions, action_velocities,
+#            validated_positions, validated_velocities, was_clamped, fallback_triggered,
+#            guard_results, latency_stages, latency_layers, latency_guards, image_data]
 _IDX_CYCLE = 0
 _IDX_OBS_TIMESTAMP = 1
 _IDX_HAS_VIOLATION = 2
@@ -49,13 +49,14 @@ _IDX_VIOLATED_LAYER_MASK = 4
 _IDX_CLAMPED_LAYER_MASK = 5
 _IDX_ACTIVE_TASK = 6
 _IDX_ACTIVE_BOUNDARIES = 7
-_IDX_OBS_JOINT_POSITIONS = 8
-_IDX_OBS_CHANNELS = 9
-_IDX_ACTION_POSITIONS = 10
-_IDX_WAS_CLAMPED = 14
-_IDX_GUARD_RESULTS = 16
-_IDX_LATENCY_STAGES = 17
-_IDX_LATENCY_LAYERS = 18
+_IDX_ACTIVE_CAMERAS = 8
+_IDX_OBS_JOINT_POSITIONS = 9
+_IDX_OBS_CHANNELS = 10
+_IDX_ACTION_POSITIONS = 11
+_IDX_WAS_CLAMPED = 15
+_IDX_GUARD_RESULTS = 17
+_IDX_LATENCY_STAGES = 18
+_IDX_LATENCY_LAYERS = 19
 
 # GuardResult array indices (within guard_results list)
 # Structure: [cycle_id, timestamp, guard_name, layer, layer_int, decision, reason, latency_ms, is_violation, is_clamp, fault_source]
@@ -625,7 +626,6 @@ class McapSessionService:
                 # The old -1 s window was pulling in ~15 cycles of guard messages.
                 _half = 200_000_000  # 200 ms in ns
                 msg_iter = reader.iter_messages(
-                    topics=list(_DETAIL_TOPICS),
                     start_time=target_ts_ns - _half if target_ts_ns else None,
                     end_time=target_ts_ns + _half if target_ts_ns else None,
                     log_time_order=False,
@@ -643,20 +643,31 @@ class McapSessionService:
                         continue
 
                     topic = channel.topic
+                    if topic.startswith(_TOPIC_IMAGES_PREFIX):
+                        cam_name = topic.split(_TOPIC_IMAGES_PREFIX, 1)[1]
+                        detail["cameras"][cam_name] = {
+                            "frame_idx": msg.sequence,
+                            "timestamp_ns": msg.log_time,
+                        }
+                        continue
+
+                    if topic not in _DETAIL_TOPICS:
+                        continue
+
                     msg_cid = d[0]
                     if msg_cid != cycle_id:
                         continue
 
                     if topic == _TOPIC_CYCLE:
                         found = True
-                        # Rust msgpack format (array, 21 elements):
+                        # Rust msgpack format (array, 22 elements):
                         # [0]cycle_id [1]obs_timestamp [2]has_violation [3]has_clamp
                         # [4]violated_layer_mask [5]clamped_layer_mask [6]active_task
-                        # [7]active_boundaries [8]obs_joint_positions [9]obs_channels
-                        # [10]action_positions [11]action_velocities [12]validated_positions
-                        # [13]validated_velocities [14]was_clamped [15]fallback_triggered
-                        # [16]guard_results [17]latency_stages [18]latency_layers
-                        # [19]latency_guards [20]image_data
+                        # [7]active_boundaries [8]active_cameras [9]obs_joint_positions
+                        # [10]obs_channels [11]action_positions [12]action_velocities
+                        # [13]validated_positions [14]validated_velocities [15]was_clamped
+                        # [16]fallback_triggered [17]guard_results [18]latency_stages
+                        # [19]latency_layers [20]latency_guards [21]image_data
                         arr_len = len(d)
 
                         detail.update(
@@ -690,6 +701,9 @@ class McapSessionService:
                                 else None,
                                 "active_boundaries": d[_IDX_ACTIVE_BOUNDARIES]
                                 if arr_len > _IDX_ACTIVE_BOUNDARIES
+                                else [],
+                                "active_cameras": d[_IDX_ACTIVE_CAMERAS]
+                                if arr_len > _IDX_ACTIVE_CAMERAS
                                 else [],
                                 "source_ms": d[_IDX_LATENCY_STAGES].get("source", 0.0)
                                 if arr_len > _IDX_LATENCY_STAGES
@@ -810,9 +824,6 @@ class McapSessionService:
                                 "fault_source": d.get("fault_source"),
                             }
                         )
-                    elif topic.startswith("/dam/camera/"):
-                        detail["cameras"][topic.split("/")[-1]] = {"frame_idx": msg.sequence}
-
         except (EndOfFile, McapError):
             logger.debug(
                 "McapSessionService: partial read for cycle %d (session writing)", cycle_id

@@ -33,8 +33,15 @@ class LeRobotRunner(RuntimeLoopRunner):
         runtime: GuardRuntime,
         control_frequency_hz: float = 30.0,
         robot: Any | None = None,
+        frame_hub: Any | None = None,
+        auxiliary_sources: dict[str, Any] | None = None,
     ) -> None:
-        super().__init__(runtime, control_frequency_hz=control_frequency_hz)
+        super().__init__(
+            runtime,
+            control_frequency_hz=control_frequency_hz,
+            frame_hub=frame_hub,
+            auxiliary_sources=auxiliary_sources,
+        )
         self._robot = robot
 
     def shutdown(self) -> None:
@@ -57,9 +64,9 @@ class LeRobotRunner(RuntimeLoopRunner):
         The robot is connected immediately.  Call ``runner.stop()`` to
         disconnect cleanly.
         """
+        from dam.adapter.lerobot.adapter import LeRobotAdapter
         from dam.adapter.lerobot.builder import LeRobotBuilder
         from dam.adapter.lerobot.policy import LeRobotPolicyAdapter
-        from dam.adapter.lerobot.adapter import LeRobotAdapter
         from dam.config.loader import StackfileLoader
         from dam.runtime.guard_runtime import GuardRuntime
 
@@ -116,7 +123,6 @@ class LeRobotRunner(RuntimeLoopRunner):
             control_frequency_hz=hz,
         )
 
-
     # ── Runtime control ────────────────────────────────────────────────────
 
     def connect(self) -> None:
@@ -124,9 +130,15 @@ class LeRobotRunner(RuntimeLoopRunner):
         for src in self._runtime._sources.values():
             if hasattr(src, "connect"):
                 src.connect()
+        for src in self._auxiliary_sources.values():
+            if hasattr(src, "connect"):
+                src.connect()
 
     def verify(self) -> None:
         for src in self._runtime._sources.values():
+            if hasattr(src, "verify"):
+                src.verify()
+        for src in self._auxiliary_sources.values():
             if hasattr(src, "verify"):
                 src.verify()
 

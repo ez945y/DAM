@@ -832,6 +832,9 @@ hardware:
       height: 480
       fps: 30
 
+  # OpenCV 相機欄位是 source-level 設定。不要把相機裝置設定放進
+  # params；params 只給 boundary/guard 配置使用。
+
   # Sinks：驗證後的動作去向。
   sinks:
     follower_command:

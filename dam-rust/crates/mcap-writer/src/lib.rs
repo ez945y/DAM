@@ -4,12 +4,12 @@
 //! which drops data into channel and returns immediately. Background thread handles
 //! all serialization and MCAP file I/O.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -29,6 +29,8 @@ pub struct CycleRecordData {
     pub clamped_layer_mask: u32,
     pub active_task: Option<String>,
     pub active_boundaries: Vec<String>,
+    #[serde(default)]
+    pub active_cameras: Vec<String>,
     pub obs_joint_positions: Vec<f64>,
     /// Generic per-channel observation data (joint_velocities, end_effector_pose,
     /// force_torque, current, temperature, …).  Channel names are device-specific.
@@ -74,10 +76,98 @@ pub struct ImageData {
     pub data: Vec<u8>,
 }
 
+#[derive(Clone)]
+pub struct ImageHub {
+    inner: Arc<Mutex<ImageHubInner>>,
+}
+
+struct ImageHubInner {
+    window_sec: f64,
+    frames: VecDeque<ImageData>,
+    latest: HashMap<String, ImageData>,
+}
+
+impl ImageHub {
+    pub fn new(window_sec: f64) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(ImageHubInner {
+                window_sec: window_sec.max(0.1),
+                frames: VecDeque::new(),
+                latest: HashMap::new(),
+            })),
+        }
+    }
+
+    pub fn submit_jpeg(
+        &self,
+        camera_name: impl Into<String>,
+        timestamp: f64,
+        width: u32,
+        height: u32,
+        data: Vec<u8>,
+    ) {
+        if data.is_empty() {
+            return;
+        }
+        let frame = ImageData {
+            camera_name: camera_name.into(),
+            timestamp,
+            width,
+            height,
+            data,
+        };
+        let mut inner = self.inner.lock().expect("ImageHub lock poisoned");
+        let should_update_latest = inner
+            .latest
+            .get(&frame.camera_name)
+            .map(|latest| frame.timestamp >= latest.timestamp)
+            .unwrap_or(true);
+        if should_update_latest {
+            inner
+                .latest
+                .insert(frame.camera_name.clone(), frame.clone());
+        }
+        inner.frames.push_back(frame);
+        trim_image_hub_locked(&mut inner, timestamp);
+    }
+
+    pub fn latest_all(&self) -> Vec<ImageData> {
+        let inner = self.inner.lock().expect("ImageHub lock poisoned");
+        inner.latest.values().cloned().collect()
+    }
+
+    pub fn latest_for(&self, camera_name: &str) -> Option<ImageData> {
+        let inner = self.inner.lock().expect("ImageHub lock poisoned");
+        inner.latest.get(camera_name).cloned()
+    }
+
+    pub fn frames_between(&self, start: f64, end: f64) -> Vec<ImageData> {
+        let inner = self.inner.lock().expect("ImageHub lock poisoned");
+        inner
+            .frames
+            .iter()
+            .filter(|frame| frame.timestamp >= start && frame.timestamp <= end)
+            .cloned()
+            .collect()
+    }
+
+    pub fn latest_window(&self, end: f64, window_sec: f64) -> Vec<ImageData> {
+        self.frames_between(end - window_sec.max(0.0), end)
+    }
+}
+
+#[derive(Clone)]
+struct ImageHubAttachment {
+    hub: ImageHub,
+    window_sec: f64,
+    capture_images_on_clamp: bool,
+}
+
 pub struct McapWriter {
     sender: Sender<WorkItem>,
     sequence: Arc<AtomicU64>,
     started: Arc<AtomicBool>,
+    image_hub: Arc<Mutex<Option<ImageHubAttachment>>>,
 }
 
 enum WorkItem {
@@ -91,11 +181,13 @@ impl McapWriter {
         let (tx, rx) = bounded::<WorkItem>(1024);
         let sequence = Arc::new(AtomicU64::new(0));
         let started = Arc::new(AtomicBool::new(false));
+        let image_hub = Arc::new(Mutex::new(None));
         let sequence_for_py = Arc::clone(&sequence);
         let started_for_py = Arc::clone(&started);
+        let image_hub_for_worker = Arc::clone(&image_hub);
 
         thread::spawn(move || {
-            if let Err(e) = run_worker(rx, sequence) {
+            if let Err(e) = run_worker(rx, sequence, image_hub_for_worker) {
                 log::error!("McapWriter worker failed: {}", e);
             }
         });
@@ -104,6 +196,7 @@ impl McapWriter {
             sender: tx,
             sequence: sequence_for_py,
             started: started_for_py,
+            image_hub,
         })
     }
 
@@ -128,6 +221,18 @@ impl McapWriter {
         Ok(seq)
     }
 
+    pub fn attach_image_hub(&self, hub: ImageHub, window_sec: f64, capture_images_on_clamp: bool) {
+        let mut image_hub = self
+            .image_hub
+            .lock()
+            .expect("McapWriter image hub lock poisoned");
+        *image_hub = Some(ImageHubAttachment {
+            hub,
+            window_sec: window_sec.max(0.0),
+            capture_images_on_clamp,
+        });
+    }
+
     pub fn current_sequence(&self) -> u64 {
         self.sequence.load(Ordering::SeqCst)
     }
@@ -142,6 +247,7 @@ impl Drop for McapWriter {
 fn run_worker(
     rx: crossbeam::channel::Receiver<WorkItem>,
     sequence: Arc<AtomicU64>,
+    image_hub: Arc<Mutex<Option<ImageHubAttachment>>>,
 ) -> Result<(), String> {
     let mut mcap: Option<McapWriterInner<BufWriter<File>>> = None;
     let sequence_for_mcap = Arc::clone(&sequence);
@@ -168,6 +274,7 @@ fn run_worker(
             }
             Ok(WorkItem::Cycle(record)) => {
                 if let Some(ref mut m) = mcap {
+                    let record = enrich_record_with_images(*record, &image_hub);
                     if let Err(e) = process_cycle(m, &sequence_for_mcap, &record) {
                         log::error!("Failed to process cycle {}: {}", record.cycle_id, e);
                     }
@@ -189,6 +296,43 @@ fn run_worker(
     }
     log::info!("McapWriter worker stopped");
     Ok(())
+}
+
+fn enrich_record_with_images(
+    mut record: CycleRecordData,
+    image_hub: &Arc<Mutex<Option<ImageHubAttachment>>>,
+) -> CycleRecordData {
+    if !record.image_data.is_empty() {
+        return record;
+    }
+    let attachment = image_hub
+        .lock()
+        .expect("McapWriter image hub lock poisoned")
+        .clone();
+    let Some(attachment) = attachment else {
+        return record;
+    };
+    let want_images =
+        record.has_violation || (attachment.capture_images_on_clamp && record.has_clamp);
+    if !want_images {
+        return record;
+    }
+    record.image_data = attachment
+        .hub
+        .latest_window(record.obs_timestamp, attachment.window_sec);
+    record
+}
+
+fn trim_image_hub_locked(inner: &mut ImageHubInner, now: f64) {
+    let min_ts = now - inner.window_sec;
+    while inner
+        .frames
+        .front()
+        .map(|frame| frame.timestamp < min_ts)
+        .unwrap_or(false)
+    {
+        inner.frames.pop_front();
+    }
 }
 
 fn process_cycle<W: std::io::Write + std::io::Seek>(
@@ -277,6 +421,7 @@ mod tests {
             clamped_layer_mask: 0,
             active_task: None,
             active_boundaries: vec![],
+            active_cameras: vec![],
             obs_joint_positions: vec![0.0; 7],
             obs_channels: HashMap::new(),
             action_positions: vec![0.0; 7],

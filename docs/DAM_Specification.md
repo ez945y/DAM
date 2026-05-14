@@ -865,6 +865,9 @@ hardware:
       height: 480
       fps: 30
 
+  # OpenCV camera fields are source-level settings. Do not put camera
+  # device settings under params; params is for boundaries/guards.
+
   # Sinks: where validated actions go.
   sinks:
     follower_command:

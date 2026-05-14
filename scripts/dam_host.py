@@ -13,6 +13,7 @@ import sys
 import tempfile
 import textwrap
 import threading
+import time
 import warnings
 
 # Suppress benign resource_tracker warning: a single semaphore from the hardware
@@ -129,7 +130,8 @@ def main() -> None:
 
                 # Instrumentation
                 def step_wrapper(orig_step: Callable[[], Any]) -> Callable[[], Any]:
-                    _state = {"warn_count": 0, "ok_logged": False}
+                    _state = {"warn_count": 0, "ok_logged": False, "last_live_t": 0.0}
+                    live_interval_s = 1.0 / 5.0
 
                     def _instrumented() -> Any:
                         res = orig_step()
@@ -138,7 +140,9 @@ def main() -> None:
                         # connected — avoids JPEG encoding on every cycle otherwise.
                         live_imgs: dict[str, bytes] | None = None
                         n_subs = telemetry.subscriber_count
-                        if n_subs > 0:
+                        now = time.monotonic()
+                        if n_subs > 0 and now - _state["last_live_t"] >= live_interval_s:
+                            _state["last_live_t"] = now
                             try:
                                 live_imgs = runner.get_latest_images()
                             except Exception:

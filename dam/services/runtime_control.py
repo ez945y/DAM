@@ -45,6 +45,7 @@ class RuntimeControlService:
         self._runner: BaseRunner | None = None
         self._config: StackfileConfig | None = None
         self._stack_path: str | None = None
+        self._ros2_node: Any = None
         self._post_step_wrapper: Callable[[Callable], Callable] | None = None
         self._state = RuntimeState.IDLE
         self._backend_state = BackendState.LOADING
@@ -116,6 +117,7 @@ class RuntimeControlService:
         """Build and attach a complete Runner from config via RuntimeFactory."""
         from dam.runtime.factory import RuntimeFactory
 
+        self._ros2_node = ros2_node
         runner = RuntimeFactory.build_from_config(config, ros2_node=ros2_node)
         self.apply_config(config)
         self.attach_runner(runner, stack_path)
@@ -125,6 +127,7 @@ class RuntimeControlService:
         """Load config, build a complete Runner, and attach it to the service."""
         from dam.runtime.factory import RuntimeFactory
 
+        self._ros2_node = ros2_node
         config = RuntimeFactory.load_config(stack_path)
         self.set_stack_path(stack_path)
         return self.build_runner_from_config(config, stack_path=stack_path, ros2_node=ros2_node)
@@ -387,7 +390,7 @@ class RuntimeControlService:
                         logger.debug("Old runner shutdown failed: %s", e)
 
             # 2. Build new runner
-            new_runner = RuntimeFactory.build_from_stackfile(path)
+            new_runner = RuntimeFactory.build_from_stackfile(path, ros2_node=self._ros2_node)
 
             # 3. Attach and Connect
             self.attach_runner(new_runner, path)

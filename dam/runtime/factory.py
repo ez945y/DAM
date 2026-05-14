@@ -96,12 +96,16 @@ class RuntimeFactory:
     def _build_lerobot(config: StackfileConfig) -> BaseRunner:
         from dam.adapter.lerobot.builder import LeRobotBuilder
         from dam.adapter.lerobot.policy import LeRobotPolicyAdapter
+        from dam.camera.frame_hub import CameraFrameHub
         from dam.runner.lerobot import LeRobotRunner
         from dam.runtime.guard_runtime import GuardRuntime
 
         assert config.hardware is not None
-        runtime = GuardRuntime._from_config(config)  # reuse already-parsed config
         hz = config.safety.control_frequency_hz if config.safety else 30.0
+        frame_hub = CameraFrameHub(
+            window_sec=config.loopback.window_sec if config.loopback else 10.0
+        )
+        runtime = GuardRuntime._from_config(config, frame_hub=frame_hub)
 
         # Identify main source name (the first motor/lerobot-typed one)
         main_name = "arm"
@@ -121,6 +125,7 @@ class RuntimeFactory:
 
         # Build adapter
         from dam.adapter.lerobot.adapter import LeRobotAdapter
+
         adapter = LeRobotAdapter(
             robot,
             joint_names=builder.joint_names,
@@ -154,6 +159,7 @@ class RuntimeFactory:
             runtime.register_policy(policy)
 
         # ── DISCOVER OTHER SOURCES (e.g. External OpenCV Cameras) ───────
+        auxiliary_sources: dict[str, Any] = {}
         if config.hardware.sources:
             for name, src_cfg in config.hardware.sources.items():
                 if name == main_name:
@@ -163,9 +169,19 @@ class RuntimeFactory:
                 if type_str in supported:
                     continue  # observation channel, handled above
                 if type_str in ("opencv", "camera", "usb"):
+                    extra = src_cfg.model_extra or {}
+                    nested_params = extra.get("params")
+                    if isinstance(nested_params, dict) and any(
+                        key in nested_params
+                        for key in ("index", "index_or_path", "width", "height", "fps", "jpeg_fps")
+                    ):
+                        raise ValueError(
+                            f"OpenCV source '{name}' must declare camera fields at the source "
+                            "top level (for example index_or_path, width, height, fps), not "
+                            "under params."
+                        )
                     from dam.adapter.opencv.source import OpenCVSourceAdapter
 
-                    extra = src_cfg.model_extra or {}
                     idx: int | str = (
                         extra.get("index_or_path")
                         or extra.get("index")
@@ -175,17 +191,25 @@ class RuntimeFactory:
                     )
                     width = extra.get("width")
                     height = extra.get("height")
+                    fps = float(extra.get("fps") or extra.get("jpeg_fps") or 30.0)
 
                     cam_adapter = OpenCVSourceAdapter(
                         index=idx,
                         name=name,
                         width=width,
                         height=height,
+                        jpeg_fps=fps,
+                        frame_hub=frame_hub,
                     )
-                    runtime.register_source(name, cam_adapter)
-                    logger.info("Registered extra source: %s (type=%s)", name, type_str)
+                    auxiliary_sources[name] = cam_adapter
+                    logger.info("Registered camera source: %s (type=%s)", name, type_str)
 
-        return LeRobotRunner(runtime=runtime, control_frequency_hz=hz)
+        return LeRobotRunner(
+            runtime=runtime,
+            control_frequency_hz=hz,
+            frame_hub=frame_hub,
+            auxiliary_sources=auxiliary_sources,
+        )
 
     @staticmethod
     def _build_ros2(config: StackfileConfig, *, ros2_node: Any = None) -> BaseRunner:

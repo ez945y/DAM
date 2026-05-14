@@ -5,7 +5,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from dam.runner.base import RuntimeLoopRunner
 from dam.types.risk import CycleResult
@@ -59,7 +59,7 @@ class ROS2Runner(RuntimeLoopRunner):
 
     def step(self) -> CycleResult:
         """Execute one control cycle via the runtime."""
-        return super().step()
+        return cast(CycleResult, super().step())
 
     # ── BaseRunner abstract methods ────────────────────────────────────────
 

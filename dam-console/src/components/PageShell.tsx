@@ -26,16 +26,18 @@ export function PageShell({ title, subtitle, children }: PageShellProps) {
   // Keep stable refs so the idle-reset effect never needs the whole tele object
   // as a dependency (tele is a new object every 500 ms due to the throttle timer).
   const teleResetRef = React.useRef(tele.reset)
-  const teleReconnectRef = React.useRef(tele.reconnect)
   teleResetRef.current = tele.reset
-  teleReconnectRef.current = tele.reconnect
 
-  // Reset telemetry on system idle to ensure fresh state for next run.
-  // Only re-runs when status.state changes — not on every telemetry tick.
+  const prevStateRef = React.useRef(status.state)
+
+  // Reset telemetry only on an actual transition into idle. A page switch
+  // remounts PageShell while the backend may already be idle; resetting there
+  // causes WS history replay to be counted again as fresh checks.
   React.useEffect(() => {
-    if (status.state === 'idle') {
+    const prev = prevStateRef.current
+    prevStateRef.current = status.state
+    if (status.state === 'idle' && prev !== 'idle') {
       teleResetRef.current()
-      teleReconnectRef.current()
     }
   }, [status.state])
 

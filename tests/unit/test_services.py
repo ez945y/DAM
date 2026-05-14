@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import time
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 
+from dam.runner.base import RunnerStatus, SimulationRunner
 from dam.services.boundary_config import BoundaryConfigService
 from dam.services.risk_log import RiskLogService
 from dam.services.runtime_control import BackendState, RuntimeControlService, RuntimeState
 from dam.services.telemetry import TelemetryService, _serialise_cycle
-from dam.runner.base import SimulationRunner
 from dam.types.action import ActionProposal
 from dam.types.risk import CycleResult, RiskLevel
 
@@ -569,3 +569,92 @@ class TestRuntimeControlService:
         svc = RuntimeControlService()
         with pytest.raises(RuntimeError, match="No Runner"):
             svc.start()
+
+    def test_runner_start_failure_rolls_back_status(self):
+        rt = self._mock_runtime()
+        rt.start_task.side_effect = ValueError("unknown task")
+        runner = self._mock_runner(rt)
+
+        with pytest.raises(ValueError, match="unknown task"):
+            runner.start("missing")
+
+        assert runner.status == RunnerStatus.IDLE
+        assert runner.error == "unknown task"
+
+    def test_recheck_preserves_ros2_node(self, monkeypatch, tmp_path):
+        import importlib
+
+        import yaml
+
+        from dam.runtime.factory import RuntimeFactory
+
+        path = tmp_path / "ros2.yaml"
+        path.write_text(
+            yaml.safe_dump(
+                {
+                    "version": "1",
+                    "hardware": {
+                        "preset": "generic_6dof",
+                        "sources": {"arm": {"type": "ros2", "topic": "/joint_states"}},
+                        "sinks": {"cmd": {"ref": "sources.arm", "topic": "/cmd"}},
+                    },
+                    "guards": [],
+                    "tasks": {"default": {"description": "", "boundaries": []}},
+                    "boundaries": {},
+                }
+            )
+        )
+
+        node = object()
+        captured: dict[str, object] = {}
+        new_runner = MagicMock()
+
+        def fake_build_from_stackfile(stack_path: str, *, ros2_node=None):
+            captured["stack_path"] = stack_path
+            captured["ros2_node"] = ros2_node
+            return new_runner
+
+        monkeypatch.setattr(importlib, "reload", lambda module: module)
+        monkeypatch.setattr(
+            RuntimeFactory,
+            "build_from_stackfile",
+            staticmethod(fake_build_from_stackfile),
+        )
+
+        svc = RuntimeControlService()
+        svc._ros2_node = node
+        assert svc.recheck_hardware(str(path)) is True
+
+        assert captured["stack_path"] == str(path)
+        assert captured["ros2_node"] is node
+        new_runner.connect.assert_called_once()
+        new_runner.verify.assert_called_once()
+
+    def test_opencv_source_rejects_camera_fields_under_params(self):
+        from dam.adapter.lerobot.builder import LeRobotBuilder
+        from dam.config.schema import StackfileConfig
+        from dam.runtime.factory import RuntimeFactory
+
+        cfg = StackfileConfig(
+            **{
+                "version": "1",
+                "hardware": {
+                    "preset": "generic_6dof",
+                    "sources": {
+                        "arm": {"type": "motor"},
+                        "top": {"type": "opencv", "params": {"index": 0}},
+                    },
+                    "sinks": {"cmd": {"ref": "sources.arm"}},
+                },
+                "guards": [],
+                "tasks": {"default": {"description": "", "boundaries": []}},
+                "boundaries": {},
+            }
+        )
+
+        with (
+            patch.object(LeRobotBuilder, "build_robot", return_value=object()),
+            patch.object(LeRobotBuilder, "build_policy", return_value=None),
+            pytest.raises(ValueError, match="source top level"),
+        ):
+            RuntimeFactory.build_from_config(cfg)

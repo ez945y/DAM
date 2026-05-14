@@ -272,6 +272,10 @@ hardware:
       ref: sources.follower_arm   # bidirectional — same robot instance
 ```
 
+OpenCV camera options are source-level fields. Put `index_or_path`, `width`, `height`,
+and `fps` directly under the camera source; `params:` is reserved for boundary and
+guard configuration.
+
 ### ROS2 example
 
 ```yaml

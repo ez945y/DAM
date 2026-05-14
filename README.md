@@ -97,15 +97,12 @@ The final decision is the **most restrictive** outcome from all active layers.
 
 ### Roadmap
 
-**v0.2.0 (Current focus)**
-- Complete ROS 2 adapter
-- Problem isolation and debugging tools
+**v0.4.0 (Current focus)**
+- Runner-owned runtime lifecycle and control loop
+- Image hub backed live preview and MCAP camera attachments
+- ROS2 runner recheck and node preservation
 
-**v0.3.0**
-- Formal safety specifications and threat modeling
-- Detailed performance benchmarks (latency, throughput, WCET)
-
-**v0.4.0**
+**v0.5.0**
 - More built-in boundary types
 - Domain-specific bundles (manipulation, mobile manipulation, etc.)
 - Extensive adversarial testing suite

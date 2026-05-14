@@ -46,6 +46,7 @@ class GuardRuntime:
         loopback_config: Any | None = None,  # Optional["LoopbackConfig"]
         kinematics_resolver: KinematicsResolver | None = None,
         boundary_to_kind: dict[str, str] | None = None,
+        frame_hub: Any | None = None,
     ) -> None:
         if always_active is None:
             always_active = []
@@ -90,6 +91,7 @@ class GuardRuntime:
         self._sink: Any = None
         self._kinematics_resolver = kinematics_resolver
         self._stages: list[Any] | None = None
+        self._frame_hub = frame_hub
 
         # ── Rust bus components (fall back to Python when dam_rs not compiled) ──
         # RiskController: windowed reject/clamp counter → RiskLevel
@@ -126,8 +128,8 @@ class GuardRuntime:
                 rotate_minutes=loopback_config.rotate_minutes,
                 max_queue_depth=loopback_config.max_queue_depth,
                 capture_images_on_clamp=loopback_config.capture_images_on_clamp,
+                frame_hub=frame_hub,
             )
-            self._loopback.start()
 
         # Hot reload double-buffer.  config_version is bumped on every
         # successful swap so MCAP readers can correlate cycles ↔ config.
@@ -201,6 +203,11 @@ class GuardRuntime:
     def register_source(self, name: str, source: Any) -> None:
         self._sources[name] = source
 
+    def set_frame_hub(self, frame_hub: Any | None) -> None:
+        self._frame_hub = frame_hub
+        if self._loopback is not None and hasattr(self._loopback, "set_frame_hub"):
+            self._loopback.set_frame_hub(frame_hub)
+
     def register_policy(self, policy: Any) -> None:
         self._policy = policy
 
@@ -215,6 +222,8 @@ class GuardRuntime:
         self._active_container_names = []
         self._node_start_times = {}
         self._cycle_id = 0  # Reset so HardwareGuard applies first-cycle grace period
+        if self._loopback is not None:
+            self._loopback.start()
         now = time.monotonic()
 
         # Determine all active boundaries (always_active + task boundaries)
@@ -319,6 +328,8 @@ class GuardRuntime:
         self._active_containers = []
         self._active_container_names = []
         self._node_start_times = {}
+        if self._loopback is not None:
+            self._loopback.shutdown()
 
     def advance_container(self, name: str) -> None:
         """Advance a named container to its next node and reset its start time."""
@@ -552,7 +563,11 @@ class GuardRuntime:
             raise RuntimeError("No hardware sources registered to GuardRuntime")
 
         obs = full_obs
-        self._obs_bus.write(obs)  # ring buffer for loopback / MCAP capture
+        if self._frame_hub is not None and hasattr(self._frame_hub, "latest_arrays"):
+            camera_images = self._frame_hub.latest_arrays()
+            if camera_images:
+                object.__setattr__(obs, "images", camera_images)
+        active_camera_names = tuple(obs.images.keys()) if obs.images else ()
         t_obs = time.monotonic()
 
         action: ActionProposal = self._policy.predict(obs)
@@ -575,6 +590,12 @@ class GuardRuntime:
                 self._sink.write(validated)  # backward-compat for non-ABC sinks
         t_sink = time.monotonic()
 
+        t_bus = time.monotonic()
+        if obs.images:
+            object.__setattr__(obs, "images", None)
+        self._obs_bus.write(obs)  # scalar observation ring buffer for loopback / MCAP capture
+        _obs_bus_ms = (time.monotonic() - t_bus) * 1000.0
+
         risk = self._compute_risk()
         self._cycle_id += 1
 
@@ -590,6 +611,7 @@ class GuardRuntime:
         self._metric_bus.push_stage("source", _src_ms)
         for _source_name, _source_ms in source_latencies.items():
             self._metric_bus.push_stage(f"source.{_source_name}", _source_ms)
+        self._metric_bus.push_stage("obs_bus", _obs_bus_ms)
         self._metric_bus.push_stage("policy", _policy_ms)
         self._metric_bus.push_stage("guards", _guard_ms)
         self._metric_bus.push_stage("sink", _sink_ms)
@@ -613,6 +635,7 @@ class GuardRuntime:
                     "sink": _sink_ms,
                     "total": _total_ms,
                 },
+                active_cameras=active_camera_names,
             )
 
         return CycleResult(
@@ -638,60 +661,23 @@ class GuardRuntime:
         )
 
     def get_latest_images(self) -> dict[str, bytes]:
-        """Return JPEG-compressed bytes for the most recent observation images.
+        """Return latest camera JPEGs for live preview.
 
-        Reads the last entry from the ObservationBus ring buffer and encodes
-        each camera frame as JPEG.  Returns an empty dict when no images are
-        available or when encoding fails.  Intended for live telemetry preview
-        only — not for archival; the loopback MCAP path handles that.
+        This is intentionally backed by the camera frame hub, not ObservationBus,
+        so live preview never forces images through the control-loop record path.
         """
-        try:
-            obs = self._obs_bus.read_latest()
-        except Exception:
-            logger.debug("get_latest_images: read_latest() failed", exc_info=True)
+        if self._frame_hub is None or not hasattr(self._frame_hub, "latest_jpegs"):
             return {}
-        if obs is None:
-            return {}
-        from dam.types.observation import Observation
-
-        if not isinstance(obs, Observation) or not obs.images:
+        result = self._frame_hub.latest_jpegs()
+        if not result:
             if not self._live_img_no_data_warned:
                 self._live_img_no_data_warned = True
                 logger.info(
-                    "get_latest_images: observation has no images "
-                    "(obs.images=%r, type=%s). "
+                    "get_latest_images: no cached camera images. "
                     "Camera images require a dataset with observation.images.* keys "
                     "or a real camera source (opencv/lerobot with cameras).",
-                    type(obs.images) if isinstance(obs, Observation) else "N/A",
-                    type(obs).__name__,
                 )
             return {}
-
-        result: dict[str, bytes] = {}
-        for cam_name, frame in obs.images.items():
-            # Pickle/unpickle through the Rust ring buffer may deserialise numpy
-            # arrays as nested lists — convert back to ndarray before encoding.
-            if not isinstance(frame, np.ndarray):
-                try:
-                    frame = np.asarray(frame, dtype=np.uint8)
-                except Exception:
-                    logger.debug(
-                        "get_latest_images: camera %r frame is not array-like: %r",
-                        cam_name,
-                        type(frame),
-                    )
-                    continue
-            if frame.size == 0:
-                continue
-            try:
-                from dam.logging.loopback_writer import _compress_image
-
-                jpeg_bytes, w, h, fmt = _compress_image(frame)
-                result[cam_name] = jpeg_bytes
-            except Exception:
-                logger.warning(
-                    "get_latest_images: failed to encode camera %r", cam_name, exc_info=True
-                )
         return result
 
     # ── Loopback helper ────────────────────────────────────────────────────
@@ -705,6 +691,7 @@ class GuardRuntime:
         fallback_triggered: str | None,
         trace_id: str,
         latency_stages: dict[str, float],
+        active_cameras: tuple[str, ...] = (),
     ) -> None:
         """Build a CycleRecord and enqueue it on the LoopbackWriter.
 
@@ -757,7 +744,7 @@ class GuardRuntime:
             triggered_at=time.monotonic(),
             active_task=self._active_task,
             active_boundaries=tuple(self._active_container_names),
-            active_cameras=tuple(obs.images.keys()) if obs.images else (),
+            active_cameras=active_cameras,
             obs_timestamp=obs.timestamp,
             obs_joint_positions=obs.joint_positions.tolist(),
             obs_channels=obs_channels,
@@ -778,13 +765,7 @@ class GuardRuntime:
             clamped_layer_mask=clamped_layer_mask,
             config_version=self._config_version,
         )
-        # Determine if we should capture images this cycle
-        want_images = obs.images is not None and (
-            has_violation or (self._loopback._capture_images_on_clamp and has_clamp)  # type: ignore[union-attr]
-        )
-        images = obs.images if want_images else None
-
-        self._loopback.submit(rec, images)  # type: ignore[union-attr]
+        self._loopback.submit(rec)  # type: ignore[union-attr]
 
     def _log_source_latency_if_slow(
         self,
@@ -885,7 +866,7 @@ class GuardRuntime:
         return cls._from_config(StackfileLoader.load(path))
 
     @classmethod
-    def _from_config(cls, config: StackfileConfig) -> GuardRuntime:
+    def _from_config(cls, config: StackfileConfig, frame_hub: Any | None = None) -> GuardRuntime:
         """Construct a GuardRuntime from an already-parsed StackfileConfig.
 
         Called by ``from_stackfile`` and by ``RuntimeFactory`` (which already
@@ -931,6 +912,7 @@ class GuardRuntime:
             loopback_config=config.loopback,
             kinematics_resolver=kinematics_resolver,
             boundary_to_kind=boundary_to_kind,
+            frame_hub=frame_hub,
         )
 
     @classmethod

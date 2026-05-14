@@ -61,9 +61,9 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
     # not in this map (velocity, load, …) still populate obs.channels but
     # don't surface in hardware_status — HardwareGuard skips those checks.
     _HEALTH_STATUS_KEYS: dict[str, tuple[str, str | None]] = {
-        "current":     ("currents",     "current_a"),
+        "current": ("currents", "current_a"),
         "temperature": ("temperatures", "temperature_c"),
-        "voltage":     ("voltages",     None),
+        "voltage": ("voltages", None),
     }
 
     def __init__(
@@ -269,15 +269,14 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
             self._lat["get_observation"] = (time.perf_counter() - t0) * 1000.0
 
             obs = self._convert(raw)
-            self._log_latency_throttled()
             return obs
         except Exception as e:
             logger.error("LeRobotAdapter hardware read failure: %s", e)
             return Observation(
                 timestamp=self._prev_time if self._prev_time is not None else time.monotonic(),
                 joint_positions=self._prev_positions
-                    if self._prev_positions is not None
-                    else np.zeros(len(self._joint_names), dtype=np.float64),
+                if self._prev_positions is not None
+                else np.zeros(len(self._joint_names), dtype=np.float64),
                 joint_velocities=self._prev_velocities,
                 end_effector_pose=self._prev_ee_pose,
                 images=self._prev_images.copy() if self._prev_images else None,
@@ -285,16 +284,6 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
                     "hardware_status": {"error_codes": [-1], "reason": f"Hardware read error: {e}"}
                 },
             )
-
-    def _log_latency_throttled(self) -> None:
-        """Log per-stage source-read latency once per second."""
-        now = time.monotonic()
-        if now - self._lat_log_t < 1.0:
-            return
-        self._lat_log_t = now
-        parts = " ".join(f"{k}={v:.1f}ms" for k, v in self._lat.items())
-        total = sum(self._lat.values())
-        logger.info("source read breakdown: %s total=%.1fms", parts, total)
 
     def _convert(self, raw: dict[str, Any]) -> Observation:
         if any(k.endswith(".pos") for k in raw):

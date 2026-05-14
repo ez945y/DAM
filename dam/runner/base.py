@@ -7,14 +7,14 @@ actual execution of the control loop.
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 import contextlib
 import logging
 import threading
 import time
+from abc import ABC, abstractmethod
 from collections.abc import Callable
 from enum import StrEnum
-from typing import Any
+from typing import Any, cast
 
 from dam.runtime.guard_runtime import GuardRuntime
 
@@ -85,8 +85,16 @@ class BaseRunner(ABC):
 class RuntimeLoopRunner(BaseRunner):
     """Base implementation for runners that own a GuardRuntime control loop."""
 
-    def __init__(self, runtime: GuardRuntime, control_frequency_hz: float = 30.0) -> None:
+    def __init__(
+        self,
+        runtime: GuardRuntime,
+        control_frequency_hz: float = 30.0,
+        frame_hub: Any | None = None,
+        auxiliary_sources: dict[str, Any] | None = None,
+    ) -> None:
         self._runtime = runtime
+        self._frame_hub = frame_hub
+        self._auxiliary_sources = dict(auxiliary_sources or {})
         self._control_frequency_hz = control_frequency_hz
         self._period_sec = 1.0 / control_frequency_hz
         self._status = RunnerStatus.IDLE
@@ -137,7 +145,7 @@ class RuntimeLoopRunner(BaseRunner):
         self._on_fault = on_fault
         self._on_finished = on_finished
 
-    def set_step_wrapper(self, wrapper: Callable[[Callable], Callable]) -> None:
+    def set_step_wrapper(self, wrapper: Callable[[Callable[[], Any]], Callable[[], Any]]) -> None:
         """Wrap the runner-owned step callable without exposing runtime.step to callers."""
         self._step_fn = wrapper(self._runtime.step)
 
@@ -160,7 +168,14 @@ class RuntimeLoopRunner(BaseRunner):
             self._active_task = task
             self._pause_event.set()
 
-        self._runtime.start_task(task)
+        try:
+            self._runtime.start_task(task)
+        except Exception as exc:
+            with self._lock:
+                self._status = RunnerStatus.IDLE
+                self._active_task = None
+                self._error = str(exc)
+            raise
         period_s = (cycle_budget_ms / 1000.0) if cycle_budget_ms is not None else self._period_sec
         self._run_thread = threading.Thread(
             target=self._run_loop,
@@ -227,6 +242,12 @@ class RuntimeLoopRunner(BaseRunner):
             self._runtime.stop_task()
         with contextlib.suppress(BaseException):
             self._runtime.shutdown()
+        for src in self._auxiliary_sources.values():
+            with contextlib.suppress(BaseException):
+                if hasattr(src, "disconnect"):
+                    src.disconnect()
+                elif hasattr(src, "shutdown"):
+                    src.shutdown()
         with self._lock:
             self._status = RunnerStatus.STOPPED
             self._active_task = None
@@ -237,8 +258,10 @@ class RuntimeLoopRunner(BaseRunner):
             loopback.force_rotate()
 
     def get_latest_images(self) -> dict[str, bytes]:
+        if self._frame_hub is not None and hasattr(self._frame_hub, "latest_jpegs"):
+            return cast(dict[str, bytes], self._frame_hub.latest_jpegs())
         if hasattr(self._runtime, "get_latest_images"):
-            return self._runtime.get_latest_images()
+            return cast(dict[str, bytes], self._runtime.get_latest_images())
         return {}
 
     @property
@@ -248,7 +271,7 @@ class RuntimeLoopRunner(BaseRunner):
     def metric_snapshot(self) -> dict[str, Any]:
         metric_bus = self.metric_bus
         if metric_bus is not None and hasattr(metric_bus, "snapshot"):
-            return metric_bus.snapshot()
+            return cast(dict[str, Any], metric_bus.snapshot())
         return {}
 
     @property
@@ -268,7 +291,9 @@ class RuntimeLoopRunner(BaseRunner):
         task_config = getattr(self._runtime, "_task_config", {}) or {}
         available_tasks = list(task_config.keys())
         planned_task = (
-            "default" if "default" in task_config else (available_tasks[0] if available_tasks else None)
+            "default"
+            if "default" in task_config
+            else (available_tasks[0] if available_tasks else None)
         )
         planned_boundaries = list(task_config.get(planned_task, [])) if planned_task else []
         active_task = getattr(self._runtime, "_active_task", None)
@@ -357,8 +382,6 @@ class RuntimeLoopRunner(BaseRunner):
                     final_status = self._status
             with contextlib.suppress(Exception):
                 self._runtime.stop_task()
-            with contextlib.suppress(Exception):
-                self.force_save_mcap()
             if self._on_finished is not None:
                 self._on_finished(final_status)
 
@@ -385,10 +408,16 @@ class SimulationRunner(RuntimeLoopRunner):
         for src in self._runtime._sources.values():
             if hasattr(src, "connect"):
                 src.connect()
+        for src in self._auxiliary_sources.values():
+            if hasattr(src, "connect"):
+                src.connect()
 
     def verify(self) -> None:
         # Verify all sources
         for src in self._runtime._sources.values():
+            if hasattr(src, "verify"):
+                src.verify()
+        for src in self._auxiliary_sources.values():
             if hasattr(src, "verify"):
                 src.verify()
 

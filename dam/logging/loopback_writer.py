@@ -10,8 +10,8 @@ performs all serialisation and disk I/O, keeping the hot path latency to
 Every cycle is written (not just violations).  Violations are flagged via
 ``has_violation`` / ``violated_layer_mask`` in ``/dam/cycle``; clamped
 actions via ``has_clamp`` / ``clamped_layer_mask``.  Images are fetched
-from the ObservationBus ring buffer on REJECT/FAULT (always) and on CLAMP
-(when ``capture_images_on_clamp=True``).
+by the Rust writer from the shared camera frame hub on REJECT/FAULT (always)
+and on CLAMP (when ``capture_images_on_clamp=True``).
 
 MCAP channel layout (flat, training-friendly)
 ---------------------------------------------
@@ -24,8 +24,8 @@ MCAP channel layout (flat, training-friendly)
                        the same ``cycle_id``
 /dam/latency        — one per cycle: per-stage and per-layer breakdown (ms)
 /dam/images/{cam}   — one per camera frame; written only on violation cycles;
-                       frames come from the ObservationBus ring buffer so
-                       pre-violation context is captured automatically
+                       frames come from the Rust image hub so ObservationBus
+                       stays scalar-only
 
 Session metadata (written once per file, not per message)
 ----------------------------------------------------------
@@ -60,7 +60,6 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from dam.logging.cycle_record import CycleRecord
-from dam.types.observation import Observation
 from dam.types.result import GuardDecision
 
 if TYPE_CHECKING:
@@ -149,7 +148,7 @@ def _record_to_dict(
 
     Args:
         rec: CycleRecord to convert
-        images: Optional dict of camera_name -> numpy image array (HWC, RGB)
+        images: Deprecated. Ignored; images are supplied by the Rust image hub.
     """
     from dam.types.result import GuardDecision
 
@@ -173,27 +172,8 @@ def _record_to_dict(
             }
         )
 
-    # Convert images to ImageData format for Rust
-    image_data_list = []
-    if images:
-        for cam_name, frame in images.items():
-            if isinstance(frame, np.ndarray) and frame.size > 0:
-                # Compress using Rust or fallback
-                try:
-                    from dam.logging.loopback_writer import _compress_image
-
-                    compressed, w, h, fmt = _compress_image(frame)
-                    image_data_list.append(
-                        {
-                            "camera_name": cam_name,
-                            "timestamp": rec.obs_timestamp,
-                            "width": w,
-                            "height": h,
-                            "data": list(compressed),
-                        }
-                    )
-                except Exception:  # noqa: BLE001 — skip if encoding fails
-                    pass
+    # Images intentionally stay out of the cycle payload. The Rust writer
+    # snapshots the shared image hub when a violation/clamp cycle arrives.
 
     result = {
         "cycle_id": rec.cycle_id,
@@ -218,7 +198,7 @@ def _record_to_dict(
         "latency_stages": rec.latency_stages,
         "latency_layers": rec.latency_layers,
         "latency_guards": rec.latency_guards,
-        "image_data": image_data_list,
+        "image_data": [],
     }
     return result
 
@@ -573,6 +553,7 @@ class LoopbackWriter:
         max_queue_depth: int = 256,
         capture_images_on_clamp: bool = False,
         session_meta: dict[str, Any] | None = None,
+        frame_hub: Any | None = None,
     ) -> None:
         self._output_dir = Path(output_dir)
         self._obs_bus = obs_bus
@@ -581,6 +562,8 @@ class LoopbackWriter:
         self._rotate_seconds = rotate_minutes * 60.0
         self._max_queue_depth = max_queue_depth
         self._capture_images_on_clamp = capture_images_on_clamp
+        self._window_sec = max(0.0, float(window_sec))
+        self._frame_hub = frame_hub
 
         self._session_id = uuid.uuid4().hex[:8]
         self._session_meta = self._build_session_meta(session_meta or {}, control_frequency_hz)
@@ -600,6 +583,8 @@ class LoopbackWriter:
             return
         self._started = True
         self._output_dir.mkdir(parents=True, exist_ok=True)
+        self._session_id = uuid.uuid4().hex[:8]
+        self._session_path = None
         # Store the requested path override (if any); actual file creation is
         # deferred to the first submit() call to avoid empty MCAP files when the
         # control loop never produces a cycle.
@@ -608,6 +593,9 @@ class LoopbackWriter:
             "LoopbackWriter: ready (file creation deferred until first cycle) → %s",
             self._output_dir,
         )
+
+    def set_frame_hub(self, frame_hub: Any | None) -> None:
+        self._frame_hub = frame_hub
 
     def _ensure_writer(self) -> None:
         """Open the MCAP file on the first submitted cycle (lazy init)."""
@@ -618,6 +606,12 @@ class LoopbackWriter:
         else:
             path = self._output_dir / f"session_{self._session_id}_{int(time.time())}.mcap"
         self._mcap_writer = _RustMcapWriter()
+        if self._frame_hub is not None and hasattr(self._frame_hub, "attach_to_writer"):
+            self._frame_hub.attach_to_writer(
+                self._mcap_writer,
+                window_sec=self._window_sec,
+                capture_images_on_clamp=self._capture_images_on_clamp,
+            )
         self._mcap_writer.start(str(path))
         self._session_path = path
         logger.info("LoopbackWriter: using Rust McapWriter → %s", path)
@@ -631,7 +625,7 @@ class LoopbackWriter:
 
         Args:
             rec: CycleRecord to write
-            images: Optional dict of camera_name -> numpy image array (HWC, RGB)
+            images: Deprecated. Ignored; images are supplied by the Rust image hub.
         """
         if not self._started:
             return
@@ -653,6 +647,7 @@ class LoopbackWriter:
         if self._mcap_writer is not None:
             self._mcap_writer = None
             logger.info("LoopbackWriter: closed")
+        self._pending_session_path = None
 
     def __del__(self) -> None:
         if self._started:
@@ -847,15 +842,8 @@ class LoopbackWriter:
             latency_msg[f"{key}_ms"] = rec.latency_layers.get(key, 0.0)
         session.write("/dam/latency", _json(latency_msg), log_time_ns)
 
-        # 6. /dam/images/{cam} — fetched from ring buffer in the worker thread.
-        #    Always written on REJECT/FAULT.  Written on CLAMP only when
-        #    capture_images_on_clamp=True (off by default; CLAMPs are frequent).
-        #    Skipped during fast flush (shutdown) to avoid blocking.
-        want_images = not skip_images and (
-            rec.has_violation or (self._capture_images_on_clamp and rec.has_clamp)
-        )
-        if want_images:
-            self._write_images(session, rec, log_time_ns)
+        # Images are handled by the Rust McapWriter/ImageHub path. This legacy
+        # Python writer intentionally stays scalar-only.
 
     def _write_images(
         self,
@@ -863,35 +851,8 @@ class LoopbackWriter:
         rec: CycleRecord,
         log_time_ns: int,
     ) -> None:
-        """Read the ObservationBus ring buffer and write image frames to MCAP.
-
-        Called from the worker thread only.  The ring buffer has 2× window
-        capacity, so a few cycles of lag before we read is harmless.
-        Pre-violation context is captured automatically because the ring buffer
-        holds the last ``window_sec`` seconds of observations.
-        """
-        try:
-            window: list[Any] = self._obs_bus.read_window(self._window_samples)
-        except Exception:
-            logger.exception(
-                "LoopbackWriter: obs_bus.read_window() failed for cycle %d", rec.cycle_id
-            )
-            return
-
-        for obs in window:
-            if not isinstance(obs, Observation) or not obs.images:
-                continue
-            obs_log_time_ns = int(obs.timestamp * 1_000_000_000)
-            for cam_name, frame in obs.images.items():
-                try:
-                    img_bytes = _encode_image(frame, cam_name, rec.cycle_id, obs.timestamp)
-                    session.write_image(cam_name, img_bytes, obs_log_time_ns)
-                except Exception:
-                    logger.exception(
-                        "LoopbackWriter: failed to encode image '%s' for cycle %d",
-                        cam_name,
-                        rec.cycle_id,
-                    )
+        """Deprecated no-op; images never travel through ObservationBus."""
+        return
 
     # ── Helpers ────────────────────────────────────────────────────────────
 
