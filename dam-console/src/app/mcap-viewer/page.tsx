@@ -1,90 +1,79 @@
-'use client'
-import React, { useEffect, useState, Suspense, useCallback, useRef } from 'react'
-import { useSearchParams, useRouter } from 'next/navigation'
-import { api } from '@/lib/api'
-import type { McapSessionSummary, McapSessionDetail, McapCycle, McapCycleDetail } from '@/lib/api'
-import { McapTimelineView } from '@/components/McapTimelineView'
-import { McapCycleInspector } from '@/components/McapCycleInspector'
-import { McapCameraPlayer } from '@/components/McapCameraPlayer'
-import { PageShell } from '@/components/PageShell'
-import { useTelemetry } from '@/hooks/useTelemetry'
-import { useLiveMode } from '@/hooks/useLiveMode'
+"use client";
+import React, { useEffect, useState, Suspense, useCallback } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import { api } from "@/lib/api";
+import type {
+  McapSessionSummary,
+  McapSessionDetail,
+  McapCycle,
+} from "@/lib/api";
+import { McapTimelineView } from "@/components/McapTimelineView";
+import { McapCycleInspector } from "@/components/McapCycleInspector";
+import { McapCameraPlayer } from "@/components/McapCameraPlayer";
+import { PageShell } from "@/components/PageShell";
 import {
-  Film, Download, Loader2, AlertCircle, FileText,
-  Activity, AlertTriangle, ShieldAlert, Clock, Radio, Trash2,
-} from 'lucide-react'
-
-// Helper: convert WS CycleEvent to McapCycleDetail shape for the inspector
-function cycleEventToDetail(cycle: NonNullable<ReturnType<typeof useTelemetry>['lastCycle']>): McapCycleDetail {
-  return {
-    cycle_id: cycle.cycle_id,
-    timestamp_ns: cycle.timestamp * 1e9,
-    timestamp: cycle.timestamp,
-    has_violation: cycle.was_rejected,
-    has_clamp: cycle.was_clamped,
-    violated_layer_mask: 0,
-    clamped_layer_mask: 0,
-    violated_layers: cycle.guard_statuses.filter(g => g.decision === 'FAULT' || g.decision === 'REJECT').map(g => g.layer),
-    clamped_layers: cycle.guard_statuses.filter(g => g.decision === 'CLAMP').map(g => g.layer),
-    active_task: cycle.active_task ?? null,
-    active_boundaries: cycle.active_boundaries ?? [],
-    source_ms: cycle.latency_ms?.source ?? 0,
-    policy_ms: cycle.latency_ms?.policy ?? 0,
-    guards_ms: cycle.latency_ms?.guards ?? 0,
-    sink_ms: cycle.latency_ms?.sink ?? 0,
-    total_ms: cycle.latency_ms?.total ?? 0,
-    latency: cycle.latency_ms ?? {},
-    observation: null,
-    action: null,
-    guard_results: cycle.guard_statuses.map(g => ({
-      guard_name: g.name,
-      layer: Number.parseInt(g.layer.replaceAll('L', ''), 10),
-      layer_name: g.layer,
-      decision: 0,
-      decision_name: g.decision,
-      reason: '',
-      latency_ms: null,
-      is_violation: g.decision === 'FAULT' || g.decision === 'REJECT',
-      is_clamp: g.decision === 'CLAMP',
-      fault_source: null,
-    })),
-  }
-}
+  Film,
+  Download,
+  Loader2,
+  AlertCircle,
+  FileText,
+  Activity,
+  AlertTriangle,
+  ShieldAlert,
+  Clock,
+  Trash2,
+} from "lucide-react";
 
 // ── Session list card ─────────────────────────────────────────────────────────
 
 function SessionCard({
-  session, detail, selected, onClick,
+  session,
+  detail,
+  selected,
+  onClick,
 }: {
-  session: McapSessionSummary
-  detail: McapSessionDetail | null
-  selected: boolean
-  onClick: () => void
+  session: McapSessionSummary;
+  detail: McapSessionDetail | null;
+  selected: boolean;
+  onClick: () => void;
 }) {
-  const violations = detail?.stats.violation_cycles ?? 0
-  const clamps = detail?.stats.clamp_cycles ?? 0
+  const violations = detail?.stats.violation_cycles ?? 0;
+  const clamps = detail?.stats.clamp_cycles ?? 0;
 
   return (
     <button
       onClick={onClick}
       className={[
-        'w-full text-left p-3 rounded-lg border transition-all duration-150 space-y-2',
+        "w-full text-left p-3 rounded-lg border transition-all duration-150 space-y-2",
         selected
-          ? 'bg-dam-blue/10 border-dam-blue/40 shadow-sm'
-          : 'bg-dam-surface-2 border-dam-border/60 hover:border-dam-blue/30 hover:bg-dam-surface-1',
-      ].join(' ')}
+          ? "bg-dam-blue/10 border-dam-blue/40 shadow-sm"
+          : "bg-dam-surface-2 border-dam-border/60 hover:border-dam-blue/30 hover:bg-dam-surface-1",
+      ].join(" ")}
     >
       <div className="flex items-start gap-2">
-        <Film size={13} className={`shrink-0 mt-0.5 ${selected ? 'text-dam-blue' : 'text-dam-muted'}`} />
+        <Film
+          size={13}
+          className={`shrink-0 mt-0.5 ${selected ? "text-dam-blue" : "text-dam-muted"}`}
+        />
         <div className="flex-1 min-w-0">
-          <p className="font-mono text-[11px] font-semibold text-dam-text truncate">{session.filename}</p>
-          <p className="text-[10px] text-dam-muted mt-0.5" suppressHydrationWarning>
-            {new Date(session.created_at * 1000).toLocaleString('en-US', {
-              month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+          <p className="font-mono text-[11px] font-semibold text-dam-text truncate">
+            {session.filename}
+          </p>
+          <p
+            className="text-[10px] text-dam-muted mt-0.5"
+            suppressHydrationWarning
+          >
+            {new Date(session.created_at * 1000).toLocaleString("en-US", {
+              month: "short",
+              day: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
             })}
           </p>
         </div>
-        <span className="text-[10px] font-mono text-dam-muted shrink-0">{session.size_mb.toFixed(1)} MB</span>
+        <span className="text-[10px] font-mono text-dam-muted shrink-0">
+          {session.size_mb.toFixed(1)} MB
+        </span>
       </div>
 
       {detail && (
@@ -114,39 +103,48 @@ function SessionCard({
         </div>
       )}
     </button>
-  )
+  );
 }
 
 // ── Session header bar ────────────────────────────────────────────────────────
 
-function SessionHeader({ session, detail }: { session: McapSessionSummary; detail: McapSessionDetail }) {
-  const [metaOpen, setMetaOpen] = useState(false)
-  const [deleteConfirm, setDeleteConfirm] = useState(false)
-  const [deleteError, setDeleteError] = useState<string | null>(null)
-  const [deleting, setDeleting] = useState(false)
-  const meta = detail.metadata ?? {}
-  const hasMeta = Object.keys(meta).length > 0
+function SessionHeader({
+  session,
+  detail,
+}: {
+  session: McapSessionSummary;
+  detail: McapSessionDetail;
+}) {
+  const [metaOpen, setMetaOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const meta = detail.metadata ?? {};
+  const hasMeta = Object.keys(meta).length > 0;
 
   function handleDeleteClick() {
-    setDeleteError(null)
-    setDeleteConfirm(true)
+    setDeleteError(null);
+    setDeleteConfirm(true);
   }
 
   function handleDeleteCancel() {
-    setDeleteConfirm(false)
-    setDeleteError(null)
+    setDeleteConfirm(false);
+    setDeleteError(null);
   }
 
   function handleDeleteConfirm() {
-    setDeleting(true)
-    setDeleteError(null)
-    api.deleteMcapSession(session.filename)
-      .then(() => { window.location.href = '/mcap-viewer' })
-      .catch((e: Error) => {
-        setDeleteError(e.message)
-        setDeleteConfirm(false)
-        setDeleting(false)
+    setDeleting(true);
+    setDeleteError(null);
+    api
+      .deleteMcapSession(session.filename)
+      .then(() => {
+        window.location.href = "/mcap-viewer";
       })
+      .catch((e: Error) => {
+        setDeleteError(e.message);
+        setDeleteConfirm(false);
+        setDeleting(false);
+      });
   }
 
   return (
@@ -154,8 +152,12 @@ function SessionHeader({ session, detail }: { session: McapSessionSummary; detai
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <Film size={14} className="text-dam-blue shrink-0" />
-          <span className="font-mono text-sm font-bold text-dam-text truncate">{session.filename}</span>
-          <span className="text-xs text-dam-muted shrink-0">{session.size_mb.toFixed(1)} MB</span>
+          <span className="font-mono text-sm font-bold text-dam-text truncate">
+            {session.filename}
+          </span>
+          <span className="text-xs text-dam-muted shrink-0">
+            {session.size_mb.toFixed(1)} MB
+          </span>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -173,17 +175,19 @@ function SessionHeader({ session, detail }: { session: McapSessionSummary; detai
             </span>
           )}
           {detail.stats.duration_sec > 0 && (
-            <span className="text-xs text-dam-muted">{detail.stats.duration_sec.toFixed(1)} s</span>
+            <span className="text-xs text-dam-muted">
+              {detail.stats.duration_sec.toFixed(1)} s
+            </span>
           )}
         </div>
 
         <div className="flex items-center gap-2">
           {hasMeta && (
             <button
-              onClick={() => setMetaOpen(v => !v)}
+              onClick={() => setMetaOpen((v) => !v)}
               className="text-[10px] text-dam-muted hover:text-dam-text border border-dam-border px-2 py-1 rounded hover:border-dam-blue/30 transition-colors"
             >
-              {metaOpen ? 'Hide' : 'Metadata'}
+              {metaOpen ? "Hide" : "Metadata"}
             </button>
           )}
           <a
@@ -200,7 +204,7 @@ function SessionHeader({ session, detail }: { session: McapSessionSummary; detai
                 disabled={deleting}
                 className="text-[10px] font-bold text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 px-2 py-1 rounded transition-colors"
               >
-                {deleting ? '…' : 'Delete'}
+                {deleting ? "…" : "Delete"}
               </button>
               <button
                 onClick={handleDeleteCancel}
@@ -234,373 +238,253 @@ function SessionHeader({ session, detail }: { session: McapSessionSummary; detai
           {Object.entries(meta).map(([k, v]) => (
             <div key={k} className="flex items-baseline gap-1.5 text-[10px]">
               <span className="text-dam-muted shrink-0">{k}:</span>
-              <span className="font-mono text-dam-text/80 truncate" title={v}>{v}</span>
+              <span className="font-mono text-dam-text/80 truncate" title={v}>
+                {v}
+              </span>
             </div>
           ))}
         </div>
       )}
     </div>
-  )
-}
-
-// ── Live Mode Panel ───────────────────────────────────────────────────────────
-
-function LiveModePanel() {
-  const { lastCycle, connected } = useTelemetry()
-  const liveCameras = lastCycle?.live_images ? Object.keys(lastCycle.live_images) : []
-
-  // Convert latest WS cycle into a fake McapCycleDetail for the inspector
-  const liveDetail: McapCycleDetail | null = lastCycle ? cycleEventToDetail(lastCycle) : null
-
-  // Build a live cycle timeline feed (append-only)
-  const [liveCycles, setLiveCycles] = useState<McapCycle[]>([])
-  const cyclesRef = useRef<McapCycle[]>([])
-
-  useEffect(() => {
-    if (!lastCycle) return
-
-    const entry: McapCycle = {
-      cycle_id: lastCycle.cycle_id,
-      seq: lastCycle.cycle_id,
-      timestamp_ns: lastCycle.timestamp * 1e9,
-      timestamp: lastCycle.timestamp,
-      has_violation: lastCycle.was_rejected,
-      has_clamp: lastCycle.was_clamped,
-      violated_layer_mask: 0,
-      clamped_layer_mask: 0,
-      violated_layers: lastCycle.guard_statuses.filter(g => g.decision === 'FAULT' || g.decision === 'REJECT').map(g => g.layer),
-      clamped_layers: lastCycle.guard_statuses.filter(g => g.decision === 'CLAMP').map(g => g.layer),
-    }
-
-    if (cyclesRef.current.length > 0 && (cyclesRef.current.at(-1)?.cycle_id ?? -1) >= entry.cycle_id) {
-      return
-    }
-
-    cyclesRef.current = [...cyclesRef.current.slice(-499), entry]
-
-    // Throttle UI update: only update liveCycles state every ~200ms or on critical events
-    // This significantly reduces re-renders of the timeline component.
-  }, [lastCycle])
-
-  // Separate effect for UI sync to keep it smooth but not too frequent
-  useEffect(() => {
-    const id = setInterval(() => {
-      setLiveCycles(cyclesRef.current)
-    }, 200)
-    return () => clearInterval(id)
-  }, [])
-
-  const [selectedLiveCycleId, setSelectedLiveCycleId] = useState<number | null>(null)
-  // Auto-follow latest cycle unless user has selected a specific one
-  const autoFollow = selectedLiveCycleId === null
-  const displayCycleId = autoFollow ? (lastCycle?.cycle_id ?? null) : selectedLiveCycleId
-
-  if (!connected) {
-    return (
-      <div className="flex-1 flex items-center justify-center text-dam-muted">
-        <div className="text-center space-y-2">
-          <Radio size={32} className="mx-auto opacity-30 animate-pulse" />
-          <p className="text-sm">Connecting to telemetry…</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (!lastCycle) {
-    return (
-      <div className="flex-1 flex items-center justify-center text-dam-muted">
-        <div className="text-center space-y-2">
-          <Radio size={32} className="mx-auto opacity-30" />
-          <p className="text-sm">Waiting for control loop data…</p>
-          <p className="text-xs opacity-60">Start a loop on the Dashboard to begin</p>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="flex-1 min-w-0 flex flex-col gap-4">
-      {/* Live banner */}
-      <div className="bg-red-500/5 border border-red-500/20 rounded-lg px-4 py-3 flex items-center gap-3">
-        <Radio size={14} className="text-red-400 animate-pulse shrink-0" />
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-bold text-red-400">Live Mode</p>
-          <p className="text-[10px] text-dam-muted mt-0.5">
-            Showing real-time data from WebSocket telemetry • Cycle {lastCycle.cycle_id}
-          </p>
-        </div>
-        <span className="text-[10px] font-mono text-red-400/60 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20">
-          {lastCycle.risk_level}
-        </span>
-      </div>
-
-      {/* Timeline */}
-      <div className="bg-dam-surface-2 border border-dam-border rounded-lg p-4">
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-[9px] font-bold text-dam-muted/50 uppercase tracking-[0.15em]">Live Cycle Timeline</p>
-          {!autoFollow && (
-            <button
-              onClick={() => setSelectedLiveCycleId(null)}
-              className="text-[10px] text-dam-blue hover:underline"
-            >
-              ↓ Follow latest
-            </button>
-          )}
-        </div>
-        <McapTimelineView
-          cycles={liveCycles}
-          selectedCycleId={displayCycleId ?? undefined}
-          onSelectCycle={id => setSelectedLiveCycleId(id)}
-        />
-      </div>
-
-      {/* Inspector + camera */}
-      <div className="flex gap-4 flex-1 min-h-0" style={{ minHeight: 360 }}>
-        {/* Inspector — uses WS data, not MCAP API */}
-        <div className="flex-1 min-w-0">
-          <p className="text-[9px] font-bold text-dam-muted/50 uppercase tracking-[0.15em] mb-2 px-1">
-            Live Inspector {!autoFollow ? `— Cycle ${displayCycleId}` : '— Latest'}
-          </p>
-          <div className="h-[360px]">
-            {liveDetail ? (
-              <McapCycleInspector
-                filename=""
-                cycleId={displayCycleId}
-                overrideCycleDetail={autoFollow ? liveDetail : undefined}
-              />
-            ) : (
-              <div className="h-full flex items-center justify-center text-dam-muted text-sm">
-                Waiting for cycle data…
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Camera — shows WS live feed */}
-        <div className={`${liveCameras.length > 1 ? 'w-[560px]' : 'w-80'} shrink-0`}>
-          <p className="text-[9px] font-bold text-dam-muted/50 uppercase tracking-[0.15em] mb-2 px-1">Live Camera</p>
-          <div className="h-[360px]">
-            <McapCameraPlayer
-              filename=""
-              cameras={liveCameras}
-              currentTimestampNs={null}
-              liveImages={lastCycle?.live_images ?? null}
-              liveMode
-            />
-          </div>
-        </div>
-      </div>
-    </div>
-  )
+  );
 }
 
 // ── Main content (needs Suspense for useSearchParams) ─────────────────────────
 
 function McapViewerContent() {
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  const { liveMode, toggleLiveMode } = useLiveMode()
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
   // URL-driven state
   const [selectedFilename, setSelectedFilename] = useState<string | null>(
-    searchParams.get('filename')
-  )
+    searchParams.get("filename"),
+  );
   const [selectedCycleId, setSelectedCycleId] = useState<number | null>(
-    searchParams.get('cycle_id') ? Number(searchParams.get('cycle_id')) : null
-  )
+    searchParams.get("cycle_id") ? Number(searchParams.get("cycle_id")) : null,
+  );
 
   // Loaded session data
-  const [sessions, setSessions] = useState<McapSessionSummary[]>([])
-  const [detailMap, setDetailMap] = useState<Record<string, McapSessionDetail>>({})
-  const [cycles, setCycles] = useState<McapCycle[]>([])
-  const [cyclesCache, setCyclesCache] = useState<Record<string, McapCycle[]>>({})
-  const [sessionsLoading, setSessionsLoading] = useState(false)
-  const [cyclesLoading, setCyclesLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [initialLoading, setInitialLoading] = useState(!!searchParams.get('cycle_id') && !searchParams.get('filename'))
-  const [isMounted, setIsMounted] = useState(false)
+  const [sessions, setSessions] = useState<McapSessionSummary[]>([]);
+  const [detailMap, setDetailMap] = useState<Record<string, McapSessionDetail>>(
+    {},
+  );
+  const [cycles, setCycles] = useState<McapCycle[]>([]);
+  const [cyclesCache, setCyclesCache] = useState<Record<string, McapCycle[]>>(
+    {},
+  );
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [cyclesLoading, setCyclesLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [initialLoading, setInitialLoading] = useState(
+    !!searchParams.get("cycle_id") && !searchParams.get("filename"),
+  );
+  const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
-    setIsMounted(true)
-  }, [])
+    setIsMounted(true);
+  }, []);
 
-  const selectSession = useCallback((filename: string) => {
-    setSelectedFilename(filename)
+  const selectSession = useCallback(
+    (filename: string) => {
+      setSelectedFilename(filename);
 
-    // Ultimate zero-flicker: if we have the list in cache, pre-select the first cycle immediately
-    const cached = cyclesCache[filename]
-    if (cached && cached.length > 0) {
-      // If NO cycle_id in URL, use first cached one
-      const urlCycleId = searchParams.get('cycle_id')
-      if (urlCycleId && cached.some(c => c.cycle_id === Number(urlCycleId))) {
-        setSelectedCycleId(Number(urlCycleId))
+      // Ultimate zero-flicker: if we have the list in cache, pre-select the first cycle immediately
+      const cached = cyclesCache[filename];
+      if (cached && cached.length > 0) {
+        // If NO cycle_id in URL, use first cached one
+        const urlCycleId = searchParams.get("cycle_id");
+        if (
+          urlCycleId &&
+          cached.some((c) => c.cycle_id === Number(urlCycleId))
+        ) {
+          setSelectedCycleId(Number(urlCycleId));
+        } else {
+          setSelectedCycleId(cached[0].cycle_id);
+        }
       } else {
-        setSelectedCycleId(cached[0].cycle_id)
+        setSelectedCycleId(null);
       }
-    } else {
-      setSelectedCycleId(null)
-    }
 
-    const url = new URL(window.location.href)
-    url.searchParams.set('filename', filename)
-    // ONLY delete cycle_id if we are manually switching to a session that didn't have one
-    // If we're entering via URL, keep it!
-    if (!searchParams.get('cycle_id')) {
-      url.searchParams.delete('cycle_id')
-    }
-    router.replace(url.pathname + url.search, { scroll: false })
-  }, [router, cyclesCache, searchParams])
+      const url = new URL(window.location.href);
+      url.searchParams.set("filename", filename);
+      // ONLY delete cycle_id if we are manually switching to a session that didn't have one
+      // If we're entering via URL, keep it!
+      if (!searchParams.get("cycle_id")) {
+        url.searchParams.delete("cycle_id");
+      }
+      router.replace(url.pathname + url.search, { scroll: false });
+    },
+    [router, cyclesCache, searchParams],
+  );
 
-  const selectCycle = useCallback((cycleId: number) => {
-    setSelectedCycleId(cycleId)
-    const url = new URL(window.location.href)
-    url.searchParams.set('cycle_id', String(cycleId))
-    router.replace(url.pathname + url.search, { scroll: false })
-  }, [router])
+  const selectCycle = useCallback(
+    (cycleId: number) => {
+      setSelectedCycleId(cycleId);
+      const url = new URL(window.location.href);
+      url.searchParams.set("cycle_id", String(cycleId));
+      router.replace(url.pathname + url.search, { scroll: false });
+    },
+    [router],
+  );
 
-  // Load sessions — only when NOT in live mode
-  const loadSessions = useCallback(async (opts?: { showSpinner?: boolean }) => {
-    if (liveMode) return
-    if (opts?.showSpinner) setSessionsLoading(true)
-    try {
-      const data = await api.listMcapSessions()
-      const list = data?.sessions ?? []
-      setSessions(list)
+  // Load MCAP sessions.
+  const loadSessions = useCallback(
+    async (opts?: { showSpinner?: boolean }) => {
+      if (opts?.showSpinner) setSessionsLoading(true);
+      try {
+        const data = await api.listMcapSessions();
+        const list = data?.sessions ?? [];
+        setSessions(list);
 
-      setSelectedFilename(prev => {
-        if (prev) return prev
-        const urlFile = searchParams.get('filename')
-        return list.length > 0 ? (urlFile ?? list[0].filename) : null
-      })
+        setSelectedFilename((prev) => {
+          if (prev) return prev;
+          const urlFile = searchParams.get("filename");
+          return list.length > 0 ? (urlFile ?? list[0].filename) : null;
+        });
 
-      setDetailMap(prev => {
-        const toFetch = list.filter(s => !prev[s.filename])
-        if (toFetch.length === 0) return prev
+        setDetailMap((prev) => {
+          const toFetch = list.filter((s) => !prev[s.filename]);
+          if (toFetch.length === 0) return prev;
 
-        Promise.allSettled(toFetch.map(s => api.getMcapSession(s.filename)))
-          .then(results => {
-            setDetailMap(curr => {
-              const next = { ...curr }
-              results.forEach((r, i) => {
-                if (r.status === 'fulfilled' && r.value?.stats) {
-                  next[toFetch[i].filename] = r.value
-                }
-              })
-              return next
+          Promise.allSettled(toFetch.map((s) => api.getMcapSession(s.filename)))
+            .then((results) => {
+              setDetailMap((curr) => {
+                const next = { ...curr };
+                results.forEach((r, i) => {
+                  if (r.status === "fulfilled" && r.value?.stats) {
+                    next[toFetch[i].filename] = r.value;
+                  }
+                });
+                return next;
+              });
             })
-          })
-          .catch(() => {})
+            .catch(() => {});
 
-        return { ...prev }
-      })
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      if (msg.includes('not configured') || msg.includes('503')) {
-        // Silently retry if backend service is still spinning up, DO NOT clear the loading spinner!
-        setTimeout(() => loadSessions(opts), 1000)
-        return
+          return { ...prev };
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg.includes("not configured") || msg.includes("503")) {
+          // Silently retry if backend service is still spinning up, DO NOT clear the loading spinner!
+          setTimeout(() => loadSessions(opts), 1000);
+          return;
+        }
+        setError(msg || "Failed to load sessions");
       }
-      setError(msg || 'Failed to load sessions')
-    }
-    if (opts?.showSpinner) setSessionsLoading(false)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, liveMode])
+      if (opts?.showSpinner) setSessionsLoading(false);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [searchParams],
+  );
 
-  // Trigger session load when live mode is turned OFF
   useEffect(() => {
-    if (!liveMode) {
-      loadSessions({ showSpinner: true })
-    }
-  }, [liveMode, loadSessions])
+    loadSessions({ showSpinner: true });
+  }, [loadSessions]);
 
-  // Refresh on focus / system updates (MCAP mode only)
+  // Refresh on focus / system updates.
   useEffect(() => {
-    if (liveMode) return
-    const onFocus = () => { loadSessions() }
-    const onUpdate = () => { loadSessions() }
-    document.addEventListener('visibilitychange', onFocus)
-    globalThis.addEventListener('dam-system-update', onUpdate)
+    const onFocus = () => {
+      loadSessions();
+    };
+    const onUpdate = () => {
+      loadSessions();
+    };
+    document.addEventListener("visibilitychange", onFocus);
+    globalThis.addEventListener("dam-system-update", onUpdate);
     return () => {
-      document.removeEventListener('visibilitychange', onFocus)
-      globalThis.removeEventListener('dam-system-update', onUpdate)
-    }
-  }, [loadSessions, liveMode])
+      document.removeEventListener("visibilitychange", onFocus);
+      globalThis.removeEventListener("dam-system-update", onUpdate);
+    };
+  }, [loadSessions]);
 
-  // Navigate via cycle_id in URL (only in MCAP mode)
+  // Navigate via cycle_id in URL.
   useEffect(() => {
-    if (liveMode) return
-    const urlCycleId = searchParams.get('cycle_id')
-    const urlFile = searchParams.get('filename')
+    const urlCycleId = searchParams.get("cycle_id");
+    const urlFile = searchParams.get("filename");
     if (!urlCycleId || urlFile) {
-      setInitialLoading(false)
-      return
+      setInitialLoading(false);
+      return;
     }
 
-    const id = Number(urlCycleId)
-    api.findMcapSession(id)
-      .then(res => {
+    const id = Number(urlCycleId);
+    api
+      .findMcapSession(id)
+      .then((res) => {
         if (res.found && res.filename) {
-          selectSession(res.filename)
-          setSelectedCycleId(id)
+          selectSession(res.filename);
+          setSelectedCycleId(id);
         }
       })
       .catch(() => {})
       .finally(() => {
-        setInitialLoading(false)
-      })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+        setInitialLoading(false);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // Load cycles when selected session changes (MCAP mode)
+  // Load cycles when selected session changes.
   useEffect(() => {
-    if (liveMode || !selectedFilename) return
-    let cancelled = false
-    const existing = cyclesCache[selectedFilename] || []
-    const lastId = existing.at(-1)?.cycle_id
+    if (!selectedFilename) return;
+    let cancelled = false;
+    const existing = cyclesCache[selectedFilename] || [];
+    const lastId = existing.at(-1)?.cycle_id;
 
-    if (!lastId) setCyclesLoading(true)
+    if (!lastId) setCyclesLoading(true);
 
-    api.listMcapCycles(selectedFilename, lastId)
-      .then(data => {
-        if (cancelled) return
-        const newCycles = data?.cycles ?? []
+    api
+      .listMcapCycles(selectedFilename, lastId)
+      .then((data) => {
+        if (cancelled) return;
+        const newCycles = data?.cycles ?? [];
 
         // Merge with existing cache
-        const updatedList = lastId ? [...existing, ...newCycles] : newCycles
-        setCycles(updatedList)
+        const updatedList = lastId ? [...existing, ...newCycles] : newCycles;
+        setCycles(updatedList);
         if (newCycles.length > 0 || !lastId) {
-          setCyclesCache(prev => ({ ...prev, [selectedFilename]: updatedList }))
+          setCyclesCache((prev) => ({
+            ...prev,
+            [selectedFilename]: updatedList,
+          }));
         }
 
-        const urlCycleId = searchParams.get('cycle_id')
-        let targetId: number | null = null
+        const urlCycleId = searchParams.get("cycle_id");
+        let targetId: number | null = null;
 
         if (urlCycleId) {
-          const id = Number(urlCycleId)
-          if (updatedList.some(c => c.cycle_id === id)) {
-            targetId = id
+          const id = Number(urlCycleId);
+          if (updatedList.some((c) => c.cycle_id === id)) {
+            targetId = id;
           }
         }
 
         if (targetId === null && updatedList.length > 0 && !selectedCycleId) {
-          targetId = updatedList[0].cycle_id
+          targetId = updatedList[0].cycle_id;
         }
 
         if (targetId !== null) {
-          setSelectedCycleId(targetId)
+          setSelectedCycleId(targetId);
         }
       })
-      .catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load cycles') })
-      .finally(() => { if (!cancelled) setCyclesLoading(false) })
-    return () => { cancelled = true }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedFilename, liveMode])
+      .catch((e) => {
+        if (!cancelled)
+          setError(e instanceof Error ? e.message : "Failed to load cycles");
+      })
+      .finally(() => {
+        if (!cancelled) setCyclesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedFilename]);
 
-  const selectedDetail = selectedFilename ? detailMap[selectedFilename] ?? null : null
-  const cameras = selectedDetail?.stats.cameras ?? []
-  const selectedCycle = cycles.find(c => c.cycle_id === selectedCycleId)
+  const selectedDetail = selectedFilename
+    ? (detailMap[selectedFilename] ?? null)
+    : null;
+  const cameras = selectedDetail?.stats.cameras ?? [];
+  const selectedCycle = cycles.find((c) => c.cycle_id === selectedCycleId);
 
-  if (!isMounted) return null
+  if (!isMounted) return null;
 
   // ── LOADING STATE ──────────────────────────────────────────────────────
   if (initialLoading) {
@@ -608,162 +492,170 @@ function McapViewerContent() {
       <div className="flex-1 flex flex-col items-center justify-center gap-4 text-dam-muted py-20 animate-in fade-in duration-500">
         <Loader2 size={32} className="animate-spin text-dam-blue" />
         <div className="text-center">
-          <p className="text-sm font-bold text-dam-text uppercase tracking-widest">Locating Session</p>
-          <p className="text-[10px] opacity-60 mt-1">Retrieving MCAP records for Cycle {searchParams.get('cycle_id')}...</p>
+          <p className="text-sm font-bold text-dam-text uppercase tracking-widest">
+            Locating Session
+          </p>
+          <p className="text-[10px] opacity-60 mt-1">
+            Retrieving MCAP records for Cycle {searchParams.get("cycle_id")}...
+          </p>
         </div>
       </div>
-    )
+    );
   }
 
   return (
     <div className="flex flex-col min-h-[calc(100vh-120px)] gap-5 animate-in fade-in slide-in-from-bottom-2 duration-500">
-      {/* Live mode toggle — top right, consistent with Dashboard */}
-      <div className="flex items-center justify-end gap-3 -mt-2 min-h-[28px]">
-        <button
-          onClick={toggleLiveMode}
-          title={liveMode ? 'Switch to MCAP file player' : 'Switch to live WebSocket feed'}
-          className={`flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-md border transition-all ${
-            liveMode
-              ? 'bg-red-500/15 border-red-500/40 text-red-400'
-              : 'bg-dam-surface-2 border-dam-border text-dam-muted hover:border-dam-blue/30 hover:text-dam-blue'
-          }`}
-        >
-          <Radio size={10} className={liveMode ? 'animate-pulse' : ''} />
-          {liveMode ? 'Live Mode' : 'Go Live'}
-        </button>
+      <div className="flex gap-5 flex-1">
+        {/* Left: session list */}
+        <div className="w-64 shrink-0 flex flex-col gap-2">
+          <p className="text-[9px] font-bold text-dam-muted/50 uppercase tracking-[0.15em] px-1">
+            Sessions ({sessions.length})
+          </p>
+
+          {sessionsLoading ? (
+            <div className="flex items-center gap-2 text-dam-muted py-8 justify-center">
+              <Loader2 size={16} className="animate-spin" />
+              <span className="text-sm">Loading…</span>
+            </div>
+          ) : sessions.length === 0 ? (
+            <div className="py-8 text-center text-dam-muted space-y-2">
+              <FileText size={28} className="mx-auto opacity-30" />
+              <p className="text-sm">No sessions recorded yet</p>
+              <p className="text-[10px] opacity-60">
+                Start a run to create a session
+              </p>
+            </div>
+          ) : (
+            <div
+              className="space-y-1.5 overflow-y-auto thin-scrollbar"
+              style={{ maxHeight: "calc(100vh - 160px)" }}
+            >
+              {sessions.map((s) => (
+                <SessionCard
+                  key={s.filename}
+                  session={s}
+                  detail={detailMap[s.filename] ?? null}
+                  selected={selectedFilename === s.filename}
+                  onClick={() => selectSession(s.filename)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Right: session detail */}
+        <div className="flex-1 min-w-0 flex flex-col gap-4">
+          {!selectedFilename ? (
+            <div className="flex-1 flex items-center justify-center text-dam-muted">
+              <div className="text-center space-y-2">
+                <Film size={32} className="mx-auto opacity-30" />
+                <p className="text-sm">Select a session to view details</p>
+                <p className="text-[10px] opacity-60">
+                  Recorded cycles and camera frames appear here
+                </p>
+              </div>
+            </div>
+          ) : (
+            <>
+              {selectedDetail ? (
+                <SessionHeader
+                  session={
+                    sessions.find((s) => s.filename === selectedFilename)!
+                  }
+                  detail={selectedDetail}
+                />
+              ) : (
+                <div className="bg-dam-surface-2 border border-dam-border rounded-lg p-4 flex items-center gap-2 text-dam-muted text-sm">
+                  <Loader2 size={14} className="animate-spin" />
+                  Loading session info…
+                </div>
+              )}
+
+              <div className="bg-dam-surface-1/50 rounded-lg p-3 min-h-[60px] relative border border-dam-border/30">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[9px] font-bold text-dam-muted/50 uppercase tracking-[0.15em]">
+                    Cycle Timeline
+                  </p>
+                  {cyclesLoading && (
+                    <Loader2 size={10} className="animate-spin text-dam-blue" />
+                  )}
+                </div>
+                <McapTimelineView
+                  key={selectedFilename}
+                  cycles={cycles}
+                  selectedCycleId={selectedCycleId ?? undefined}
+                  onSelectCycle={selectCycle}
+                />
+              </div>
+
+              <div
+                className="flex gap-4 flex-1 min-h-0"
+                style={{ minHeight: 360 }}
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="text-[9px] font-bold text-dam-muted/50 uppercase tracking-[0.15em] mb-2 px-1">
+                    Cycle Inspector
+                  </p>
+                  <div className="h-[360px]">
+                    <McapCycleInspector
+                      filename={selectedFilename}
+                      cycleId={selectedCycleId}
+                    />
+                  </div>
+                </div>
+
+                <div
+                  className={`${cameras.length > 1 ? "w-[560px]" : "w-80"} shrink-0`}
+                >
+                  <p className="text-[9px] font-bold text-dam-muted/50 uppercase tracking-[0.15em] mb-2 px-1">
+                    Camera Footage
+                  </p>
+                  <div className="h-[360px]">
+                    <McapCameraPlayer
+                      filename={selectedFilename}
+                      cameras={cameras}
+                      currentTimestampNs={selectedCycle?.timestamp_ns ?? null}
+                    />
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       </div>
-
-      {liveMode ? (
-        <div className="flex gap-5 flex-1">
-          <LiveModePanel />
-        </div>
-      ) : (
-        <div className="flex gap-5 flex-1">
-          {/* Left: session list */}
-          <div className="w-64 shrink-0 flex flex-col gap-2">
-            <p className="text-[9px] font-bold text-dam-muted/50 uppercase tracking-[0.15em] px-1">
-              Sessions ({sessions.length})
-            </p>
-
-            {sessionsLoading ? (
-              <div className="flex items-center gap-2 text-dam-muted py-8 justify-center">
-                <Loader2 size={16} className="animate-spin" />
-                <span className="text-sm">Loading…</span>
-              </div>
-            ) : sessions.length === 0 ? (
-              <div className="py-8 text-center text-dam-muted space-y-2">
-                <FileText size={28} className="mx-auto opacity-30" />
-                <p className="text-sm">No sessions recorded yet</p>
-                <p className="text-[10px] opacity-60">Enable Live Mode to see real-time data</p>
-              </div>
-            ) : (
-              <div className="space-y-1.5 overflow-y-auto thin-scrollbar" style={{ maxHeight: 'calc(100vh - 160px)' }}>
-                {sessions.map(s => (
-                  <SessionCard
-                    key={s.filename}
-                    session={s}
-                    detail={detailMap[s.filename] ?? null}
-                    selected={selectedFilename === s.filename}
-                    onClick={() => selectSession(s.filename)}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Right: session detail */}
-          <div className="flex-1 min-w-0 flex flex-col gap-4">
-            {!selectedFilename ? (
-              <div className="flex-1 flex items-center justify-center text-dam-muted">
-                <div className="text-center space-y-2">
-                  <Film size={32} className="mx-auto opacity-30" />
-                  <p className="text-sm">Select a session to view details</p>
-                  <p className="text-[10px] opacity-60">Or enable Live Mode to watch in real-time</p>
-                </div>
-              </div>
-            ) : (
-              <>
-                {selectedDetail ? (
-                  <SessionHeader
-                    session={sessions.find(s => s.filename === selectedFilename)!}
-                    detail={selectedDetail}
-                  />
-                ) : (
-                  <div className="bg-dam-surface-2 border border-dam-border rounded-lg p-4 flex items-center gap-2 text-dam-muted text-sm">
-                    <Loader2 size={14} className="animate-spin" />
-                    Loading session info…
-                  </div>
-                )}
-
-                <div className="bg-dam-surface-1/50 rounded-lg p-3 min-h-[60px] relative border border-dam-border/30">
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-[9px] font-bold text-dam-muted/50 uppercase tracking-[0.15em]">
-                      Cycle Timeline
-                    </p>
-                    {cyclesLoading && <Loader2 size={10} className="animate-spin text-dam-blue" />}
-                  </div>
-                  <McapTimelineView
-                    key={selectedFilename}
-                    cycles={cycles}
-                    selectedCycleId={selectedCycleId ?? undefined}
-                    onSelectCycle={selectCycle}
-                  />
-                </div>
-
-                <div className="flex gap-4 flex-1 min-h-0" style={{ minHeight: 360 }}>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[9px] font-bold text-dam-muted/50 uppercase tracking-[0.15em] mb-2 px-1">
-                      Cycle Inspector
-                    </p>
-                    <div className="h-[360px]">
-                      <McapCycleInspector
-                        filename={selectedFilename}
-                        cycleId={selectedCycleId}
-                      />
-                    </div>
-                  </div>
-
-                  <div className={`${cameras.length > 1 ? 'w-[560px]' : 'w-80'} shrink-0`}>
-                    <p className="text-[9px] font-bold text-dam-muted/50 uppercase tracking-[0.15em] mb-2 px-1">
-                      Camera Footage
-                    </p>
-                    <div className="h-[360px]">
-                      <McapCameraPlayer
-                        filename={selectedFilename}
-                        cameras={cameras}
-                        currentTimestampNs={selectedCycle?.timestamp_ns ?? null}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
 
       {error && (
         <div className="fixed bottom-4 right-4 max-w-sm p-3 bg-red-500/10 border border-red-500/30 rounded-lg flex items-start gap-2 shadow-lg z-50">
           <AlertCircle size={14} className="text-red-400 shrink-0 mt-0.5" />
           <p className="text-xs text-red-400">{error}</p>
-          <button onClick={() => setError(null)} className="ml-auto text-red-400/60 hover:text-red-400 text-xs">✕</button>
+          <button
+            onClick={() => setError(null)}
+            className="ml-auto text-red-400/60 hover:text-red-400 text-xs"
+          >
+            ✕
+          </button>
         </div>
       )}
     </div>
-  )
+  );
 }
 
 export default function McapViewerPage() {
   return (
-    <PageShell title="MCAP Sessions" subtitle="Review control cycles, incidents & camera footage">
-      <Suspense fallback={
-        <div className="flex items-center justify-center h-64 text-dam-muted gap-2">
-          <Loader2 size={20} className="animate-spin" />
-          <span>Loading…</span>
-        </div>
-      }>
+    <PageShell
+      title="MCAP Sessions"
+      subtitle="Review control cycles, incidents & camera footage"
+    >
+      <Suspense
+        fallback={
+          <div className="flex items-center justify-center h-64 text-dam-muted gap-2">
+            <Loader2 size={20} className="animate-spin" />
+            <span>Loading…</span>
+          </div>
+        }
+      >
         <McapViewerContent />
       </Suspense>
     </PageShell>
-  )
+  );
 }

@@ -2,9 +2,8 @@
 
 import numpy as np
 
+from dam.adapter.lerobot.adapter import LeRobotAdapter
 from dam.adapter.lerobot.policy import LeRobotPolicyAdapter
-from dam.adapter.lerobot.sink import LeRobotSinkAdapter
-from dam.adapter.lerobot.source import LeRobotSourceAdapter
 from dam.boundary.constraint import BoundaryConstraint
 from dam.boundary.node import BoundaryNode
 from dam.boundary.single import SingleNodeContainer
@@ -17,6 +16,9 @@ from dam.guard.builtin.motion import MotionGuard
 from dam.runner.lerobot import LeRobotRunner
 from dam.runtime.guard_runtime import GuardRuntime
 from dam.types.risk import CycleResult, RiskLevel
+
+LeRobotSourceAdapter = LeRobotAdapter
+LeRobotSinkAdapter = LeRobotAdapter
 
 
 class MockRobot:
@@ -77,7 +79,9 @@ def test_phase2_pipeline_10_cycles():
     runtime.register_sink(LeRobotSinkAdapter(robot))
     runtime.register_policy(LeRobotPolicyAdapter(policy))
     runner = LeRobotRunner(runtime=runtime)
-    results = runner.run("pick_and_place", n_cycles=10)
+    runner.start_task("pick_and_place")
+    results = [runner.step() for _ in range(10)]
+    runner.stop()
     assert len(results) == 10
     assert all(isinstance(r, CycleResult) for r in results)
     assert all(r.risk_level in (RiskLevel.NORMAL, RiskLevel.ELEVATED) for r in results)

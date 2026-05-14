@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use crossbeam::channel::{bounded, RecvTimeoutError, Sender};
+use crossbeam::channel::{bounded, RecvTimeoutError, Sender, TrySendError};
 use mcap::records::MessageHeader;
 use mcap::write::Writer as McapWriterInner;
 use mcap::WriteOptions;
@@ -161,18 +161,21 @@ struct ImageHubAttachment {
     hub: ImageHub,
     window_sec: f64,
     capture_images_on_clamp: bool,
+    capture_active: bool,
+    last_capture_ts: Option<f64>,
 }
 
 pub struct McapWriter {
     sender: Sender<WorkItem>,
     sequence: Arc<AtomicU64>,
     started: Arc<AtomicBool>,
+    stop_requested: Arc<AtomicBool>,
     image_hub: Arc<Mutex<Option<ImageHubAttachment>>>,
 }
 
 enum WorkItem {
     Start(PathBuf), // Path to start writing
-    Cycle(Box<CycleRecordData>),
+    Cycle(u64, Box<CycleRecordData>),
     Stop,
 }
 
@@ -181,13 +184,15 @@ impl McapWriter {
         let (tx, rx) = bounded::<WorkItem>(1024);
         let sequence = Arc::new(AtomicU64::new(0));
         let started = Arc::new(AtomicBool::new(false));
+        let stop_requested = Arc::new(AtomicBool::new(false));
         let image_hub = Arc::new(Mutex::new(None));
         let sequence_for_py = Arc::clone(&sequence);
         let started_for_py = Arc::clone(&started);
+        let stop_requested_for_py = Arc::clone(&stop_requested);
         let image_hub_for_worker = Arc::clone(&image_hub);
 
         thread::spawn(move || {
-            if let Err(e) = run_worker(rx, sequence, image_hub_for_worker) {
+            if let Err(e) = run_worker(rx, stop_requested, image_hub_for_worker) {
                 log::error!("McapWriter worker failed: {}", e);
             }
         });
@@ -196,6 +201,7 @@ impl McapWriter {
             sender: tx,
             sequence: sequence_for_py,
             started: started_for_py,
+            stop_requested: stop_requested_for_py,
             image_hub,
         })
     }
@@ -204,6 +210,7 @@ impl McapWriter {
         if self.started.load(Ordering::SeqCst) {
             return Ok(()); // Already started
         }
+        self.stop_requested.store(false, Ordering::SeqCst);
         self.started.store(true, Ordering::SeqCst);
         self.sender
             .send(WorkItem::Start(path.as_ref().to_path_buf()))
@@ -211,14 +218,26 @@ impl McapWriter {
     }
 
     pub fn write_cycle(&self, record: CycleRecordData) -> Result<u64, String> {
-        if !self.started.load(Ordering::SeqCst) {
+        if !self.started.load(Ordering::SeqCst) || self.stop_requested.load(Ordering::SeqCst) {
             return Err("McapWriter not started".to_string());
         }
         let seq = self.sequence.fetch_add(1, Ordering::SeqCst);
-        self.sender
-            .send(WorkItem::Cycle(Box::new(record)))
-            .map_err(|_| "Channel closed".to_string())?;
+        match self.sender.try_send(WorkItem::Cycle(seq, Box::new(record))) {
+            Ok(()) => {}
+            Err(TrySendError::Full(_)) => {
+                return Err("McapWriter queue full; dropping cycle".to_string());
+            }
+            Err(TrySendError::Disconnected(_)) => return Err("Channel closed".to_string()),
+        }
         Ok(seq)
+    }
+
+    pub fn stop(&self) {
+        if !self.started.swap(false, Ordering::SeqCst) {
+            return;
+        }
+        self.stop_requested.store(true, Ordering::SeqCst);
+        let _ = self.sender.try_send(WorkItem::Stop);
     }
 
     pub fn attach_image_hub(&self, hub: ImageHub, window_sec: f64, capture_images_on_clamp: bool) {
@@ -230,6 +249,8 @@ impl McapWriter {
             hub,
             window_sec: window_sec.max(0.0),
             capture_images_on_clamp,
+            capture_active: false,
+            last_capture_ts: None,
         });
     }
 
@@ -240,19 +261,21 @@ impl McapWriter {
 
 impl Drop for McapWriter {
     fn drop(&mut self) {
-        let _ = self.sender.send(WorkItem::Stop);
+        self.stop();
     }
 }
 
 fn run_worker(
     rx: crossbeam::channel::Receiver<WorkItem>,
-    sequence: Arc<AtomicU64>,
+    stop_requested: Arc<AtomicBool>,
     image_hub: Arc<Mutex<Option<ImageHubAttachment>>>,
 ) -> Result<(), String> {
     let mut mcap: Option<McapWriterInner<BufWriter<File>>> = None;
-    let sequence_for_mcap = Arc::clone(&sequence);
 
     loop {
+        if stop_requested.load(Ordering::SeqCst) {
+            break;
+        }
         match rx.recv_timeout(Duration::from_millis(50)) {
             Ok(WorkItem::Start(path)) => {
                 log::info!("McapWriter: starting file {:?}", path);
@@ -272,10 +295,13 @@ fn run_worker(
                     }
                 }
             }
-            Ok(WorkItem::Cycle(record)) => {
+            Ok(WorkItem::Cycle(seq, record)) => {
+                if stop_requested.load(Ordering::SeqCst) {
+                    break;
+                }
                 if let Some(ref mut m) = mcap {
                     let record = enrich_record_with_images(*record, &image_hub);
-                    if let Err(e) = process_cycle(m, &sequence_for_mcap, &record) {
+                    if let Err(e) = process_cycle(m, seq, &record) {
                         log::error!("Failed to process cycle {}: {}", record.cycle_id, e);
                     }
                     if let Err(e) = m.flush() {
@@ -305,21 +331,32 @@ fn enrich_record_with_images(
     if !record.image_data.is_empty() {
         return record;
     }
-    let attachment = image_hub
+    let mut image_hub = image_hub
         .lock()
-        .expect("McapWriter image hub lock poisoned")
-        .clone();
-    let Some(attachment) = attachment else {
+        .expect("McapWriter image hub lock poisoned");
+    let Some(attachment) = image_hub.as_mut() else {
         return record;
     };
     let want_images =
         record.has_violation || (attachment.capture_images_on_clamp && record.has_clamp);
     if !want_images {
+        attachment.capture_active = false;
+        return record;
+    }
+    let cooldown_sec = attachment.window_sec.max(1.0);
+    let should_capture = !attachment.capture_active
+        || attachment
+            .last_capture_ts
+            .map(|last| record.obs_timestamp - last >= cooldown_sec)
+            .unwrap_or(true);
+    if !should_capture {
         return record;
     }
     record.image_data = attachment
         .hub
         .latest_window(record.obs_timestamp, attachment.window_sec);
+    attachment.capture_active = true;
+    attachment.last_capture_ts = Some(record.obs_timestamp);
     record
 }
 
@@ -337,10 +374,9 @@ fn trim_image_hub_locked(inner: &mut ImageHubInner, now: f64) {
 
 fn process_cycle<W: std::io::Write + std::io::Seek>(
     mcap: &mut McapWriterInner<W>,
-    sequence: &Arc<AtomicU64>,
+    seq: u64,
     record: &CycleRecordData,
 ) -> Result<(), String> {
-    let seq = sequence.fetch_add(1, Ordering::SeqCst);
     let log_time = (record.obs_timestamp * 1_000_000_000.0) as u64;
 
     let cycle_bytes =

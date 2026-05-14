@@ -14,9 +14,8 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
+from dam.adapter.lerobot.adapter import LeRobotAdapter
 from dam.adapter.lerobot.policy import LeRobotPolicyAdapter
-from dam.adapter.lerobot.sink import LeRobotSinkAdapter
-from dam.adapter.lerobot.source import LeRobotSourceAdapter
 from dam.types.action import ValidatedAction
 from dam.types.observation import Observation
 
@@ -29,6 +28,8 @@ except ImportError:
     lerobot = None
 
 requires_lerobot = pytest.mark.skipif(not HAS_LEROBOT, reason="lerobot not installed")
+LeRobotSourceAdapter = LeRobotAdapter
+LeRobotSinkAdapter = LeRobotAdapter
 
 # ── Mock robots ───────────────────────────────────────────────────────────────
 

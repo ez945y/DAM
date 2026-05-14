@@ -38,9 +38,9 @@ done
     || die ".venv not found.  Run: make setup"
 [[ -f .venv/bin/python ]] \
     || die ".venv is missing a Python binary.  Run: make setup"
-if ! .venv/bin/python -c "import dam_rs; assert hasattr(dam_rs, 'ImageHub'); assert hasattr(dam_rs.McapWriter(), 'attach_image_hub')" 2>/dev/null; then
+if ! .venv/bin/python -c "import dam_rs; w=dam_rs.McapWriter(); assert hasattr(dam_rs, 'ImageHub'); assert hasattr(w, 'attach_image_hub'); assert hasattr(w, 'stop')" 2>/dev/null; then
     echo -e "${RED}[dev] dam_rs import error:${NC}" >&2
-    .venv/bin/python -c "import dam_rs; print(dam_rs.__file__); print('ImageHub', hasattr(dam_rs, 'ImageHub')); print('attach_image_hub', hasattr(dam_rs.McapWriter(), 'attach_image_hub'))" 2>&1 || true
+    .venv/bin/python -c "import dam_rs; w=dam_rs.McapWriter(); print(dam_rs.__file__); print('ImageHub', hasattr(dam_rs, 'ImageHub')); print('attach_image_hub', hasattr(w, 'attach_image_hub')); print('stop', hasattr(w, 'stop'))" 2>&1 || true
     die "dam_rs is stale or incomplete. Run: make build-rs"
 fi
 

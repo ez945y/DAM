@@ -188,7 +188,7 @@ def test_dual_mode_run_n_cycles():
         rt.register_sink(_make_mock_sink())
         rt.start_task("default")
 
-        results = rt.run(n_cycles=3, cycle_budget_ms=5.0)
+        results = [rt.step() for _ in range(3)]
         assert len(results) == 3
         assert all(isinstance(r, CycleResult) for r in results)
     finally:

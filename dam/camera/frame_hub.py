@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 _RustImageHub: Any
 try:
-    import dam_rs  # type: ignore[import-not-found]
+    import dam_rs
 except ImportError as exc:
     raise ImportError(
         "dam_rs.ImageHub is required for DAM 0.4.0 camera recording/live preview. "

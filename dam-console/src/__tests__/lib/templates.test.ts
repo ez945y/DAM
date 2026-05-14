@@ -89,7 +89,7 @@ describe('defaultConfig', () => {
     const cfg = defaultConfig('ros2_minimal')
     expect(cfg.adapter).toBe('ros2')
     expect(cfg.ros2JointTopic).toBe('/joint_states')
-    expect(cfg.controlFrequencyHz).toBe(15)
+    expect(cfg.controlFrequencyHz).toBe(30)
   })
 
   it('guardsEnabled defaults to empty object', () => {

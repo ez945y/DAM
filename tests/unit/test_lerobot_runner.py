@@ -13,6 +13,8 @@ Covers:
 import numpy as np
 import pytest
 
+from dam.adapter.lerobot.adapter import LeRobotAdapter
+from dam.adapter.lerobot.policy import LeRobotPolicyAdapter
 from dam.boundary.constraint import BoundaryConstraint
 from dam.boundary.node import BoundaryNode
 from dam.boundary.single import SingleNodeContainer
@@ -65,19 +67,14 @@ def make_runtime():
 
 def make_runner() -> LeRobotRunner:
     """Helper: fully wired mock runner."""
-    from dam.adapter.lerobot.policy import LeRobotPolicyAdapter
-    from dam.adapter.lerobot.sink import LeRobotSinkAdapter
-    from dam.adapter.lerobot.source import LeRobotSourceAdapter
-
     runtime = make_runtime()
     robot = MockRobot()
 
-    source = LeRobotSourceAdapter(robot)
-    sink = LeRobotSinkAdapter(robot)
+    adapter = LeRobotAdapter(robot)
     policy = LeRobotPolicyAdapter(MockPolicy())
 
-    runtime.register_source("arm", source)
-    runtime.register_sink(sink)
+    runtime.register_source("arm", adapter)
+    runtime.register_sink(adapter)
     runtime.register_policy(policy)
 
     return LeRobotRunner(runtime=runtime, robot=robot)
@@ -96,7 +93,9 @@ def test_runner_step_returns_cycle_result():
 
 def test_runner_run_n_cycles_returns_exactly_n():
     runner = make_runner()
-    results = runner.run("pick_and_place", n_cycles=5)
+    runner.start_task("pick_and_place")
+    results = [runner.step() for _ in range(5)]
+    runner.stop()
     assert len(results) == 5
     assert all(isinstance(r, CycleResult) for r in results)
 
@@ -119,19 +118,14 @@ def test_runner_stop_without_start():
 
 
 def test_runner_custom_frequency():
-    from dam.adapter.lerobot.policy import LeRobotPolicyAdapter
-    from dam.adapter.lerobot.sink import LeRobotSinkAdapter
-    from dam.adapter.lerobot.source import LeRobotSourceAdapter
-
     runtime = make_runtime()
     robot = MockRobot()
 
-    source = LeRobotSourceAdapter(robot)
-    sink = LeRobotSinkAdapter(robot)
+    adapter = LeRobotAdapter(robot)
     policy = LeRobotPolicyAdapter(MockPolicy())
 
-    runtime.register_source("arm", source)
-    runtime.register_sink(sink)
+    runtime.register_source("arm", adapter)
+    runtime.register_sink(adapter)
     runtime.register_policy(policy)
 
     runner = LeRobotRunner(
@@ -146,8 +140,8 @@ def test_runner_custom_frequency():
 # ── from_stackfile_auto error handling ───────────────────────────────────────
 
 
-def test_from_stackfile_auto_raises_without_hardware(tmp_path):
-    """from_stackfile_auto must raise ValueError if no hardware section."""
+def test_from_stackfile_raises_without_hardware(tmp_path):
+    """from_stackfile must raise ValueError if no hardware section."""
     stackfile = tmp_path / "no_hw.yaml"
     stackfile.write_text(
         """
@@ -175,14 +169,14 @@ safety:
 """
     )
     with pytest.raises(ValueError, match="hardware"):
-        LeRobotRunner.from_stackfile_auto(str(stackfile))
+        LeRobotRunner.from_stackfile(str(stackfile))
 
 
 # ── from_stackfile with pre-built objects ─────────────────────────────────────
 
 
-def test_from_stackfile_with_mock_robot(tmp_path):
-    """from_stackfile() should wire correctly when given mock robot/policy."""
+def test_runtime_from_stackfile_with_mock_robot(tmp_path):
+    """A stackfile runtime can be wired with the unified mock lerobot adapter."""
     stackfile = tmp_path / "test_stack.yaml"
     stackfile.write_text(
         """
@@ -212,10 +206,16 @@ safety:
 """
     )
     robot = MockRobot()
-    policy = MockPolicy()
-    runner = LeRobotRunner.from_stackfile(str(stackfile), robot, policy)
+    adapter = LeRobotAdapter(robot)
+    runtime = GuardRuntime.from_stackfile(str(stackfile))
+    runtime.register_source("arm", adapter)
+    runtime.register_sink(adapter)
+    runtime.register_policy(LeRobotPolicyAdapter(MockPolicy()))
+    runner = LeRobotRunner(runtime=runtime, robot=robot)
     assert runner is not None
-    results = runner.run("default", n_cycles=3)
+    runner.start_task("default")
+    results = [runner.step() for _ in range(3)]
+    runner.stop()
     assert len(results) == 3
     assert all(isinstance(r, CycleResult) for r in results)
 
@@ -255,12 +255,12 @@ def test_preflight_passes_when_all_ok():
         cameras={"top": MockCamera(), "wrist": MockCamera()},
     )
     # Must not raise
-    LeRobotRunner._preflight_check(robot)
+    LeRobotAdapter(robot).verify()
 
 
 def test_preflight_passes_with_no_cameras():
     robot = RobotWithCameras(cameras={})
-    LeRobotRunner._preflight_check(robot)
+    LeRobotAdapter(robot).verify()
 
 
 def test_preflight_raises_when_camera_returns_none():
@@ -268,7 +268,7 @@ def test_preflight_raises_when_camera_returns_none():
         cameras={"top": MockCamera(returns_none=True)},
     )
     with pytest.raises(RuntimeError, match="camera 'top'"):
-        LeRobotRunner._preflight_check(robot)
+        LeRobotAdapter(robot).verify()
 
 
 def test_preflight_raises_when_camera_throws():
@@ -276,19 +276,19 @@ def test_preflight_raises_when_camera_throws():
         cameras={"wrist": MockCamera(raises="USB device not found")},
     )
     with pytest.raises(RuntimeError, match="camera 'wrist'"):
-        LeRobotRunner._preflight_check(robot)
+        LeRobotAdapter(robot).verify()
 
 
 def test_preflight_raises_when_motor_throws():
     robot = RobotWithCameras(cameras={}, obs_raises="bus error")
     with pytest.raises(RuntimeError, match="motors"):
-        LeRobotRunner._preflight_check(robot)
+        LeRobotAdapter(robot).verify()
 
 
 def test_preflight_raises_when_motor_returns_none():
     robot = RobotWithCameras(cameras={}, obs_none=True)
     with pytest.raises(RuntimeError, match="motors"):
-        LeRobotRunner._preflight_check(robot)
+        LeRobotAdapter(robot).verify()
 
 
 def test_preflight_collects_all_failures():
@@ -301,7 +301,7 @@ def test_preflight_collects_all_failures():
         obs_raises="bus error",
     )
     with pytest.raises(RuntimeError) as exc_info:
-        LeRobotRunner._preflight_check(robot)
+        LeRobotAdapter(robot).verify()
     msg = str(exc_info.value)
     assert "3 issue(s)" in msg
     assert "top" in msg
@@ -310,21 +310,18 @@ def test_preflight_collects_all_failures():
 
 
 def test_preflight_skipped_when_no_robot_ref():
-    """run() skips preflight when robot is None."""
+    """Legacy single-step lifecycle works when runner has no direct robot ref."""
     runtime = make_runtime()
 
-    # Manual setup: register all required adapters
-    from dam.adapter.lerobot.policy import LeRobotPolicyAdapter
-    from dam.adapter.lerobot.sink import LeRobotSinkAdapter
-    from dam.adapter.lerobot.source import LeRobotSourceAdapter
-
     robot = MockRobot()
-    runtime.register_source("arm", LeRobotSourceAdapter(robot))
-    runtime.register_sink(LeRobotSinkAdapter(robot))
+    adapter = LeRobotAdapter(robot)
+    runtime.register_source("arm", adapter)
+    runtime.register_sink(adapter)
     runtime.register_policy(LeRobotPolicyAdapter(MockPolicy()))
 
     runner = LeRobotRunner(runtime=runtime, robot=None)
     assert runner._robot is None
-    # Should complete without calling _preflight_check
-    results = runner.run("pick_and_place", n_cycles=1)
+    runner.start_task("pick_and_place")
+    results = [runner.step()]
+    runner.stop()
     assert len(results) == 1

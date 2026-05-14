@@ -30,6 +30,8 @@ async def _stream_telemetry(telemetry: TelemetryService, websocket: WebSocket) -
     await websocket.accept()
     q = telemetry.subscribe()
     for ev in telemetry.get_history(50):
+        if isinstance(ev, dict) and ev.get("type") == "cycle":
+            continue
         try:
             await websocket.send_text(json.dumps(ev))
         except Exception:  # noqa: BLE001 — client disconnected during history replay; stop replaying

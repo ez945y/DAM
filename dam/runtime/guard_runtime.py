@@ -678,7 +678,7 @@ class GuardRuntime:
                     "or a real camera source (opencv/lerobot with cameras).",
                 )
             return {}
-        return result
+        return {str(name): bytes(jpeg) for name, jpeg in result.items()}
 
     # ── Loopback helper ────────────────────────────────────────────────────
 

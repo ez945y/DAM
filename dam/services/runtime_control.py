@@ -213,11 +213,15 @@ class RuntimeControlService:
         """Gracefully stop the control loop."""
         with self._lock:
             runner = self._runner
-            if self._state not in (
-                RuntimeState.RUNNING,
-                RuntimeState.PAUSED,
-                RuntimeState.STARTING,
-            ) or runner is None:
+            if (
+                self._state
+                not in (
+                    RuntimeState.RUNNING,
+                    RuntimeState.PAUSED,
+                    RuntimeState.STARTING,
+                )
+                or runner is None
+            ):
                 return False
             self._state = RuntimeState.STOPPING
         self._notify_state()
@@ -452,7 +456,9 @@ class RuntimeControlService:
         """Return a JSON-serialisable status dict."""
         with self._lock:
             runner = self._runner
-            runner_info = runner.status_snapshot() if runner and hasattr(runner, "status_snapshot") else None
+            runner_info = (
+                runner.status_snapshot() if runner and hasattr(runner, "status_snapshot") else None
+            )
 
             # Base config values
             hz = 30.0
@@ -548,7 +554,11 @@ class RuntimeControlService:
         if self._on_status_broadcast is not None:
             with self._lock:
                 runner = self._runner
-                info = runner.status_snapshot() if runner and hasattr(runner, "status_snapshot") else {}
+                info = (
+                    runner.status_snapshot()
+                    if runner and hasattr(runner, "status_snapshot")
+                    else {}
+                )
                 planned_task = info.get("planned_task")
                 planned_boundaries = info.get("planned_boundaries", [])
                 cycle_count = info.get("cycle_count", self._cycle_count)

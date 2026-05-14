@@ -58,8 +58,10 @@ def _write_violation_mcap(tmp_path: Path, cameras: tuple[str, ...]) -> Path:
             }
         )
     )
-    del writer
     time.sleep(0.15)
+    writer.stop()
+    del writer
+    time.sleep(0.05)
     return path
 
 
@@ -103,3 +105,64 @@ def test_rust_image_hub_writes_and_reader_returns_all_cameras(
     assert detail is not None
     assert detail["active_cameras"] == list(cameras)
     assert set(detail["cameras"]) == set(cameras)
+
+
+def test_rust_image_hub_captures_clamp_window_once_per_incident(tmp_path: Path) -> None:
+    from dam_rs import ImageHub, McapWriter
+
+    now = time.time()
+    path = tmp_path / "session_clamp_incident.mcap"
+    hub = ImageHub(2.0)
+    cameras = ("top", "wrist")
+    for idx, camera in enumerate(cameras):
+        hub.submit_jpeg(camera, now - 0.05 + idx * 0.001, 640, 480, f"jpeg-{camera}".encode())
+
+    writer = McapWriter()
+    writer.attach_image_hub(hub, 2.0, True)
+    writer.start(str(path))
+    for i in range(5):
+        writer.write_cycle(
+            json.dumps(
+                {
+                    "cycle_id": i,
+                    "obs_timestamp": now + i * 0.033,
+                    "has_violation": False,
+                    "has_clamp": True,
+                    "violated_layer_mask": 0,
+                    "clamped_layer_mask": 1,
+                    "active_task": "task",
+                    "active_boundaries": ["boundary"],
+                    "active_cameras": list(cameras),
+                    "obs_joint_positions": [0.0],
+                    "obs_channels": {},
+                    "action_positions": [0.0],
+                    "action_velocities": None,
+                    "validated_positions": None,
+                    "validated_velocities": None,
+                    "was_clamped": True,
+                    "fallback_triggered": None,
+                    "guard_results": [],
+                    "latency_stages": {"source": 1.0, "total": 2.0},
+                    "latency_layers": {},
+                    "latency_guards": {},
+                    "image_data": [],
+                    "config_version": 0,
+                }
+            )
+        )
+    time.sleep(0.2)
+    writer.stop()
+    del writer
+    time.sleep(0.05)
+
+    image_topics: list[str] = []
+    cycle_count = 0
+    with path.open("rb") as f:
+        for _schema, channel, _message in make_reader(f).iter_messages():
+            if channel.topic == "/dam/cycle":
+                cycle_count += 1
+            elif channel.topic.startswith("/dam/images/"):
+                image_topics.append(channel.topic)
+
+    assert cycle_count == 5
+    assert sorted(image_topics) == sorted(f"/dam/images/{cam}" for cam in cameras)

@@ -573,6 +573,7 @@ impl ImageHub {
 /// Methods:
 ///   - start(path: str) -> None  (starts writing to file)
 ///   - write_cycle(record: dict) -> int  (returns sequence number)
+///   - stop() -> None
 ///   - current_sequence() -> int
 ///
 /// Example (Python):
@@ -637,6 +638,11 @@ impl McapWriter {
     ) {
         self.inner
             .attach_image_hub(image_hub.inner.clone(), window_sec, capture_images_on_clamp);
+    }
+
+    /// Stop writing and close the MCAP file without draining stale queued cycles.
+    fn stop(&self) {
+        self.inner.stop();
     }
 
     /// Get the current sequence counter.

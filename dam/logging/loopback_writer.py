@@ -636,8 +636,13 @@ class LoopbackWriter:
             try:
                 record_dict = _record_to_dict(rec, images)
                 writer.write_cycle(json.dumps(record_dict, cls=_DAMEncoder))
-            except Exception:
-                logger.exception("LoopbackWriter: Rust write failed for cycle %d", rec.cycle_id)
+            except Exception as exc:
+                if "queue full" in str(exc).lower():
+                    logger.debug(
+                        "LoopbackWriter: dropped cycle %d because MCAP queue is full", rec.cycle_id
+                    )
+                else:
+                    logger.exception("LoopbackWriter: Rust write failed for cycle %d", rec.cycle_id)
 
     def shutdown(self, timeout: float = 15.0) -> None:
         """Signal stop, close file."""
@@ -645,6 +650,8 @@ class LoopbackWriter:
             return
         self._started = False
         if self._mcap_writer is not None:
+            with contextlib.suppress(Exception):
+                self._mcap_writer.stop()
             self._mcap_writer = None
             logger.info("LoopbackWriter: closed")
         self._pending_session_path = None
@@ -662,6 +669,8 @@ class LoopbackWriter:
         """
         if self._started and self._mcap_writer is not None:
             logger.info("LoopbackWriter: forced rotation triggered")
+            with contextlib.suppress(Exception):
+                self._mcap_writer.stop()
             self._mcap_writer = None
 
     # ── Worker thread ──────────────────────────────────────────────────────

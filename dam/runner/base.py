@@ -259,9 +259,9 @@ class RuntimeLoopRunner(BaseRunner):
 
     def get_latest_images(self) -> dict[str, bytes]:
         if self._frame_hub is not None and hasattr(self._frame_hub, "latest_jpegs"):
-            return cast(dict[str, bytes], self._frame_hub.latest_jpegs())
+            return {str(name): bytes(jpeg) for name, jpeg in self._frame_hub.latest_jpegs().items()}
         if hasattr(self._runtime, "get_latest_images"):
-            return cast(dict[str, bytes], self._runtime.get_latest_images())
+            return self._runtime.get_latest_images()
         return {}
 
     @property
