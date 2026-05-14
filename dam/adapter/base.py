@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 class SensorAdapter(ABC):
     """Bridges a hardware / ROS2 / serial source to DAM Observation.
 
-    Implementations: LeRobotSourceAdapter, ROS2SourceAdapter, SerialSourceAdapter …
+    Implementations: LeRobotAdapter, ROS2SourceAdapter, SerialSourceAdapter …
     Declared in Stackfile hardware.sources; instantiated by StackfileLoader, never by user code.
     """
 
@@ -98,7 +98,7 @@ class PolicyAdapter(ABC):
 class ActionAdapter(ABC):
     """Sends a ValidatedAction to the physical hardware or ROS2 topic.
 
-    Implementations: LeRobotSinkAdapter, ROS2SinkAdapter …
+    Implementations: LeRobotAdapter, ROS2SinkAdapter …
     Declared in Stackfile hardware.sinks; instantiated by StackfileLoader.
     """
 

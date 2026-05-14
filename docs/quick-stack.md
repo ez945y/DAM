@@ -78,7 +78,7 @@ Top-level keys accepted by a Stackfile:
 |-------|------|---------|-------------|
 | `always_active` | string or list[string] | `[]` | Boundary container name(s) active in all tasks |
 | `no_task_behavior` | string | `"emergency_stop"` | Fallback when no task is active |
-| `control_frequency_hz` | float | `50.0` | Target control loop frequency |
+| `control_frequency_hz` | float | `30.0` | Target control loop frequency |
 | `max_obs_age_sec` | float | `0.1` | Maximum observation age before stale warning |
 | `cycle_budget_ms` | float | `20.0` | Per-cycle time budget; excess triggers watchdog |
 
@@ -87,7 +87,7 @@ Top-level keys accepted by a Stackfile:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `mode` | string | `"passive"` | `"managed"` (built-in loop) or `"passive"` (caller drives `step()`) |
-| `control_frequency_hz` | float | `50.0` | Target frequency for managed mode |
+| `control_frequency_hz` | float | `30.0` | Target frequency for managed mode |
 | `max_obs_age_sec` | float | `0.1` | Stale observation threshold |
 | `cycle_budget_ms` | float | `20.0` | Cycle budget in managed mode |
 

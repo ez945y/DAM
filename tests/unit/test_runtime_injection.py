@@ -34,7 +34,7 @@ def test_guard_runtime_param_injection(tmp_path):
             }
         },
         "tasks": {"default": {"boundaries": ["test_kin"]}},
-        "safety": {"control_frequency_hz": 10.0, "enforcement_mode": "enforce"},
+        "safety": {"control_frequency_hz": 30.0, "enforcement_mode": "enforce"},
     }
 
     sf_path = tmp_path / "stack.yaml"

@@ -148,7 +148,7 @@ def test_qp_solver_param_inlined_in_any_l1_boundary(proxsuite):
             "sources": {"arm": {"type": "lerobot", "port": "/dev/null"}},
             "sinks": {"cmd": {"ref": "sources.arm"}},
         },
-        "safety": {"control_frequency_hz": 50, "no_task_behavior": "emergency_stop"},
+        "safety": {"control_frequency_hz": 30, "no_task_behavior": "emergency_stop"},
         "guards": [{"L1": "motion"}],
         "boundaries": {
             "joint_position_limits": {

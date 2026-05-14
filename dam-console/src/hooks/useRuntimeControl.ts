@@ -15,11 +15,27 @@ let gLastKnownStatus: RuntimeStatus = {
   control_frequency_hz: undefined,
 }
 
+// Module-scoped loading state so every consumer of useRuntimeControl shows
+// the same spinner — when the Sidebar's Recheck button is pressed, the
+// dashboard's HardwareWarning button also goes into "Rechecking…" mode.
+let gLoading = false
+let gLoadingListeners: Array<(v: boolean) => void> = []
+function setGLoading(v: boolean) {
+  gLoading = v
+  for (const fn of gLoadingListeners) fn(v)
+}
+
 export function useRuntimeControl() {
   const [status, setStatus] = useState<RuntimeStatus>(gLastKnownStatus)
   const [boundaries, setBoundaries] = useState<BoundaryConfig[]>([])
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoadingLocal] = useState(gLoading)
   const [error, setError] = useState<string | null>(null)
+
+  // Subscribe to the shared loading flag so multiple instances stay in sync.
+  useEffect(() => {
+    gLoadingListeners.push(setLoadingLocal)
+    return () => { gLoadingListeners = gLoadingListeners.filter(fn => fn !== setLoadingLocal) }
+  }, [])
 
   // ── Cumulative running-time tracking ─────────────────────────────────────
   const [accumulatedSec, setAccumulatedSec] = useState(gAccumulatedSec)
@@ -111,7 +127,7 @@ export function useRuntimeControl() {
   }, [refresh, refreshBoundaries])
 
   const call = useCallback(async (fn: () => Promise<unknown>) => {
-    setLoading(true)
+    setGLoading(true)
     setError(null)
     try {
       await fn()
@@ -119,7 +135,7 @@ export function useRuntimeControl() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
-      setLoading(false)
+      setGLoading(false)
     }
   }, [refresh])
 
@@ -134,7 +150,7 @@ export function useRuntimeControl() {
     /** Total seconds the runtime has been in "running" state this session */
     accumulatedSec,
     start:         () => {
-      const hz = gLastKnownStatus.control_frequency_hz || 50
+      const hz = gLastKnownStatus.control_frequency_hz || 30
       const budget = Math.round(1000 / hz)
       return call(() => api.start({
         task_name: gLastKnownStatus.planned_task || gLastKnownStatus.available_tasks?.[0] || 'default',

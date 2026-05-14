@@ -62,6 +62,8 @@ class ROS2SinkAdapter(ActionAdapter):
     # ── ActionAdapter ABC ──────────────────────────────────────────────────
 
     def connect(self) -> None:
+        if self._connected:
+            return
         if self._node is None:
             logger.warning(
                 "ROS2SinkAdapter: node is None — mock mode; commands will publish "
@@ -129,6 +131,8 @@ class ROS2SinkAdapter(ActionAdapter):
         }
 
     def disconnect(self) -> None:
+        if not self._connected and self._publisher is None:
+            return
         if self._publisher is not None and self._node is not None:
             try:
                 self._node.destroy_publisher(self._publisher)

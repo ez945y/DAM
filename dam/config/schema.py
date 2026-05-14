@@ -78,7 +78,7 @@ class SafetyConfig(BaseModel):
     # Phase 2: single string name; Phase 1: list of names. Both accepted.
     always_active: str | list[str] = []
     no_task_behavior: str = "emergency_stop"
-    control_frequency_hz: float = 50.0
+    control_frequency_hz: float = 30.0
     max_obs_age_sec: float = 0.1
     cycle_budget_ms: float = 20.0
     enforcement_mode: EnforcementMode = EnforcementMode.ENFORCE
@@ -165,7 +165,7 @@ class SimulationConfig(BaseModel):
 class RuntimeConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
     mode: str = "passive"  # managed | passive
-    control_frequency_hz: float = 50.0
+    control_frequency_hz: float = 30.0
     max_obs_age_sec: float = 0.1
     cycle_budget_ms: float = 20.0
 

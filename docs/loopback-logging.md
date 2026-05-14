@@ -181,7 +181,7 @@ Each `.mcap` file contains session-level metadata (written once at start):
   "session": {
     "session_id": "sess_20241210_143022_abc123",
     "dam_version": "1.5.0",
-    "control_frequency_hz": 50.0,
+    "control_frequency_hz": 30.0,
     "python_version": "3.12.0",
     "stackfile_path": "/config/robot.yaml",
     "stackfile_hash": "sha256:abc123...",

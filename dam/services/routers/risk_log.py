@@ -45,6 +45,12 @@ def create_risk_log_router(risk_log: RiskLogService | None) -> APIRouter:
         svc = _require_risk_log(risk_log)
         return svc.stats()
 
+    @router.post("/clear", responses={503: {"description": _SVC_UNAVAILABLE}})
+    async def risk_log_clear() -> Any:
+        svc = _require_risk_log(risk_log)
+        svc.clear()
+        return {"cleared": True}
+
     @router.get("/export/json", responses={503: {"description": _SVC_UNAVAILABLE}})
     async def risk_log_export_json() -> Any:
         svc = _require_risk_log(risk_log)

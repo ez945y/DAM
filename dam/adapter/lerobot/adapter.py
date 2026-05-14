@@ -1,9 +1,19 @@
-"""LeRobotAdapter — unified hardware adapter for Reading and Writing to lerobot robots.
+"""LeRobotAdapter — unified Read+Write hardware adapter for lerobot robots.
 
-This class implements both SensorAdapter and ActionAdapter, allowing a single
-connection to the physical hardware to serve as both the observation source
-and the action sink. This is the preferred way to interface with motor-based
-hardware that shares a single communication bus/node.
+Bridges a lerobot robot to DAM as both a ``SensorAdapter`` and an
+``ActionAdapter``. One class covers all read/write paths so the runtime
+factory can use the same instance for the source AND the sink when they
+share a physical bus, or separate instances when they don't.
+
+Modern lerobot API (``get_observation()`` returns ``{"joint.pos": deg, …}``)
+and legacy (``capture_observation()`` returning state tensors) are both
+supported. DAM internally uses **radians**; the adapter converts when
+``degrees_mode=True``.
+
+Observation channels (temperature, current, voltage, …) are driven by the
+stackfile: only declared channels are sync_read from the bus. Declared
+health channels (current/temperature/voltage) additionally populate
+``obs.metadata["hardware_status"]`` for L3 ``HardwareGuard``.
 """
 
 from __future__ import annotations
@@ -21,15 +31,24 @@ from dam.types.observation import Observation
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_JOINT_NAMES: list[str] = [
+    "shoulder_pan",
+    "shoulder_lift",
+    "elbow_flex",
+    "wrist_flex",
+    "wrist_roll",
+    "gripper",
+]
+
 
 class LeRobotAdapter(SensorAdapter, ActionAdapter):
     """Unified adapter for lerobot robots (SO-ARM101, Koch, …).
 
-    Acts as both a SensorAdapter (reading positions/images) and an
-    ActionAdapter (sending motor commands).
+    Implements both ``SensorAdapter`` (read positions / cameras / declared
+    telemetry channels) and ``ActionAdapter`` (send motor commands).
     """
 
-    # SO-101 arm joints in pinocchio order (excludes gripper)
+    # SO-101 arm joints in pinocchio order (excludes gripper).
     _ARM_JOINT_NAMES: list[str] = [
         "shoulder_pan",
         "shoulder_lift",
@@ -37,6 +56,15 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
         "wrist_flex",
         "wrist_roll",
     ]
+
+    # Declared-channel → (hardware_status list-key, scalar-key). Channels
+    # not in this map (velocity, load, …) still populate obs.channels but
+    # don't surface in hardware_status — HardwareGuard skips those checks.
+    _HEALTH_STATUS_KEYS: dict[str, tuple[str, str | None]] = {
+        "current":     ("currents",     "current_a"),
+        "temperature": ("temperatures", "temperature_c"),
+        "voltage":     ("voltages",     None),
+    }
 
     def __init__(
         self,
@@ -47,24 +75,16 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
         urdf_path: str | None = None,
     ) -> None:
         self._robot = robot
-        # Default order matching so101_follower preset
-        from dam.adapter.lerobot.source import _DEFAULT_JOINT_NAMES
-
         self._joint_names: list[str] = joint_names or list(_DEFAULT_JOINT_NAMES)
         self._degrees_mode = degrees_mode
         self._obs_hz = obs_hz
 
-        from dam.adapter.lerobot.presets import STS3215_REGISTER_MAP
-
-        self._register_map = STS3215_REGISTER_MAP
-        self._observation_channels: list[str] = []
-
-        # Sensor state
-        n_joints = len(self._joint_names)
-        self._prev_positions: np.ndarray = np.zeros(n_joints, dtype=np.float64)
-        self._prev_velocities: np.ndarray = np.zeros(n_joints, dtype=np.float64)
-        self._prev_images: dict[str, np.ndarray] = {}
+        # Sensor cache — read()'s exception path returns these so consumers
+        # don't see a sudden gap on a transient bus glitch.
+        self._prev_positions: np.ndarray | None = None
+        self._prev_velocities: np.ndarray | None = None
         self._prev_ee_pose: np.ndarray | None = None
+        self._prev_images: dict[str, np.ndarray] = {}
         self._prev_time: float | None = None
 
         # Sink state
@@ -72,9 +92,16 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
 
         self._connected = False
 
-        # Pinocchio FK + Jacobian (DynamicsContext defaults to sentinel
-        # "unavailable" so guards that gate on ``ctx.available`` short-circuit
-        # when no URDF was provided).
+        from dam.adapter.lerobot.presets import STS3215_REGISTER_MAP
+
+        self._register_map = STS3215_REGISTER_MAP
+        self._observation_channels: list[str] = []
+
+        # Per-cycle latency breakdown, logged at INFO once per second.
+        self._lat: dict[str, float] = {}
+        self._lat_log_t: float = 0.0
+
+        # Pinocchio FK + Jacobian (sentinel "unavailable" until init succeeds).
         from dam.types.dynamics import DynamicsContext
 
         self._pin_model = None
@@ -84,7 +111,10 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
         if urdf_path is not None:
             self._init_pinocchio(urdf_path)
 
+    # ── Pinocchio FK setup ─────────────────────────────────────────────────
+
     def _init_pinocchio(self, urdf_path: str) -> None:
+        """Load URDF and build a reduced pinocchio model for the 5 arm joints."""
         from dam.types.dynamics import DynamicsContext
 
         try:
@@ -105,27 +135,38 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
                 joint_names=list(self._ARM_JOINT_NAMES),
                 frame_ids={"gripper_link": self._pin_ee_frame_id},
             )
-            logger.info("LeRobotAdapter: pinocchio FK initialized from %s", urdf_path)
+            logger.info("LeRobotAdapter: pinocchio FK initialised from %s", urdf_path)
         except Exception as exc:
             logger.warning("LeRobotAdapter: pinocchio FK unavailable — %s", exc)
             self._dynamics = DynamicsContext.unavailable()
 
     @property
     def dynamics(self) -> Any:
-        """Shared FK/Jacobian context — guards consume this via injection pool.
-
-        Refreshed each ``read()`` cycle with the latest joint configuration.
-        Returns a no-op sentinel (``available == False``) when no URDF was
-        supplied at construction.
-        """
+        """Shared FK/Jacobian context — exposed via injection pool to guards."""
         return self._dynamics
 
-    # ── Shared Lifecycle ────────────────────────────────────────────────────
+    def _compute_ee_pose(self, positions_rad: np.ndarray) -> np.ndarray | None:
+        if not self._dynamics.available:
+            return None
+        try:
+            import pinocchio as pin
+
+            self._dynamics.update(positions_rad)
+            o_mf = self._dynamics.frame_placement(self._pin_ee_frame_id)
+            quat = pin.Quaternion(o_mf.rotation)
+            return np.array(
+                [*o_mf.translation, quat.x, quat.y, quat.z, quat.w],
+                dtype=np.float64,
+            )
+        except Exception as exc:
+            logger.debug("FK computation failed: %s", exc)
+            return None
+
+    # ── Lifecycle ──────────────────────────────────────────────────────────
 
     def connect(self) -> None:
         if self._connected:
             return
-
         try:
             if hasattr(self._robot, "connect"):
                 self._robot.connect()
@@ -139,30 +180,76 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
         except Exception as e:
             err_msg = str(e).lower()
             if "already connected" in err_msg or "already open" in err_msg:
-                # Recover from inconsistent state: robot is connected but adapter thought it wasn't
                 self._connected = True
                 self._prev_time = time.monotonic()
                 logger.info("LeRobotAdapter: already connected, synchronizing state.")
             else:
-                raise e
+                raise
 
     def disconnect(self) -> None:
-        """Release hardware resources. Always attempts to call robot.disconnect()."""
-        # Close the underlying robot even if we think we aren't connected
+        if not self._connected and self._robot is None:
+            return
+        if not self._connected:
+            logger.debug("LeRobotAdapter.disconnect(): already disconnected")
+            return
+        self._connected = False
         if self._robot is not None:
             try:
                 if hasattr(self._robot, "disconnect"):
                     self._robot.disconnect()
                 elif hasattr(self._robot, "close"):
                     self._robot.close()
-                logger.debug("LeRobotAdapter: underlying robot disconnected.")
             except Exception as e:
-                # Logic level log to avoid spamming if already closed
-                logger.debug("LeRobotAdapter: robot disconnect failed: %s", e)
+                logger.debug("LeRobotAdapter: robot disconnect/close failed: %s", e)
+        logger.info("LeRobotAdapter disconnected")
 
-        if self._connected:
-            self._connected = False
-            logger.info("LeRobotAdapter disconnected")
+    def verify(self) -> None:
+        """Verify cameras and motors are responsive before the control loop starts.
+
+        Checks performed
+        ----------------
+        1. **Cameras** — reads one frame from every camera attached to the robot.
+           A ``None`` frame or any exception is reported as a failure.
+        2. **Motors** — calls ``robot.get_observation()`` to confirm all motors
+           respond without errors.
+        """
+        errors: list[str] = []
+
+        # 1. Camera check
+        cameras: dict = {}
+        if hasattr(self._robot, "cameras") and self._robot.cameras:
+            cameras = self._robot.cameras
+        for cam_name, cam in cameras.items():
+            try:
+                frame = cam.read() if hasattr(cam, "read") else cam.async_read()
+                if frame is None:
+                    errors.append(f"camera '{cam_name}': read() returned None — check USB / index")
+            except Exception as exc:
+                errors.append(f"camera '{cam_name}': {exc}")
+
+        # 2. Motor check
+        try:
+            obs = (
+                self._robot.get_observation()
+                if hasattr(self._robot, "get_observation")
+                else self._robot.capture_observation()
+            )
+            if obs is None:
+                errors.append("motors: get_observation() returned None")
+        except Exception as exc:
+            errors.append(f"motors: {exc}")
+
+        if errors:
+            bullet_list = "\n".join(f"  • {e}" for e in errors)
+            raise RuntimeError(
+                f"Hardware preflight check failed ({len(errors)} issue(s)):\n{bullet_list}\n"
+                "Fix the above before starting the control loop."
+            )
+
+        logger.info("Hardware preflight check passed (cameras=%d, motors OK).", len(cameras))
+
+    def is_healthy(self) -> bool:
+        return self._connected and self._robot is not None
 
     def supported_channels(self) -> set[str]:
         return set(self._register_map)
@@ -170,129 +257,111 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
     def set_observation_channels(self, channels: list[str]) -> None:
         self._observation_channels = list(channels)
 
-    def is_healthy(self) -> bool:
-        return self._connected and self._robot is not None
-
-    def get_hardware_status(self) -> dict[str, Any]:
-        status: dict[str, Any] = {
-            "connected": self._connected,
-            "latency_ms": (time.monotonic() - self._prev_time) * 1000 if self._prev_time else 0,
-        }
-        if self._connected and hasattr(self._robot, "bus"):
-            try:
-                bus = self._robot.bus
-                # STS3215 Present_Current unit is mA; convert to A.
-                currents = bus.sync_read("Present_Current")
-                if currents:
-                    per_motor_a = {k: v / 1000.0 for k, v in currents.items()}
-                    status["currents"] = per_motor_a
-                    status["current_a"] = max(per_motor_a.values())
-
-                temps = bus.sync_read("Present_Temperature")
-                if temps:
-                    per_motor_c = {k: float(v) for k, v in temps.items()}
-                    status["temperatures"] = per_motor_c
-                    status["temperature_c"] = max(per_motor_c.values())
-
-                voltages = bus.sync_read("Present_Voltage")
-                if voltages:
-                    status["voltages"] = {k: v / 10.0 for k, v in voltages.items()}
-            except Exception as exc:
-                logger.debug("get_hardware_status bus read failed: %s", exc)
-        return status
-
-    # ── SensorAdapter Interface (Read) ──────────────────────────────────────
+    # ── SensorAdapter: read ────────────────────────────────────────────────
 
     def read(self) -> Observation:
-        if not self._connected:
-            try:
-                self.connect()
-            except Exception as e:
-                logger.error("LeRobotAdapter: auto-connect failed: %s", e)
-
-        now = time.monotonic()
         try:
+            t0 = time.perf_counter()
             if hasattr(self._robot, "get_observation"):
                 raw = self._robot.get_observation()
             else:
                 raw = self._robot.capture_observation()
+            self._lat["get_observation"] = (time.perf_counter() - t0) * 1000.0
 
-            return self._convert_obs(raw)
+            obs = self._convert(raw)
+            self._log_latency_throttled()
+            return obs
         except Exception as e:
-            logger.error("LeRobotAdapter read failure: %s", e)
-            # Use now if we haven't successfully read anything yet (bootstrap)
-            fallback_ts = self._prev_time if self._prev_time is not None else now
+            logger.error("LeRobotAdapter hardware read failure: %s", e)
             return Observation(
-                timestamp=fallback_ts,
-                joint_positions=self._prev_positions.copy(),
-                joint_velocities=self._prev_velocities.copy(),
+                timestamp=self._prev_time if self._prev_time is not None else time.monotonic(),
+                joint_positions=self._prev_positions
+                    if self._prev_positions is not None
+                    else np.zeros(len(self._joint_names), dtype=np.float64),
+                joint_velocities=self._prev_velocities,
                 end_effector_pose=self._prev_ee_pose,
-                images=self._prev_images.copy(),
-                metadata={"hardware_status": {"fault": str(e)}},
+                images=self._prev_images.copy() if self._prev_images else None,
+                metadata={
+                    "hardware_status": {"error_codes": [-1], "reason": f"Hardware read error: {e}"}
+                },
             )
 
-    def _convert_obs(self, raw: dict[str, Any]) -> Observation:
+    def _log_latency_throttled(self) -> None:
+        """Log per-stage source-read latency once per second."""
+        now = time.monotonic()
+        if now - self._lat_log_t < 1.0:
+            return
+        self._lat_log_t = now
+        parts = " ".join(f"{k}={v:.1f}ms" for k, v in self._lat.items())
+        total = sum(self._lat.values())
+        logger.info("source read breakdown: %s total=%.1fms", parts, total)
+
+    def _convert(self, raw: dict[str, Any]) -> Observation:
+        if any(k.endswith(".pos") for k in raw):
+            return self._convert_named(raw)
+        return self._convert_legacy(raw)
+
+    def _convert_named(self, raw: dict[str, Any]) -> Observation:
+        """Modern lerobot API: ``{joint.pos: deg, joint.vel: deg/s, …}``."""
         now = time.monotonic()
 
-        # 1. Detect if it's modern dict or legacy tensor
-        if any(k.endswith(".pos") for k in raw):
-            # Modern API
-            pos_list = []
+        # Joint positions (deg → rad except gripper)
+        pos_list: list[float] = []
+        for name in self._joint_names:
+            raw_val = float(raw.get(f"{name}.pos", 0.0))
+            if self._degrees_mode and not self._is_gripper_joint(name):
+                pos_list.append(math.radians(raw_val))
+            else:
+                pos_list.append(raw_val)
+        positions = np.array(pos_list, dtype=np.float64)
+
+        # Joint velocities
+        has_vel = any(f"{n}.vel" in raw for n in self._joint_names)
+        if has_vel:
+            vel_list: list[float] = []
             for name in self._joint_names:
-                val = float(raw.get(f"{name}.pos", 0.0))
-                if self._degrees_mode and "gripper" not in name.lower():
-                    val = math.radians(val)
-                pos_list.append(val)
-            positions = np.array(pos_list, dtype=np.float64)
-
-            # Velocities
-            if any(f"{n}.vel" in raw for n in self._joint_names):
-                vel_list = []
-                for name in self._joint_names:
-                    val = float(raw.get(f"{name}.vel", 0.0))
-                    if self._degrees_mode and "gripper" not in name.lower():
-                        val = math.radians(val)
-                    vel_list.append(val)
-                velocities = np.array(vel_list, dtype=np.float64)
-            else:
-                velocities = self._estimate_velocity(positions, now)
+                raw_val = float(raw.get(f"{name}.vel", 0.0))
+                if self._degrees_mode and not self._is_gripper_joint(name):
+                    vel_list.append(math.radians(raw_val))
+                else:
+                    vel_list.append(raw_val)
+            velocities: np.ndarray | None = np.array(vel_list, dtype=np.float64)
         else:
-            # Legacy Tensor API
-            state = raw.get("observation.state", raw.get("state"))
-            positions = np.asarray(state, dtype=np.float64).flatten()
-            vel_raw = raw.get("observation.velocity", raw.get("velocity"))
-            if vel_raw is not None:
-                velocities = np.asarray(vel_raw, dtype=np.float64).flatten()
-            else:
-                velocities = self._estimate_velocity(positions, now)
+            velocities = self._estimate_velocity(positions, now)
 
-        # Update cache
         self._prev_positions = positions.copy()
-        self._prev_velocities = velocities.copy()
+        self._prev_time = now
 
-        # Images — only include FRESH frames in the current observation.
-        # This prevents duplicate photos from polluting the MCAP timeline/training data.
-        images: dict[str, np.ndarray] = {}
+        # Cameras — per-cam timed for the throttled log. Fresh frames also
+        # cached so read()'s exception path can fall back gracefully.
+        images: dict[str, np.ndarray] | None = None
         if hasattr(self._robot, "cameras") and self._robot.cameras:
+            images = {}
             for cam_name, cam in self._robot.cameras.items():
+                t_cam = time.perf_counter()
                 try:
-                    # async_read() returns None if no new frame is available.
                     frame = cam.async_read()
                     if frame is not None:
                         frame_np = np.asarray(frame).copy()
-                        self._prev_images[cam_name] = frame_np
                         images[cam_name] = frame_np
-                except Exception:  # noqa: BLE001 — camera read failure is non-fatal
-                    pass
+                        self._prev_images[cam_name] = frame_np
+                except Exception as e:
+                    logger.debug("Camera '%s' read error: %s", cam_name, e)
+                self._lat[f"cam[{cam_name}]"] = (time.perf_counter() - t_cam) * 1000.0
+            if not images:
+                images = None
 
-        # EE Pose via Pinocchio
         ee_pose = self._compute_ee_pose(positions)
+        self._prev_velocities = velocities.copy() if velocities is not None else None
         self._prev_ee_pose = ee_pose
 
-        # Update heartbeat clock only AFTER successful conversion
-        self._prev_time = now
+        t_ch = time.perf_counter()
+        channels, hw_status = self._read_observation_data()
+        self._lat["channels"] = (time.perf_counter() - t_ch) * 1000.0
 
-        channels = self._read_channels()
+        metadata: dict[str, Any] = {}
+        if hw_status:
+            metadata["hardware_status"] = hw_status
 
         return Observation(
             timestamp=now,
@@ -301,57 +370,112 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
             end_effector_pose=ee_pose,
             images=images,
             channels=channels,
+            metadata=metadata,
         )
 
-    def _read_channels(self) -> dict[str, np.ndarray] | None:
-        if not self._observation_channels or not hasattr(self._robot, "bus"):
-            return None
-        bus = self._robot.bus
-        result: dict[str, np.ndarray] = {}
+    def _convert_legacy(self, raw: dict[str, Any]) -> Observation:
+        """Legacy lerobot API: ``{"observation.state": tensor, …}``."""
+        now = time.monotonic()
+
+        state = raw.get("observation.state", raw.get("state"))
+        if state is None:
+            raise KeyError(
+                "LeRobot obs dict missing 'observation.state'. "
+                "If using modern lerobot, ensure get_observation() is available."
+            )
+        positions = np.asarray(state, dtype=np.float64).flatten()
+
+        vel_raw = raw.get("observation.velocity", raw.get("velocity"))
+        if vel_raw is not None:
+            velocities: np.ndarray | None = np.asarray(vel_raw, dtype=np.float64).flatten()
+        else:
+            velocities = self._estimate_velocity(positions, now)
+
+        self._prev_positions = positions.copy()
+        self._prev_time = now
+
+        ee_raw = raw.get("observation.end_effector_pose")
+        if ee_raw is not None:
+            ee_pose: np.ndarray = np.asarray(ee_raw, dtype=np.float64).flatten()
+        else:
+            ee_pose = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0], dtype=np.float64)
+
+        images: dict[str, np.ndarray] | None = None
+        for key, val in raw.items():
+            if key.startswith("observation.images."):
+                if images is None:
+                    images = {}
+                cam_name = key[len("observation.images.") :]
+                images[cam_name] = np.asarray(val)
+
+        return Observation(
+            timestamp=now,
+            joint_positions=positions,
+            joint_velocities=velocities,
+            end_effector_pose=ee_pose,
+            images=images,
+        )
+
+    def _read_observation_data(
+        self,
+    ) -> tuple[dict[str, np.ndarray] | None, dict[str, Any] | None]:
+        """Read each *declared* observation channel and populate two views.
+
+        Stackfile drives which registers are touched: only channels in
+        ``self._observation_channels`` are sync_read. Each declared health
+        channel (current/temperature/voltage) additionally surfaces in
+        ``hardware_status`` for L3 ``HardwareGuard``.
+        """
+        if not self._observation_channels:
+            return None, None
+        bus = getattr(self._robot, "bus", None)
+        if bus is None:
+            return None, None
+
+        channels: dict[str, np.ndarray] = {}
+        status: dict[str, Any] = {}
+
         for name in self._observation_channels:
-            register, divisor = self._register_map[name]
+            mapping = self._register_map.get(name)
+            if mapping is None:
+                continue
+            register, divisor = mapping
             try:
-                raw = bus.sync_read(register)
-                if raw:
-                    values = np.array(
-                        [raw.get(mid, 0) / divisor for mid in sorted(raw)],
-                        dtype=np.float64,
-                    )
-                    result[name] = values
-            except Exception:
-                logger.debug("Extended observation '%s' read failed", name)
-        return result if result else None
+                raw: dict[str, float] = bus.sync_read(register)
+            except Exception as exc:  # noqa: BLE001 — telemetry is best-effort
+                logger.debug("channel '%s' sync_read failed: %s", name, exc)
+                continue
+            if not raw:
+                continue
+
+            channels[name] = np.array(
+                [raw[m] / divisor for m in sorted(raw)],
+                dtype=np.float64,
+            )
+
+            health = self._HEALTH_STATUS_KEYS.get(name)
+            if health is not None:
+                list_key, scalar_key = health
+                per_motor = {m: v / divisor for m, v in raw.items()}
+                status[list_key] = per_motor
+                if scalar_key:
+                    status[scalar_key] = max(per_motor.values())
+
+        return (channels or None, status or None)
+
+    @staticmethod
+    def _is_gripper_joint(name: str) -> bool:
+        return "gripper" in name.lower()
 
     def _estimate_velocity(self, positions: np.ndarray, now: float) -> np.ndarray:
-        if self._prev_time is not None:
+        if self._prev_positions is not None and self._prev_time is not None:
             dt = max(now - self._prev_time, 1e-9)
             return (positions - self._prev_positions) / dt
         return np.zeros_like(positions)
 
-    def _compute_ee_pose(self, positions_rad: np.ndarray) -> np.ndarray | None:
-        """Refresh shared DynamicsContext for this cycle and read EE pose.
-
-        Side effect: ``self._dynamics.update(q)`` runs once per cycle here.
-        Downstream guards (CBF, manipulability, …) consume the same context
-        via the injection pool and get cached Jacobians for free.
-        """
-        if not self._dynamics.available:
-            return None
-        try:
-            import pinocchio as pin
-
-            self._dynamics.update(positions_rad)
-            o_mf = self._dynamics.frame_placement(self._pin_ee_frame_id)
-            quat = pin.Quaternion(o_mf.rotation)
-            return np.array([*o_mf.translation, quat.x, quat.y, quat.z, quat.w])
-        except Exception:  # noqa: BLE001 — FK failure is non-fatal; caller checks for None
-            return None
-
-    # ── ActionAdapter Interface (Write) ─────────────────────────────────────
-
-    def apply(self, action: ValidatedAction) -> None:
-        self._last_action = action
-        # 1. Convert ValidatedAction (rad) to LeRobot dict (deg)
+    # ── ActionAdapter: write ───────────────────────────────────────────────
+    def _convert_action(self, action: ValidatedAction) -> dict[str, Any]:
+        """Convert a validated action to a dictionary of actions."""
         positions = np.asarray(action.target_joint_positions, dtype=np.float64)
         n = min(len(positions), len(self._joint_names))
 
@@ -359,14 +483,24 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
         for i in range(n):
             name = self._joint_names[i]
             val = float(positions[i])
-            if self._degrees_mode and "gripper" not in name.lower():
+            if self._degrees_mode and not self._is_gripper_joint(name):
                 val = math.degrees(val)
             action_dict[f"{name}.pos"] = val
 
         if action.gripper_action is not None and "gripper" in self._joint_names:
             action_dict["gripper.pos"] = float(action.gripper_action)
 
+        return action_dict
+
+    def apply(self, action: ValidatedAction) -> None:
+        """Send a validated joint-position command (rad → deg)."""
+        self._last_action = action
+        action_dict = self._convert_action(action)
         self._robot.send_action(action_dict)
+
+    def write(self, action: ValidatedAction) -> None:
+        """Deprecated alias for apply()."""
+        self.apply(action)
 
     def emergency_stop(self) -> None:
         logger.error("LeRobotAdapter: EMERGENCY STOP")
@@ -376,3 +510,30 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
     @property
     def last_action(self) -> ValidatedAction | None:
         return self._last_action
+
+    def get_hardware_status(self) -> dict[str, Any]:
+        """ActionAdapter health snapshot (mirrors declared-channel reads)."""
+        status: dict[str, Any] = {
+            "connected": self._connected,
+            "latency_ms": (time.monotonic() - self._prev_time) * 1000 if self._prev_time else 0,
+        }
+        if self._connected and hasattr(self._robot, "bus"):
+            try:
+                bus = self._robot.bus
+                for name in self._observation_channels:
+                    mapping = self._register_map.get(name)
+                    health = self._HEALTH_STATUS_KEYS.get(name)
+                    if mapping is None or health is None:
+                        continue
+                    register, divisor = mapping
+                    raw = bus.sync_read(register)
+                    if not raw:
+                        continue
+                    list_key, scalar_key = health
+                    per_motor = {k: v / divisor for k, v in raw.items()}
+                    status[list_key] = per_motor
+                    if scalar_key:
+                        status[scalar_key] = max(per_motor.values())
+            except Exception as exc:  # noqa: BLE001 — best-effort
+                logger.debug("get_hardware_status bus read failed: %s", exc)
+        return status

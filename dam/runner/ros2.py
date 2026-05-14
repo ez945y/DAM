@@ -7,7 +7,7 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any
 
-from dam.runner.base import BaseRunner
+from dam.runner.base import RuntimeLoopRunner
 from dam.types.risk import CycleResult
 
 if TYPE_CHECKING:
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class ROS2Runner(BaseRunner):
+class ROS2Runner(RuntimeLoopRunner):
     """
     High-level runner that:
     1. Builds GuardRuntime from a Stackfile
@@ -35,45 +35,37 @@ class ROS2Runner(BaseRunner):
         timer_period_s: float = 0.02,
         source_name: str = "ros2",
     ) -> None:
-        self._runtime = runtime
+        super().__init__(runtime, control_frequency_hz=1.0 / timer_period_s)
         self._runtime.register_source(source_name, source)
         self._runtime.register_sink(sink)
         self._runtime.register_policy(policy)
         self._node = node
         self._timer_period_s = timer_period_s
-        self._running = False
-        self._active_task: str | None = None
         self._timer: Any | None = None
 
     def start_task(self, task_name: str) -> None:
         """Activate a task in the runtime."""
-        self._runtime.start_task(task_name)
-        self._active_task = task_name
-        self._running = True
+        super().start_task(task_name)
 
-    def stop(self) -> None:
+    def stop(self) -> bool:
         """Graceful stop: cancel timer, stop task."""
-        self._running = False
         if self._timer is not None:
             with contextlib.suppress(Exception):
                 self._timer.cancel()
             self._timer = None
-        self._runtime.stop_task()
-        self._active_task = None
+        stopped = super().stop()
         logger.info("ROS2Runner stopped.")
+        return stopped
 
     def step(self) -> CycleResult:
         """Execute one control cycle via the runtime."""
-        return self._runtime.step()
+        return super().step()
 
     # ── BaseRunner abstract methods ────────────────────────────────────────
 
-    @property
-    def runtime(self) -> GuardRuntime:
-        return self._runtime
-
     def connect(self) -> None:
         """Connect all source/sink adapters."""
+        self._mark_connected()
         for src in self._runtime._sources.values():
             if hasattr(src, "connect"):
                 src.connect()
@@ -87,7 +79,11 @@ class ROS2Runner(BaseRunner):
 
     def shutdown(self) -> None:
         """Alias for stop() — BaseRunner contract."""
-        self.stop()
+        if self._timer is not None:
+            with contextlib.suppress(Exception):
+                self._timer.cancel()
+            self._timer = None
+        super().shutdown()
 
     def run(self, task: str, n_cycles: int = -1) -> list[CycleResult]:
         """Run the control loop for ``n_cycles`` cycles (or forever if -1).
@@ -119,7 +115,7 @@ class ROS2Runner(BaseRunner):
             # rclpy-based timer loop
             def _timer_cb() -> None:
                 nonlocal cycle
-                if not self._running:
+                if self.status.value != "running":
                     return
                 result = self.step()
                 results.append(result)
@@ -139,7 +135,7 @@ class ROS2Runner(BaseRunner):
         else:
             # Plain Python loop fallback (no rclpy)
             try:
-                while self._running:
+                while self.status.value == "running":
                     t0 = time.perf_counter()
                     result = self.step()
                     results.append(result)

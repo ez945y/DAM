@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, AlertTriangle, Settings,
-  Zap, Activity, Circle, ShieldCheck, Film, RotateCcw
+  Zap, Activity, Circle, ShieldCheck, Film, RotateCcw, Loader
 } from 'lucide-react'
 import { useRuntimeControl } from '@/hooks/useRuntimeControl'
 import { useTelemetry } from '@/hooks/useTelemetry'
@@ -80,10 +80,15 @@ export function Sidebar() {
 
       {/* Bottom status panel */}
       <div className="p-3 border-t border-dam-border space-y-2">
-        {/* Dynamic Action Button (Confirm or Reset) */}
+        {/* Dynamic Action Button (Confirm / Reset / Recheck) */}
         {(bs === 'error' || bs === 'faulted' || status.state === 'emergency') && (() => {
           const isFault = bs === 'faulted'
           const isEmergency = status.state === 'emergency'
+          // startup_error means the runner never connected (hardware missing at
+          // boot). reset() can't recover from this — it'd just try connect()
+          // on the half-built runner and fail again. Go straight to
+          // recheckHardware, which rebuilds the runner from the stackfile.
+          const isStartupError = !!status.startup_error
 
           let btnAction = recheckHardware
           let btnLabel = 'Recheck HW'
@@ -95,6 +100,12 @@ export function Sidebar() {
             btnLabel = 'Confirm Safety'
             btnIcon = <ShieldCheck size={12} />
             btnStyle = 'bg-dam-red/20 text-dam-red border-dam-red/40 hover:bg-dam-red/30 animate-pulse'
+          } else if (isStartupError) {
+            // Hardware never came up — skip the Reset-then-Recheck two-step
+            // and go directly to a full hardware recheck.
+            btnAction = recheckHardware
+            btnLabel = 'Recheck HW'
+            btnStyle = 'bg-dam-orange/20 text-dam-orange border-dam-orange/40 hover:bg-dam-orange/30 animate-pulse'
           } else if (isEmergency) {
             btnAction = async () => { await reset() }
             btnLabel = 'Reset System'
@@ -107,21 +118,28 @@ export function Sidebar() {
             <div className="space-y-1.5">
               <button
                 onClick={btnAction}
-                disabled={loading && !isEmergency}
-                className={`${baseStyle} ${btnStyle}`}
+                disabled={loading}
+                className={`${baseStyle} ${btnStyle} disabled:opacity-60 disabled:cursor-wait`}
               >
-                {btnIcon}
-                {btnLabel}
+                {loading ? <Loader size={12} className="animate-spin" /> : btnIcon}
+                {loading
+                  ? (isStartupError ? 'Checking…' : isFault ? 'Confirming…' : 'Resetting…')
+                  : btnLabel}
               </button>
 
 
-            {/* Emergency fallback: Allow reset even if backend is in error/checking */}
+            {/* Emergency fallback: Allow reset even if backend is in error/checking.
+                Uses the same baseStyle as the main action button so the two buttons
+                look like siblings — softer red variant to signal it's the lower-priority
+                fallback path. */}
             {status.state === 'emergency' && bs === 'error' && (
               <button
                 onClick={() => reset()}
-                className="w-full text-[9px] text-dam-muted hover:text-dam-red transition-colors py-1 uppercase tracking-tighter font-bold"
+                disabled={loading}
+                className={`${baseStyle} bg-dam-red/10 text-dam-red/80 border-dam-red/30 hover:bg-dam-red/20 disabled:opacity-60 disabled:cursor-wait`}
               >
-                Force Reset State
+                <RotateCcw size={12} />
+                Force Reset
               </button>
             )}
           </div>

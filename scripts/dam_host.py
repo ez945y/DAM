@@ -64,7 +64,7 @@ _DEFAULT_SIM_STACK = textwrap.dedent("""\
       - L3: execution
       - L4: hardware
     safety:
-      control_frequency_hz: 10.0
+      control_frequency_hz: 30.0
       enforcement_mode: monitor
 """)
 
@@ -124,9 +124,8 @@ def main() -> None:
                 # RuntimeControlService defaults to backend_state = LOADING.
                 control._notify_state()
 
-                # Build runner from pre-parsed config
-                runner = RuntimeFactory.build_from_config(config)
-                rt = runner.runtime
+                # Build and attach runner through the control service.
+                runner = control.build_runner_from_config(config, stack_path=stack_path_str)
 
                 # Instrumentation
                 def step_wrapper(orig_step: Callable[[], Any]) -> Callable[[], Any]:
@@ -141,7 +140,7 @@ def main() -> None:
                         n_subs = telemetry.subscriber_count
                         if n_subs > 0:
                             try:
-                                live_imgs = rt.get_latest_images()
+                                live_imgs = runner.get_latest_images()
                             except Exception:
                                 log.warning(
                                     "step_wrapper: get_latest_images() raised", exc_info=True
@@ -165,12 +164,10 @@ def main() -> None:
                                         n_subs,
                                     )
                         telemetry.push(res, live_images=live_imgs if live_imgs else None)
-                        _loopback = getattr(rt, "_loopback", None)
-                        _sp = getattr(_loopback, "_session_path", None)
                         risk_log.record(
                             res,
-                            perf=rt._metric_bus.snapshot(),
-                            mcap_filename=_sp.name if _sp else None,
+                            perf=runner.metric_snapshot(),
+                            mcap_filename=runner.mcap_session_filename,
                         )
                         return res
 
@@ -179,11 +176,9 @@ def main() -> None:
                 control.set_post_step_wrapper(step_wrapper)
 
                 # Wire Telemetry with the new MetricBus
-                telemetry.set_metric_bus(rt._metric_bus)
-                telemetry.set_cycle_budget(1000.0 / rt._control_frequency_hz)
-
-                # Attach to control service (This will set backend_state = READY)
-                control.attach_runner(runner, stack_path_str)
+                if runner.metric_bus is not None:
+                    telemetry.set_metric_bus(runner.metric_bus)
+                telemetry.set_cycle_budget(1000.0 / runner.control_frequency_hz)
 
                 # Immediate initial hardware check
                 try:
@@ -199,10 +194,8 @@ def main() -> None:
                     control.set_startup_error(str(e))
 
                 # Wire MCAP Session Service
-                if hasattr(rt, "_loopback") and rt._loopback is not None:
-                    output_dir = getattr(rt._loopback, "_output_dir", None)
-                    if output_dir:
-                        app.state.mcap_sessions = McapSessionService(str(output_dir))
+                if runner.mcap_output_dir:
+                    app.state.mcap_sessions = McapSessionService(runner.mcap_output_dir)
 
                 log.info("Background: System ready.")
 

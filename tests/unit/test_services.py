@@ -10,8 +10,9 @@ import pytest
 
 from dam.services.boundary_config import BoundaryConfigService
 from dam.services.risk_log import RiskLogService
-from dam.services.runtime_control import RuntimeControlService, RuntimeState
+from dam.services.runtime_control import BackendState, RuntimeControlService, RuntimeState
 from dam.services.telemetry import TelemetryService, _serialise_cycle
+from dam.runner.base import SimulationRunner
 from dam.types.action import ActionProposal
 from dam.types.risk import CycleResult, RiskLevel
 
@@ -391,7 +392,15 @@ class TestRuntimeControlService:
     def _mock_runtime(self):
         rt = MagicMock()
         rt.step.return_value = _make_cycle_result(0)
+        rt._task_config = {"default": []}
+        rt._active_task = None
+        rt._active_container_names = []
+        rt._control_frequency_hz = 30.0
         return rt
+
+    def _mock_runner(self, rt=None):
+        rt = rt or self._mock_runtime()
+        return SimulationRunner(rt, control_frequency_hz=getattr(rt, "_control_frequency_hz", 30.0))
 
     def test_initial_state(self):
         svc = RuntimeControlService()
@@ -405,19 +414,19 @@ class TestRuntimeControlService:
 
     def test_start_without_runtime_raises(self):
         svc = RuntimeControlService()
-        with pytest.raises(RuntimeError, match="No GuardRuntime"):
+        with pytest.raises(RuntimeError, match="No Runner"):
             svc.start()
 
-    def test_attach_runtime(self):
+    def test_attach_runner(self):
         svc = RuntimeControlService()
-        rt = self._mock_runtime()
-        svc.attach_runtime(rt)
+        svc.attach_runner(self._mock_runner())
         assert svc.status()["has_runtime"] is True
 
     def test_start_and_stop(self):
         svc = RuntimeControlService()
-        rt = self._mock_runtime()
-        svc.attach_runtime(rt)
+        svc.attach_runner(self._mock_runner())
+        with svc._lock:
+            svc._backend_state = BackendState.READY
         svc.start(n_cycles=2, cycle_budget_ms=1.0)
         assert svc.state == RuntimeState.RUNNING
         # Give the background thread a moment
@@ -440,8 +449,9 @@ class TestRuntimeControlService:
 
     def test_emergency_stop(self):
         svc = RuntimeControlService()
-        rt = self._mock_runtime()
-        svc.attach_runtime(rt)
+        svc.attach_runner(self._mock_runner())
+        with svc._lock:
+            svc._backend_state = BackendState.READY
         svc.start(n_cycles=100, cycle_budget_ms=1.0)
         time.sleep(0.02)
         svc.emergency_stop()
@@ -449,8 +459,9 @@ class TestRuntimeControlService:
 
     def test_reset_from_stopped(self):
         svc = RuntimeControlService()
-        rt = self._mock_runtime()
-        svc.attach_runtime(rt)
+        svc.attach_runner(self._mock_runner())
+        with svc._lock:
+            svc._backend_state = BackendState.READY
         svc.start(n_cycles=1, cycle_budget_ms=1.0)
         time.sleep(0.1)
         svc.stop()
@@ -468,8 +479,9 @@ class TestRuntimeControlService:
 
     def test_cycle_count_increments(self):
         svc = RuntimeControlService()
-        rt = self._mock_runtime()
-        svc.attach_runtime(rt)
+        svc.attach_runner(self._mock_runner())
+        with svc._lock:
+            svc._backend_state = BackendState.READY
         svc.start(n_cycles=3, cycle_budget_ms=1.0)
         time.sleep(0.2)
         assert svc.status()["cycle_count"] >= 0  # may have run some cycles
@@ -482,7 +494,7 @@ class TestRuntimeControlService:
         s = svc.status()
         assert s["active_task"] is None
         assert s["active_boundaries"] == []
-        assert s["control_frequency_hz"] == pytest.approx(50.0)
+        assert s["control_frequency_hz"] == pytest.approx(30.0)
         assert s["available_tasks"] == []
         assert s["planned_task"] is None
         assert s["planned_boundaries"] == []
@@ -497,13 +509,13 @@ class TestRuntimeControlService:
         }
         rt._active_task = None
         rt._active_container_names = []
-        rt._control_frequency_hz = 10.0
-        svc.attach_runtime(rt)
+        rt._control_frequency_hz = 30.0
+        svc.attach_runner(self._mock_runner(rt))
         s = svc.status()
         assert s["available_tasks"] == ["default", "pick"]
         assert s["planned_task"] == "default"
         assert s["planned_boundaries"] == ["workspace", "approach"]
-        assert s["control_frequency_hz"] == pytest.approx(10.0)
+        assert s["control_frequency_hz"] == pytest.approx(30.0)
 
     def test_status_planned_task_fallback_to_first(self):
         """When no 'default' task, planned_task falls back to first key."""
@@ -512,8 +524,8 @@ class TestRuntimeControlService:
         rt._task_config = {"pick": ["workspace"], "place": []}
         rt._active_task = None
         rt._active_container_names = []
-        rt._control_frequency_hz = 50.0
-        svc.attach_runtime(rt)
+        rt._control_frequency_hz = 30.0
+        svc.attach_runner(self._mock_runner(rt))
         s = svc.status()
         assert s["planned_task"] == "pick"
         assert s["planned_boundaries"] == ["workspace"]
@@ -525,8 +537,8 @@ class TestRuntimeControlService:
         rt._task_config = {"default": ["ws"]}
         rt._active_task = "default"
         rt._active_container_names = ["ws"]
-        rt._control_frequency_hz = 50.0
-        svc.attach_runtime(rt)
+        rt._control_frequency_hz = 30.0
+        svc.attach_runner(self._mock_runner(rt))
         s = svc.status()
         assert s["active_task"] == "default"
         assert s["active_boundaries"] == ["ws"]
@@ -555,5 +567,5 @@ class TestRuntimeControlService:
         (no runtime → RuntimeError).
         """
         svc = RuntimeControlService()
-        with pytest.raises(RuntimeError, match="No GuardRuntime"):
+        with pytest.raises(RuntimeError, match="No Runner"):
             svc.start()

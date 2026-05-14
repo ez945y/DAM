@@ -60,7 +60,12 @@ fi
 
 # ── Graceful shutdown ──────────────────────────────────────────────────────────
 _child_pids=()
+_shutdown_done=0
 _shutdown() {
+    if [[ "${_shutdown_done}" == "1" ]]; then
+        return 0
+    fi
+    _shutdown_done=1
     echo ""
     info "Shutting down…"
     for pid in "${_child_pids[@]:-}"; do
@@ -70,7 +75,12 @@ _shutdown() {
     info "All services stopped."
     return 0
 }
-trap _shutdown INT TERM EXIT
+_shutdown_and_exit() {
+    _shutdown
+    exit 0
+}
+trap _shutdown_and_exit INT TERM
+trap _shutdown EXIT
 
 # ── Start backend (Fast background startup) ──────────────────────────────────
 info "Starting backend (scripts/dam_host.py) on :8080…"

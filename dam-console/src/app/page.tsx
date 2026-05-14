@@ -43,18 +43,17 @@ function useAdapterLabel(): string {
 function HardwareWarning({ message }: { message: string }) {
   const [open, setOpen] = useState(false)
 
-  // Parse bullet-point lines out of the error message for clean display
-  const lines = useMemo(() => {
-    let list = message
-      .split('\n')
-      .map(l => l.replace(/^\s*[•\-]\s*/, '').trim())
-      .filter(Boolean)
-
-    // Filter out the generic E-Stop message if we have more specific hardware details
-    if (list.length > 1) {
-      list = list.filter(l => l !== 'Emergency Stop Triggered')
-    }
-    return list
+  // Backend errors (e.g. FeetechMotorsBus) are pre-formatted with indented
+  // sub-lines like:
+  //   Missing motor IDs:
+  //     - 1 (expected model: 777)
+  // The previous code split on \n and treated every line as a bullet, which
+  // produced a flat list of "•" prefixes that obliterated the structure.
+  // Keep the raw text instead — render in a monospace block with whitespace
+  // preserved so indentation / blank-line separators stay readable.
+  const cleaned = useMemo(() => {
+    const trimmed = message.replace(/^\s*Emergency Stop Triggered\s*$/m, '').trim()
+    return trimmed || message
   }, [message])
 
   const { recheckHardware, loading } = useRuntimeControl()
@@ -91,14 +90,9 @@ function HardwareWarning({ message }: { message: string }) {
               </button>
             </div>
 
-            <ul className="space-y-1">
-              {lines.map((l) => (
-                <li key={l} className="text-[11px] text-dam-muted leading-snug flex gap-1.5">
-                  <span className="text-dam-red shrink-0 mt-0.5">•</span>
-                  <span>{l}</span>
-                </li>
-              ))}
-            </ul>
+            <pre className="text-[11px] text-dam-muted leading-snug font-mono whitespace-pre-wrap max-h-64 overflow-y-auto bg-dam-surface-1 rounded p-2 border border-dam-border/40">
+              {cleaned}
+            </pre>
             <div className="border-t border-dam-border/40 pt-2 text-[10px] text-dam-muted space-y-0.5">
               <p>Connect the device, then click <b>Recheck</b> above.</p>
               <p>Or go to{' '}

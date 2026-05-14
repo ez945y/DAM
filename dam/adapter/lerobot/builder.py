@@ -66,7 +66,7 @@ class LeRobotBuilder:
         self,
         hardware: HardwareConfig,
         policy: DamPolicyConfig | None = None,
-        control_frequency_hz: float = 50.0,
+        control_frequency_hz: float = 30.0,
     ) -> None:
         self._hardware = hardware
         self._policy_cfg = policy

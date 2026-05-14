@@ -869,7 +869,7 @@ guards:
 
 # ── 安全與運行時全局設定 ────────────────────────────────────────────────────────
 safety:
-  control_frequency_hz: 15
+  control_frequency_hz: 30
   no_task_behavior: emergency_stop
   enforcement_mode: log_only
 

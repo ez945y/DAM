@@ -1,3 +1,3 @@
-from dam.adapter.lerobot import LeRobotPolicyAdapter, LeRobotSinkAdapter, LeRobotSourceAdapter
+from dam.adapter.lerobot import LeRobotAdapter, LeRobotPolicyAdapter
 
-__all__ = ["LeRobotSourceAdapter", "LeRobotSinkAdapter", "LeRobotPolicyAdapter"]
+__all__ = ["LeRobotAdapter", "LeRobotPolicyAdapter"]

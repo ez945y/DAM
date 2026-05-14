@@ -89,6 +89,8 @@ class ROS2SourceAdapter(SensorAdapter):
     # ── SensorAdapter ABC ──────────────────────────────────────────────────
 
     def connect(self) -> None:
+        if self._connected:
+            return
         if self._node is None:
             logger.warning(
                 "ROS2SourceAdapter: node is None — running in mock mode; no real "
@@ -168,6 +170,8 @@ class ROS2SourceAdapter(SensorAdapter):
             return (time.monotonic() - self._last_msg_time) < 1.0
 
     def disconnect(self) -> None:
+        if not self._connected and self._subscription is None and not self._channel_subscriptions:
+            return
         if self._subscription is not None and self._node is not None:
             try:
                 self._node.destroy_subscription(self._subscription)

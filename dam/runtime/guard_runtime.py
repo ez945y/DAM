@@ -140,6 +140,8 @@ class GuardRuntime:
 
         self._running = False
         self._live_img_no_data_warned = False  # one-shot warning for missing camera images
+        self._shutdown_complete = False
+        self._source_latency_log_t = 0.0
 
         # Execution pipeline (pure compute — no hardware I/O)
         self._engine = ExecutionEngine(
@@ -520,21 +522,30 @@ class GuardRuntime:
 
         # ── Read and Merge Multi-Source Observations ───────────────────────
         full_obs = None
+        source_latencies: dict[str, float] = {}
         for name, src in self._sources.items():
+            t_source = time.monotonic()
             s_obs = src.read()
+            source_latencies[name] = (time.monotonic() - t_source) * 1000.0
             if full_obs is None:
                 full_obs = s_obs
             else:
                 # Merge logic: prioritize base keys, merge images
                 if hasattr(s_obs, "images") and s_obs.images:
+                    if full_obs.images is None:
+                        object.__setattr__(full_obs, "images", {})
                     full_obs.images.update(s_obs.images)
                 # If the secondary source provides images but is an OpenCV adapter,
                 # it might just return a single frame. Ensure it lands in .images
                 if not hasattr(s_obs, "images") and hasattr(s_obs, "frame"):
+                    if full_obs.images is None:
+                        object.__setattr__(full_obs, "images", {})
                     full_obs.images[name] = s_obs.frame
 
                 # Merge metadata
                 if s_obs.metadata:
+                    if full_obs.metadata is None:
+                        object.__setattr__(full_obs, "metadata", {})
                     full_obs.metadata.update(s_obs.metadata)
 
         if full_obs is None:
@@ -577,11 +588,14 @@ class GuardRuntime:
         _total_ms = (t_sink - t_start) * 1000.0
 
         self._metric_bus.push_stage("source", _src_ms)
+        for _source_name, _source_ms in source_latencies.items():
+            self._metric_bus.push_stage(f"source.{_source_name}", _source_ms)
         self._metric_bus.push_stage("policy", _policy_ms)
         self._metric_bus.push_stage("guards", _guard_ms)
         self._metric_bus.push_stage("sink", _sink_ms)
         self._metric_bus.push_stage("total", _total_ms)
         self._metric_bus.commit_cycle()
+        self._log_source_latency_if_slow(_src_ms, source_latencies)
 
         # ── Loopback: build CycleRecord and hand off to writer thread ────────
         if self._loopback is not None:
@@ -772,68 +786,26 @@ class GuardRuntime:
 
         self._loopback.submit(rec, images)  # type: ignore[union-attr]
 
-    # ── 3H: Dual-mode entry ────────────────────────────────────────────────
-
-    def run(self, n_cycles: int = -1, cycle_budget_ms: float = 20.0) -> list[CycleResult]:
-        """Managed control loop with timing and watchdog.
-
-        Arms a WatchdogTimer at loop start, pings it each cycle, and sleeps to
-        maintain ``cycle_budget_ms``.  Runs until ``stop()`` is called or
-        ``n_cycles`` cycles have completed.
-
-        Args:
-            n_cycles:        Number of cycles to run (-1 = run until stop()).
-            cycle_budget_ms: Target cycle time in milliseconds.
-
-        Returns:
-            List of CycleResult objects (one per cycle).
-        """
-        self._running = True
-        results: list[CycleResult] = []
-        cycle_budget_s = cycle_budget_ms / 1000.0
-        watchdog = WatchdogTimer(deadline_ms=cycle_budget_ms * 3)
-        watchdog.arm()
-
-        cycle = 0
-        try:
-            while self._running:
-                t0 = time.perf_counter()
-                result = self.step()
-                results.append(result)
-                cycle += 1
-                watchdog.ping()
-
-                # Check watchdog emergency: fires on OS thread outside GIL when
-                # a cycle exceeds 3× budget.  Escalate to RiskController and stop.
-                if watchdog.is_emergency():
-                    logger.error(
-                        "GuardRuntime.run(): watchdog deadline exceeded after %d cycles "
-                        "(%.1f ms elapsed since last ping) — triggering emergency stop",
-                        cycle,
-                        watchdog.elapsed_since_ping_ms(),
-                    )
-                    self._risk_controller.trigger_emergency()
-                    break
-
-                if n_cycles != -1 and cycle >= n_cycles:
-                    break
-
-                elapsed = time.perf_counter() - t0
-                sleep = cycle_budget_s - elapsed
-                if sleep > 0:
-                    time.sleep(sleep)
-        except StopIteration:
-            logger.info("GuardRuntime.run(): source exhausted after %d cycles", cycle)
-        except KeyboardInterrupt:
-            logger.info("GuardRuntime.run(): interrupted by user")
-        finally:
-            # Ensure the watchdog thread is always stopped even if run() crashes
-            if watchdog is not None:
-                with contextlib.suppress(Exception):
-                    watchdog.disarm()
-            self._running = False
-
-        return results
+    def _log_source_latency_if_slow(
+        self,
+        total_source_ms: float,
+        source_latencies: dict[str, float],
+    ) -> None:
+        """Log per-source timing when the aggregate source stage exceeds budget."""
+        source_budget_ms = 1000.0 / self._control_frequency_hz
+        if total_source_ms <= source_budget_ms:
+            return
+        now = time.monotonic()
+        if now - self._source_latency_log_t < 1.0:
+            return
+        self._source_latency_log_t = now
+        parts = " ".join(f"{name}={lat:.1f}ms" for name, lat in source_latencies.items())
+        logger.warning(
+            "source stage over budget: total=%.1fms budget=%.1fms sources=%s",
+            total_source_ms,
+            source_budget_ms,
+            parts,
+        )
 
     def stop(self) -> None:
         """Signal ``run()`` to exit after the current cycle completes."""
@@ -845,6 +817,9 @@ class GuardRuntime:
         Must be called before discarding the runtime instance to prevent
         resource leaks (semaphores, camera handles).
         """
+        if self._shutdown_complete:
+            return
+        self._shutdown_complete = True
         self._running = False
         if hasattr(self, "_engine") and self._engine is not None:
             self._engine.shutdown()
@@ -852,7 +827,12 @@ class GuardRuntime:
             with contextlib.suppress(Exception):
                 self._watchdog.disarm()
 
+        disconnected: set[int] = set()
         for name, src in self._sources.items():
+            obj_id = id(src)
+            if obj_id in disconnected:
+                continue
+            disconnected.add(obj_id)
             if hasattr(src, "disconnect"):
                 try:
                     src.disconnect()
@@ -860,16 +840,18 @@ class GuardRuntime:
                     logger.debug("GuardRuntime: source '%s' disconnect failed: %s", name, exc)
 
         if self._sink is not None:
-            if hasattr(self._sink, "shutdown"):
-                try:
-                    self._sink.shutdown()
-                except Exception as exc:
-                    logger.debug("GuardRuntime: sink shutdown failed: %s", exc)
-            elif hasattr(self._sink, "disconnect"):
-                try:
-                    self._sink.disconnect()
-                except Exception as exc:
-                    logger.debug("GuardRuntime: sink disconnect failed: %s", exc)
+            sink_id = id(self._sink)
+            if sink_id not in disconnected:
+                if hasattr(self._sink, "shutdown"):
+                    try:
+                        self._sink.shutdown()
+                    except Exception as exc:
+                        logger.debug("GuardRuntime: sink shutdown failed: %s", exc)
+                elif hasattr(self._sink, "disconnect"):
+                    try:
+                        self._sink.disconnect()
+                    except Exception as exc:
+                        logger.debug("GuardRuntime: sink disconnect failed: %s", exc)
 
         if self._loopback is not None:
             try:

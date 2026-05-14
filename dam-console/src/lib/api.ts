@@ -2,6 +2,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080'
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}/api${path}`, {
+    cache: 'no-store',
     headers: { 'Content-Type': 'application/json' },
     ...options,
   })
@@ -51,6 +52,8 @@ export const api = {
     return apiFetch<{ events: RiskEvent[]; count: number }>(`/risk-log${qs ? `?${qs}` : ''}`)
   },
   getRiskLogStats: () => apiFetch<RiskLogStats>('/risk-log/stats'),
+  clearRiskLog: () =>
+    apiFetch<{ cleared: boolean }>('/risk-log/clear', { method: 'POST' }),
   exportRiskLogJsonUrl: () => `${API_BASE}/api/risk-log/export/json`,
   exportRiskLogCsvUrl: () => `${API_BASE}/api/risk-log/export/csv`,
 

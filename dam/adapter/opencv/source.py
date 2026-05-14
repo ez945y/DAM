@@ -119,6 +119,8 @@ class OpenCVSourceAdapter(SensorAdapter):
 
     def disconnect(self) -> None:
         """Release the camera."""
+        if not self._connected and self._cap is None:
+            return
         self._connected = False
         if self._cap:
             self._cap.release()

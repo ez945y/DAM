@@ -43,7 +43,7 @@ class RiskLogService:
         stats()               — summary statistics
     """
 
-    def __init__(self, max_events: int = 10_000) -> None:
+    def __init__(self, max_events: int = 1_000) -> None:
         self._events: list[RiskEvent] = []
         self._lock = threading.Lock()
         self._max_events = max_events
@@ -68,6 +68,7 @@ class RiskLogService:
                 "layer": gr.layer.name if hasattr(gr.layer, "name") else str(gr.layer),
                 "decision": gr.decision.name,
                 "reason": gr.reason,
+                "metadata": dict(gr.metadata) if gr.metadata else {},
             }
             for gr in result.guard_results
         ]

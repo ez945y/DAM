@@ -211,8 +211,15 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
             return // Unknown protocol
           }
 
-          // Sync check: ignore images from older cycles
-          if (cycleId !== -1 && gLatestCycle && cycleId < gLatestCycle.cycle_id) {
+          // Sync check: ignore images from older cycles, BUT tolerate a big
+          // backwards jump — that means the backend's start_task() reset
+          // _cycle_id to 0 (e.g. user did Stop → Start). The cycle-event
+          // handler below also resets gLatestCycle on that jump; this guard
+          // only protects against legitimate out-of-order delivery within a
+          // session, where the gap is small.
+          if (cycleId !== -1 && gLatestCycle &&
+              cycleId < gLatestCycle.cycle_id &&
+              gLatestCycle.cycle_id - cycleId < 10) {
             return
           }
 
@@ -259,6 +266,20 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
           if (!gActiveCameras.includes(cam)) {
             gActiveCameras = [...gActiveCameras, cam]
           }
+        }
+
+        // Stop → Start resets the backend's _cycle_id to 0. If we see a
+        // big backwards jump, treat this as a brand-new session — clear
+        // session-scoped state so the new low cycle_ids pass the isNewer
+        // check. Cumulative counters (gBuffer.totalCycles etc.) stay put,
+        // since they're meant to span the whole UI session.
+        if (gLatestCycle && cycle.cycle_id < gLatestCycle.cycle_id - 10) {
+          gLatestCycle = null
+          gLatestPerf = null
+          gProcessedIds.clear()
+          gLiveImages = {}
+          gLiveImagesVer++
+          gVersion++
         }
 
         const isNewer = cycle.cycle_id > (gLatestCycle?.cycle_id ?? -1)

@@ -11,7 +11,6 @@ for positional safety.
 from __future__ import annotations
 
 import logging
-import statistics
 import time
 from typing import Any
 
@@ -22,8 +21,6 @@ from dam.types.result import GuardDecision, GuardResult
 
 logger = logging.getLogger(__name__)
 
-_SENSOR_OUTLIER_RATIO = 2.0
-_SENSOR_OUTLIER_ABS = 30.0
 _WATCHDOG_MS = 500.0
 _FIRST_CYCLE_GRACE_MS = 5000.0
 
@@ -55,8 +52,13 @@ class HardwareGuard(Guard):
 
     Config-pool keys (optional)
     ---------------------------
-    max_temperature_c : float   default 80.0
-    max_current_a     : float   default 5.0
+    max_temperature_c : float       default 80.0
+    max_current_a     : float       default 5.0
+    exception_joints  : list[int]   default []
+        1-based joint indices to skip in the per-motor temperature and
+        current checks (e.g. ``[3]`` excludes J3). Use this when a sensor
+        is known faulty — its readings still appear in the telemetry
+        summary, but won't trigger a FAULT.
     """
 
     def check(
@@ -67,6 +69,7 @@ class HardwareGuard(Guard):
         cycle_id: int = 1,
         max_temperature_c: float = 80.0,
         max_current_a: float = 5.0,
+        exception_joints: list[int] | None = None,
         **kwargs: Any,
     ) -> GuardResult:
         layer = self.get_layer()
@@ -81,15 +84,18 @@ class HardwareGuard(Guard):
         if hardware_status is None and hasattr(obs, "metadata") and obs.metadata:
             hardware_status = obs.metadata.get("hardware_status")
 
+        exceptions = set(exception_joints or [])
         if hardware_status is not None:
             health_res = self._check_health_telemetry(
-                hardware_status, max_temperature_c, max_current_a, name, layer
+                hardware_status, max_temperature_c, max_current_a, exceptions, name, layer
             )
             if health_res:
                 return health_res
 
-        reason = self._telemetry_summary(hardware_status)
+        reason = self._telemetry_summary(hardware_status, exceptions)
         telemetry = self._extract_telemetry(hardware_status)
+        if exceptions:
+            telemetry["exception_joints"] = sorted(exceptions)
         return GuardResult.success(guard_name=name, layer=layer, metadata=telemetry, reason=reason)
 
     def _check_watchdog(
@@ -119,6 +125,7 @@ class HardwareGuard(Guard):
         hardware_status: dict[str, Any],
         max_temp: float,
         max_curr: float,
+        exceptions: set[int],
         name: str,
         layer: str,
     ) -> GuardResult | None:
@@ -137,27 +144,25 @@ class HardwareGuard(Guard):
         # Per-motor temperature check
         temps: dict[str, float] | None = hardware_status.get("temperatures")
         if temps:
-            over = {m: t for m, t in temps.items() if t > max_temp}
+            keys = list(temps.keys())
+            over = {
+                m: t
+                for i, (m, t) in enumerate(temps.items())
+                if t > max_temp and (i + 1) not in exceptions
+            }
             if over:
-                suspects = _detect_sensor_outliers(temps)
-                real = {m: t for m, t in over.items() if m not in suspects}
-                keys = temps.keys()
                 all_str = " ".join(
-                    f"{_jlabel(keys, m)}:{t:.0f}°{'⚠' if m in suspects else ''}"
-                    for m, t in temps.items()
+                    f"{_jlabel(keys, m)}:{t:.0f}°{'·skip' if (i + 1) in exceptions else ''}"
+                    for i, (m, t) in enumerate(temps.items())
                 )
-                if suspects:
-                    sus_str = ", ".join(f"{_jlabel(keys, m)}={temps[m]:.0f}°" for m in suspects)
-                    logger.warning("Suspect temp sensor: %s (all: %s)", sus_str, all_str)
-                if real:
-                    detail = ", ".join(f"{_jlabel(keys, m)}={t:.1f}°" for m, t in real.items())
-                    return GuardResult(
-                        decision=GuardDecision.FAULT,
-                        guard_name=name,
-                        layer=layer,
-                        reason=f"Temp>{max_temp}°: {detail} ({all_str})",
-                        fault_source="hardware",
-                    )
+                detail = ", ".join(f"{_jlabel(keys, m)}={t:.1f}°" for m, t in over.items())
+                return GuardResult(
+                    decision=GuardDecision.FAULT,
+                    guard_name=name,
+                    layer=layer,
+                    reason=f"Temp>{max_temp}°: {detail} ({all_str})",
+                    fault_source="hardware",
+                )
         else:
             temp = hardware_status.get("temperature_c")
             if temp is not None and temp > max_temp:
@@ -172,9 +177,13 @@ class HardwareGuard(Guard):
         # Per-motor current check (overcurrent only — zero current is normal when idle)
         currents: dict[str, float] | None = hardware_status.get("currents")
         if currents:
-            over = {m: c for m, c in currents.items() if c > max_curr}
+            keys = list(currents.keys())
+            over = {
+                m: c
+                for i, (m, c) in enumerate(currents.items())
+                if c > max_curr and (i + 1) not in exceptions
+            }
             if over:
-                keys = currents.keys()
                 detail = ", ".join(f"{_jlabel(keys, m)}={c:.2f}A" for m, c in over.items())
                 return GuardResult(
                     decision=GuardDecision.FAULT,
@@ -197,18 +206,33 @@ class HardwareGuard(Guard):
         return None
 
     @staticmethod
-    def _telemetry_summary(hardware_status: dict[str, Any] | None) -> str:
+    def _telemetry_summary(
+        hardware_status: dict[str, Any] | None, exceptions: set[int] | None = None
+    ) -> str:
         if not hardware_status:
             return ""
+        excl = exceptions or set()
         parts = []
         temps = hardware_status.get("temperatures")
         if temps:
-            jt = _jmap(temps)
-            parts.append("T[" + " ".join(f"{j}:{t:.0f}°" for j, t in jt.items()) + "]")
+            parts.append(
+                "T["
+                + " ".join(
+                    f"J{i + 1}:{t:.0f}°{'·skip' if (i + 1) in excl else ''}"
+                    for i, (_, t) in enumerate(temps.items())
+                )
+                + "]"
+            )
         currents = hardware_status.get("currents")
         if currents:
-            jc = _jmap(currents)
-            parts.append("I[" + " ".join(f"{j}:{c:.2f}A" for j, c in jc.items()) + "]")
+            parts.append(
+                "I["
+                + " ".join(
+                    f"J{i + 1}:{c:.2f}A{'·skip' if (i + 1) in excl else ''}"
+                    for i, (_, c) in enumerate(currents.items())
+                )
+                + "]"
+            )
         voltages = hardware_status.get("voltages")
         if voltages:
             jv = _jmap(voltages)
@@ -224,18 +248,3 @@ class HardwareGuard(Guard):
             if key in hardware_status:
                 out[key] = _jmap(hardware_status[key])
         return out
-
-
-def _detect_sensor_outliers(readings: dict[str, float]) -> set[str]:
-    """Flag motors whose reading is far above the median — likely sensor faults."""
-    if len(readings) < 3:
-        return set()
-    vals = list(readings.values())
-    med = statistics.median(vals)
-    if med <= 0:
-        return set()
-    return {
-        m
-        for m, v in readings.items()
-        if v > med * _SENSOR_OUTLIER_RATIO and v - med > _SENSOR_OUTLIER_ABS
-    }

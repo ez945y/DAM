@@ -29,6 +29,7 @@ export interface GuardStatus {
   layer: string
   decision: GuardDecision
   reason: string
+  metadata?: Record<string, unknown>
 }
 
 export interface CycleEvent {

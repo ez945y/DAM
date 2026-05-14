@@ -101,7 +101,7 @@ class RuntimeFactory:
 
         assert config.hardware is not None
         runtime = GuardRuntime._from_config(config)  # reuse already-parsed config
-        hz = config.safety.control_frequency_hz if config.safety else 50.0
+        hz = config.safety.control_frequency_hz if config.safety else 30.0
 
         # Identify main source name (the first motor/lerobot-typed one)
         main_name = "arm"
@@ -119,45 +119,19 @@ class RuntimeFactory:
         builder = LeRobotBuilder(config.hardware, config.policy, control_frequency_hz=hz)
         robot = builder.build_robot()
 
-        # Build adapters
-        use_unified = False
-        sinks = config.hardware.sinks or {}
-        for sink_cfg in sinks.values():
-            if hasattr(sink_cfg, "ref") and sink_cfg.ref and sink_cfg.ref.startswith("sources."):
-                use_unified = True
-                break
+        # Build adapter
+        from dam.adapter.lerobot.adapter import LeRobotAdapter
+        adapter = LeRobotAdapter(
+            robot,
+            joint_names=builder.joint_names,
+            degrees_mode=builder.preset.degrees_mode,
+            urdf_path=config.hardware.urdf_path,
+        )
 
-        source: Any
-        sink: Any
-        if use_unified:
-            from dam.adapter.lerobot.adapter import LeRobotAdapter
-
-            hw_adapter = LeRobotAdapter(
-                robot,
-                joint_names=builder.joint_names,
-                degrees_mode=builder.preset.degrees_mode,
-                urdf_path=config.hardware.urdf_path,
-            )
-            source = hw_adapter
-            sink = hw_adapter
-        else:
-            from dam.adapter.lerobot.sink import LeRobotSinkAdapter
-            from dam.adapter.lerobot.source import LeRobotSourceAdapter
-
-            source = LeRobotSourceAdapter(
-                robot,
-                joint_names=builder.joint_names,
-                degrees_mode=builder.preset.degrees_mode,
-                urdf_path=config.hardware.urdf_path,
-            )
-            sink = LeRobotSinkAdapter(
-                robot, joint_names=builder.joint_names, degrees_mode=builder.preset.degrees_mode
-            )
-
-        supported = source.supported_channels()
+        supported = adapter.supported_channels()
         obs_channels = RuntimeFactory._collect_channels(config, main_name, supported)
         if obs_channels:
-            source.set_observation_channels(obs_channels)
+            adapter.set_observation_channels(obs_channels)
 
         policy_res = builder.build_policy()
         policy = None
@@ -174,8 +148,8 @@ class RuntimeFactory:
             else:
                 policy = LeRobotPolicyAdapter(policy_res, joint_names=builder.joint_names)
 
-        runtime.register_source(main_name, source)
-        runtime.register_sink(sink)
+        runtime.register_source(main_name, adapter)
+        runtime.register_sink(adapter)
         if policy:
             runtime.register_policy(policy)
 
@@ -211,7 +185,7 @@ class RuntimeFactory:
                     runtime.register_source(name, cam_adapter)
                     logger.info("Registered extra source: %s (type=%s)", name, type_str)
 
-        return LeRobotRunner(runtime=runtime, robot=robot, control_frequency_hz=hz)
+        return LeRobotRunner(runtime=runtime, control_frequency_hz=hz)
 
     @staticmethod
     def _build_ros2(config: StackfileConfig, *, ros2_node: Any = None) -> BaseRunner:
@@ -222,7 +196,7 @@ class RuntimeFactory:
 
         assert config.hardware is not None
         runtime = GuardRuntime._from_config(config)
-        hz = config.safety.control_frequency_hz if config.safety else 50.0
+        hz = config.safety.control_frequency_hz if config.safety else 30.0
 
         # Identify the main ROS2 source (type=ros2).
         main_name, main_cfg = "ros2", None

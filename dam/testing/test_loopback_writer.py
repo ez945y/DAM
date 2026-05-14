@@ -50,7 +50,7 @@ def writer(
     w = LoopbackWriter(
         output_dir=str(tmp_path),
         obs_bus=obs_bus,
-        control_frequency_hz=50.0,
+        control_frequency_hz=30.0,
         window_sec=0.1,
         rotate_mb=100.0,
         rotate_minutes=60.0,

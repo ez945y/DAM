@@ -247,7 +247,7 @@ describe('generateYaml', () => {
   it('uses correct control frequency', () => {
     const cfg = defaultConfig('ros2_minimal')
     const yaml = generateYaml(cfg)
-    expect(yaml).toContain('control_frequency_hz: 15')
+    expect(yaml).toContain('control_frequency_hz: 30')
   })
 
   it('includes enforcement_mode in safety section', () => {

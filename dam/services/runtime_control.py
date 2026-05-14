@@ -10,8 +10,7 @@ from enum import StrEnum
 from typing import Any
 
 from dam.config.schema import StackfileConfig
-from dam.runner.base import BaseRunner
-from dam.types.result import GuardDecision
+from dam.runner.base import BaseRunner, RunnerStatus
 
 logger = logging.getLogger(__name__)
 
@@ -50,9 +49,6 @@ class RuntimeControlService:
         self._state = RuntimeState.IDLE
         self._backend_state = BackendState.LOADING
         self._lock = threading.Lock()
-        self._pause_event = threading.Event()
-        self._pause_event.set()  # not paused initially
-        self._run_thread: threading.Thread | None = None
         self._on_state_change: Callable[[RuntimeState], None] | None = None
         self._on_status_broadcast: Callable[[dict[str, Any]], None] | None = None
         self._cycle_count: int = 0
@@ -62,12 +58,18 @@ class RuntimeControlService:
         self._startup_error: str | None = None
 
     def set_startup_error(self, message: str) -> None:
-        """Mark the service as having a hardware/startup error."""
+        """Mark the service as having a hardware/startup error.
+
+        Callers are expected to have already logged the underlying error at
+        ERROR level — every current call site does, so duplicating it here
+        would produce two stack-sized log entries per failure. Kept at DEBUG
+        so the state transition is still traceable if needed.
+        """
         with self._lock:
             self._startup_error = message
             self._state = RuntimeState.EMERGENCY
             self._backend_state = BackendState.ERROR
-            logger.warning("RuntimeControlService: startup_error set: %s", message)
+            logger.debug("RuntimeControlService: startup_error set: %s", message)
         self._notify_state()
 
     # ── Registration ──────────────────────────────────────────────────────────
@@ -81,13 +83,17 @@ class RuntimeControlService:
             self._startup_error = None
             self._state = RuntimeState.IDLE
             self._backend_state = BackendState.LOADING
-            self._target_hz = getattr(runner.runtime, "_control_frequency_hz", 50.0)
+            self._cycle_count = 0
+            if hasattr(runner, "set_lifecycle_callbacks"):
+                runner.set_lifecycle_callbacks(
+                    on_cycle=self._handle_runner_cycle,
+                    on_fault=self._handle_runner_fault,
+                    on_finished=self._handle_runner_finished,
+                )
         self._notify_state()
-
-        # Auto-apply instrumentation if a wrapper is already registered
-        if self._post_step_wrapper and self._runner and hasattr(self._runner.runtime, "step"):
-            logger.info("RuntimeControlService: Applying instrumentation wrapper to runtime.step")
-            self._runner.runtime.step = self._post_step_wrapper(self._runner.runtime.step)
+        if self._post_step_wrapper and hasattr(runner, "set_step_wrapper"):
+            logger.info("RuntimeControlService: Applying instrumentation wrapper to runner step")
+            runner.set_step_wrapper(self._post_step_wrapper)
 
     def set_stack_path(self, stack_path: str) -> None:
         """Explicitly set the stackfile path for recheck capability."""
@@ -100,54 +106,40 @@ class RuntimeControlService:
             # Note: We don't need to manually update HZ here,
             # status() will read it from self._config dynamically.
 
+    def build_runner_from_config(
+        self,
+        config: StackfileConfig,
+        *,
+        stack_path: str | None = None,
+        ros2_node: Any = None,
+    ) -> BaseRunner:
+        """Build and attach a complete Runner from config via RuntimeFactory."""
+        from dam.runtime.factory import RuntimeFactory
+
+        runner = RuntimeFactory.build_from_config(config, ros2_node=ros2_node)
+        self.apply_config(config)
+        self.attach_runner(runner, stack_path)
+        return runner
+
+    def build_runner_from_stackfile(self, stack_path: str, *, ros2_node: Any = None) -> BaseRunner:
+        """Load config, build a complete Runner, and attach it to the service."""
+        from dam.runtime.factory import RuntimeFactory
+
+        config = RuntimeFactory.load_config(stack_path)
+        self.set_stack_path(stack_path)
+        return self.build_runner_from_config(config, stack_path=stack_path, ros2_node=ros2_node)
+
     def set_post_step_wrapper(self, wrapper: Callable[[Callable], Callable]) -> None:
-        """Register a function that wraps runtime.step with instrumentation."""
+        """Register a function that wraps the runner-owned step callable."""
         self._post_step_wrapper = wrapper
         # Apply immediately if runner is already here
-        if self._runner and hasattr(self._runner.runtime, "step"):
-            logger.info("RuntimeControlService: Applying newly registered wrapper to runtime.step")
-            self._runner.runtime.step = self._post_step_wrapper(self._runner.runtime.step)
+        if self._runner and hasattr(self._runner, "set_step_wrapper"):
+            logger.info("RuntimeControlService: Applying newly registered wrapper to runner step")
+            self._runner.set_step_wrapper(self._post_step_wrapper)
 
     def on_state_change(self, callback: Callable[[RuntimeState], None]) -> None:
         """Register a callback called when runtime state changes."""
         self._on_state_change = callback
-
-    def attach_runtime(self, runtime: Any) -> None:
-        """Attach a bare GuardRuntime directly, marking the system as ready immediately.
-
-        Unlike ``attach_runner``, this does not attempt hardware verification and is
-        intended for simulation and unit-test scenarios where the runtime is already
-        fully constructed and ready to use.
-        """
-
-        class _RuntimeAdapter:
-            """Minimal BaseRunner-compatible wrapper around a raw GuardRuntime."""
-
-            def __init__(self, rt: Any) -> None:
-                self.runtime = rt
-
-            def step(self) -> Any:
-                return self.runtime.step()
-
-            def connect(self) -> None:
-                # Runtime is pre-built; no connection step needed.
-                pass
-
-            def verify(self) -> None:
-                # Runtime is pre-built; no verification step needed.
-                pass
-
-            def shutdown(self) -> None:
-                # Runtime is pre-built; no shutdown step needed.
-                pass
-
-        with self._lock:
-            self._runner = _RuntimeAdapter(runtime)
-            self._startup_error = None
-            self._state = RuntimeState.IDLE
-            self._backend_state = BackendState.READY
-            self._target_hz = getattr(runtime, "_control_frequency_hz", 50.0)
-        self._notify_state()
 
     # ── Commands ──────────────────────────────────────────────────────────────
 
@@ -160,9 +152,7 @@ class RuntimeControlService:
             if self._startup_error:
                 raise RuntimeError(f"Cannot start: {self._startup_error}")
             if self._runner is None:
-                raise RuntimeError(
-                    "No GuardRuntime attached. Call attach_runtime() or attach_runner() first."
-                )
+                raise RuntimeError("No Runner attached. Call attach_runner() first.")
             if self._backend_state != BackendState.READY:
                 raise RuntimeError(
                     f"Cannot start: System is {self._backend_state}. Needs confirmation or recheck"
@@ -172,31 +162,21 @@ class RuntimeControlService:
                 return False
             self._state = RuntimeState.STARTING
             self._error = None
-            self._pause_event.set()
+            runner = self._runner
         self._notify_state()
 
         try:
-            if hasattr(self._runner.runtime, "start_task"):
-                self._runner.runtime.start_task(task_name)
-        except Exception:  # noqa: BLE001 — start_task is best-effort
-            pass
+            ok = runner.start(task_name, n_cycles=n_cycles, cycle_budget_ms=cycle_budget_ms)
+        except Exception:
+            with self._lock:
+                self._state = RuntimeState.IDLE
+            self._notify_state()
+            raise
 
-        # Use the provided budget, or fallback to the runner's internal frequency
-        if cycle_budget_ms is None:
-            hz = getattr(self._runner.runtime, "_control_frequency_hz", 50.0)
-            cycle_budget_ms = 1000.0 / hz
-
-        self._run_thread = threading.Thread(
-            target=self._run_loop,
-            args=(n_cycles, cycle_budget_ms),
-            daemon=False,
-            name="dam-runtime-loop",
-        )
         with self._lock:
-            self._state = RuntimeState.RUNNING
-        self._run_thread.start()
+            self._state = self._runtime_state_for_runner(runner.status)
         self._notify_state()
-        return True
+        return ok
 
     def set_status_callback(self, callback: Callable[[dict[str, Any]], None]) -> None:
         """Register a callback to broadcast simplified status updates (e.g., via WS)."""
@@ -205,62 +185,57 @@ class RuntimeControlService:
     def pause(self) -> bool:
         """Pause the control loop after the current cycle."""
         with self._lock:
-            if self._state != RuntimeState.RUNNING:
+            runner = self._runner
+            if runner is None or self._state != RuntimeState.RUNNING:
                 return False
-            self._state = RuntimeState.PAUSED
-        self._pause_event.clear()
+        ok = runner.pause()
+        with self._lock:
+            self._state = self._runtime_state_for_runner(runner.status)
         self._notify_state()
-        return True
+        return ok
 
     def resume(self) -> bool:
         """Resume a paused control loop."""
         with self._lock:
-            if self._state != RuntimeState.PAUSED:
+            runner = self._runner
+            if runner is None or self._state != RuntimeState.PAUSED:
                 return False
-            self._state = RuntimeState.RUNNING
-        self._pause_event.set()
+        ok = runner.resume()
+        with self._lock:
+            self._state = self._runtime_state_for_runner(runner.status)
         self._notify_state()
-        return True
+        return ok
 
     def stop(self) -> bool:
         """Gracefully stop the control loop."""
         with self._lock:
+            runner = self._runner
             if self._state not in (
                 RuntimeState.RUNNING,
                 RuntimeState.PAUSED,
                 RuntimeState.STARTING,
-            ):
+            ) or runner is None:
                 return False
             self._state = RuntimeState.STOPPING
-        self._pause_event.set()  # unblock if paused
         self._notify_state()
-
-        if self._runner is not None and hasattr(self._runner.runtime, "stop"):
-            self._runner.runtime.stop()
-
-        return True
-
-    def _loopback_outside_lock(self) -> Any | None:
-        with self._lock:
-            if self._runner:
-                return getattr(self._runner.runtime, "_loopback", None)
-        return None
+        return runner.stop()
 
     def force_save_mcap(self) -> None:
         """Force the loopback writer to rotate the MCAP file immediately (zero-downtime save)."""
-        loopback = self._loopback_outside_lock()
-        if loopback is not None and hasattr(loopback, "force_rotate"):
-            loopback.force_rotate()
+        with self._lock:
+            runner = self._runner
+        if runner is not None and hasattr(runner, "force_save_mcap"):
+            runner.force_save_mcap()
 
     def emergency_stop(self) -> bool:
         """Immediate emergency stop — triggers sink emergency_stop if available."""
         with self._lock:
             self._state = RuntimeState.EMERGENCY
-        self._pause_event.set()
-        if self._runner is not None:
+            runner = self._runner
+        if runner is not None:
             # shutdown the runner to be safe
             try:
-                self._runner.shutdown()
+                runner.shutdown()
             except Exception as e:
                 logger.error("E-Stop runner shutdown error: %s", e)
 
@@ -275,24 +250,27 @@ class RuntimeControlService:
     def reset(self) -> bool:
         """Reset to IDLE (only from STOPPED or EMERGENCY).
 
-        When resetting from EMERGENCY, the hardware is reconnected so the
-        next ``start()`` doesn't fail with "not connected".  If reconnection
-        fails, the system transitions to a startup error instead.
+        When resetting from EMERGENCY, hardware is reconnected so the next
+        ``start()`` doesn't fail with "not connected". ``emergency_stop()``
+        always calls ``runner.shutdown()`` (which disconnects the robot) so
+        we always need to reconnect — ``runner.connect()`` is idempotent,
+        so this is safe even if ``confirm_fault()`` already reconnected.
+        ``runner.verify()`` lazily reconnects external sources (cameras)
+        via their own ``verify()`` paths.
         """
         with self._lock:
             if self._state not in (RuntimeState.STOPPED, RuntimeState.EMERGENCY, RuntimeState.IDLE):
                 return False
             was_emergency = self._state == RuntimeState.EMERGENCY
             runner = self._runner
-            backend_ready = self._backend_state == BackendState.READY
 
-        # Reconnect hardware after emergency stop (shutdown disconnects the robot).
-        # Skip if confirm_fault() already reconnected (backend_state == READY).
-        if was_emergency and runner is not None and not backend_ready:
+        if was_emergency and runner is not None:
             try:
                 runner.connect()
                 runner.verify()
                 logger.info("RuntimeControlService: hardware reconnected after reset")
+                with self._lock:
+                    self._backend_state = BackendState.READY
             except Exception as exc:
                 logger.error("RuntimeControlService: reconnect on reset failed: %s", exc)
                 self.set_startup_error(str(exc))
@@ -390,11 +368,11 @@ class RuntimeControlService:
         try:
             importlib.reload(dam.runtime.factory)
             if adapter_type == "lerobot":
+                import dam.adapter.lerobot.adapter
                 import dam.adapter.lerobot.builder
-                import dam.adapter.lerobot.source
 
+                importlib.reload(dam.adapter.lerobot.adapter)
                 importlib.reload(dam.adapter.lerobot.builder)
-                importlib.reload(dam.adapter.lerobot.source)
 
             from dam.runtime.factory import RuntimeFactory
 
@@ -410,9 +388,6 @@ class RuntimeControlService:
 
             # 2. Build new runner
             new_runner = RuntimeFactory.build_from_stackfile(path)
-
-            if self._post_step_wrapper:
-                new_runner.runtime.step = self._post_step_wrapper(new_runner.runtime.step)
 
             # 3. Attach and Connect
             self.attach_runner(new_runner, path)
@@ -473,23 +448,21 @@ class RuntimeControlService:
     def status(self) -> dict[str, Any]:
         """Return a JSON-serialisable status dict."""
         with self._lock:
-            rt = self._runner.runtime if self._runner else None
+            runner = self._runner
+            runner_info = runner.status_snapshot() if runner and hasattr(runner, "status_snapshot") else None
 
             # Base config values
-            hz = 50.0
-            task_config = {}
+            hz = 30.0
 
             # 1. Use live runtime if it exists (it's the most real-time truth)
-            if rt is not None:
-                hz = getattr(rt, "_control_frequency_hz", 50.0)
-                task_config = getattr(rt, "_task_config", {})
-                available_tasks = list(task_config.keys())
-                planned_task = (
-                    "default"
-                    if "default" in task_config
-                    else (available_tasks[0] if available_tasks else None)
-                )
-                planned_boundaries = list(task_config.get(planned_task, [])) if planned_task else []
+            if runner_info is not None:
+                hz = runner_info["control_frequency_hz"]
+                available_tasks = runner_info["available_tasks"]
+                planned_task = runner_info["planned_task"]
+                planned_boundaries = runner_info["planned_boundaries"]
+                active_task = runner_info["active_task"]
+                active_boundaries = runner_info["active_boundaries"]
+                cycle_count = runner_info["cycle_count"]
 
             # 2. Otherwise, use the structured config object (SSOT)
             elif self._config:
@@ -504,25 +477,28 @@ class RuntimeControlService:
                 )
                 if planned_task:
                     planned_boundaries = task_dict.get(planned_task, [])
+                active_task = planned_task
+                active_boundaries = planned_boundaries
+                cycle_count = self._cycle_count
 
             # 3. Last resort defaults
             else:
                 available_tasks = []
                 planned_task = None
                 planned_boundaries = []
-
-            active_task = getattr(rt, "_active_task", None)
-            active_boundaries = list(getattr(rt, "_active_container_names", []))
+                active_task = None
+                active_boundaries = []
+                cycle_count = self._cycle_count
 
             return {
                 "state": self._state.value,
                 "backend_state": self._backend_state.value,
-                "cycle_count": self._cycle_count,
+                "cycle_count": cycle_count,
                 "error": self._error,
                 "startup_error": self._startup_error,
-                "has_runtime": rt is not None,
-                "active_task": active_task if active_task else planned_task,
-                "active_boundaries": active_boundaries if active_boundaries else planned_boundaries,
+                "has_runtime": runner is not None,
+                "active_task": active_task,
+                "active_boundaries": active_boundaries,
                 "control_frequency_hz": hz,
                 "available_tasks": available_tasks,
                 "planned_task": planned_task,
@@ -536,76 +512,30 @@ class RuntimeControlService:
 
     # ── Internal ─────────────────────────────────────────────────────────────
 
-    def _run_loop(self, n_cycles: int, cycle_budget_ms: float) -> None:
-        """Background thread target."""
-        import time
+    @staticmethod
+    def _runtime_state_for_runner(status: RunnerStatus) -> RuntimeState:
+        return RuntimeState(status.value)
 
-        cycle_budget_s = cycle_budget_ms / 1000.0
-        cycle = 0
-        try:
-            while True:
-                with self._lock:
-                    state = self._state
-                    runner = self._runner
-                if state in (RuntimeState.STOPPING, RuntimeState.STOPPED, RuntimeState.EMERGENCY):
-                    break
-                if state == RuntimeState.PAUSED:
-                    self._pause_event.wait(timeout=0.1)
-                    continue
+    def _handle_runner_cycle(self, _result: Any) -> None:
+        with self._lock:
+            if self._runner is not None and hasattr(self._runner, "cycle_count"):
+                self._cycle_count = self._runner.cycle_count
 
-                t0 = time.perf_counter()
-                try:
-                    result = runner.step()
-                    if result and any(
-                        r.decision == GuardDecision.FAULT for r in result.guard_results
-                    ):
-                        fault_reason = next(
-                            (
-                                r.reason
-                                for r in result.guard_results
-                                if r.decision == GuardDecision.FAULT
-                            ),
-                            "Fault",
-                        )
-                        with self._lock:
-                            self._error = fault_reason
-                            self._backend_state = BackendState.FAULTED
-                        self.emergency_stop()
-                        break
+    def _handle_runner_fault(self, reason: str) -> None:
+        with self._lock:
+            self._error = reason
+            self._backend_state = BackendState.FAULTED
+            self._state = RuntimeState.EMERGENCY
+        self._notify_state()
 
-                    with self._lock:
-                        self._cycle_count += 1
-                except StopIteration:
-                    break
-                except Exception as e:
-                    with self._lock:
-                        self._error = str(e)
-                    self.emergency_stop()
-                    break
-
-                cycle += 1
-                if n_cycles != -1 and cycle >= n_cycles:
-                    break
-
-                elapsed = time.perf_counter() - t0
-                sleep = cycle_budget_s - elapsed
-                if sleep > 0:
-                    time.sleep(sleep)
-
-        finally:
-            with self._lock:
-                if self._state in (RuntimeState.RUNNING, RuntimeState.STOPPING):
-                    self._state = RuntimeState.STOPPED
-            self._notify_state()
-
-            # Ensure the MCAP file is closed (footer written) after the loop has definitively
-            # exited. This prevents the race condition where the last cycle might open
-            # a new, tiny orphaned file if rotation was triggered while the loop was still
-            # finalizing its last step.
-            try:
-                self.force_save_mcap()
-            except Exception:
-                logger.debug("RuntimeControlService: cleanup MCAP rotation failed", exc_info=True)
+    def _handle_runner_finished(self, status: RunnerStatus) -> None:
+        with self._lock:
+            if self._state == RuntimeState.EMERGENCY and status == RunnerStatus.STOPPED:
+                return
+            self._state = self._runtime_state_for_runner(status)
+            if self._runner is not None and hasattr(self._runner, "cycle_count"):
+                self._cycle_count = self._runner.cycle_count
+        self._notify_state()
 
     def _notify_state(self) -> None:
         if self._on_state_change is not None:
@@ -615,22 +545,22 @@ class RuntimeControlService:
         if self._on_status_broadcast is not None:
             with self._lock:
                 runner = self._runner
-                rt = runner.runtime if runner else None
-                task_config: dict[str, Any] = getattr(rt, "_task_config", {})
-                available_tasks = list(task_config.keys())
-                planned_task = (
-                    "default"
-                    if "default" in task_config
-                    else (available_tasks[0] if available_tasks else None)
-                )
-                planned_boundaries = list(task_config.get(planned_task, [])) if planned_task else []
+                info = runner.status_snapshot() if runner and hasattr(runner, "status_snapshot") else {}
+                planned_task = info.get("planned_task")
+                planned_boundaries = info.get("planned_boundaries", [])
+                cycle_count = info.get("cycle_count", self._cycle_count)
             msg = {
                 "type": "system_status",
                 "state": self._state,
                 "backend_state": self._backend_state,
                 "error": self._error or self._startup_error,
+                # Send startup_error explicitly (even when None) so a successful
+                # recheck clears the frontend's blocking-overlay flag — without
+                # this key the spread-merge on the client side keeps the stale
+                # value and the UI stays stuck on "hardware not connected".
+                "startup_error": self._startup_error,
                 "message": self._error or self._startup_error or f"System state: {self._state}",
-                "cycle_count": self._cycle_count,
+                "cycle_count": cycle_count,
                 "planned_task": planned_task,
                 "planned_boundaries": planned_boundaries,
             }

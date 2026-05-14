@@ -171,7 +171,7 @@ export const TEMPLATES: TemplatePreset[] = [
       hardware_preset: 'so101_follower', adapter: 'simulation',
       simulation_dataset_repo_id: 'MikeChenYZ/soarm-fmb-v2', simulation_episode: 0,
       policy: { type: 'act', pretrained_path: 'MikeChenYZ/act-soarm-fmb-v2', device: 'cpu' },
-      joints: SO101_JOINTS, controlFrequencyHz: 15, enforcement_mode: 'monitor',
+      joints: SO101_JOINTS, controlFrequencyHz: 30, enforcement_mode: 'monitor',
       tasks: [{ id: 'demo', name: 'demo', description: 'Full demo', boundaries: DEFAULT_BOUNDARIES.map(b => b.name) }],
       boundaries: DEFAULT_BOUNDARIES,
       loopback: {
@@ -190,7 +190,7 @@ export const TEMPLATES: TemplatePreset[] = [
       lerobot_robot_id: 'my_awesome_follower_arm', lerobot_cameras: SO101_CAMERAS,
       observation_channels: ['current'],
       policy: { type: 'act', pretrained_path: 'MikeChenYZ/act-soarm-fmb-v2', device: 'mps' },
-      joints: SO101_JOINTS, controlFrequencyHz: 15, enforcement_mode: 'enforce',
+      joints: SO101_JOINTS, controlFrequencyHz: 30, enforcement_mode: 'enforce',
       tasks: [{ id: 'soarm101', name: 'soarm101', description: 'Default task', boundaries: ['bounds', 'joint_position_limits', 'joint_velocity_limit', 'hardware_watchdog'] }],
       boundaries: DEFAULT_BOUNDARIES,
       loopback: {
@@ -209,7 +209,7 @@ export const TEMPLATES: TemplatePreset[] = [
       lerobot_robot_id: 'my_awesome_follower_arm', lerobot_cameras: SO101_CAMERAS,
       observation_channels: ['current'],
       policy: { type: 'act', pretrained_path: 'MikeChenYZ/act-soarm-fmb-v2', device: 'mps' },
-      joints: SO101_JOINTS, controlFrequencyHz: 50, enforcement_mode: 'enforce',
+      joints: SO101_JOINTS, controlFrequencyHz: 30, enforcement_mode: 'enforce',
       tasks: [{ id: 'soarm101', name: 'soarm101', description: 'QP-protected motion',
         boundaries: ['bounds', 'joint_position_limits', 'joint_velocity_limit', 'hardware_watchdog'] }],
       boundaries: withQpSolver(DEFAULT_BOUNDARIES.filter(b => b.name !== 'ood_detector')),
@@ -229,7 +229,7 @@ export const TEMPLATES: TemplatePreset[] = [
       ros2JointTopic: '/joint_states', ros2CmdTopic: '/joint_commands',
       observation_channels: ['effort', 'wrench'],
       policy: { type: 'act', pretrained_path: '', device: 'cpu' },
-      controlFrequencyHz: 15, enforcement_mode: 'monitor',
+      controlFrequencyHz: 30, enforcement_mode: 'monitor',
       tasks: [{ id: 'default', name: 'default', description: 'Default task', boundaries: [] }],
       boundaries: [],
       loopback: {
@@ -248,7 +248,7 @@ export function defaultConfig(templateId = ''): DamConfig {
     lerobot_cameras: [], lerobot_calibration_path: '', observation_channels: [],
     ros2JointTopic: '/joint_states', ros2CmdTopic: '/joint_commands',
     policy: { type: 'noop', pretrained_path: '', device: 'cpu' },
-    joints: SO101_JOINTS, controlFrequencyHz: 10, enforcement_mode: 'monitor',
+    joints: SO101_JOINTS, controlFrequencyHz: 30, enforcement_mode: 'monitor',
     guardsEnabled: {}, tasks: [], boundaries: [],
   }
   if (!preset) return base
