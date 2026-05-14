@@ -80,3 +80,60 @@ def test_fault_on_error_code(HG):
     result = HG.check(obs=obs, hardware_status=status)
     assert result.decision == GuardDecision.FAULT
     assert result.fault_source == "hardware"
+
+
+def _hardware_watchdog_container(max_staleness_ms: float):
+    from dam.boundary.constraint import BoundaryConstraint
+    from dam.boundary.node import BoundaryNode
+    from dam.boundary.single import SingleNodeContainer
+
+    constraint = BoundaryConstraint(
+        callback="hardware_watchdog",
+        params={"max_staleness_ms": max_staleness_ms},
+    )
+    return SingleNodeContainer(BoundaryNode("hardware_watchdog", constraint))
+
+
+def test_watchdog_callback_uses_boundary_params(HG):
+    """L3 callback params should be read from the active boundary node."""
+    from dam.boundary.builtin_callbacks import register_all
+
+    register_all()
+    now = time.monotonic()
+    obs = Observation(
+        timestamp=now - 0.837,
+        joint_positions=np.zeros(6),
+        joint_velocities=np.zeros(6),
+    )
+
+    result = HG.check(
+        obs=obs,
+        now=now,
+        cycle_id=226,
+        active_containers=[_hardware_watchdog_container(1000.0)],
+    )
+
+    assert result.decision == GuardDecision.PASS
+
+
+def test_watchdog_callback_fault_reports_boundary_param_limit(HG):
+    """Fault reason should report the configured watchdog limit, not a fixed default."""
+    from dam.boundary.builtin_callbacks import register_all
+
+    register_all()
+    now = time.monotonic()
+    obs = Observation(
+        timestamp=now - 0.837,
+        joint_positions=np.zeros(6),
+        joint_velocities=np.zeros(6),
+    )
+
+    result = HG.check(
+        obs=obs,
+        now=now,
+        cycle_id=226,
+        active_containers=[_hardware_watchdog_container(500.0)],
+    )
+
+    assert result.decision == GuardDecision.FAULT
+    assert "limit 500ms" in result.reason

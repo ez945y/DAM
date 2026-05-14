@@ -11,18 +11,15 @@ for positional safety.
 from __future__ import annotations
 
 import logging
-import time
 from typing import Any
 
 import dam
 from dam.guard.base import Guard
+from dam.guard.callbacks import evaluate_boundary_callbacks
 from dam.types.observation import Observation
 from dam.types.result import GuardDecision, GuardResult
 
 logger = logging.getLogger(__name__)
-
-_WATCHDOG_MS = 500.0
-_FIRST_CYCLE_GRACE_MS = 5000.0
 
 
 def _jlabel(keys: Any, motor: str) -> str:
@@ -65,8 +62,9 @@ class HardwareGuard(Guard):
         self,
         obs: Observation,
         hardware_status: dict[str, Any] | None = None,
+        active_containers: list[Any] | None = None,
+        node_start_times: dict[str, float] | None = None,
         now: float | None = None,
-        cycle_id: int = 1,
         max_temperature_c: float = 80.0,
         max_current_a: float = 5.0,
         exception_joints: list[int] | None = None,
@@ -75,10 +73,23 @@ class HardwareGuard(Guard):
         layer = self.get_layer()
         name = self.get_name()
 
-        # 1. Watchdog — fixed 500ms, generous first-cycle grace
-        watchdog_res = self._check_watchdog(obs, now, cycle_id, name, layer)
-        if watchdog_res:
-            return watchdog_res
+        # 1. Boundary callbacks — L3 nodes own their params in constraint.params.
+        _, callback_res = evaluate_boundary_callbacks(
+            containers=active_containers,
+            base_kwargs={
+                "obs": obs,
+                "now": now,
+                "hardware_status": hardware_status,
+                "node_start_times": node_start_times or {},
+            },
+            expected_layer=layer.name,
+            guard_name=name,
+            guard_layer=layer,
+            violation_decision=GuardDecision.FAULT,
+            fault_source="hardware",
+        )
+        if callback_res:
+            return callback_res
 
         # 2. Health telemetry checks
         if hardware_status is None and hasattr(obs, "metadata") and obs.metadata:
@@ -97,28 +108,6 @@ class HardwareGuard(Guard):
         if exceptions:
             telemetry["exception_joints"] = sorted(exceptions)
         return GuardResult.success(guard_name=name, layer=layer, metadata=telemetry, reason=reason)
-
-    def _check_watchdog(
-        self,
-        obs: Observation,
-        now: float | None,
-        cycle_id: int,
-        name: str,
-        layer: str,
-    ) -> GuardResult | None:
-        current = now if now is not None else time.monotonic()
-        limit_ms = _FIRST_CYCLE_GRACE_MS if cycle_id == 0 else _WATCHDOG_MS
-
-        staleness_ms = (current - obs.timestamp) * 1000.0
-        if staleness_ms > limit_ms:
-            return GuardResult(
-                decision=GuardDecision.FAULT,
-                guard_name=name,
-                layer=layer,
-                reason=(f"Heartbeat lost: {staleness_ms:.0f}ms stale (limit {limit_ms:.0f}ms)"),
-                fault_source="hardware",
-            )
-        return None
 
     def _check_health_telemetry(
         self,

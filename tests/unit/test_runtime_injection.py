@@ -68,3 +68,54 @@ def test_guard_runtime_param_injection(tmp_path):
     # MotionGuard returns CLAMP for joint_position_limits
     assert kin_result_bad.decision == GuardDecision.CLAMP
     assert np.allclose(validated_bad.target_joint_positions, np.array([0.1] * 6))
+
+
+def test_hardware_callback_params_flow_from_stackfile(tmp_path):
+    from dam.boundary.builtin_callbacks import register_all as reg_callbacks
+    from dam.guard.builtin import register_all as reg_guards
+
+    reg_callbacks()
+    reg_guards()
+
+    stack_content = {
+        "version": "1",
+        "guards": [{"hardware": "hardware"}],
+        "boundaries": {
+            "hardware_watchdog": {
+                "layer": "L3",
+                "type": "single",
+                "nodes": [
+                    {
+                        "node_id": "n0",
+                        "callback": "hardware_watchdog",
+                        "params": {"max_staleness_ms": 1000.0},
+                        "fallback": "emergency_stop",
+                    }
+                ],
+            }
+        },
+        "tasks": {"default": {"boundaries": ["hardware_watchdog"]}},
+        "safety": {"control_frequency_hz": 30.0, "enforcement_mode": "enforce"},
+    }
+
+    sf_path = tmp_path / "stack.yaml"
+    with open(sf_path, "w") as f:
+        yaml.dump(stack_content, f)
+
+    runtime = GuardRuntime.from_stackfile(str(sf_path))
+    runtime.start_task("default")
+
+    now = 100.0
+    obs = Observation(
+        timestamp=now - 0.837,
+        joint_positions=np.zeros(6),
+        joint_velocities=np.zeros(6),
+    )
+    action = ActionProposal(target_joint_positions=np.zeros(6))
+
+    validated, results, fallback = runtime.validate(obs, action, "test-trace", now=now)
+
+    watchdog_result = next(r for r in results if r.guard_name == "hardware_watchdog")
+    assert watchdog_result.decision == GuardDecision.PASS
+    assert validated is not None
+    assert fallback is None

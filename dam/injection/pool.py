@@ -9,6 +9,7 @@ RUNTIME_POOL_KEYS: frozenset[str] = frozenset(
         "cycle_id",
         "trace_id",
         "timestamp",
+        "now",
         # Phase 2 additions
         "active_containers",  # List[BoundaryContainer] — active this cycle
         "node_start_times",  # Dict[str, float] — {container_name: time node activated}

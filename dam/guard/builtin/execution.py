@@ -9,8 +9,9 @@ from typing import Any
 import numpy as np
 
 from dam.guard.base import Guard
+from dam.guard.callbacks import evaluate_boundary_callbacks
 from dam.types.observation import Observation
-from dam.types.result import GuardResult
+from dam.types.result import GuardDecision, GuardResult
 
 logger = logging.getLogger(__name__)
 
@@ -97,30 +98,17 @@ class ExecutionGuard(Guard):
 
             # 3. callback check
             if constraint.callback:
-                try:
-                    from dam.registry.callback import get_global_registry
-
-                    reg = get_global_registry()
-                    fn = reg.get(constraint.callback)
-
-                    # Call execution callback with the node params injected
-                    result = fn(obs=obs, **params)
-
-                    if not result:
-                        return GuardResult.reject(
-                            reason=(
-                                f"callback '{constraint.callback}' "
-                                f"returned False at node '{node.node_id}'"
-                            ),
-                            guard_name=name,
-                            layer=layer,
-                        )
-                except KeyError:
-                    logger.warning(
-                        "ExecutionGuard: callback '%s' not registered", constraint.callback
-                    )
-                except Exception as e:
-                    return GuardResult.fault(e, "guard_code", name, layer)
+                _, callback_res = evaluate_boundary_callbacks(
+                    containers=[container],
+                    base_kwargs={"obs": obs},
+                    expected_layer=None,
+                    guard_name=name,
+                    guard_layer=layer,
+                    violation_decision=GuardDecision.REJECT,
+                    fault_source="guard_code",
+                )
+                if callback_res:
+                    return callback_res
 
             # 4. timeout_sec check (Temporal watchdog)
             if node.timeout_sec is not None and node_start_times:

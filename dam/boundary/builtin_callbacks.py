@@ -34,10 +34,10 @@ def boundary_callback(
     name: str,
     layer: str,
     description: str = "",
-) -> Callable[[Callable[..., bool]], Callable[..., bool]]:
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator that registers a function as a named boundary callback."""
 
-    def decorator(fn: Callable[..., bool]) -> Callable[..., bool]:
+    def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
         import inspect
 
         sig = inspect.signature(fn)
@@ -281,9 +281,17 @@ def check_gripper_clear(*, obs: Observation, min_gripper_opening_m: float = 0.00
     layer="L3",
     description="Safety check for observation staleness.",
 )
-def hardware_watchdog(*, obs: Observation, max_staleness_ms: float = 1000.0) -> bool:
-    staleness_ms = (time.monotonic() - obs.timestamp) * 1000.0
-    return staleness_ms <= max_staleness_ms
+def hardware_watchdog(
+    *,
+    obs: Observation,
+    now: float | None = None,
+    max_staleness_ms: float = 1000.0,
+) -> bool | tuple[bool, str]:
+    current = time.monotonic() if now is None else now
+    staleness_ms = (current - obs.timestamp) * 1000.0
+    if staleness_ms <= max_staleness_ms:
+        return True
+    return False, f"Heartbeat lost: {staleness_ms:.0f}ms stale (limit {max_staleness_ms:.0f}ms)"
 
 
 # ── L3: OBSERVATION-CHANNEL CONSTRAINTS ───────────────────────────────────

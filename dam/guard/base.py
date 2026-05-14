@@ -18,8 +18,12 @@ class Guard(ABC):
     _static_kwargs: dict[str, Any]
     _runtime_keys: list[str]
 
-    @abstractmethod
-    def check(self, **kwargs: Any) -> GuardResult: ...
+    if TYPE_CHECKING:
+        check: Any
+    else:
+
+        @abstractmethod
+        def check(self, **kwargs: Any) -> GuardResult: ...
 
     def get_layer(self) -> GuardLayer:
         return self.__class__._guard_layer

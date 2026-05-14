@@ -337,7 +337,7 @@ class ExecutionEngine:
         result_name = boundary_name if boundary_name is not None else g.get_name()
 
         _t_start = time.perf_counter()
-        result = g.check(**_filter_kwargs(g.check, kwargs))
+        result = cast(GuardResult, g.check(**_filter_kwargs(g.check, kwargs)))
         _t_elapsed = time.perf_counter() - _t_start
         _latency_ms = _t_elapsed * 1000.0
 

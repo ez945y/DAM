@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from dam.guard.base import Guard
 from dam.injection.static import precompute_injection
@@ -19,7 +19,7 @@ def inject_and_call(
     for k, v in runtime_kwargs.items():
         if k not in kwargs and k in guard_instance.__class__._cached_param_names:
             kwargs[k] = v
-    return guard_instance.check(**kwargs)
+    return cast(GuardResult, guard_instance.check(**kwargs))
 
 
 def assert_rejects(result: GuardResult) -> None:

@@ -998,7 +998,7 @@ class GuardRuntime:
         from dam.boundary.constraint import BoundaryConstraint
         from dam.boundary.node import BoundaryNode
 
-        stores_callback = guard_kind == "execution"
+        stores_callback = guard_kind in {"execution", "hardware"}
         params = dict(ncfg.params)
 
         if "device" not in params and config.policy and config.policy.device:
