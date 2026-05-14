@@ -222,8 +222,6 @@ class GuardRuntime:
         self._active_container_names = []
         self._node_start_times = {}
         self._cycle_id = 0  # Reset so HardwareGuard applies first-cycle grace period
-        if self._loopback is not None:
-            self._loopback.start()
         now = time.monotonic()
 
         # Determine all active boundaries (always_active + task boundaries)
@@ -328,6 +326,19 @@ class GuardRuntime:
         self._active_containers = []
         self._active_container_names = []
         self._node_start_times = {}
+        self.stop_recording()
+
+    def start_recording(self) -> None:
+        """Start loopback recording for an active runner loop.
+
+        Task activation alone must not create MCAP sessions; the runner calls
+        this only when the user starts execution.
+        """
+        if self._loopback is not None:
+            self._loopback.start()
+
+    def stop_recording(self) -> None:
+        """Stop loopback recording if it was started."""
         if self._loopback is not None:
             self._loopback.shutdown()
 

@@ -83,8 +83,15 @@ pub struct ImageHub {
 
 struct ImageHubInner {
     window_sec: f64,
-    frames: VecDeque<ImageData>,
-    latest: HashMap<String, ImageData>,
+    next_sequence: u64,
+    frames: VecDeque<SequencedImage>,
+    latest: HashMap<String, SequencedImage>,
+}
+
+#[derive(Clone)]
+struct SequencedImage {
+    sequence: u64,
+    image: ImageData,
 }
 
 impl ImageHub {
@@ -92,6 +99,7 @@ impl ImageHub {
         Self {
             inner: Arc::new(Mutex::new(ImageHubInner {
                 window_sec: window_sec.max(0.1),
+                next_sequence: 0,
                 frames: VecDeque::new(),
                 latest: HashMap::new(),
             })),
@@ -109,7 +117,7 @@ impl ImageHub {
         if data.is_empty() {
             return;
         }
-        let frame = ImageData {
+        let image = ImageData {
             camera_name: camera_name.into(),
             timestamp,
             width,
@@ -117,28 +125,45 @@ impl ImageHub {
             data,
         };
         let mut inner = self.inner.lock().expect("ImageHub lock poisoned");
+        inner.next_sequence += 1;
+        let frame = SequencedImage {
+            sequence: inner.next_sequence,
+            image,
+        };
         let should_update_latest = inner
             .latest
-            .get(&frame.camera_name)
-            .map(|latest| frame.timestamp >= latest.timestamp)
+            .get(&frame.image.camera_name)
+            .map(|latest| frame.image.timestamp >= latest.image.timestamp)
             .unwrap_or(true);
         if should_update_latest {
             inner
                 .latest
-                .insert(frame.camera_name.clone(), frame.clone());
+                .insert(frame.image.camera_name.clone(), frame.clone());
         }
         inner.frames.push_back(frame);
         trim_image_hub_locked(&mut inner, timestamp);
     }
 
+    pub fn current_sequence(&self) -> u64 {
+        let inner = self.inner.lock().expect("ImageHub lock poisoned");
+        inner.next_sequence
+    }
+
     pub fn latest_all(&self) -> Vec<ImageData> {
         let inner = self.inner.lock().expect("ImageHub lock poisoned");
-        inner.latest.values().cloned().collect()
+        inner
+            .latest
+            .values()
+            .map(|frame| frame.image.clone())
+            .collect()
     }
 
     pub fn latest_for(&self, camera_name: &str) -> Option<ImageData> {
         let inner = self.inner.lock().expect("ImageHub lock poisoned");
-        inner.latest.get(camera_name).cloned()
+        inner
+            .latest
+            .get(camera_name)
+            .map(|frame| frame.image.clone())
     }
 
     pub fn frames_between(&self, start: f64, end: f64) -> Vec<ImageData> {
@@ -146,23 +171,30 @@ impl ImageHub {
         inner
             .frames
             .iter()
-            .filter(|frame| frame.timestamp >= start && frame.timestamp <= end)
-            .cloned()
+            .filter(|frame| frame.image.timestamp >= start && frame.image.timestamp <= end)
+            .map(|frame| frame.image.clone())
             .collect()
     }
 
     pub fn latest_window(&self, end: f64, window_sec: f64) -> Vec<ImageData> {
         self.frames_between(end - window_sec.max(0.0), end)
     }
+
+    pub fn frames_after_until(&self, cursor: u64, end: f64) -> Vec<(u64, ImageData)> {
+        let inner = self.inner.lock().expect("ImageHub lock poisoned");
+        inner
+            .frames
+            .iter()
+            .filter(|frame| frame.sequence > cursor && frame.image.timestamp <= end)
+            .map(|frame| (frame.sequence, frame.image.clone()))
+            .collect()
+    }
 }
 
 #[derive(Clone)]
 struct ImageHubAttachment {
     hub: ImageHub,
-    window_sec: f64,
-    capture_images_on_clamp: bool,
-    capture_active: bool,
-    last_capture_ts: Option<f64>,
+    cursor: u64,
 }
 
 pub struct McapWriter {
@@ -176,7 +208,7 @@ pub struct McapWriter {
 enum WorkItem {
     Start(PathBuf), // Path to start writing
     Cycle(u64, Box<CycleRecordData>),
-    Stop,
+    Stop(u64, f64),
 }
 
 impl McapWriter {
@@ -233,25 +265,29 @@ impl McapWriter {
     }
 
     pub fn stop(&self) {
+        self.stop_at(f64::INFINITY);
+    }
+
+    pub fn stop_at(&self, stop_timestamp: f64) {
         if !self.started.swap(false, Ordering::SeqCst) {
             return;
         }
-        self.stop_requested.store(true, Ordering::SeqCst);
-        let _ = self.sender.try_send(WorkItem::Stop);
+        let seq = self.sequence.fetch_add(1, Ordering::SeqCst);
+        let _ = self.sender.send(WorkItem::Stop(seq, stop_timestamp));
     }
 
-    pub fn attach_image_hub(&self, hub: ImageHub, window_sec: f64, capture_images_on_clamp: bool) {
+    pub fn attach_image_hub(
+        &self,
+        hub: ImageHub,
+        _window_sec: f64,
+        _capture_images_on_clamp: bool,
+        cursor: u64,
+    ) {
         let mut image_hub = self
             .image_hub
             .lock()
             .expect("McapWriter image hub lock poisoned");
-        *image_hub = Some(ImageHubAttachment {
-            hub,
-            window_sec: window_sec.max(0.0),
-            capture_images_on_clamp,
-            capture_active: false,
-            last_capture_ts: None,
-        });
+        *image_hub = Some(ImageHubAttachment { hub, cursor });
     }
 
     pub fn current_sequence(&self) -> u64 {
@@ -311,7 +347,18 @@ fn run_worker(
                     log::warn!("McapWriter: received cycle but file not started");
                 }
             }
-            Ok(WorkItem::Stop) => break,
+            Ok(WorkItem::Stop(seq, stop_timestamp)) => {
+                if let Some(ref mut m) = mcap {
+                    let images = drain_images_until(&image_hub, stop_timestamp);
+                    if let Err(e) = write_images(m, seq, &images) {
+                        log::error!("Failed to flush stop images: {}", e);
+                    }
+                    if let Err(e) = m.flush() {
+                        log::error!("Failed to flush stop: {}", e);
+                    }
+                }
+                break;
+            }
             Err(RecvTimeoutError::Timeout) => continue,
             Err(RecvTimeoutError::Disconnected) => break,
         }
@@ -331,33 +378,27 @@ fn enrich_record_with_images(
     if !record.image_data.is_empty() {
         return record;
     }
+    record.image_data = drain_images_until(image_hub, record.obs_timestamp);
+    record
+}
+
+fn drain_images_until(
+    image_hub: &Arc<Mutex<Option<ImageHubAttachment>>>,
+    end_timestamp: f64,
+) -> Vec<ImageData> {
     let mut image_hub = image_hub
         .lock()
         .expect("McapWriter image hub lock poisoned");
     let Some(attachment) = image_hub.as_mut() else {
-        return record;
+        return Vec::new();
     };
-    let want_images =
-        record.has_violation || (attachment.capture_images_on_clamp && record.has_clamp);
-    if !want_images {
-        attachment.capture_active = false;
-        return record;
-    }
-    let cooldown_sec = attachment.window_sec.max(1.0);
-    let should_capture = !attachment.capture_active
-        || attachment
-            .last_capture_ts
-            .map(|last| record.obs_timestamp - last >= cooldown_sec)
-            .unwrap_or(true);
-    if !should_capture {
-        return record;
-    }
-    record.image_data = attachment
+    let frames = attachment
         .hub
-        .latest_window(record.obs_timestamp, attachment.window_sec);
-    attachment.capture_active = true;
-    attachment.last_capture_ts = Some(record.obs_timestamp);
-    record
+        .frames_after_until(attachment.cursor, end_timestamp);
+    if let Some((max_sequence, _)) = frames.last() {
+        attachment.cursor = *max_sequence;
+    }
+    frames.into_iter().map(|(_, image)| image).collect()
 }
 
 fn trim_image_hub_locked(inner: &mut ImageHubInner, now: f64) {
@@ -365,7 +406,7 @@ fn trim_image_hub_locked(inner: &mut ImageHubInner, now: f64) {
     while inner
         .frames
         .front()
-        .map(|frame| frame.timestamp < min_ts)
+        .map(|frame| frame.image.timestamp < min_ts)
         .unwrap_or(false)
     {
         inner.frames.pop_front();
@@ -406,13 +447,23 @@ fn process_cycle<W: std::io::Write + std::io::Seek>(
     )
     .map_err(|e| format!("Failed to write cycle: {}", e))?;
 
+    write_images(mcap, seq, &record.image_data)?;
+
+    Ok(())
+}
+
+fn write_images<W: std::io::Write + std::io::Seek>(
+    mcap: &mut McapWriterInner<W>,
+    seq: u64,
+    image_data: &[ImageData],
+) -> Result<(), String> {
     // Write images to /dam/images/{camera_name}
-    if !record.image_data.is_empty() {
+    if !image_data.is_empty() {
         let image_schema_id = mcap
             .add_schema("dam.Image", "application/msgpack", &[])
             .map_err(|e| format!("Failed to add image schema: {}", e))?;
 
-        for img in &record.image_data {
+        for img in image_data {
             let topic = format!("/dam/images/{}", img.camera_name);
             let image_channel_id = mcap
                 .add_channel(

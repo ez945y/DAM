@@ -159,8 +159,10 @@ class RuntimeLoopRunner(BaseRunner):
         self, task: str = "default", n_cycles: int = -1, cycle_budget_ms: float | None = None
     ) -> bool:
         with self._lock:
-            if self._status in (RunnerStatus.RUNNING, RunnerStatus.STARTING):
-                logger.warning("%s.start(): already running", type(self).__name__)
+            if self._status not in (RunnerStatus.IDLE, RunnerStatus.STOPPED):
+                logger.warning(
+                    "%s.start(): cannot start while %s", type(self).__name__, self._status
+                )
                 return False
             self._status = RunnerStatus.STARTING
             self._error = None
@@ -170,7 +172,12 @@ class RuntimeLoopRunner(BaseRunner):
 
         try:
             self._runtime.start_task(task)
+            if hasattr(self._runtime, "start_recording"):
+                self._runtime.start_recording()
         except Exception as exc:
+            with contextlib.suppress(Exception):
+                if hasattr(self._runtime, "stop_recording"):
+                    self._runtime.stop_recording()
             with self._lock:
                 self._status = RunnerStatus.IDLE
                 self._active_task = None
@@ -220,9 +227,15 @@ class RuntimeLoopRunner(BaseRunner):
         self._pause_event.set()
         with contextlib.suppress(Exception):
             self._runtime.stop()
-        if self._run_thread is None or not self._run_thread.is_alive():
+
+        run_thread = self._run_thread
+        if run_thread is not None and run_thread is not threading.current_thread():
+            run_thread.join(timeout=5.0)
+
+        if run_thread is None or not run_thread.is_alive():
             with contextlib.suppress(Exception):
-                self._runtime.stop_task()
+                if run_thread is None:
+                    self._runtime.stop_task()
             with self._lock:
                 self._status = RunnerStatus.STOPPED
                 self._active_task = None
@@ -314,9 +327,6 @@ class RuntimeLoopRunner(BaseRunner):
         """Legacy single-task activation helper; prefer start()."""
         self._runtime.start_task(name)
         self._active_task = name
-        with self._lock:
-            if self._status in (RunnerStatus.IDLE, RunnerStatus.STOPPED):
-                self._status = RunnerStatus.RUNNING
 
     def step(self) -> Any:
         """Legacy single-cycle helper; the service must use start() instead."""

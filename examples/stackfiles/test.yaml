@@ -100,7 +100,7 @@ boundaries:
     layer: L3
     type: single
     nodes:
-      - callback: hardware_limit
+      - callback: hardware_watchdog
         timeout_sec: 0.1
         fallback: emergency_stop
         params:

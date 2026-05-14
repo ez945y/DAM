@@ -122,6 +122,7 @@ class CameraFrameHub:
         *,
         window_sec: float,
         capture_images_on_clamp: bool,
+        cursor: int | None = None,
     ) -> None:
         if not hasattr(writer, "attach_image_hub"):
             raise RuntimeError(
@@ -133,7 +134,11 @@ class CameraFrameHub:
             self._rust_hub,
             float(window_sec),
             bool(capture_images_on_clamp),
+            int(self._rust_hub.current_sequence() if cursor is None else cursor),
         )
+
+    def current_sequence(self) -> int:
+        return int(self._rust_hub.current_sequence())
 
     def _trim_locked(self, now: float) -> None:
         min_ts = now - self._window_sec

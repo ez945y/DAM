@@ -9,9 +9,8 @@ performs all serialisation and disk I/O, keeping the hot path latency to
 
 Every cycle is written (not just violations).  Violations are flagged via
 ``has_violation`` / ``violated_layer_mask`` in ``/dam/cycle``; clamped
-actions via ``has_clamp`` / ``clamped_layer_mask``.  Images are fetched
-by the Rust writer from the shared camera frame hub on REJECT/FAULT (always)
-and on CLAMP (when ``capture_images_on_clamp=True``).
+actions via ``has_clamp`` / ``clamped_layer_mask``.  Camera frames are
+streamed from the shared camera frame hub for the active recording session.
 
 MCAP channel layout (flat, training-friendly)
 ---------------------------------------------
@@ -23,7 +22,7 @@ MCAP channel layout (flat, training-friendly)
                        boundaries firing simultaneously → multiple messages with
                        the same ``cycle_id``
 /dam/latency        — one per cycle: per-stage and per-layer breakdown (ms)
-/dam/images/{cam}   — one per camera frame; written only on violation cycles;
+/dam/images/{cam}   — one per camera frame during the recording session;
                        frames come from the Rust image hub so ObservationBus
                        stays scalar-only
 
@@ -572,6 +571,7 @@ class LoopbackWriter:
         self._started = False
         self._session_path: Path | None = None
         self._pending_session_path: Path | None = None
+        self._recording_start_cursor = 0
 
     @property
     def current_filename(self) -> str | None:
@@ -582,6 +582,11 @@ class LoopbackWriter:
         if self._started:
             return
         self._started = True
+        self._recording_start_cursor = (
+            int(self._frame_hub.current_sequence())
+            if self._frame_hub is not None and hasattr(self._frame_hub, "current_sequence")
+            else 0
+        )
         self._output_dir.mkdir(parents=True, exist_ok=True)
         self._session_id = uuid.uuid4().hex[:8]
         self._session_path = None
@@ -611,6 +616,7 @@ class LoopbackWriter:
                 self._mcap_writer,
                 window_sec=self._window_sec,
                 capture_images_on_clamp=self._capture_images_on_clamp,
+                cursor=self._recording_start_cursor,
             )
         self._mcap_writer.start(str(path))
         self._session_path = path
@@ -651,7 +657,7 @@ class LoopbackWriter:
         self._started = False
         if self._mcap_writer is not None:
             with contextlib.suppress(Exception):
-                self._mcap_writer.stop()
+                self._mcap_writer.stop(time.monotonic())
             self._mcap_writer = None
             logger.info("LoopbackWriter: closed")
         self._pending_session_path = None
@@ -670,7 +676,7 @@ class LoopbackWriter:
         if self._started and self._mcap_writer is not None:
             logger.info("LoopbackWriter: forced rotation triggered")
             with contextlib.suppress(Exception):
-                self._mcap_writer.stop()
+                self._mcap_writer.stop(time.monotonic())
             self._mcap_writer = None
 
     # ── Worker thread ──────────────────────────────────────────────────────

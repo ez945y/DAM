@@ -166,3 +166,185 @@ def test_rust_image_hub_captures_clamp_window_once_per_incident(tmp_path: Path) 
 
     assert cycle_count == 5
     assert sorted(image_topics) == sorted(f"/dam/images/{cam}" for cam in cameras)
+
+
+def test_rust_image_hub_does_not_write_frames_before_recording_cursor(tmp_path: Path) -> None:
+    from dam_rs import ImageHub, McapWriter
+
+    now = time.time()
+    path = tmp_path / "session_start_gate.mcap"
+    hub = ImageHub(2.0)
+    hub.submit_jpeg("top", now - 0.5, 640, 480, b"before-start")
+    cursor = hub.current_sequence()
+    hub.submit_jpeg("top", now + 0.01, 640, 480, b"after-start")
+
+    writer = McapWriter()
+    writer.attach_image_hub(hub, 2.0, False, cursor)
+    writer.start(str(path))
+    writer.write_cycle(
+        json.dumps(
+            {
+                "cycle_id": 1,
+                "obs_timestamp": now + 0.02,
+                "has_violation": True,
+                "has_clamp": False,
+                "violated_layer_mask": 1,
+                "clamped_layer_mask": 0,
+                "active_task": "task",
+                "active_boundaries": ["boundary"],
+                "active_cameras": ["top"],
+                "obs_joint_positions": [0.0],
+                "obs_channels": {},
+                "action_positions": [0.0],
+                "action_velocities": None,
+                "validated_positions": None,
+                "validated_velocities": None,
+                "was_clamped": False,
+                "fallback_triggered": None,
+                "guard_results": [],
+                "latency_stages": {"source": 1.0, "total": 2.0},
+                "latency_layers": {},
+                "latency_guards": {},
+                "image_data": [],
+                "config_version": 0,
+            }
+        )
+    )
+    time.sleep(0.15)
+    writer.stop()
+    del writer
+    time.sleep(0.05)
+
+    payloads: list[bytes] = []
+    with path.open("rb") as f:
+        for _schema, channel, message in make_reader(f).iter_messages():
+            if channel.topic.startswith("/dam/images/"):
+                decoded = msgpack.unpackb(message.data, raw=False)
+                payloads.append(bytes(decoded[4]))
+
+    assert payloads == [b"after-start"]
+
+
+def test_rust_image_hub_streams_new_frames_across_cycles(tmp_path: Path) -> None:
+    from dam_rs import ImageHub, McapWriter
+
+    now = time.time()
+    path = tmp_path / "session_stream.mcap"
+    hub = ImageHub(2.0)
+    hub.submit_jpeg("top", now - 0.1, 640, 480, b"before-start")
+    cursor = hub.current_sequence()
+    hub.submit_jpeg("top", now + 0.01, 640, 480, b"top-1")
+    hub.submit_jpeg("wrist", now + 0.015, 640, 480, b"wrist-1")
+    hub.submit_jpeg("top", now + 0.04, 640, 480, b"top-2")
+
+    writer = McapWriter()
+    writer.attach_image_hub(hub, 2.0, False, cursor)
+    writer.start(str(path))
+    for cycle_id, obs_timestamp in ((1, now + 0.02), (2, now + 0.05)):
+        writer.write_cycle(
+            json.dumps(
+                {
+                    "cycle_id": cycle_id,
+                    "obs_timestamp": obs_timestamp,
+                    "has_violation": False,
+                    "has_clamp": False,
+                    "violated_layer_mask": 0,
+                    "clamped_layer_mask": 0,
+                    "active_task": "task",
+                    "active_boundaries": ["boundary"],
+                    "active_cameras": ["top", "wrist"],
+                    "obs_joint_positions": [0.0],
+                    "obs_channels": {},
+                    "action_positions": [0.0],
+                    "action_velocities": None,
+                    "validated_positions": None,
+                    "validated_velocities": None,
+                    "was_clamped": False,
+                    "fallback_triggered": None,
+                    "guard_results": [],
+                    "latency_stages": {"source": 1.0, "total": 2.0},
+                    "latency_layers": {},
+                    "latency_guards": {},
+                    "image_data": [],
+                    "config_version": 0,
+                }
+            )
+        )
+    time.sleep(0.15)
+    writer.stop()
+    del writer
+    time.sleep(0.05)
+
+    payloads_by_topic: dict[str, list[bytes]] = {}
+    with path.open("rb") as f:
+        for _schema, channel, message in make_reader(f).iter_messages():
+            if channel.topic.startswith("/dam/images/"):
+                decoded = msgpack.unpackb(message.data, raw=False)
+                payloads_by_topic.setdefault(channel.topic, []).append(bytes(decoded[4]))
+
+    assert payloads_by_topic == {
+        "/dam/images/top": [b"top-1", b"top-2"],
+        "/dam/images/wrist": [b"wrist-1"],
+    }
+
+
+def test_rust_image_hub_flushes_tail_frames_on_stop(tmp_path: Path) -> None:
+    from dam_rs import ImageHub, McapWriter
+
+    now = time.time()
+    path = tmp_path / "session_stop_tail.mcap"
+    hub = ImageHub(2.0)
+    cursor = hub.current_sequence()
+
+    writer = McapWriter()
+    writer.attach_image_hub(hub, 2.0, False, cursor)
+    writer.start(str(path))
+    hub.submit_jpeg("top", now + 0.01, 640, 480, b"top-cycle")
+    writer.write_cycle(
+        json.dumps(
+            {
+                "cycle_id": 1,
+                "obs_timestamp": now + 0.02,
+                "has_violation": False,
+                "has_clamp": False,
+                "violated_layer_mask": 0,
+                "clamped_layer_mask": 0,
+                "active_task": "task",
+                "active_boundaries": ["boundary"],
+                "active_cameras": ["top", "wrist"],
+                "obs_joint_positions": [0.0],
+                "obs_channels": {},
+                "action_positions": [0.0],
+                "action_velocities": None,
+                "validated_positions": None,
+                "validated_velocities": None,
+                "was_clamped": False,
+                "fallback_triggered": None,
+                "guard_results": [],
+                "latency_stages": {"source": 1.0, "total": 2.0},
+                "latency_layers": {},
+                "latency_guards": {},
+                "image_data": [],
+                "config_version": 0,
+            }
+        )
+    )
+    hub.submit_jpeg("top", now + 0.04, 640, 480, b"top-tail")
+    hub.submit_jpeg("wrist", now + 0.045, 640, 480, b"wrist-tail")
+    hub.submit_jpeg("top", now + 0.07, 640, 480, b"after-stop")
+    time.sleep(0.15)
+    writer.stop(now + 0.05)
+    del writer
+    time.sleep(0.05)
+
+    payloads_by_topic: dict[str, list[bytes]] = {}
+    with path.open("rb") as f:
+        for _schema, channel, message in make_reader(f).iter_messages():
+            if channel.topic.startswith("/dam/images/"):
+                decoded = msgpack.unpackb(message.data, raw=False)
+                payloads_by_topic.setdefault(channel.topic, []).append(bytes(decoded[4]))
+
+    assert payloads_by_topic == {
+        "/dam/images/top": [b"top-cycle", b"top-tail"],
+        "/dam/images/wrist": [b"wrist-tail"],
+    }

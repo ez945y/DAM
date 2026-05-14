@@ -558,6 +558,10 @@ impl ImageHub {
             .collect()
     }
 
+    fn current_sequence(&self) -> u64 {
+        self.inner.current_sequence()
+    }
+
     fn __repr__(&self) -> String {
         "ImageHub(rust)".to_string()
     }
@@ -630,19 +634,30 @@ impl McapWriter {
         }
     }
 
+    #[pyo3(signature = (image_hub, window_sec, capture_images_on_clamp, cursor=None))]
     fn attach_image_hub(
         &self,
         image_hub: &ImageHub,
         window_sec: f64,
         capture_images_on_clamp: bool,
+        cursor: Option<u64>,
     ) {
-        self.inner
-            .attach_image_hub(image_hub.inner.clone(), window_sec, capture_images_on_clamp);
+        self.inner.attach_image_hub(
+            image_hub.inner.clone(),
+            window_sec,
+            capture_images_on_clamp,
+            cursor.unwrap_or(0),
+        );
     }
 
-    /// Stop writing and close the MCAP file without draining stale queued cycles.
-    fn stop(&self) {
-        self.inner.stop();
+    /// Stop writing and close the MCAP file after draining images up to stop_timestamp.
+    #[pyo3(signature = (stop_timestamp=None))]
+    fn stop(&self, stop_timestamp: Option<f64>) {
+        if let Some(stop_timestamp) = stop_timestamp {
+            self.inner.stop_at(stop_timestamp);
+        } else {
+            self.inner.stop();
+        }
     }
 
     /// Get the current sequence counter.

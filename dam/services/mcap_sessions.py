@@ -123,6 +123,49 @@ _DETAIL_TOPICS = {
 _LAYER_TOPICS = {f"/dam/L{i}" for i in range(5)}
 
 
+def _message_get(data: Any, key: str, default: Any = None) -> Any:
+    """Read legacy dict MCAP fields without assuming the decoded shape."""
+    return data.get(key, default) if isinstance(data, dict) else default
+
+
+def _guard_result_from_mapping(data: Any) -> dict[str, Any] | None:
+    if not isinstance(data, dict):
+        return None
+    layer_int = data.get("layer", 0)
+    return {
+        "guard_name": data.get("guard_name", ""),
+        "layer": layer_int,
+        "layer_name": f"L{layer_int}",
+        "decision": data.get("decision", 0),
+        "decision_name": data.get("decision_name", "PASS"),
+        "reason": data.get("reason", ""),
+        "latency_ms": data.get("latency_ms"),
+        "is_violation": bool(data.get("is_violation", False)),
+        "is_clamp": bool(data.get("is_clamp", False)),
+        "fault_source": data.get("fault_source"),
+    }
+
+
+def _guard_result_from_sequence(data: Any) -> dict[str, Any] | None:
+    if not isinstance(data, list | tuple) or len(data) < _IDX_GR_LATENCY_MS + 1:
+        return None
+    layer_int = data[_IDX_GR_LAYER] if len(data) > _IDX_GR_LAYER else 0
+    return {
+        "guard_name": data[_IDX_GR_GUARD_NAME] if len(data) > _IDX_GR_GUARD_NAME else "",
+        "layer": layer_int,
+        "layer_name": f"L{layer_int}",
+        "decision": data[_IDX_GR_LAYER_INT] if len(data) > _IDX_GR_LAYER_INT else 0,
+        "decision_name": data[_IDX_GR_DECISION] if len(data) > _IDX_GR_DECISION else "PASS",
+        "reason": data[_IDX_GR_REASON] if len(data) > _IDX_GR_REASON else "",
+        "latency_ms": data[_IDX_GR_LATENCY_MS] if len(data) > _IDX_GR_LATENCY_MS else None,
+        "is_violation": bool(data[_IDX_GR_IS_VIOLATION])
+        if len(data) > _IDX_GR_IS_VIOLATION
+        else False,
+        "is_clamp": bool(data[_IDX_GR_IS_CLAMP]) if len(data) > _IDX_GR_IS_CLAMP else False,
+        "fault_source": data[_IDX_GR_FAULT_SOURCE] if len(data) > _IDX_GR_FAULT_SOURCE else None,
+    }
+
+
 class McapSessionService:
     """Read-only view over the MCAP loopback output directory with SQLite caching."""
 
@@ -778,56 +821,28 @@ class McapSessionService:
                             if arr_len > _IDX_WAS_CLAMPED
                             else False,
                         }
-                        if isinstance(guard_results, list):
+                        if isinstance(guard_results, list | tuple):
                             for gr in guard_results:
-                                if isinstance(gr, list) and len(gr) >= _IDX_GR_LATENCY_MS + 1:
-                                    detail["guard_results"].append(
-                                        {
-                                            "guard_name": gr[_IDX_GR_GUARD_NAME]
-                                            if len(gr) > _IDX_GR_GUARD_NAME
-                                            else "",
-                                            "layer": gr[_IDX_GR_LAYER]
-                                            if len(gr) > _IDX_GR_LAYER
-                                            else 0,
-                                            "layer_name": f"L{gr[_IDX_GR_LAYER] if len(gr) > _IDX_GR_LAYER else 0}",
-                                            "decision": gr[_IDX_GR_LAYER_INT]
-                                            if len(gr) > _IDX_GR_LAYER_INT
-                                            else 0,
-                                            "decision_name": gr[_IDX_GR_DECISION]
-                                            if len(gr) > _IDX_GR_DECISION
-                                            else "PASS",
-                                            "reason": gr[_IDX_GR_REASON]
-                                            if len(gr) > _IDX_GR_REASON
-                                            else "",
-                                            "latency_ms": gr[_IDX_GR_LATENCY_MS]
-                                            if len(gr) > _IDX_GR_LATENCY_MS
-                                            else None,
-                                            "is_violation": gr[_IDX_GR_IS_VIOLATION]
-                                            if len(gr) > _IDX_GR_IS_VIOLATION
-                                            else False,
-                                            "is_clamp": gr[_IDX_GR_IS_CLAMP]
-                                            if len(gr) > _IDX_GR_IS_CLAMP
-                                            else False,
-                                            "fault_source": gr[_IDX_GR_FAULT_SOURCE]
-                                            if len(gr) > _IDX_GR_FAULT_SOURCE
-                                            else None,
-                                        }
-                                    )
+                                parsed = _guard_result_from_sequence(
+                                    gr
+                                ) or _guard_result_from_mapping(gr)
+                                if parsed is not None:
+                                    detail["guard_results"].append(parsed)
                         if isinstance(latency_layers, dict):
                             detail["latency"] = dict(latency_layers)
                     elif topic == "/dam/obs":
                         detail["observation"] = {
-                            "joint_positions": d.get("joint_positions", []),
-                            "obs_timestamp": d.get("timestamp"),
+                            "joint_positions": _message_get(d, "joint_positions", []),
+                            "obs_timestamp": _message_get(d, "timestamp"),
                         }
                     elif topic == "/dam/action":
                         detail["action"] = {
-                            "target_positions": d.get("target_positions", []),
-                            "was_clamped": bool(d.get("was_clamped")),
+                            "target_positions": _message_get(d, "target_positions", []),
+                            "was_clamped": bool(_message_get(d, "was_clamped")),
                         }
                     elif topic == "/dam/latency":
                         detail["latency"] = {
-                            k: d.get(k, 0.0)
+                            k: _message_get(d, k, 0.0)
                             for k in (
                                 "source_ms",
                                 "policy_ms",
@@ -842,21 +857,9 @@ class McapSessionService:
                             )
                         }
                     elif topic in _LAYER_TOPICS:
-                        _layer_int = d.get("layer", 0)
-                        detail["guard_results"].append(
-                            {
-                                "guard_name": d.get("guard_name", ""),
-                                "layer": _layer_int,
-                                "layer_name": f"L{_layer_int}",
-                                "decision": d.get("decision", 0),
-                                "decision_name": d.get("decision_name", "PASS"),
-                                "reason": d.get("reason", ""),
-                                "latency_ms": d.get("latency_ms"),
-                                "is_violation": bool(d.get("is_violation", False)),
-                                "is_clamp": bool(d.get("is_clamp", False)),
-                                "fault_source": d.get("fault_source"),
-                            }
-                        )
+                        parsed = _guard_result_from_mapping(d) or _guard_result_from_sequence(d)
+                        if parsed is not None:
+                            detail["guard_results"].append(parsed)
         except (EndOfFile, McapError):
             logger.debug(
                 "McapSessionService: partial read for cycle %d (session writing)", cycle_id

@@ -45,6 +45,7 @@ class OpenCVSourceAdapter(SensorAdapter):
         height: int | None = None,
         jpeg_fps: float = 30.0,
         frame_hub: CameraFrameHub | None = None,
+        max_consecutive_failures: int = 5,
     ) -> None:
         self._index = index
         self._name = name
@@ -52,6 +53,7 @@ class OpenCVSourceAdapter(SensorAdapter):
         self._height = height
         self._jpeg_interval_s = 1.0 / jpeg_fps if jpeg_fps > 0 else 0.0
         self._frame_hub = frame_hub
+        self._max_consecutive_failures = max(1, int(max_consecutive_failures))
         self._cap: cv2.VideoCapture | None = None
         self._connected = False
         self._lock = threading.Lock()
@@ -61,6 +63,8 @@ class OpenCVSourceAdapter(SensorAdapter):
         self._latest_ts: float | None = None
         self._latest_jpeg_t = 0.0
         self._last_error_log_t = 0.0
+        self._consecutive_failures = 0
+        self._fatal_error: str | None = None
 
     def set_frame_hub(self, frame_hub: CameraFrameHub) -> None:
         self._frame_hub = frame_hub
@@ -118,6 +122,11 @@ class OpenCVSourceAdapter(SensorAdapter):
 
     def read(self) -> Observation:
         """Return the latest captured frame without blocking the control loop."""
+        with self._lock:
+            fatal_error = self._fatal_error
+        if fatal_error is not None:
+            raise RuntimeError(fatal_error)
+
         if not self._connected:
             self.connect()
 
@@ -147,7 +156,14 @@ class OpenCVSourceAdapter(SensorAdapter):
         )
 
     def is_healthy(self) -> bool:
-        return self._connected and self._cap is not None and self._cap.isOpened()
+        with self._lock:
+            fatal_error = self._fatal_error
+        return (
+            fatal_error is None
+            and self._connected
+            and self._cap is not None
+            and self._cap.isOpened()
+        )
 
     def disconnect(self) -> None:
         """Release the camera."""
@@ -165,6 +181,8 @@ class OpenCVSourceAdapter(SensorAdapter):
         with self._lock:
             self._latest_frame_rgb = None
             self._latest_ts = None
+            self._fatal_error = None
+            self._consecutive_failures = 0
         logger.info("OpenCVSourceAdapter: Camera '%s' disconnected", self._name)
 
     def _capture_loop(self) -> None:
@@ -177,15 +195,34 @@ class OpenCVSourceAdapter(SensorAdapter):
                 if self._stop_event.is_set() or not self._connected:
                     break
                 now = time.monotonic()
+                with self._lock:
+                    self._consecutive_failures += 1
+                    consecutive_failures = self._consecutive_failures
                 if now - self._last_error_log_t > 1.0:
                     self._last_error_log_t = now
                     logger.error("OpenCVSourceAdapter: Frame capture failed on '%s'", self._name)
+                if consecutive_failures >= self._max_consecutive_failures:
+                    reason = (
+                        f"OpenCVSourceAdapter: Camera '{self._name}' disconnected after "
+                        f"{consecutive_failures} consecutive capture failures"
+                    )
+                    with self._lock:
+                        self._fatal_error = reason
+                        self._latest_frame_rgb = None
+                        self._latest_ts = None
+                    self._connected = False
+                    self._stop_event.set()
+                    cap.release()
+                    self._cap = None
+                    logger.error(reason)
+                    break
                 time.sleep(0.01)
                 continue
 
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             ts = time.monotonic()
             with self._lock:
+                self._consecutive_failures = 0
                 self._latest_frame_rgb = frame_rgb
                 self._latest_ts = ts
 

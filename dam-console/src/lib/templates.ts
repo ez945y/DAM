@@ -139,7 +139,7 @@ const DEFAULT_BOUNDARIES: BoundaryDef[] = [
   },
   {
     name: 'hardware_watchdog', layer: 'L3', type: 'single',
-    nodes: [{ node_id: 'default', params: { max_staleness_ms: 1000 }, callback: 'hardware_limit', fallback: 'emergency_stop', timeout_sec: 0.1 }]
+    nodes: [{ node_id: 'default', params: { max_staleness_ms: 1000 }, callback: 'hardware_watchdog', fallback: 'emergency_stop', timeout_sec: 0.1 }]
   },
 ]
 

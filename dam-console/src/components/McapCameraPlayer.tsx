@@ -195,9 +195,30 @@ export function McapCameraPlayer({
   const [gridMode, setGridMode] = useState(false)
   const [hasInitialized, setHasInitialized] = useState(false)
   const playIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const skipInitialSessionSyncRef = useRef(false)
   // Stable ref to framesMap so loadCam doesn't need it as a closure dep
   const framesMapRef = useRef(framesMap)
   useEffect(() => { framesMapRef.current = framesMap }, [framesMap])
+  const cameraKey = cameras.join('\0')
+
+  useEffect(() => {
+    if (playIntervalRef.current) {
+      clearInterval(playIntervalRef.current)
+      playIntervalRef.current = null
+    }
+    const sessionCameras = cameraKey ? cameraKey.split('\0') : []
+    const initialCam = sessionCameras[0] ?? null
+    const initialGridMode = sessionCameras.length > 1
+    framesMapRef.current = {}
+    setFramesMap({})
+    setLoadingCams(new Set())
+    setFrameIdx(0)
+    setPlaying(false)
+    setSelectedCam(initialCam)
+    setGridMode(initialGridMode)
+    setHasInitialized(sessionCameras.length > 0)
+    skipInitialSessionSyncRef.current = true
+  }, [filename, cameraKey])
 
   // When live mode is enabled, stop playback
   useEffect(() => {
@@ -251,6 +272,11 @@ export function McapCameraPlayer({
     if (liveMode || currentTimestampNs == null) return
     const refFrames = selectedCam ? framesMap[selectedCam] : Object.values(framesMap)[0]
     if (!refFrames || refFrames.length === 0) return
+    if (skipInitialSessionSyncRef.current) {
+      skipInitialSessionSyncRef.current = false
+      setFrameIdx(0)
+      return
+    }
     setFrameIdx(nearestFrameIdx(refFrames, currentTimestampNs))
   }, [currentTimestampNs, framesMap, selectedCam, liveMode])
 

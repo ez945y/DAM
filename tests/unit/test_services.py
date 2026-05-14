@@ -581,6 +581,60 @@ class TestRuntimeControlService:
         assert runner.status == RunnerStatus.IDLE
         assert runner.error == "unknown task"
 
+    def test_runner_start_task_does_not_start_recording(self):
+        rt = self._mock_runtime()
+        rt.start_recording = MagicMock()
+        runner = self._mock_runner(rt)
+
+        runner.start_task("default")
+
+        rt.start_task.assert_called_once_with("default")
+        rt.start_recording.assert_not_called()
+        assert runner.status == RunnerStatus.IDLE
+
+    def test_runner_start_task_then_start_records_one_segment(self):
+        rt = self._mock_runtime()
+        rt.start_recording = MagicMock()
+        rt.stop_recording = MagicMock()
+        rt.stop_task.side_effect = rt.stop_recording
+        runner = self._mock_runner(rt)
+
+        runner.start_task("default")
+
+        assert runner.start("default", n_cycles=1, cycle_budget_ms=1.0) is True
+        time.sleep(0.05)
+
+        rt.start_recording.assert_called_once_with()
+        rt.stop_recording.assert_called_once_with()
+
+    def test_runner_start_starts_recording(self):
+        rt = self._mock_runtime()
+        rt.start_recording = MagicMock()
+        rt.stop_recording = MagicMock()
+        runner = self._mock_runner(rt)
+
+        assert runner.start("default", n_cycles=1, cycle_budget_ms=1.0) is True
+
+        rt.start_recording.assert_called_once_with()
+        runner.stop()
+
+    def test_runner_stop_closes_recording_before_next_start(self):
+        rt = self._mock_runtime()
+        rt.start_recording = MagicMock()
+        rt.stop_recording = MagicMock()
+        rt.stop_task.side_effect = rt.stop_recording
+        runner = self._mock_runner(rt)
+
+        assert runner.start("default", n_cycles=-1, cycle_budget_ms=1.0) is True
+        assert runner.stop() is True
+        assert runner.status == RunnerStatus.STOPPED
+
+        assert runner.start("default", n_cycles=1, cycle_budget_ms=1.0) is True
+        time.sleep(0.05)
+
+        assert rt.start_recording.call_count == 2
+        assert rt.stop_recording.call_count == 2
+
     def test_recheck_preserves_ros2_node(self, monkeypatch, tmp_path):
         import importlib
 

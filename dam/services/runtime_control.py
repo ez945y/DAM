@@ -225,7 +225,11 @@ class RuntimeControlService:
                 return False
             self._state = RuntimeState.STOPPING
         self._notify_state()
-        return runner.stop()
+        ok = runner.stop()
+        with self._lock:
+            self._state = self._runtime_state_for_runner(runner.status)
+        self._notify_state()
+        return ok
 
     def force_save_mcap(self) -> None:
         """Force the loopback writer to rotate the MCAP file immediately (zero-downtime save)."""

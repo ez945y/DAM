@@ -99,6 +99,8 @@ class ROS2Runner(RuntimeLoopRunner):
             List of CycleResult from each cycle.
         """
         self.start_task(task)
+        if hasattr(self._runtime, "start_recording"):
+            self._runtime.start_recording()
         results: list[CycleResult] = []
         cycle = 0
 
