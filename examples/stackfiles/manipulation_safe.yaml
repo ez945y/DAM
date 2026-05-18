@@ -14,7 +14,7 @@ version: "1"
 
 hardware:
   preset: simulation
-  # urdf_path: ./assets/so101.urdf   # uncomment to enable FK/Jacobian callbacks
+  # urdf_path: ./assets/so101_new_calib.urdf   # uncomment to enable FK/Jacobian callbacks
   sources:
     main:
       type: dataset

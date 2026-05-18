@@ -10,7 +10,9 @@ Subcommands
 - ``dam run <stack>`` — build the runtime from a Stackfile and run a
   headless control loop for ``--cycles`` cycles.
 - ``dam replay <mcap>`` — summarise the guard decisions recorded in a
-  loopback ``.mcap`` session.
+  loopback ``.mcap`` session. ``--through-guards --stack <s>`` re-runs the
+  recorded obs/action through that Stackfile and diffs recorded vs current
+  decisions (regression / threshold tuning).
 - ``dam doctor`` — check environment / dependency readiness.
 - ``dam inspect <stack>`` — print the resolved Stackfile graph (guards,
   boundaries, tasks, fallbacks) without touching hardware.
@@ -25,7 +27,8 @@ import argparse
 import contextlib
 import json
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from typing import Any
 
 from dam import __version__
 
@@ -113,13 +116,13 @@ def _cmd_run(args: argparse.Namespace) -> int:
 # ── replay ────────────────────────────────────────────────────────────────────
 
 
-def _cmd_replay(args: argparse.Namespace) -> int:
+def _open_mcap(path: str) -> Callable[..., Any] | None:
+    """Return an mcap reader factory, or None (with a printed error)."""
     from pathlib import Path
 
-    path = Path(args.mcap)
-    if not path.is_file():
+    if not Path(path).is_file():
         print(f"dam replay: no such file: {path}", file=sys.stderr)
-        return 1
+        return None
     try:
         from mcap.reader import make_reader
     except ImportError:
@@ -128,8 +131,227 @@ def _cmd_replay(args: argparse.Namespace) -> int:
             "(pip install 'dam[torch]' or pip install mcap)",
             file=sys.stderr,
         )
+        return None
+    return make_reader
+
+
+def _norm_decision(name: str) -> str:
+    """Collapse FAULT into the REJECT bucket (loopback can't distinguish)."""
+    return "REJECT" if name in ("FAULT", "REJECT") else name
+
+
+def _array_or_none(value: Any) -> Any:
+    import numpy as np
+
+    return np.asarray(value, dtype=float) if isinstance(value, list) else None
+
+
+def _fmt_names(names: Sequence[str]) -> str:
+    return ", ".join(names) if names else "none"
+
+
+def _cmd_replay(args: argparse.Namespace) -> int:
+    if args.through_guards:
+        return _replay_through_guards(args)
+    return _replay_summary(args)
+
+
+def _replay_through_guards(args: argparse.Namespace) -> int:
+    import numpy as np
+
+    make_reader = _open_mcap(args.mcap)
+    if make_reader is None:
+        return 1
+    if not args.stack:
+        print("dam replay --through-guards: --stack STACK is required", file=sys.stderr)
         return 1
 
+    obs_by_cycle: dict[int, dict[str, Any]] = {}
+    action_by_cycle: dict[int, dict[str, Any]] = {}
+    recorded: dict[int, str] = {}
+    task_name: str | None = None
+
+    with open(args.mcap, "rb") as fh:
+        for _schema, channel, message in make_reader(fh).iter_messages():
+            try:
+                rec = json.loads(message.data)
+                cid = int(rec["cycle_id"])
+            except Exception:  # noqa: BLE001 — skip unparseable frames
+                continue
+            if channel.topic == "/dam/obs":
+                obs_by_cycle[cid] = rec
+            elif channel.topic == "/dam/action":
+                action_by_cycle[cid] = rec
+            elif channel.topic == "/dam/cycle":
+                if rec.get("has_violation"):
+                    recorded[cid] = "REJECT"
+                elif rec.get("has_clamp"):
+                    recorded[cid] = "CLAMP"
+                else:
+                    recorded[cid] = "PASS"
+                if task_name is None:
+                    task_name = rec.get("active_task")
+
+    if not obs_by_cycle:
+        print("dam replay: no /dam/obs frames in session", file=sys.stderr)
+        return 1
+
+    from dam.api import _register_builtins
+    from dam.guard.aggregator import aggregate_decisions
+    from dam.runtime.guard_runtime import GuardRuntime
+    from dam.types.action import ActionProposal
+    from dam.types.observation import Observation
+    from dam.types.result import GuardDecision
+
+    try:
+        _register_builtins()
+        runtime = GuardRuntime.from_stackfile(args.stack)
+    except Exception as exc:  # noqa: BLE001 — surface build/registry errors cleanly
+        print(f"dam replay: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+
+    tasks = list(getattr(runtime, "_task_config", {}))
+    chosen = task_name if task_name in tasks else (tasks[0] if tasks else None)
+    if chosen is None:
+        print("dam replay: stackfile defines no tasks", file=sys.stderr)
+        return 1
+    runtime.start_task(chosen)
+
+    reserved = {"cycle_id", "timestamp", "joint_positions"}
+    compared = matches = 0
+    diverged: list[tuple[int, str, str]] = []
+    saw_joint_velocities = False
+    saw_end_effector_pose = False
+    saw_force_torque = False
+
+    for cid in sorted(obs_by_cycle):
+        if cid not in recorded:
+            continue
+        o = obs_by_cycle[cid]
+        jp = o.get("joint_positions")
+        if not jp:
+            continue
+        joint_velocities = _array_or_none(o.get("joint_velocities"))
+        end_effector_pose = _array_or_none(o.get("end_effector_pose"))
+        force_torque = _array_or_none(o.get("force_torque"))
+        saw_joint_velocities = saw_joint_velocities or joint_velocities is not None
+        saw_end_effector_pose = saw_end_effector_pose or end_effector_pose is not None
+        saw_force_torque = saw_force_torque or force_torque is not None
+
+        typed_channels = {
+            "joint_velocities",
+            "end_effector_pose",
+            "force_torque",
+            "obs_channels",
+        }
+        nested_channels = o.get("obs_channels")
+        channels = {
+            k: np.asarray(v, dtype=float)
+            for k, v in (nested_channels.items() if isinstance(nested_channels, dict) else ())
+            if isinstance(v, list)
+        }
+        channels.update(
+            {
+                k: np.asarray(v, dtype=float)
+                for k, v in o.items()
+                if k not in reserved and k not in typed_channels and isinstance(v, list)
+            }
+        )
+        channels = {
+            k: v
+            for k, v in channels.items()
+            if k not in {"joint_positions", "target_positions", "target_velocities"}
+        }
+        jp_arr = np.asarray(jp, dtype=float)
+        # Loopback /dam/obs records positions + channels only. Missing
+        # velocities are reconstructed as zeros so velocity-dependent guards
+        # do not crash; they degrade (see the printed caveat).
+        if joint_velocities is None:
+            joint_velocities = np.zeros_like(jp_arr)
+        obs = Observation(
+            timestamp=float(o.get("timestamp", 0.0)),
+            joint_positions=jp_arr,
+            joint_velocities=joint_velocities,
+            end_effector_pose=end_effector_pose,
+            force_torque=force_torque,
+            channels=channels or None,
+        )
+        a = action_by_cycle.get(cid, {})
+        tv = a.get("target_velocities")
+        tp = np.asarray(a.get("target_positions", jp), dtype=float)
+        action = ActionProposal(
+            target_joint_positions=tp,
+            target_joint_velocities=(np.asarray(tv, dtype=float) if isinstance(tv, list) else None),
+        )
+        try:
+            _, guard_results, _ = runtime.validate(
+                obs, action, trace_id=f"replay-{cid}", now=obs.timestamp
+            )
+            decision = (
+                aggregate_decisions(guard_results).decision if guard_results else GuardDecision.PASS
+            )
+            replayed = _norm_decision(decision.name)
+        except Exception as exc:  # noqa: BLE001 — a crashing guard re-run is itself a finding
+            replayed = f"ERROR({type(exc).__name__})"
+        compared += 1
+        rec_dec = _norm_decision(recorded[cid])
+        if rec_dec == replayed:
+            matches += 1
+        else:
+            diverged.append((cid, rec_dec, replayed))
+
+    from pathlib import Path
+
+    pct = (100.0 * matches / compared) if compared else 0.0
+    print(f"replay-through-guards: {Path(args.mcap).name}  stack={args.stack}  task={chosen}")
+    print(f"cycles compared : {compared}")
+    print(f"matches         : {matches} ({pct:.1f}%)")
+    print(f"divergences     : {len(diverged)}")
+    if diverged:
+        print("  cycle  recorded -> replayed")
+        for cid, rec_dec, rep in diverged[: args.limit]:
+            print(f"  {cid:<6} {rec_dec:<8} -> {rep}")
+        if len(diverged) > args.limit:
+            print(f"  ... +{len(diverged) - args.limit} more")
+    fields = [
+        "joint_positions=recorded",
+        f"joint_velocities={'recorded' if saw_joint_velocities else 'synthetic_zero'}",
+        f"end_effector_pose={'recorded' if saw_end_effector_pose else 'missing'}",
+        f"force_torque={'recorded' if saw_force_torque else 'missing'}",
+    ]
+    print(f"reconstructed  : {', '.join(fields)}")
+
+    active = list(getattr(runtime, "_active_container_names", []))
+    degraded: dict[str, list[str]] = {}
+
+    def add_degraded(name: str, reason: str) -> None:
+        degraded.setdefault(name, []).append(reason)
+
+    if not saw_joint_velocities:
+        for name in ("joint_velocity_limit", "cartesian_velocity_limit"):
+            if name in active:
+                add_degraded(name, "joint_velocities synthetic")
+    if not saw_end_effector_pose:
+        for name in ("workspace", "cartesian_velocity_limit", "keep_out_zone", "orientation_limit"):
+            if name in active:
+                add_degraded(name, "end_effector_pose missing")
+    if not saw_force_torque and "force_limit" in active:
+        add_degraded("force_limit", "force_torque missing")
+
+    comparable = [name for name in active if name not in degraded]
+    degraded_bits = [f"{name} ({'; '.join(reasons)})" for name, reasons in degraded.items()]
+    print(f"comparable     : {_fmt_names(comparable)}")
+    print(f"degraded       : {_fmt_names(degraded_bits)}")
+    return 0
+
+
+def _replay_summary(args: argparse.Namespace) -> int:
+    make_reader = _open_mcap(args.mcap)
+    if make_reader is None:
+        return 1
+    from pathlib import Path
+
+    path = Path(args.mcap)
     decisions: dict[str, int] = {}
     violations: list[int] = []
     clamps: list[int] = []
@@ -339,9 +561,17 @@ def build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.Argument
     )
     p_run.set_defaults(func=_cmd_run)
 
-    p_rep = sub.add_parser("replay", help="summarise a loopback .mcap session")
+    p_rep = sub.add_parser("replay", help="summarise / re-evaluate a loopback .mcap session")
     p_rep.add_argument("mcap", metavar="MCAP", help="loopback .mcap path")
-    p_rep.add_argument("--limit", type=int, default=20, help="max cycle ids to list per category")
+    p_rep.add_argument("--limit", type=int, default=20, help="max cycle ids to list")
+    p_rep.add_argument(
+        "--through-guards",
+        action="store_true",
+        help="re-run recorded obs/action through --stack and diff decisions",
+    )
+    p_rep.add_argument(
+        "--stack", metavar="STACK", help="Stackfile to re-evaluate against (--through-guards)"
+    )
     p_rep.set_defaults(func=_cmd_replay)
 
     p_doc = sub.add_parser("doctor", help="check environment / dependency readiness")
