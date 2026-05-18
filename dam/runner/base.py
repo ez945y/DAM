@@ -155,6 +155,14 @@ class RuntimeLoopRunner(BaseRunner):
         if hasattr(self._runtime, "_shutdown_complete"):
             self._runtime._shutdown_complete = False
 
+    def clear_fault(self) -> None:
+        """Allow RuntimeControlService to acknowledge a fault after reconnect/verify."""
+        with self._lock:
+            if self._status in (RunnerStatus.EMERGENCY, RunnerStatus.STOPPED):
+                self._status = RunnerStatus.IDLE
+            self._error = None
+            self._active_task = None
+
     def start(
         self, task: str = "default", n_cycles: int = -1, cycle_budget_ms: float | None = None
     ) -> bool:
@@ -272,7 +280,11 @@ class RuntimeLoopRunner(BaseRunner):
 
     def get_latest_images(self) -> dict[str, bytes]:
         if self._frame_hub is not None and hasattr(self._frame_hub, "latest_jpegs"):
-            return {str(name): bytes(jpeg) for name, jpeg in self._frame_hub.latest_jpegs().items()}
+            hub_jpegs = self._frame_hub.latest_jpegs()
+            if hub_jpegs:
+                return {str(name): bytes(jpeg) for name, jpeg in hub_jpegs.items()}
+        # Hub empty (e.g. simulation/dataset source) — let the runtime serve
+        # the latest observation frames instead.
         if hasattr(self._runtime, "get_latest_images"):
             return self._runtime.get_latest_images()
         return {}

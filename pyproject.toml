@@ -7,7 +7,7 @@ packages = ["dam"]
 
 [project]
 name = "dam"
-version = "0.4.0"
+version = "0.5.0"
 requires-python = ">=3.11"
 dependencies = [
     "numpy>=1.24",
@@ -32,6 +32,7 @@ dev = [
     "hypothesis>=6.100",
     "maturin>=1.0,<2.0",
     "pre-commit>=3.6",
+    "matplotlib>=3.7",  # plot generation for experiment / benchmark scripts
 ]
 
 # ── Optional adapters (install only what you need) ─────────────────────────

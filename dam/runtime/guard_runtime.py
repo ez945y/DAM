@@ -11,6 +11,7 @@ import numpy as np
 
 from dam.injection.static import precompute_injection
 from dam.runtime.execution_engine import ExecutionEngine, ValidationContext, _filter_kwargs
+from dam.runtime.failure_classify import classify_failure, select_failure_results
 from dam.types.action import ValidatedAction
 from dam.types.enforcement import EnforcementMode
 from dam.types.observation import Observation
@@ -144,6 +145,10 @@ class GuardRuntime:
 
         self._running = False
         self._live_img_no_data_warned = False  # one-shot warning for missing camera images
+        # Latest raw camera arrays from the observation (simulation / dataset
+        # sources put frames here instead of the camera frame hub). Kept as a
+        # cheap reference so live preview can JPEG-encode on demand.
+        self._last_live_arrays: dict[str, Any] | None = None
         self._shutdown_complete = False
         self._source_latency_log_t = 0.0
 
@@ -223,8 +228,12 @@ class GuardRuntime:
         self._active_task = name
         self._active_containers = []
         self._active_container_names = []
+        # Clearing node_start_times is what gives HardwareGuard its first-cycle
+        # grace after a (re)start — no guard reads cycle_id for that.
         self._node_start_times = {}
-        self._cycle_id = 0  # Reset so HardwareGuard applies first-cycle grace period
+        # _cycle_id is intentionally NOT reset here: it is a process-lifetime
+        # monotonic counter so telemetry/MCAP/console ordering never regresses
+        # across Stop→Start. (A fresh runtime process still starts from 0.)
         now = time.monotonic()
 
         # Determine all active boundaries (always_active + task boundaries)
@@ -608,6 +617,10 @@ class GuardRuntime:
 
         t_bus = time.monotonic()
         if obs.images:
+            # Retain a reference for live preview (simulation/dataset sources
+            # deliver frames here, not via the camera frame hub) before the
+            # control-loop record path strips them off the observation.
+            self._last_live_arrays = dict(obs.images)
             object.__setattr__(obs, "images", None)
         self._obs_bus.write(obs)  # scalar observation ring buffer for loopback / MCAP capture
         _obs_bus_ms = (time.monotonic() - t_bus) * 1000.0
@@ -682,19 +695,39 @@ class GuardRuntime:
         This is intentionally backed by the camera frame hub, not ObservationBus,
         so live preview never forces images through the control-loop record path.
         """
-        if self._frame_hub is None or not hasattr(self._frame_hub, "latest_jpegs"):
-            return {}
-        result = self._frame_hub.latest_jpegs()
-        if not result:
-            if not self._live_img_no_data_warned:
-                self._live_img_no_data_warned = True
-                logger.info(
-                    "get_latest_images: no cached camera images. "
-                    "Camera images require a dataset with observation.images.* keys "
-                    "or a real camera source (opencv/lerobot with cameras).",
-                )
-            return {}
-        return {str(name): bytes(jpeg) for name, jpeg in result.items()}
+        result = (
+            self._frame_hub.latest_jpegs()
+            if self._frame_hub is not None and hasattr(self._frame_hub, "latest_jpegs")
+            else {}
+        )
+        if result:
+            return {str(name): bytes(jpeg) for name, jpeg in result.items()}
+
+        # Hardware camera hub is empty — fall back to the latest observation
+        # frames (simulation / dataset path). Encoding only happens here, on
+        # the throttled, subscriber-gated live-preview call, not per cycle.
+        if self._last_live_arrays:
+            from dam.logging.loopback_writer import _compress_image
+
+            encoded: dict[str, bytes] = {}
+            for name, arr in self._last_live_arrays.items():
+                try:
+                    jpeg, _w, _h, _fmt = _compress_image(arr)
+                    if jpeg:
+                        encoded[str(name)] = bytes(jpeg)
+                except Exception:  # noqa: BLE001 — a bad frame must not break preview
+                    continue
+            if encoded:
+                return encoded
+
+        if not self._live_img_no_data_warned:
+            self._live_img_no_data_warned = True
+            logger.info(
+                "get_latest_images: no cached camera images. "
+                "Camera images require a dataset with observation.images.* keys "
+                "or a real camera source (opencv/lerobot with cameras).",
+            )
+        return {}
 
     # ── Loopback helper ────────────────────────────────────────────────────
 
@@ -817,33 +850,13 @@ class GuardRuntime:
         clamped_layer_mask: int,
         obs_channels: dict[str, list[float]],
     ) -> dict[str, Any]:
-        failure_results = [
-            r
-            for r in guard_results
-            if r.decision in (GuardDecision.REJECT, GuardDecision.FAULT, GuardDecision.CLAMP)
-        ]
+        failure_results = select_failure_results(guard_results)
         guard_names = [r.guard_name for r in failure_results]
         layers = [f"L{int(r.layer)}" for r in failure_results]
         decisions = [r.decision.name for r in failure_results]
         reasons = [r.reason for r in failure_results]
 
-        failure_type: str | None = None
-        if failure_results:
-            has_hardware = any(
-                int(r.layer) == 3
-                or r.fault_source == "hardware"
-                or "hardware" in r.guard_name.lower()
-                for r in failure_results
-            )
-            all_ood = all(
-                int(r.layer) == 0 or "ood" in r.guard_name.lower() for r in failure_results
-            )
-            if has_hardware:
-                failure_type = "hardware_triggered"
-            elif all_ood:
-                failure_type = "ood_only"
-            else:
-                failure_type = "guard_triggered"
+        failure_type: str | None = classify_failure(failure_results)
 
         failure_tuple = None
         if failure_type is not None:
