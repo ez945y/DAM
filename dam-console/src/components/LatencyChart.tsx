@@ -139,27 +139,26 @@ function RollingHistoryChart({
   }
 
   return (
-    <div className="space-y-2">
-      <div className="grid grid-cols-3 gap-2">
-        {[
-          { label: 'Last',    value: last.toFixed(1), accent: false },
-          { label: 'Average', value: avg.toFixed(1),  accent: true  },
-          { label: 'Peak',    value: max.toFixed(1),  accent: false },
-        ].map(s => (
-          <div key={s.label} className="bg-dam-surface-2 rounded-xl border border-dam-border px-3 py-2 text-center">
-            <p className="section-label mb-0.5">{s.label}</p>
-            <p className={`metric-value text-sm ${s.accent ? 'text-dam-blue' : 'text-dam-text'}`}>
-              {s.value}<span className="text-dam-muted text-[10px] ml-0.5">ms</span>
-            </p>
-          </div>
-        ))}
-      </div>
-
-      <div style={{ height: 72 }} className={onCycleClick ? 'cursor-pointer' : ''}>
+    <div className="space-y-1.5">
+      <div style={{ height: 82 }} className={`relative ${onCycleClick ? 'cursor-pointer' : ''}`}>
+        <div className="pointer-events-none absolute left-1 top-1 z-10 flex items-center gap-1 rounded border border-dam-border/50 bg-dam-surface-2/90 px-1.5 py-0.5 shadow-sm">
+          {[
+            { label: 'Last', value: last.toFixed(1), accent: false },
+            { label: 'Avg',  value: avg.toFixed(1),  accent: true  },
+            { label: 'Peak', value: max.toFixed(1),  accent: false },
+          ].map((s, idx) => (
+            <span key={s.label} className="flex items-baseline gap-0.5">
+              {idx > 0 && <span className="mx-0.5 h-2.5 w-px bg-dam-border/70" />}
+              <span className="text-[8px] font-bold uppercase tracking-wider text-dam-muted/70">{s.label}</span>
+              <span className={`font-mono text-[10px] font-bold ${s.accent ? 'text-dam-blue' : 'text-dam-text'}`}>{s.value}</span>
+            </span>
+          ))}
+          <span className="text-[8px] text-dam-muted/70">ms</span>
+        </div>
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart
             data={chartData}
-            margin={{ top: 4, right: 4, left: -24, bottom: 0 }}
+            margin={{ top: 12, right: 4, left: -24, bottom: 0 }}
             onClick={handleClick}
           >
             <defs>
@@ -224,7 +223,6 @@ export function LatencyChart({ data, perf, cycleIds, onCycleClick }: LatencyChar
       }
 
       <div className="border-t border-dam-border/30 pt-3">
-        <p className="section-label mb-2">History (last {Math.min(data.length, 60)} cycles)</p>
         {data.length > 0 ? (
           <RollingHistoryChart data={data} cycleIds={cycleIds} onCycleClick={onCycleClick} />
         ) : (

@@ -35,33 +35,34 @@ export function ControlBar({ state, backendState, cycleCount, error, loading, co
   const canStart = systemReady && (state === 'idle' || state === 'stopped')
   const hwBlocked = !!startupError || !systemReady
 
-  const btnBase = 'flex items-center gap-1.5 px-3 py-1.5 rounded text-[11px] font-bold border transition-all disabled:opacity-30 disabled:cursor-not-allowed'
+  const btnBase = 'inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[11px] font-bold uppercase tracking-wide border transition-colors disabled:opacity-35 disabled:cursor-not-allowed'
 
   return (
-    <div className="panel p-0 bg-dam-surface-2/50 backdrop-blur-md border-dam-border/40">
-      <div className="flex items-center justify-between gap-4 px-4 h-12">
+    <div className="rounded-lg border border-dam-border/50 bg-dam-surface-2/70 shadow-sm">
+      <div className="flex h-12 items-center justify-between gap-3 px-3">
 
         {/* Action buttons (Center) */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0">
           {!isActive && !isStarting && !isStopping ? (
             <button
               onClick={onStart}
               disabled={loading || hwBlocked || !canStart}
-              className={`${btnBase} bg-dam-green/10 text-dam-green border-dam-green/40 hover:bg-dam-green/20 hover:border-dam-green active:scale-95`}
+              title="Start the configured runtime"
+              className={`${btnBase} bg-dam-surface-1 text-dam-green border-dam-border/70 hover:bg-dam-green/10 hover:border-dam-green/40`}
             >
               <Power size={12} /> {backendState === 'faulted' ? 'FAULTED' : 'START'}
             </button>
           ) : isStarting ? (
             <button
               disabled
-              className={`${btnBase} bg-dam-blue/10 text-dam-blue border-dam-blue/40 opacity-100`}
+              className={`${btnBase} bg-dam-blue/10 text-dam-blue border-dam-blue/30 opacity-100`}
             >
               <Circle size={12} className="animate-spin border-2 border-t-transparent rounded-full" /> STARTING
             </button>
           ) : isStopping ? (
             <button
               disabled
-              className={`${btnBase} bg-dam-orange/10 text-dam-orange border-dam-orange/40 opacity-100`}
+              className={`${btnBase} bg-dam-orange/10 text-dam-orange border-dam-orange/30 opacity-100`}
             >
                <Circle size={12} className="animate-spin border-2 border-t-transparent rounded-full" /> STOPPING
             </button>
@@ -69,37 +70,40 @@ export function ControlBar({ state, backendState, cycleCount, error, loading, co
             <button
               onClick={onStop}
               disabled={loading}
-              className={`${btnBase} bg-dam-orange/10 text-dam-orange border-dam-orange/40 hover:bg-dam-orange/20 hover:border-dam-orange active:scale-95`}
+              title="Gracefully stop after the current cycle completes"
+              className={`${btnBase} bg-dam-surface-1 text-dam-orange border-dam-border/70 hover:bg-dam-orange/10 hover:border-dam-orange/40`}
             >
               <StopCircle size={12} /> STOP
             </button>
           )}
 
-          {/* E-STOP */}
-          <button
-            onClick={onEStop}
-            className="flex items-center gap-2 px-4 py-1.5 rounded text-[11px] font-black border-2 transition-all uppercase tracking-wider
-              bg-dam-red/10 text-dam-red border-dam-red/40
-              hover:bg-dam-red/20 hover:border-dam-red hover:shadow-[0_0_15px_rgba(239,68,68,0.2)]
-              active:scale-95 group"
-          >
-            <Zap size={13} strokeWidth={3} className="group-hover:animate-pulse" /> E-STOP
-          </button>
+          {/* E-STOP: only shown while runtime is active; unlike STOP, this disconnects the runner. */}
+          {(isActive || isStarting || isStopping) && (
+            <button
+              onClick={onEStop}
+              title="Emergency stop: immediately shuts down and disconnects hardware"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border px-3.5 text-[11px] font-black uppercase tracking-wide transition-colors
+                bg-red-500/5 text-red-300 border-red-500/30
+                hover:bg-red-500/12 hover:border-red-400/50"
+            >
+              <Zap size={13} strokeWidth={3} /> E-STOP
+            </button>
+          )}
         </div>
 
         {/* Cycle counter*/}
         <div className="flex items-center gap-3 shrink-0">
           {connected && (
-            <div className="flex flex-col items-end -space-y-0.5 animate-in fade-in slide-in-from-right-2">
-               <div className="flex items-baseline gap-1">
-                 <span className="text-[12px] text-dam-text/90 font-mono tracking-tight font-black">
+            <div className="flex h-8 items-center rounded-md border border-dam-border/60 bg-dam-surface-1 px-2.5">
+               <div className="flex items-baseline gap-1.5">
+                 <span className="text-[12px] text-dam-text font-mono tracking-tight font-black">
                    {cycleCount > 999999
                      ? (cycleCount / 1000000).toFixed(2) + 'M'
                      : cycleCount > 999
                        ? (cycleCount / 1000).toFixed(1) + 'K'
                        : cycleCount.toLocaleString()}
                  </span>
-                 <span className="text-white/20 text-[8px] uppercase font-black tracking-widest">checks</span>
+                 <span className="text-dam-muted/60 text-[8px] uppercase font-black tracking-widest">checks</span>
                </div>
             </div>
           )}

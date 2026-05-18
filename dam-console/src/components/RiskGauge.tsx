@@ -6,31 +6,27 @@ import type { RiskLevel } from '@/lib/types'
 interface LevelConfig {
   readonly stroke: string
   readonly text: string
-  readonly bg: string
-  readonly border: string
-  readonly glow: string
   readonly pct: number            // 0.0 – 1.0 arc fill
   readonly Icon: React.ComponentType<LucideProps>
-  readonly glowClass: string
 }
 
 const CONFIG: Record<RiskLevel, LevelConfig> = {
-  NORMAL:    { stroke: '#22C55E', text: 'text-dam-green',  bg: 'bg-[#071a0e]', border: 'border-green-800/60',  glow: '#22C55E', pct: 0.08, Icon: ShieldCheck, glowClass: 'animate-glow-green'  },
-  ELEVATED:  { stroke: '#3B82F6', text: 'text-dam-blue',   bg: 'bg-dam-blue-dim', border: 'border-blue-800/60',   glow: '#3B82F6', pct: 0.40, Icon: ShieldAlert, glowClass: 'animate-glow-blue' },
-  CRITICAL:  { stroke: '#F97316', text: 'text-dam-orange', bg: 'bg-[#1a0d00]', border: 'border-orange-800/60', glow: '#F97316', pct: 0.72, Icon: ShieldX,     glowClass: 'animate-glow-orange' },
-  EMERGENCY: { stroke: '#EF4444', text: 'text-dam-red',    bg: 'bg-[#1a0505]', border: 'border-red-800/60',    glow: '#EF4444', pct: 1.00, Icon: Zap,         glowClass: 'animate-glow-red'    },
+  NORMAL:    { stroke: '#22C55E', text: 'text-dam-green',  pct: 0.08, Icon: ShieldCheck },
+  ELEVATED:  { stroke: '#3B82F6', text: 'text-dam-blue',   pct: 0.40, Icon: ShieldAlert },
+  CRITICAL:  { stroke: '#F97316', text: 'text-dam-orange', pct: 0.72, Icon: ShieldX },
+  EMERGENCY: { stroke: '#EF4444', text: 'text-dam-red',    pct: 1.00, Icon: Zap },
 }
 
 const R = 52
 const CIRCUMFERENCE = 2 * Math.PI * R   // ≈ 326.7
 
 export function RiskGauge({ level }: { level: RiskLevel }) {
-  const { stroke, text, pct, Icon, glowClass } = CONFIG[level]
+  const { stroke, text, pct, Icon } = CONFIG[level]
   const filled    = CIRCUMFERENCE * pct
   const remaining = CIRCUMFERENCE - filled
 
   return (
-    <div className={`panel bg-dam-surface-2/50 border-dam-border/60 p-5 overflow-hidden relative ${glowClass}`}>
+    <div className="panel bg-dam-surface-2/50 border-dam-border/60 p-5 overflow-hidden relative">
       <p className="section-label mb-3">Risk Level</p>
       <div className="flex items-center gap-5">
         {/* SVG Arc Gauge */}

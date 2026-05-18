@@ -14,13 +14,13 @@ describe('RiskGauge', () => {
     expect(screen.getByText('Risk Level')).toBeInTheDocument()
   })
 
-  it('applies glow animation for EMERGENCY', () => {
+  it('does not animate the emergency state', () => {
     const { container } = render(<RiskGauge level="EMERGENCY" />)
-    expect(container.firstChild).toHaveClass('animate-glow-red')
+    expect(container.firstChild).not.toHaveClass('animate-glow-red')
   })
 
-  it('applies glow animation for NORMAL', () => {
+  it('does not animate the normal state', () => {
     const { container } = render(<RiskGauge level="NORMAL" />)
-    expect(container.firstChild).toHaveClass('animate-glow-green')
+    expect(container.firstChild).not.toHaveClass('animate-glow-green')
   })
 })

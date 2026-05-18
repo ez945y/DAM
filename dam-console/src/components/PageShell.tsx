@@ -8,9 +8,10 @@ interface PageShellProps {
   readonly title: string
   readonly subtitle: string
   readonly children: React.ReactNode
+  readonly headerAction?: React.ReactNode
 }
 
-export function PageShell({ title, subtitle, children }: PageShellProps) {
+export function PageShell({ title, subtitle, children, headerAction }: PageShellProps) {
   const {
     status,
     loading,
@@ -51,7 +52,7 @@ export function PageShell({ title, subtitle, children }: PageShellProps) {
         </div>
 
         {/* The shared control bar */}
-        <div className="w-full md:w-auto animate-in slide-in-from-right-4 duration-700">
+        <div className="w-full md:w-auto animate-in slide-in-from-right-4 duration-700 flex items-center justify-end gap-2">
           <ControlBar
             state={status.state}
             backendState={status.backend_state}
@@ -65,6 +66,7 @@ export function PageShell({ title, subtitle, children }: PageShellProps) {
             onEStop={emergencyStop}
             onReset={reset}
           />
+          {headerAction}
         </div>
       </div>
 

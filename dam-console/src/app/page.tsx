@@ -189,8 +189,23 @@ export default function DashboardPage() {
     <PageShell
       title="Dashboard"
       subtitle="Real-time safety monitor & runtime control"
+      headerAction={
+        <button
+          onClick={toggleLiveMode}
+          title={liveMode ? 'Turn off live camera mode' : 'Turn on live camera mode'}
+          className={`flex h-12 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-[10px] font-bold uppercase tracking-wider transition-all ${
+            liveMode
+              ? 'bg-red-500/15 border-red-500/40 text-red-400'
+              : 'bg-dam-surface-2/50 border-dam-border/40 text-dam-muted hover:border-dam-blue/30 hover:text-dam-blue'
+          }`}
+        >
+          <Radio size={11} className={liveMode ? 'animate-pulse' : ''} />
+          {liveMode ? 'Live' : 'Go Live'}
+        </button>
+      }
     >
       {/* Top bar */}
+      {(tele.connected && (startupError || ctrl.status.error)) || (!tele.connected && demo.starting) ? (
       <div className="flex items-center justify-end gap-3 mb-4 -mt-2 min-h-[28px]">
         {tele.connected && (startupError || ctrl.status.error) && (
           <HardwareWarning message={startupError || ctrl.status.error || ""} />
@@ -202,21 +217,8 @@ export default function DashboardPage() {
               </span>
           </div>
         )}
-
-        {/* Live mode toggle — same style as MCAP Viewer, lives in top-right */}
-        <button
-          onClick={toggleLiveMode}
-          title={liveMode ? 'Turn off live camera mode' : 'Turn on live camera mode'}
-          className={`flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-md border transition-all ${
-            liveMode
-              ? 'bg-red-500/15 border-red-500/40 text-red-400'
-              : 'bg-dam-surface-2 border-dam-border text-dam-muted hover:border-dam-blue/30 hover:text-dam-blue'
-          }`}
-        >
-          <Radio size={10} className={liveMode ? 'animate-pulse' : ''} />
-          {liveMode ? 'Live Camera' : 'Go Live'}
-        </button>
       </div>
+      ) : null}
 
       {/* Main grid */}
       <div className="grid grid-cols-1 xl:grid-cols-[320px_1fr] gap-5">
