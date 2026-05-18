@@ -6,6 +6,7 @@ import numpy as np
 
 from dam.boundary.builtin_callbacks import (
     _CALLBACKS,
+    base_geofence,
     cartesian_velocity_limit,
     check_force_torque_safe,
     check_gripper_clear,
@@ -334,5 +335,52 @@ class TestOrientationLimit:
         rot = np.diag([1.0, -1.0, -1.0])
         dyn = _FakeDynamics(rotation=rot)
         result = orientation_limit(obs=obs, max_tilt_deg=30.0, dynamics=dyn)
+        assert result is not True
+        assert result[0] is False
+
+
+# ── base_geofence ─────────────────────────────────────────────────────────────
+
+
+def _obs_base(xy) -> Observation:
+    return Observation(
+        timestamp=0.0,
+        joint_positions=np.zeros(6),
+        channels={"base_pose": np.asarray(xy, dtype=float)},
+    )
+
+
+class TestBaseGeofence:
+    BOX = [[-1.0, 1.0], [-1.0, 1.0]]
+
+    def test_inside_box_pass(self):
+        assert base_geofence(obs=_obs_base([0.0, 0.0]), bounds=self.BOX) is True
+
+    def test_outside_box_fail(self):
+        result = base_geofence(obs=_obs_base([2.0, 0.0]), bounds=self.BOX)
+        assert result is not True
+        assert result[0] is False
+
+    def test_inside_polygon_pass(self):
+        poly = [[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [0.0, 2.0]]
+        assert base_geofence(obs=_obs_base([1.0, 1.0]), polygon=poly) is True
+
+    def test_outside_polygon_fail(self):
+        poly = [[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [0.0, 2.0]]
+        result = base_geofence(obs=_obs_base([5.0, 5.0]), polygon=poly)
+        assert result is not True
+        assert result[0] is False
+
+    def test_no_channel_pass(self):
+        obs = Observation(timestamp=0.0, joint_positions=np.zeros(6))
+        assert base_geofence(obs=obs, bounds=self.BOX) is True
+
+    def test_custom_channel_name(self):
+        obs = Observation(
+            timestamp=0.0,
+            joint_positions=np.zeros(6),
+            channels={"odom": np.array([9.0, 9.0, 0.0])},
+        )
+        result = base_geofence(obs=obs, bounds=self.BOX, channel="odom")
         assert result is not True
         assert result[0] is False

@@ -16,6 +16,7 @@ from __future__ import annotations
 import numpy as np
 
 from dam.boundary.builtin_callbacks import (
+    base_geofence,
     cartesian_velocity_limit,
     keep_out_zone,
     orientation_limit,
@@ -75,6 +76,7 @@ class TestCollaborativeCallbacksRegistered:
             assert "cartesian_velocity_limit" in registered
             assert "keep_out_zone" in registered
             assert "orientation_limit" in registered
+            assert "base_geofence" in registered
         finally:
             rcmod._registry = orig
 
@@ -104,5 +106,16 @@ class TestDangerousScenariosRejected:
         s = float(np.sin(np.pi / 4))
         obs = _obs(ee_pose=[0, 0, 0.3, s, 0, 0, s])  # 90° about x
         result = orientation_limit(obs=obs, max_tilt_deg=20.0)
+        assert result is not True
+        assert result[0] is False
+
+    def test_base_leaves_geofence_rejected(self):
+        """Mobile base driving outside its geofence must be rejected."""
+        obs = Observation(
+            timestamp=0.0,
+            joint_positions=np.zeros(6),
+            channels={"base_pose": np.array([3.0, 0.0, 0.0])},
+        )
+        result = base_geofence(obs=obs, bounds=[[-1.0, 1.0], [-1.0, 1.0]])
         assert result is not True
         assert result[0] is False

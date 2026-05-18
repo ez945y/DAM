@@ -374,6 +374,41 @@ def orientation_limit(
     return True
 
 
+@boundary_callback(
+    name="base_geofence",
+    layer="L1",
+    description="Rejects if the mobile base leaves a geofence box or polygon.",
+)
+def base_geofence(
+    *,
+    obs: Observation,
+    bounds: list[list[float]] | None = None,
+    polygon: list[list[float]] | None = None,
+    channel: str = "base_pose",
+) -> bool | tuple[bool, str]:
+    """Return False if the mobile base (x, y) leaves the allowed region.
+
+    The base pose is read from ``obs.channels[channel]`` (first two elements
+    are interpreted as planar x, y in metres).  ``bounds`` is an axis-aligned
+    box ``[[xmin,xmax],[ymin,ymax]]``; ``polygon`` is a list of ``[x,y]``
+    vertices.  When both are given the base must satisfy both.  Passes when
+    the channel is absent (degrade gracefully on arms without a base).
+    """
+    data = _read_channel(obs, channel)
+    if data is None or len(data) < 2:
+        return True
+    p = np.asarray(data, dtype=np.float64)[:2]
+    if bounds is not None:
+        b = np.asarray(bounds, dtype=np.float64)  # 2 × 2
+        if not (b[0, 0] <= p[0] <= b[0, 1] and b[1, 0] <= p[1] <= b[1, 1]):
+            return False, f"Base ({p[0]:.2f}, {p[1]:.2f}) outside geofence box"
+    if polygon is not None:
+        verts = np.asarray(polygon, dtype=np.float64)
+        if len(verts) >= 3 and not _point_in_polygon(p, verts):
+            return False, f"Base ({p[0]:.2f}, {p[1]:.2f}) outside geofence polygon"
+    return True
+
+
 # ── L2: TASK EXECUTION ────────────────────────────────────────────────────────
 
 
@@ -608,6 +643,21 @@ def _resolve_ee_rotation(
     if pose is None or len(pose) < 7:
         return None
     return _quat_to_rotmat(np.asarray(pose[3:7], dtype=np.float64))
+
+
+def _point_in_polygon(point: np.ndarray, vertices: np.ndarray) -> bool:
+    """Ray-casting point-in-polygon test for a 2D ``[x, y]`` point."""
+    x, y = float(point[0]), float(point[1])
+    inside = False
+    n = len(vertices)
+    j = n - 1
+    for i in range(n):
+        xi, yi = float(vertices[i][0]), float(vertices[i][1])
+        xj, yj = float(vertices[j][0]), float(vertices[j][1])
+        if ((yi > y) != (yj > y)) and (x < (xj - xi) * (y - yi) / (yj - yi) + xi):
+            inside = not inside
+        j = i
+    return inside
 
 
 def register_all() -> None:

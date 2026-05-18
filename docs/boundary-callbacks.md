@@ -125,6 +125,19 @@ keeps a carried payload upright.
 | `reference_axis` | `[0,0,1]` | World direction to align with (default: up) |
 | `tool_axis` | `[0,0,1]` | EE-frame axis to keep aligned (default: local +Z) |
 
+### `base_geofence`
+
+Reject if the mobile base leaves an allowed area. Reads the planar `[x, y]`
+base pose from `obs.channels[channel]`; passes when the channel is absent
+(fixed arms). When both `bounds` and `polygon` are given, the base must
+satisfy both.
+
+| Param | Default | Description |
+|---|---|---|
+| `bounds` | `None` | Axis-aligned box `[[xmin,xmax],[ymin,ymax]]` (m) |
+| `polygon` | `None` | List of `[x,y]` vertices (≥3) defining the allowed region |
+| `channel` | `"base_pose"` | Observation channel holding the base pose |
+
 ---
 
 ## L2: Task Execution
