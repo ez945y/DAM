@@ -21,7 +21,7 @@ import {
   AlertTriangle,
   ShieldAlert,
   Clock,
-  Trash2,
+  Archive,
 } from "lucide-react";
 
 // ── Session list card ─────────────────────────────────────────────────────────
@@ -30,15 +30,25 @@ function SessionCard({
   session,
   detail,
   selected,
+  checked,
   onClick,
+  onToggleSelect,
 }: {
   session: McapSessionSummary;
   detail: McapSessionDetail | null;
   selected: boolean;
+  checked: boolean;
   onClick: () => void;
+  onToggleSelect: (checked: boolean) => void;
 }) {
   const violations = detail?.stats.violation_cycles ?? 0;
   const clamps = detail?.stats.clamp_cycles ?? 0;
+  const created = new Date(session.created_at * 1000).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 
   return (
     <button
@@ -50,6 +60,35 @@ function SessionCard({
           : "bg-dam-surface-2 border-dam-border/60 hover:border-dam-blue/30 hover:bg-dam-surface-1",
       ].join(" ")}
     >
+      <div className="flex items-center gap-1.5">
+        <input
+          aria-label={`Select ${session.filename}`}
+          type="checkbox"
+          checked={checked}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => onToggleSelect(e.target.checked)}
+          className="h-4 w-4 accent-dam-blue shrink-0"
+        />
+        {detail && (
+          <span className="flex items-center gap-1 text-[10px] text-dam-muted bg-dam-surface-1 px-1.5 py-0.5 rounded border border-dam-border">
+            <Activity size={9} />
+            {detail.stats.total_cycles.toLocaleString()}
+          </span>
+        )}
+        {clamps > 0 && (
+          <span className="flex items-center gap-1 text-[10px] text-dam-blue bg-blue-500/10 px-1.5 py-0.5 rounded border border-blue-500/20">
+            <ShieldAlert size={9} />
+            {clamps}
+          </span>
+        )}
+        {violations > 0 && (
+          <span className="flex items-center gap-1 text-[10px] text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded border border-red-500/20">
+            <AlertTriangle size={9} />
+            {violations}
+          </span>
+        )}
+      </div>
+
       <div className="flex items-start gap-2">
         <Film
           size={13}
@@ -59,49 +98,23 @@ function SessionCard({
           <p className="font-mono text-[11px] font-semibold text-dam-text truncate">
             {session.filename}
           </p>
-          <p
-            className="text-[10px] text-dam-muted mt-0.5"
-            suppressHydrationWarning
-          >
-            {new Date(session.created_at * 1000).toLocaleString("en-US", {
-              month: "short",
-              day: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </p>
         </div>
-        <span className="text-[10px] font-mono text-dam-muted shrink-0">
-          {session.size_mb.toFixed(1)} MB
-        </span>
       </div>
 
-      {detail && (
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="flex items-center gap-1 text-[10px] text-dam-muted bg-dam-surface-1 px-1.5 py-0.5 rounded border border-dam-border">
-            <Activity size={9} />
-            {detail.stats.total_cycles.toLocaleString()}
+      <div className="flex items-center gap-2 text-[10px] text-dam-muted">
+        <span className="truncate" suppressHydrationWarning>
+          {created}
+        </span>
+        <span className="ml-auto font-mono shrink-0">
+          {session.size_mb.toFixed(1)} MB
+        </span>
+        {detail && detail.stats.duration_sec > 0 && (
+          <span className="flex items-center gap-1 shrink-0">
+            <Clock size={9} />
+            {detail.stats.duration_sec.toFixed(1)}s
           </span>
-          {violations > 0 && (
-            <span className="flex items-center gap-1 text-[10px] text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded border border-red-500/20">
-              <AlertTriangle size={9} />
-              {violations}
-            </span>
-          )}
-          {clamps > 0 && (
-            <span className="flex items-center gap-1 text-[10px] text-dam-blue bg-blue-500/10 px-1.5 py-0.5 rounded border border-blue-500/20">
-              <ShieldAlert size={9} />
-              {clamps}
-            </span>
-          )}
-          {detail.stats.duration_sec > 0 && (
-            <span className="flex items-center gap-1 text-[10px] text-dam-muted ml-auto">
-              <Clock size={9} />
-              {detail.stats.duration_sec.toFixed(1)}s
-            </span>
-          )}
-        </div>
-      )}
+        )}
+      </div>
     </button>
   );
 }
@@ -111,9 +124,11 @@ function SessionCard({
 function SessionHeader({
   session,
   detail,
+  onArchived,
 }: {
   session: McapSessionSummary;
   detail: McapSessionDetail;
+  onArchived: (filenames: string[]) => void;
 }) {
   const [metaOpen, setMetaOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -138,7 +153,7 @@ function SessionHeader({
     api
       .deleteMcapSession(session.filename)
       .then(() => {
-        window.location.href = "/mcap-viewer";
+        onArchived([session.filename]);
       })
       .catch((e: Error) => {
         setDeleteError(e.message);
@@ -204,7 +219,7 @@ function SessionHeader({
                 disabled={deleting}
                 className="text-[10px] font-bold text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 px-2 py-1 rounded transition-colors"
               >
-                {deleting ? "…" : "Delete"}
+                {deleting ? "…" : "Move"}
               </button>
               <button
                 onClick={handleDeleteCancel}
@@ -218,9 +233,9 @@ function SessionHeader({
             <button
               onClick={handleDeleteClick}
               className="flex items-center justify-center p-1 text-dam-muted hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/50 rounded transition-colors"
-              title="Delete Session"
+              title="Move to _trash"
             >
-              <Trash2 size={12} />
+              <Archive size={12} />
             </button>
           )}
         </div>
@@ -275,6 +290,10 @@ function McapViewerContent() {
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [cyclesLoading, setCyclesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedForArchive, setSelectedForArchive] = useState<Set<string>>(
+    new Set(),
+  );
+  const [archiving, setArchiving] = useState(false);
   const [initialLoading, setInitialLoading] = useState(
     !!searchParams.get("cycle_id") && !searchParams.get("filename"),
   );
@@ -335,6 +354,10 @@ function McapViewerContent() {
         const data = await api.listMcapSessions();
         const list = data?.sessions ?? [];
         setSessions(list);
+        setSelectedForArchive(
+          (prev) =>
+            new Set([...prev].filter((name) => list.some((s) => s.filename === name))),
+        );
 
         setSelectedFilename((prev) => {
           if (prev) return prev;
@@ -376,6 +399,57 @@ function McapViewerContent() {
     },
     [searchParams],
   );
+
+  const handleArchived = useCallback(
+    (filenames: string[]) => {
+      const removed = new Set(filenames);
+      setSessions((prev) => prev.filter((s) => !removed.has(s.filename)));
+      setDetailMap((prev) => {
+        const next = { ...prev };
+        filenames.forEach((name) => delete next[name]);
+        return next;
+      });
+      setCyclesCache((prev) => {
+        const next = { ...prev };
+        filenames.forEach((name) => delete next[name]);
+        return next;
+      });
+      setSelectedForArchive((prev) => {
+        const next = new Set(prev);
+        filenames.forEach((name) => next.delete(name));
+        return next;
+      });
+
+      if (selectedFilename && removed.has(selectedFilename)) {
+        setSelectedFilename(null);
+        setSelectedCycleId(null);
+        setCycles([]);
+        router.replace("/mcap-viewer", { scroll: false });
+      }
+      loadSessions();
+    },
+    [loadSessions, router, selectedFilename],
+  );
+
+  const archiveSelectedSessions = useCallback(async () => {
+    const filenames = [...selectedForArchive];
+    if (filenames.length === 0) return;
+    if (!confirm(`Move ${filenames.length} selected MCAP session(s) to _trash?`)) return;
+
+    setArchiving(true);
+    setError(null);
+    try {
+      const result = await api.archiveMcapSessions(filenames);
+      if (result.failed.length > 0) {
+        throw new Error(`Failed to archive: ${result.failed.join(", ")}`);
+      }
+      handleArchived(filenames);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to archive sessions");
+    } finally {
+      setArchiving(false);
+    }
+  }, [handleArchived, selectedForArchive]);
 
   useEffect(() => {
     loadSessions({ showSpinner: true });
@@ -508,9 +582,44 @@ function McapViewerContent() {
       <div className="flex gap-5 flex-1">
         {/* Left: session list */}
         <div className="w-64 shrink-0 flex flex-col gap-2">
-          <p className="text-[9px] font-bold text-dam-muted/50 uppercase tracking-[0.15em] px-1">
-            Sessions ({sessions.length})
-          </p>
+          <div className="flex items-center justify-between gap-2 px-1">
+            <p className="text-[9px] font-bold text-dam-muted/50 uppercase tracking-[0.15em]">
+              Sessions ({sessions.length})
+            </p>
+            <button
+              type="button"
+              onClick={archiveSelectedSessions}
+              disabled={selectedForArchive.size === 0 || archiving}
+              className="inline-flex items-center gap-1 rounded border border-dam-border px-1.5 py-0.5 text-[10px] text-dam-muted hover:text-dam-text hover:border-dam-blue/40 disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Move selected sessions to _trash"
+            >
+              {archiving ? (
+                <Loader2 size={10} className="animate-spin" />
+              ) : (
+                <Archive size={10} />
+              )}
+              Move
+            </button>
+          </div>
+          {sessions.length > 0 && (
+            <label className="flex items-center gap-2 px-1 text-[10px] text-dam-muted">
+              <input
+                type="checkbox"
+                checked={
+                  sessions.length > 0 && selectedForArchive.size === sessions.length
+                }
+                onChange={(e) =>
+                  setSelectedForArchive(
+                    e.target.checked
+                      ? new Set(sessions.map((s) => s.filename))
+                      : new Set(),
+                  )
+                }
+                className="h-3.5 w-3.5 accent-dam-blue"
+              />
+              Select all
+            </label>
+          )}
 
           {sessionsLoading ? (
             <div className="flex items-center gap-2 text-dam-muted py-8 justify-center">
@@ -536,7 +645,16 @@ function McapViewerContent() {
                   session={s}
                   detail={detailMap[s.filename] ?? null}
                   selected={selectedFilename === s.filename}
+                  checked={selectedForArchive.has(s.filename)}
                   onClick={() => selectSession(s.filename)}
+                  onToggleSelect={(checked) =>
+                    setSelectedForArchive((prev) => {
+                      const next = new Set(prev);
+                      if (checked) next.add(s.filename);
+                      else next.delete(s.filename);
+                      return next;
+                    })
+                  }
                 />
               ))}
             </div>
@@ -563,6 +681,7 @@ function McapViewerContent() {
                     sessions.find((s) => s.filename === selectedFilename)!
                   }
                   detail={selectedDetail}
+                  onArchived={handleArchived}
                 />
               ) : (
                 <div className="bg-dam-surface-2 border border-dam-border rounded-lg p-4 flex items-center gap-2 text-dam-muted text-sm">

@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { CycleSafetyInspector } from "@/components/CycleSafetyInspector";
 import { RiskBadge } from "@/components/RiskBadge";
 import type {
   PerfSnapshot,
@@ -9,6 +10,7 @@ import type {
   RiskEvent,
   RiskLevel,
   RiskLogStats,
+  FailureType,
 } from "@/lib/types";
 import {
   Download,
@@ -329,6 +331,15 @@ function GuardMetadataView({
 // ── Full per-event detail panel (reused for single events and inside groups) ──
 
 function EventDetailPanel({ e }: { e: RiskEvent }) {
+  const guards = (e.guard_results ?? []).map((g) => ({
+    name: g.name,
+    layer: g.layer,
+    decision: g.decision,
+    reason: g.reason,
+    latency_ms: e.perf?.guards?.[g.name],
+    metadata: g.metadata,
+  }));
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-4 text-[10px] text-dam-muted uppercase tracking-widest border-b border-dam-border/40 pb-2">
@@ -346,83 +357,24 @@ function EventDetailPanel({ e }: { e: RiskEvent }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="space-y-2">
-          <h4 className="flex items-center gap-2 text-xs font-bold text-dam-blue uppercase tracking-wider mb-2">
-            <Shield size={14} /> Guard Enforcement Details
-          </h4>
-          <div className="space-y-1.5">
-            {e.guard_results && e.guard_results.length > 0 ? (
-              e.guard_results.map((g, gi) => (
-                <GuardResultItem
-                  key={`${g.name}-${gi}`}
-                  g={g}
-                  guardLatencyMs={e.perf?.guards?.[g.name]}
-                />
-              ))
-            ) : (
-              <p className="text-xs text-dam-muted italic">
-                No specific guard results logged.
-              </p>
-            )}
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <h4 className="flex items-center gap-2 text-xs font-bold text-dam-orange uppercase tracking-wider mb-2">
-            <Activity size={14} /> Frame Processing Latency
-          </h4>
-          {e.perf ? (
-            <div className="p-3 bg-dam-surface-3 border border-dam-border rounded">
-              <PerfDetail
-                perf={e.perf}
-                totalMs={e.latency_ms["total"] ?? e.perf.stages["total"] ?? 0}
-              />
-            </div>
-          ) : (
-            <div className="space-y-1 p-2 bg-dam-surface-3 border border-dam-border rounded font-mono">
-              {Object.entries(e.latency_ms)
-                .sort((a, b) => {
-                  if (a[0] === "total") return 1;
-                  if (b[0] === "total") return -1;
-                  return b[1] - a[1];
-                })
-                .map(([k, v]) => (
-                  <div
-                    key={k}
-                    className="flex items-center justify-between text-[11px] py-0.5 border-b border-dam-border/20 last:border-0"
-                  >
-                    <span className="text-dam-muted">
-                      {LATENCY_KEY_LABELS[k] ?? k}
-                    </span>
-                    <span
-                      className={
-                        k === "total"
-                          ? "text-dam-orange font-bold"
-                          : "text-dam-text"
-                      }
-                    >
-                      {v.toFixed(1)} ms
-                    </span>
-                  </div>
-                ))}
-            </div>
-          )}
-
-          {e.fallback_triggered && (
-            <div className="mt-2 p-2 bg-dam-orange/10 border border-dam-orange/30 rounded">
-              <p className="text-[10px] font-bold text-dam-orange uppercase">
-                Active Fallback
-              </p>
-              <p className="text-xs text-dam-orange font-mono font-bold mt-1">
-                ➔ {e.fallback_triggered}
-              </p>
-            </div>
-          )}
-
-          <ViewMcapButton cycleId={e.cycle_id} mcapFilename={e.mcap_filename} />
-        </div>
+      <div className="h-[420px]">
+        <CycleSafetyInspector
+          mode="risk"
+          guards={guards}
+          latency={e.perf?.stages ?? e.latency_ms}
+          totalMs={e.latency_ms["total"] ?? e.perf?.stages?.["total"] ?? 0}
+          failure={{
+            type: e.failure_type,
+            guardNames: e.failure_guard_names,
+            layers: e.failure_layers,
+            decisions: e.failure_decisions,
+            reasons: e.failure_reasons,
+            tuple: e.failure_tuple,
+          }}
+        />
       </div>
+
+      <ViewMcapButton cycleId={e.cycle_id} mcapFilename={e.mcap_filename} />
     </div>
   );
 }
@@ -584,6 +536,7 @@ export function RiskLogTable() {
     min_risk_level: "",
     rejected_only: false,
     clamped_only: false,
+    failure_type: "" as "" | FailureType,
     limit: 1000,
   });
   const [search, setSearch] = useState("");
@@ -631,6 +584,7 @@ export function RiskLogTable() {
         min_risk_level: filters.min_risk_level || undefined,
         rejected_only: filters.rejected_only,
         clamped_only: filters.clamped_only,
+        failure_type: filters.failure_type || undefined,
         limit: filters.limit,
       });
       setEvents(evRes.events);
@@ -789,115 +743,166 @@ export function RiskLogTable() {
 
   return (
     <div className="space-y-4">
-      {/* Filter + export bar */}
-      <div className="flex flex-wrap items-center gap-3 bg-dam-surface-1 p-2 border border-dam-border rounded">
-        <select
-          value={filters.min_risk_level}
-          onChange={(e) =>
-            setFilters((f) => ({ ...f, min_risk_level: e.target.value }))
-          }
-          className="bg-dam-surface-2 border border-dam-border text-dam-text text-xs rounded px-2 py-1.5"
-        >
-          <option value="">All risk levels</option>
-          <option value="ELEVATED">≥ ELEVATED</option>
-          <option value="CRITICAL">≥ CRITICAL</option>
-          <option value="EMERGENCY">EMERGENCY only</option>
-        </select>
+      {/* Inspection bar — grouped: triage filters · search · view · actions */}
+      <div className="bg-dam-surface-1 border border-dam-border rounded">
+        {/* Row 1 — triage filters: narrow down WHERE the problem is */}
+        <div className="flex flex-wrap items-end gap-x-5 gap-y-3 p-3">
+          <div className="flex flex-col gap-1">
+            <span className="text-[9px] font-bold uppercase tracking-widest text-dam-muted/70">
+              Severity
+            </span>
+            <select
+              value={filters.min_risk_level}
+              onChange={(e) =>
+                setFilters((f) => ({ ...f, min_risk_level: e.target.value }))
+              }
+              className="bg-dam-surface-2 border border-dam-border text-dam-text text-xs rounded px-2 py-1.5"
+            >
+              <option value="">All risk levels</option>
+              <option value="ELEVATED">≥ ELEVATED</option>
+              <option value="CRITICAL">≥ CRITICAL</option>
+              <option value="EMERGENCY">EMERGENCY only</option>
+            </select>
+          </div>
 
-        <div className="h-6 w-px bg-dam-border/40 mx-1" />
+          <div className="flex flex-col gap-1">
+            <span className="text-[9px] font-bold uppercase tracking-widest text-dam-muted/70">
+              Failure layer
+            </span>
+            <select
+              value={filters.failure_type}
+              onChange={(e) =>
+                setFilters((f) => ({
+                  ...f,
+                  failure_type: e.target.value as "" | FailureType,
+                }))
+              }
+              className="bg-dam-surface-2 border border-dam-border text-dam-text text-xs rounded px-2 py-1.5"
+            >
+              <option value="">All failure types</option>
+              <option value="ood_only">L0 · Perception anomaly</option>
+              <option value="guard_triggered">L1–L2 · Motion guard</option>
+              <option value="hardware_triggered">L3 · Hardware risk</option>
+            </select>
+          </div>
 
-        <label className="flex items-center gap-1.5 text-xs text-dam-muted cursor-pointer">
-          <input
-            type="checkbox"
-            checked={filters.rejected_only}
-            onChange={(e) =>
-              setFilters((f) => ({ ...f, rejected_only: e.target.checked }))
-            }
-            className="accent-dam-blue"
-          />{" "}
-          Rejected
-        </label>
-        <label className="flex items-center gap-1.5 text-xs text-dam-muted cursor-pointer">
-          <input
-            type="checkbox"
-            checked={filters.clamped_only}
-            onChange={(e) =>
-              setFilters((f) => ({ ...f, clamped_only: e.target.checked }))
-            }
-            className="accent-dam-blue"
-          />{" "}
-          Clamped
-        </label>
+          <div className="flex flex-col gap-1">
+            <span className="text-[9px] font-bold uppercase tracking-widest text-dam-muted/70">
+              Outcome
+            </span>
+            <div className="flex rounded border border-dam-border overflow-hidden">
+              {(
+                [
+                  ["rejected_only", "Rejected"],
+                  ["clamped_only", "Clamped"],
+                ] as const
+              ).map(([key, label]) => {
+                const on = filters[key];
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() =>
+                      setFilters((f) => ({ ...f, [key]: !f[key] }))
+                    }
+                    className={`px-2.5 py-1.5 text-xs font-medium transition-colors border-r border-dam-border last:border-r-0 ${
+                      on
+                        ? "bg-dam-blue/15 text-dam-blue"
+                        : "bg-dam-surface-2 text-dam-muted hover:text-dam-text"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
-        <div className="h-6 w-px bg-dam-border/40 mx-1" />
+          <div className="flex flex-1 min-w-[12rem] flex-col gap-1">
+            <span className="text-[9px] font-bold uppercase tracking-widest text-dam-muted/70">
+              Search
+            </span>
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="reason · guard · trace · fallback…"
+              className="bg-dam-surface-2 border border-dam-border text-dam-text text-xs rounded px-2 py-1.5 w-full"
+            />
+          </div>
+        </div>
 
-        <input
-          type="search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search reason / guard / trace…"
-          className="bg-dam-surface-2 border border-dam-border text-dam-text text-xs rounded px-2 py-1.5 w-52"
-        />
-
-        <label className="flex items-center gap-1.5 text-xs text-dam-muted cursor-pointer">
-          <input
-            type="checkbox"
-            checked={grouping}
-            onChange={(e) => setGrouping(e.target.checked)}
-            className="accent-dam-blue"
-          />{" "}
-          Group similar
-        </label>
-
-        <div className="ml-auto flex gap-2">
+        {/* Row 2 — view + actions */}
+        <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-t border-dam-border/50 bg-dam-surface-2/40">
           <button
-            onClick={() => setFrozen((v) => !v)}
-            className={`flex items-center gap-1 px-2 py-1.5 border text-xs font-bold rounded transition-colors ${
-              frozen
-                ? "bg-dam-orange/10 border-dam-orange/40 text-dam-orange hover:bg-dam-orange/20"
+            type="button"
+            onClick={() => setGrouping((v) => !v)}
+            className={`flex items-center gap-1.5 px-2 py-1.5 border text-xs rounded transition-colors ${
+              grouping
+                ? "bg-dam-blue/15 border-dam-blue/40 text-dam-blue"
                 : "bg-dam-surface-2 border-dam-border text-dam-muted hover:text-dam-text"
             }`}
+            title="Collapse consecutive identical events into one expandable row"
           >
-            {frozen ? (
-              <>
-                <Play size={11} /> Resume
-              </>
-            ) : (
-              <>
-                <Pause size={11} /> Freeze
-              </>
-            )}
+            Group similar
           </button>
-          <a
-            href={api.exportRiskLogJsonUrl()}
-            download="risk_log.json"
-            className="invisible sm:visible flex items-center gap-1 px-2 py-1.5 bg-dam-surface-2 border border-dam-border text-dam-muted text-xs rounded hover:text-dam-text transition-colors"
-          >
-            <Download size={11} /> JSON
-          </a>
-          <a
-            href={api.exportRiskLogCsvUrl()}
-            download="risk_log.csv"
-            className="invisible sm:visible flex items-center gap-1 px-2 py-1.5 bg-dam-surface-2 border border-dam-border text-dam-muted text-xs rounded hover:text-dam-text transition-colors"
-          >
-            <Download size={11} /> CSV
-          </a>
-          <button
-            onClick={handleClear}
-            className="flex items-center gap-1 px-2 py-1.5 bg-dam-surface-2 border border-dam-border text-dam-muted text-xs rounded hover:text-dam-red hover:border-dam-red/40 transition-colors"
-            title="Clear the in-memory risk log"
-          >
-            <Trash2 size={11} /> Clear
-          </button>
-          <button
-            onClick={() => {
-              load();
-            }}
-            disabled={loading}
-            className="px-4 py-1.5 bg-dam-blue text-white text-xs font-bold rounded hover:bg-dam-blue-bright disabled:opacity-50 transition-colors"
-          >
-            {loading ? "..." : "Reload"}
-          </button>
+
+          {loading && (
+            <span className="flex items-center gap-1.5 text-[10px] text-dam-muted">
+              <span className="w-3 h-3 border-2 border-dam-blue/40 border-t-dam-blue rounded-full animate-spin" />
+              syncing…
+            </span>
+          )}
+
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={() => setFrozen((v) => !v)}
+              className={`flex items-center gap-1 px-2.5 py-1.5 border text-xs font-bold rounded transition-colors ${
+                frozen
+                  ? "bg-dam-orange/10 border-dam-orange/40 text-dam-orange hover:bg-dam-orange/20"
+                  : "bg-dam-surface-2 border-dam-border text-dam-muted hover:text-dam-text"
+              }`}
+              title={
+                frozen
+                  ? "Live updates paused — click to resume"
+                  : "Pause live updates so rows don't shift while inspecting"
+              }
+            >
+              {frozen ? (
+                <>
+                  <Play size={11} /> Resume
+                </>
+              ) : (
+                <>
+                  <Pause size={11} /> Freeze
+                </>
+              )}
+            </button>
+
+            <div className="h-5 w-px bg-dam-border/40" />
+
+            <a
+              href={api.exportRiskLogJsonUrl()}
+              download="risk_log.json"
+              className="flex items-center gap-1 px-2 py-1.5 bg-dam-surface-2 border border-dam-border text-dam-muted text-xs rounded hover:text-dam-text transition-colors"
+            >
+              <Download size={11} /> JSON
+            </a>
+            <a
+              href={api.exportRiskLogCsvUrl()}
+              download="risk_log.csv"
+              className="flex items-center gap-1 px-2 py-1.5 bg-dam-surface-2 border border-dam-border text-dam-muted text-xs rounded hover:text-dam-text transition-colors"
+            >
+              <Download size={11} /> CSV
+            </a>
+            <button
+              onClick={handleClear}
+              className="flex items-center gap-1 px-2 py-1.5 bg-dam-surface-2 border border-dam-border text-dam-muted text-xs rounded hover:text-dam-red hover:border-dam-red/40 transition-colors"
+              title="Clear the in-memory risk log"
+            >
+              <Trash2 size={11} /> Clear
+            </button>
+          </div>
         </div>
       </div>
 
