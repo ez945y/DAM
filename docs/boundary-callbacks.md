@@ -32,6 +32,21 @@ boundaries:
 
 All callbacks are auto-registered via `register_all()` at runtime startup.
 
+### Source layout
+
+Built-ins live in the `dam.boundary.callbacks` package, **one module per
+guard layer** — the sections below mirror it exactly:
+
+| Module | Layer | Callbacks |
+|---|---|---|
+| `callbacks/perception.py` | L0 | `ood_detector` |
+| `callbacks/kinematics.py` | L1 | joint / workspace / Cartesian / keep-out / orientation / geofence |
+| `callbacks/execution.py` | L2 | `semantic_state`, `check_gripper_clear` |
+| `callbacks/hardware.py` | L3 | watchdog, temperature / current / voltage / force |
+
+Adding a `@boundary_callback` function to the matching module is all that is
+needed — `register_all()` discovers it automatically (no list to maintain).
+
 ---
 
 ## L0: Perception
@@ -142,10 +157,6 @@ satisfy both.
 
 ## L2: Task Execution
 
-### `check_force_torque_safe`
-
-Reject if force magnitude > `max_force_n` or torque > `max_torque_nm`.
-
 ### `check_gripper_clear`
 
 Reject if `obs.metadata["gripper_pos"]` < `min_gripper_opening_m`.
@@ -202,23 +213,45 @@ Reject if force magnitude from a force/torque observation channel exceeds limit.
 | `max_force_n` | `50.0` | Max force magnitude (N) |
 | `channel` | `"force_torque"` | Observation channel name |
 
+### `check_force_torque_safe`
+
+Reject on contact-force / torque overload, read from the typed
+`obs.force_torque` field. (Reclassified from L2 → L3: a physical
+contact-force limit, the same family as `force_limit`, not task semantics.)
+
+| Param | Default | Description |
+|---|---|---|
+| `max_force_n` | `50.0` | Max force magnitude (N) |
+| `max_torque_nm` | `10.0` | Max torque magnitude (N·m) |
+
 ---
 
 ## Writing a custom callback
 
-A callback is any callable with signature `(*, obs: Observation, **kwargs) -> bool`:
+A callback is any callable with signature `(*, obs: Observation, **kwargs) -> bool`
+(or `tuple[bool, str]` to attach a reason).
+
+**Built-in style (recommended):** add a `@boundary_callback` function to the
+layer module that matches its semantics. The decorator registers it and
+records catalog metadata; `register_all()` picks it up automatically.
 
 ```python
-import numpy as np
+# dam/boundary/callbacks/kinematics.py
+from dam.boundary.callbacks._registry import boundary_callback
 from dam.types.observation import Observation
-from dam.registry.callback import get_global_registry
 
+@boundary_callback(name="check_above_table", layer="L1",
+                    description="Rejects if the EE drops below the table.")
 def check_above_table(*, obs: Observation, table_z: float = 0.05) -> bool:
     if obs.end_effector_pose is None:
         return True
     return float(obs.end_effector_pose[2]) >= table_z
+```
 
-# Register
+**Out-of-tree / runtime style:** register any callable directly.
+
+```python
+from dam.registry.callback import get_global_registry
 get_global_registry().register("check_above_table", check_above_table)
 ```
 

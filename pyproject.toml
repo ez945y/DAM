@@ -151,6 +151,8 @@ module = [
     "dam.registry.guard",
     "dam.decorators",
     "dam.boundary.builtin_callbacks",
+    "dam.boundary.callbacks",
+    "dam.boundary.callbacks.*",
     "dam.logging.loopback_writer",
     "dam.runner.lerobot",
     "dam.adapter.opencv.source",
