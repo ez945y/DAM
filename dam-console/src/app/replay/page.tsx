@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { PageShell } from '@/components/PageShell'
 import { api } from '@/lib/api'
 import type { McapSessionSummary } from '@/lib/api'
-import { Play, Square, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react'
+import { Play, Square, Loader2, CheckCircle2, AlertTriangle, GitCompareArrows } from 'lucide-react'
 
 const LIVE = '__live__'
 
@@ -163,7 +163,7 @@ function ReplayLane({
     <div className="flex flex-col min-w-0 flex-1 rounded-lg border border-dam-border bg-dam-surface-1">
       <div className="flex items-center justify-between gap-2 border-b border-dam-border/50 bg-dam-surface-2/50 px-3 py-2">
         <span className="text-[10px] font-bold uppercase tracking-widest text-dam-muted">
-          Lane {laneIndex + 1}
+          Replay column {laneIndex + 1}
         </span>
         <span className={`px-2 py-0.5 rounded border text-[9px] font-bold uppercase ${statusBadge}`}>
           {status}
@@ -173,7 +173,7 @@ function ReplayLane({
       <div className="space-y-2 p-3">
         <div className="space-y-1">
           <span className="text-[9px] font-bold uppercase tracking-widest text-dam-muted/70">
-            Stackfile
+            Replay stackfile
           </span>
           <select
             value={stack}
@@ -181,7 +181,7 @@ function ReplayLane({
             disabled={status === 'running'}
             className="w-full bg-dam-surface-2 border border-dam-border text-dam-text text-xs rounded px-2 py-1.5 disabled:opacity-50"
           >
-            <option value={LIVE}>Live · .dam_stackfile.yaml</option>
+            <option value={LIVE}>Current live stackfile · .dam_stackfile.yaml</option>
             {stacks.map((n) => (
               <option key={n} value={n}>{n}</option>
             ))}
@@ -209,12 +209,12 @@ function ReplayLane({
               value={String(summary?.compared ?? progress?.compared ?? 0)}
             />
             <StatTile
-              label="Match"
+              label="Same decision"
               value={matchPct == null ? '—' : `${matchPct.toFixed(1)}%`}
               tone={matchPct != null && matchPct < 100 ? 'text-dam-orange' : 'text-green-400'}
             />
             <StatTile
-              label="Diverged"
+              label="Changed"
               value={String(summary?.divergence_count ?? progress?.divergences ?? 0)}
               tone={
                 (summary?.divergence_count ?? progress?.divergences ?? 0) > 0
@@ -235,10 +235,10 @@ function ReplayLane({
         {summary && (
           <div className="rounded border border-dam-border/50 bg-dam-surface-2 p-2 space-y-1 text-[10px]">
             <p className="flex items-center gap-1 text-dam-muted">
-              <CheckCircle2 size={11} /> task <span className="font-mono text-dam-text">{summary.task}</span>
+              <CheckCircle2 size={11} /> replayed task <span className="font-mono text-dam-text">{summary.task}</span>
             </p>
             <p className="text-dam-muted">
-              comparable:{' '}
+              guards compared:{' '}
               <span className="font-mono text-dam-text">
                 {summary.comparable.length ? summary.comparable.join(', ') : 'none'}
               </span>
@@ -254,7 +254,7 @@ function ReplayLane({
               </p>
             )}
             <p className="text-dam-muted">
-              obs:{' '}
+              reconstructed observations:{' '}
               <span className="font-mono text-dam-text">
                 {Object.entries(summary.reconstructed)
                   .map(([k, v]) => `${k}=${v}`)
@@ -267,10 +267,18 @@ function ReplayLane({
         {recent.length > 0 && (
           <div className="space-y-1">
             <p className="text-[9px] font-bold uppercase tracking-widest text-dam-muted/70">
-              Divergences (recorded → replayed)
+              Decision changes (recorded MCAP → replay stackfile)
             </p>
             <div className="rounded border border-dam-border/50 overflow-hidden">
               <table className="w-full text-[10px]">
+                <thead className="bg-dam-surface-2 text-[9px] uppercase tracking-widest text-dam-muted/70">
+                  <tr>
+                    <th className="px-2 py-1 text-left font-bold">Cycle</th>
+                    <th className="px-2 py-1 text-left font-bold">Recorded</th>
+                    <th className="px-2 py-1 text-center font-bold">to</th>
+                    <th className="px-2 py-1 text-left font-bold">Replay</th>
+                  </tr>
+                </thead>
                 <tbody className="divide-y divide-dam-border/30">
                   {recent.map((d, i) => (
                     <tr key={`${d.cycle}-${i}`} className="font-mono">
@@ -288,7 +296,7 @@ function ReplayLane({
 
         {status === 'idle' && !progress && (
           <p className="py-8 text-center text-[11px] text-dam-muted/60">
-            Pick a session + stackfile, then Run to replay recorded cycles through these guards.
+            Choose a recorded MCAP and a stackfile to recompute each cycle's guard decision.
           </p>
         )}
       </div>
@@ -319,7 +327,7 @@ function ReplayContent() {
       <div className="flex flex-wrap items-end gap-3 rounded-lg border border-dam-border bg-dam-surface-1 p-3">
         <div className="flex flex-col gap-1">
           <span className="text-[9px] font-bold uppercase tracking-widest text-dam-muted/70">
-            MCAP session
+            Recorded MCAP
           </span>
           <select
             value={session}
@@ -334,13 +342,17 @@ function ReplayContent() {
             ))}
           </select>
         </div>
-        <p className="text-[10px] text-dam-muted max-w-xs">
-          One session, replayed through 2–3 stackfiles side by side. Lane 1 defaults
-          to the live config.
-        </p>
+        <div className="flex min-w-[20rem] max-w-xl items-start gap-2 rounded border border-dam-border/50 bg-dam-surface-2/60 px-3 py-2 text-[10px] leading-relaxed text-dam-muted">
+          <GitCompareArrows size={14} className="mt-0.5 shrink-0 text-dam-blue" />
+          <p>
+            Recompute the recorded cycles with each selected stackfile, then compare
+            the recorded decision with the replay decision. Changes show where a new
+            guard config would have behaved differently.
+          </p>
+        </div>
         <div className="flex flex-col gap-1">
           <span className="text-[9px] font-bold uppercase tracking-widest text-dam-muted/70">
-            Lanes
+            Columns
           </span>
           <div className="flex rounded border border-dam-border overflow-hidden">
             {[2, 3].map((n) => (
@@ -365,13 +377,13 @@ function ReplayContent() {
             disabled={!session}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-dam-blue text-white text-xs font-bold rounded hover:bg-dam-blue-bright transition-colors disabled:opacity-40"
           >
-            <Play size={12} /> Run all
+            <Play size={12} /> Replay all
           </button>
           <button
             onClick={() => setStopSignal((n) => n + 1)}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-dam-surface-2 border border-dam-border text-dam-muted text-xs font-bold rounded hover:text-dam-orange hover:border-dam-orange/40 transition-colors"
           >
-            <Square size={12} /> Stop all
+            <Square size={12} /> Stop replay
           </button>
         </div>
       </div>
@@ -401,8 +413,8 @@ function ReplayContent() {
 export default function ReplayPage() {
   return (
     <PageShell
-      title="Replay Through Guards"
-      subtitle="Re-evaluate recorded sessions against different stackfiles"
+      title="Replay Comparison"
+      subtitle="Replay one MCAP through different stackfiles and compare guard decisions"
     >
       <ReplayContent />
     </PageShell>
