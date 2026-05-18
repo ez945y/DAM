@@ -19,6 +19,9 @@ dependencies = [
     "msgpack>=1.0",
 ]
 
+[project.scripts]
+dam = "dam.cli:main"
+
 [project.optional-dependencies]
 # ── Development tools ─────────────────────────────────────────────────────
 dev = [

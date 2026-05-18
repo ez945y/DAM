@@ -48,10 +48,5 @@ jobs:
       - name: Test Import
         run: python -c 'import dam'
 
-      - name: Validate Stackfile
-        run: |
-          cat << 'EOF' > val.py
-          from dam.config.loader import StackfileLoader
-          StackfileLoader.validate('examples/stackfiles/test.yaml')
-          EOF
-          python val.py
+      - name: Validate Stackfiles
+        run: dam validate examples/stackfiles/*.yaml

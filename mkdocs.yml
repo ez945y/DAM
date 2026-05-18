@@ -49,6 +49,7 @@ nav:
   - Getting Started:
     - Installation: installation.md
     - Stackfile Guide: quick-stack.md
+    - CLI: cli.md
   - Reference:
     - Guards: guards-reference.md
     - Boundary Callbacks: boundary-callbacks.md

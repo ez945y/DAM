@@ -57,6 +57,16 @@ make run
 | `make test`  | Run full test suite (unit + integration + safety)       |                       |
 | `make clean` | Remove build artifacts                                  |
 
+The `dam` CLI is available after `make setup`:
+
+```bash
+dam validate examples/stackfiles/*.yaml   # schema-check Stackfiles (CI gate)
+dam callbacks                             # list built-in boundary callbacks
+dam run <stack> --cycles 200              # headless control loop
+dam replay <session>.mcap                 # summarise a recorded session
+dam help [command]
+```
+
 After starting, open **http://localhost:3000** in your browser and select a configuration template:
 
 - **Quick Start** — Simulation only (no hardware needed)
