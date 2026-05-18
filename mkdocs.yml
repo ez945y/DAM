@@ -56,6 +56,7 @@ nav:
     - Boundary Callbacks: boundary-callbacks.md
     - Loopback Logging: loopback-logging.md
     - Failure Tuple Schema: failure-tuple-schema.md
+    - Adversarial Testing: adversarial-testing.md
     - Specification: DAM_Specification.md
     - Experiments: experiments.md
   - Console:

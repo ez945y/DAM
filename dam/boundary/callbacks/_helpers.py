@@ -10,6 +10,21 @@ from dam.kinematics.resolver import KinematicsResolver
 from dam.types.observation import Observation
 
 
+def _all_finite(*arrays: object) -> bool:
+    """True iff every element of every given array is finite (no NaN/Inf).
+
+    Adversarial inputs (NaN/Inf injection) silently defeat naive comparison
+    checks — ``nan > limit`` is ``False`` — so safety callbacks treat
+    non-finite inputs as a violation rather than a pass.
+    """
+    for arr in arrays:
+        if arr is None:
+            continue
+        if not np.all(np.isfinite(np.asarray(arr, dtype=np.float64))):
+            return False
+    return True
+
+
 def _read_channel(obs: Observation, channel: str) -> np.ndarray | None:
     """Read a named channel from obs.channels (or iter_channels fallback)."""
     if obs.channels and channel in obs.channels:

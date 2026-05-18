@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 
 from dam.boundary.callbacks._helpers import (
+    _all_finite,
     _get_ee_pose,
     _point_in_polygon,
     _read_channel,
@@ -39,6 +40,8 @@ def joint_velocity_limit(
         max_velocities = [1.5, 1.5, 1.5, 1.5, 1.5, 1.5]
     if obs.joint_velocities is None or max_velocities is None:
         return True
+    if not _all_finite(obs.joint_velocities):
+        return False  # fail-safe: NaN/Inf injection is a violation, not a pass
     v_max = np.array(max_velocities)
     if use_degrees:
         v_max = np.radians(v_max)
@@ -73,6 +76,8 @@ def joint_position_limits(
         upper = [1.82, 1.77, 1.6, 1.81, 3.07, 1.75]
     if obs.joint_positions is None or upper is None or lower is None:
         return True
+    if not _all_finite(obs.joint_positions):
+        return False  # fail-safe: NaN/Inf injection is a violation, not a pass
     pos, up, lo = obs.joint_positions, np.array(upper), np.array(lower)
     if use_degrees:
         up, lo = np.radians(up), np.radians(lo)
@@ -158,6 +163,8 @@ def cartesian_velocity_limit(
     qd = np.asarray(obs.joint_velocities, dtype=np.float64)
     n = min(jac.shape[1], qd.shape[0])
     twist = jac[:, :n] @ qd[:n]
+    if not _all_finite(twist):
+        return False, "non-finite EE twist (NaN/Inf in joint state or Jacobian)"
     v_lin = float(np.linalg.norm(twist[:3]))
     v_ang = float(np.linalg.norm(twist[3:6]))
     if v_lin > max_linear_speed or v_ang > max_angular_speed:
@@ -191,6 +198,8 @@ def keep_out_zone(
     pos = _resolve_ee_translation(obs, kinematics_resolver=kinematics_resolver, dynamics=dynamics)
     if pos is None:
         return True
+    if not _all_finite(pos):
+        return False, "non-finite EE position"
     for box in boxes or []:
         b = np.asarray(box, dtype=np.float64)  # 3 × 2
         if np.all((pos >= b[:, 0]) & (pos <= b[:, 1])):
@@ -226,6 +235,8 @@ def orientation_limit(
     rot = _resolve_ee_rotation(obs, kinematics_resolver=kinematics_resolver, dynamics=dynamics)
     if rot is None:
         return True
+    if not _all_finite(rot):
+        return False, "non-finite EE orientation"
     tool = np.asarray(tool_axis if tool_axis is not None else [0.0, 0.0, 1.0], dtype=np.float64)
     ref = np.asarray(
         reference_axis if reference_axis is not None else [0.0, 0.0, 1.0], dtype=np.float64
