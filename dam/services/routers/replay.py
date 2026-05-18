@@ -13,7 +13,7 @@ import threading
 import uuid
 from typing import TYPE_CHECKING, Annotated, Any
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from dam.services.replay import iter_replay_through_guards
@@ -54,15 +54,18 @@ def create_replay_router(mcap_sessions: McapSessionService | None) -> APIRouter:
     jobs: dict[str, _Job] = {}
 
     @router.post("/jobs", responses={404: {"description": "mcap or stack not found"}})
-    async def start_job(body: Annotated[dict[str, Any], Body()]) -> Any:
-        if mcap_sessions is None:
+    async def start_job(request: Request, body: Annotated[dict[str, Any], Body()]) -> Any:
+        # The live service is attached to app.state at startup; the constructor
+        # arg is a fallback (mirrors create_mcap_router).
+        svc = mcap_sessions or getattr(request.app.state, "mcap_sessions", None)
+        if svc is None:
             raise HTTPException(503, "MCAP sessions service not configured")
         mcap_name = str(body.get("mcap", ""))
         stack = str(body.get("stack", ""))
         if not mcap_name or not stack:
             raise HTTPException(400, "both 'mcap' and 'stack' are required")
 
-        mcap_path = mcap_sessions._resolve(mcap_name)
+        mcap_path = svc._resolve(mcap_name)
         if mcap_path is None or not mcap_path.is_file():
             raise HTTPException(404, f"MCAP session not found: {mcap_name}")
         stack_path = _resolve_stack(stack)

@@ -19,11 +19,12 @@ const STAGE_LABELS: Record<string, string> = {
 }
 const STAGE_ORDER = ['source', 'policy', 'guards', 'sink'] as const
 
+// Mirrors dam.guard.layer.GuardLayer
 const LAYER_META: Record<string, { label: string; color: string }> = {
-  L0: { label: 'L0 OOD',       color: '#A78BFA' },
-  L1: { label: 'L1 Preflight', color: '#34D399' },
-  L2: { label: 'L2 Motion',    color: '#10B981' },
-  L3: { label: 'L3 Execution', color: '#6EE7B7' },
+  L0: { label: 'L0 OOD',        color: '#A78BFA' },
+  L1: { label: 'L1 Kinematics', color: '#34D399' },
+  L2: { label: 'L2 Task',       color: '#10B981' },
+  L3: { label: 'L3 Hardware',   color: '#6EE7B7' },
 }
 
 // ── Compact CSS bar row (shared by pipeline stages and guard layers) ─────────
@@ -64,9 +65,11 @@ function LivePipelineBar({ perf }: { perf: PerfSnapshot }) {
   const maxLayerMs = layerKeys.reduce((m, k) => Math.max(m, perf.layers[k] ?? 0), 0.001)
 
   return (
-    <div className="space-y-3">
+    // Two columns side by side to save vertical space: pipeline stages
+    // on the left, guard-layer breakdown on the right.
+    <div className={`grid gap-x-5 gap-y-2 ${layerKeys.length > 0 ? 'grid-cols-2' : 'grid-cols-1'}`}>
       {/* ── Current cycle pipeline stages ── */}
-      <div className="space-y-1.5">
+      <div className="space-y-1.5 min-w-0">
         <div className="flex items-baseline justify-between mb-0.5">
           <span className="text-[10px] text-dam-muted uppercase tracking-wider">Current cycle</span>
           <span className="font-mono text-sm font-bold text-dam-blue">{total.toFixed(1)} ms</span>
@@ -85,8 +88,8 @@ function LivePipelineBar({ perf }: { perf: PerfSnapshot }) {
 
       {/* ── Guard layers (same CSS bar style) ── */}
       {layerKeys.length > 0 && (
-        <div className="pt-2 border-t border-dam-border/30 space-y-1.5">
-          <span className="text-[10px] text-dam-muted uppercase tracking-wider">Guard layers</span>
+        <div className="space-y-1.5 min-w-0">
+          <span className="text-[10px] text-dam-muted uppercase tracking-wider block mb-0.5">Guard layers</span>
           {layerKeys.map(k => (
             <BarRow
               key={k}

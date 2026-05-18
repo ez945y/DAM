@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { RefreshCw, Check, Plus, Trash2, Usb, FolderOpen, AlertCircle, Pencil, Upload as UploadIcon } from 'lucide-react'
+import { RefreshCw, Check, Plus, Trash2, Usb, FolderOpen, AlertCircle, Pencil } from 'lucide-react'
 import { TEMPLATES, defaultConfig, generateYaml, parseConfigFromYaml } from '@/lib/templates'
 import type { DamConfig, CameraConfig } from '@/lib/templates'
 import type { EnforcementMode, UsbDeviceInfo } from '@/lib/types'
@@ -341,21 +341,6 @@ export default function ConfigPage() {
     }
   }
 
-  const handleApplyToLive = async () => {
-    if (target === LIVE) return
-    if (!window.confirm(`Copy "${target}" into the live .dam_stackfile.yaml?`)) return
-    setLibBusy(true)
-    setLibError(null)
-    try {
-      await api.saveStackfile(target, yaml)
-      await api.applyStackfile(target)
-      flashOk(`Applied ${target} → live`)
-    } catch (e) {
-      setLibError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setLibBusy(false)
-    }
-  }
 
   const set = <K extends keyof DamConfig>(key: K, value: DamConfig[K]) => {
     setCfg(prev => ({ ...prev, [key]: value }))
@@ -512,9 +497,9 @@ export default function ConfigPage() {
       <Section title="Stackfile">
         <div className="space-y-3">
           <p className="text-dam-muted text-[10px]">
-            Edit the live config the runtime executes, or manage a separate library of
-            named configs under <span className="font-mono">data/stackfiles/</span>.
-            Library edits never touch the running system until you apply them.
+            Edit the live config, or pick a saved one from the library. Library
+            edits stay isolated — use Apply &amp; Restart to push the selected
+            config to the running system.
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <select
@@ -551,17 +536,10 @@ export default function ConfigPage() {
             >
               <Trash2 size={11} /> Delete
             </button>
-            <button
-              onClick={handleApplyToLive}
-              disabled={libBusy || target === LIVE}
-              className="flex items-center gap-1 px-2.5 py-1.5 bg-dam-blue/10 border border-dam-blue/30 text-dam-blue text-xs font-semibold rounded hover:bg-dam-blue/20 transition-colors disabled:opacity-40"
-            >
-              <UploadIcon size={11} /> Apply to live
-            </button>
           </div>
           {target !== LIVE && (
             <p className="text-dam-orange text-[10px]">
-              Editing library config <span className="font-mono">{target}</span> — the running system is unaffected until “Apply to live”.
+              Editing library config <span className="font-mono">{target}</span> — the running system is unaffected until you press Apply &amp; Restart.
             </p>
           )}
           {libError && (

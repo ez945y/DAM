@@ -193,11 +193,6 @@ export const api = {
     }),
   deleteStackfile: (name: string) =>
     apiFetch<void>(`/stackfiles/${encodeURIComponent(name)}`, { method: 'DELETE' }),
-  applyStackfile: (name: string) =>
-    apiFetch<{ applied: string; live_path: string }>(
-      `/stackfiles/${encodeURIComponent(name)}/apply`,
-      { method: 'POST' },
-    ),
 
   // ── Replay-through-guards jobs ────────────────────────────────────────────
   startReplayJob: (mcap: string, stack: string) =>

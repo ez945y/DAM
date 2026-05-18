@@ -319,6 +319,7 @@ function ReplayContent() {
   const [sessions, setSessions] = useState<McapSessionSummary[]>([])
   const [stacks, setStacks] = useState<string[]>([])
   const [session, setSession] = useState('')
+  const [laneCount, setLaneCount] = useState(2)
   const [runSignal, setRunSignal] = useState(0)
   const [stopSignal, setStopSignal] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -352,10 +353,31 @@ function ReplayContent() {
             ))}
           </select>
         </div>
-        <p className="text-[10px] text-dam-muted max-w-sm">
-          One recorded session, replayed through up to three stackfiles side by side.
-          Lane 1 defaults to the live config; change any lane to compare.
+        <p className="text-[10px] text-dam-muted max-w-xs">
+          One session, replayed through 2–3 stackfiles side by side. Lane 1 defaults
+          to the live config.
         </p>
+        <div className="flex flex-col gap-1">
+          <span className="text-[9px] font-bold uppercase tracking-widest text-dam-muted/70">
+            Lanes
+          </span>
+          <div className="flex rounded border border-dam-border overflow-hidden">
+            {[2, 3].map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => setLaneCount(n)}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors border-r border-dam-border last:border-r-0 ${
+                  laneCount === n
+                    ? 'bg-dam-blue/15 text-dam-blue'
+                    : 'bg-dam-surface-2 text-dam-muted hover:text-dam-text'
+                }`}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="ml-auto flex gap-2">
           <button
             onClick={() => setRunSignal((n) => n + 1)}
@@ -379,7 +401,7 @@ function ReplayContent() {
         </div>
       ) : (
         <div className="flex flex-1 gap-4 min-h-0">
-          {[0, 1, 2].map((i) => (
+          {Array.from({ length: laneCount }, (_, i) => i).map((i) => (
             <ReplayLane
               key={i}
               laneIndex={i}
