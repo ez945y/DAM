@@ -58,6 +58,7 @@ Injection keys (config pool)
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -65,7 +66,7 @@ import numpy as np
 
 from dam.guard.base import Guard
 from dam.types.observation import Observation
-from dam.types.result import GuardResult
+from dam.types.result import GuardDecision, GuardResult
 
 logger = logging.getLogger(__name__)
 
@@ -726,6 +727,7 @@ class OODGuard(Guard):
     nll_threshold   float  5.0            — direct NLL cutoff (fallback if no training stats)
     ood_model_path  str    None           — path to saved extractor / flow (.pt)
     bank_path       str    None           — path to MemoryBank vectors (.npy)
+    temporal_smoothing_frames int 1       — consecutive OOD frames required before REJECT
     """
 
     def __init__(self, backend: str = "memory_bank") -> None:
@@ -741,6 +743,7 @@ class OODGuard(Guard):
         # Used at inference to compute threshold = mean + nll_sigma * std.
         self._mean_train_nll: float | None = None
         self._std_train_nll: float | None = None
+        self._ood_streak = 0
 
     # ── Training API ─────────────────────────────────────────────────────────
 
@@ -876,6 +879,7 @@ class OODGuard(Guard):
         ood_model_path: str | None = None,
         bank_path: str | None = None,
         device: str = "cpu",
+        temporal_smoothing_frames: int = 1,
     ) -> GuardResult:
         layer = self.get_layer()
         name = self.get_name()
@@ -897,10 +901,67 @@ class OODGuard(Guard):
                 effective_threshold = self._mean_train_nll + nll_sigma * self._std_train_nll
             else:
                 effective_threshold = nll_threshold
-            return self._check_flow(obs, effective_threshold, name, layer)
+            return self._apply_temporal_smoothing(
+                self._check_flow(obs, effective_threshold, name, layer),
+                temporal_smoothing_frames,
+                name,
+                layer,
+            )
         if self._bank.is_trained:
-            return self._check_memory_bank(obs, nn_threshold, name, layer)
-        return self._check_welford(obs, name, layer)
+            return self._apply_temporal_smoothing(
+                self._check_memory_bank(obs, nn_threshold, name, layer),
+                temporal_smoothing_frames,
+                name,
+                layer,
+            )
+        return self._apply_temporal_smoothing(
+            self._check_welford(obs, name, layer),
+            temporal_smoothing_frames,
+            name,
+            layer,
+        )
+
+    def _apply_temporal_smoothing(
+        self,
+        result: GuardResult,
+        frames: int,
+        name: str,
+        layer: Any,
+    ) -> GuardResult:
+        """Require N consecutive abnormal OOD frames before surfacing REJECT.
+
+        This filters single-frame perception artifacts such as lighting shifts,
+        shadows, or hand occlusions without hiding guard faults.
+        """
+        frames = max(1, int(frames))
+        if result.decision != GuardDecision.REJECT:
+            self._ood_streak = 0
+            if result.metadata:
+                return replace(result, metadata={**result.metadata, "ood_streak": 0})
+            return result
+
+        self._ood_streak += 1
+        metadata = {
+            **result.metadata,
+            "ood_raw_decision": result.decision.name,
+            "ood_streak": self._ood_streak,
+            "ood_smoothing_frames": frames,
+        }
+        if self._ood_streak < frames:
+            return GuardResult.success(
+                guard_name=name,
+                layer=layer,
+                reason=(
+                    f"OOD candidate suppressed by temporal smoothing "
+                    f"({self._ood_streak}/{frames}): {result.reason}"
+                ),
+                metadata=metadata,
+            )
+        return replace(
+            result,
+            reason=f"{result.reason} (consecutive_ood_frames={self._ood_streak}/{frames})",
+            metadata=metadata,
+        )
 
     def _maybe_load(
         self,
@@ -1004,7 +1065,6 @@ class OODGuard(Guard):
 
             max_z = self._welford.z_score_max(features)
             z_threshold = 5.0
-            self._welford.update(features)
 
             if max_z > z_threshold:
                 return GuardResult.reject(
@@ -1012,6 +1072,7 @@ class OODGuard(Guard):
                     guard_name=name,
                     layer=layer,
                 )
+            self._welford.update(features)
             return GuardResult.success(guard_name=name, layer=layer)
         except Exception as e:
             return GuardResult.fault(e, "guard_code", name, layer)

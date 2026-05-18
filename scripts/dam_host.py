@@ -37,6 +37,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from dam.boundary.builtin_callbacks import register_all
+from dam.fallback.builtin import register_all as register_fallback_classes
 from dam.guard.builtin import register_all as register_guard_classes
 from dam.logging.console import setup_colored_logging
 from dam.runtime.factory import RuntimeFactory
@@ -61,12 +62,16 @@ _DEFAULT_SIM_STACK = textwrap.dedent("""\
         sim: { type: simulation }
     guards:
       - L0: ood
-      - L2: motion
-      - L3: execution
-      - L4: hardware
+      - L1: motion
+      - L2: execution
+      - L3: hardware
     safety:
       control_frequency_hz: 30.0
+      no_task_behavior: emergency_stop
       enforcement_mode: monitor
+    fallbacks:
+      emergency_stop:
+        type: emergency_stop
 """)
 
 
@@ -87,6 +92,7 @@ def _resolve_stackfile() -> str:
 
 def main() -> None:
     register_all()
+    register_fallback_classes()
     register_guard_classes()
 
     stack_path_str = _resolve_stackfile()

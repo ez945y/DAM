@@ -305,7 +305,7 @@ M:N 映射：一個 callback 可被多個 YAML 節點引用，一個節點可引
 |---|---|
 | `dam/guard/base.py` | `Guard` ABC：check(**kwargs) → GuardResult, get_layer(), get_name(), on_violation() |
 | `dam/guard/aggregator.py` | `DecisionAggregator`：aggregate(List[GuardResult]) → GuardResult，使用 max(IntEnum) |
-| `dam/guard/layer.py` | `GuardLayer(IntEnum)`：L0=0, L1=1, L2=2, L3=3, L4=4 |
+| `dam/guard/layer.py` | `GuardLayer(IntEnum)`：L0=0, L1=1, L2=2, L3=3, L3=4 |
 | `dam/decorators.py` | `@dam.guard(layer="L2")` 裝飾器——在裝飾時將字串轉為 GuardLayer IntEnum |
 
 **測試**：
@@ -553,7 +553,7 @@ def test_phase1_exit_criterion():
                                                      │
 [2F] OOD Guard (L0) ─────────────────────────────────┤
                                                      │
-[2G] Execution Guard (L3) ───────────────────────────┤
+[2G] Execution Guard (L2) ───────────────────────────┤
                                                      │
 [2H] MCAP Context Capture ───────────────────────────┤
                                                      │
@@ -686,7 +686,7 @@ volumes:
 - Unit：正常 obs → PASS；人造 OOD obs → REJECT
 - Safety regression：已知 OOD 場景必須 REJECT
 
-### 2G — Execution Guard（L3）
+### 2G — Execution Guard（L2）
 
 | 模組 | 內容 |
 |---|---|
@@ -737,7 +737,7 @@ def test_phase2_exit_criterion():
     runner.stop()
 
 # 退出標準清單：
-# ✓ L0（OOD）+ L2（Motion）+ L3（Execution）守衛全部啟用
+# ✓ L0（OOD）+ L2（Motion）+ L2（Execution）守衛全部啟用
 # ✓ 關節位置正確映射到 Observation.joint_positions
 # ✓ ValidatedAction 正確回送到 robot.send_action()
 # ✓ 人為觸發違規 → REJECT → hold_position fallback 觸發
@@ -759,7 +759,7 @@ def test_phase2_exit_criterion():
 [3A] ROS2 Source/Sink Adapter ───────────────────────┤
 [3B] ROS2Runner ─────────────────────────────────────┤
 [3C] Rust ActionBus ─────────────────────────────────┤
-[3D] Rust Hardware Guard (L4) ───────────────────────┤
+[3D] Rust Hardware Guard (L3) ───────────────────────┤
 [3E] Stage DAG 並行執行 ─────────────────────────────┤
 [3F] process_group 跨進程隔離 ───────────────────────┤
 [3G] Hot Reload（雙緩衝 + 柵欄）──────────────────────┤
@@ -777,7 +777,7 @@ def test_phase2_exit_criterion():
 | **3A ROS2 Adapters** | 從 Stackfile 讀 topic 名稱自動建立 subscriber/publisher |
 | **3B ROS2Runner** | 與 rclpy executor 整合，timer callback 模式 |
 | **3C Rust ActionBus** | fallback 透過 PyO3 寫入；硬體從 Rust 端讀取 |
-| **3D Hardware Guard (L4)** | 純 Rust 實現，監控電流/溫度，獨立於 Python 觸發 E-Stop |
+| **3D Hardware Guard (L3)** | 純 Rust 實現，監控電流/溫度，獨立於 Python 觸發 E-Stop |
 | **3E Stage DAG** | `list[list[Guard]]` 啟動時構建；Stage 內守衛並行（ThreadPoolExecutor）；Stage 間循序 |
 | **3F process_group** | 共享內存傳遞 obs，跨進程守衛隔離；只能引用 config pool 鍵 |
 | **3G Hot Reload** | 文件監控 → 只解析變更區段 → 重建 _static_kwargs → 週期柵欄 → 雙緩衝原子交換 |
@@ -791,7 +791,7 @@ def test_phase2_exit_criterion():
 | Unit | Stage DAG：2 個守衛並行，驗證兩者都被調用 |
 | Unit | Hot Reload：修改 Stackfile → _static_kwargs 正確更新 |
 | Integration | 完整 Stage DAG + DecisionAggregator 管線測試 |
-| Safety | L4 Hardware Guard：Rust 側 E-Stop 在 Python 線程被阻塞時仍能觸發 |
+| Safety | L3 Hardware Guard：Rust 側 E-Stop 在 Python 線程被阻塞時仍能觸發 |
 | Safety | Hot Reload 期間的週期不能丟失（柵欄不能阻塞超過 cycle_budget_ms） |
 
 ### Phase 3 退出標準
@@ -935,7 +935,7 @@ dam/
 │   │   ├── metric-bus/           # [2D]
 │   │   ├── risk-controller/      # [2D]
 │   │   ├── watchdog/             # [2E]
-│   │   └── hardware-guard/       # [3D] L4
+│   │   └── hardware-guard/       # [3D] L3
 │   └── Cargo.toml
 │
 ├── tests/
@@ -961,7 +961,7 @@ dam/
 |---|---|---|---|
 | **Phase 1** | 4–6 週 | 無 | 純 Python 安全引擎 + MotionGuard + 測試套件 |
 | **Phase 2** | 4–6 週 | Phase 1 退出標準通過 | LeRobot 硬體驗證 + Rust bus + L0/L3 + MCAP |
-| **Phase 3** | 3–4 週 | Phase 2 退出標準通過 | ROS2 支援 + Stage DAG + Hot Reload + L4 |
+| **Phase 3** | 3–4 週 | Phase 2 退出標準通過 | ROS2 支援 + Stage DAG + Hot Reload + L3 |
 | **Phase 4** | 2–3 週 | Phase 3 退出標準通過 | L1 SimPreflight + Isaac Sim/Gazebo |
 | **Phase 5** | 3–4 週 | Phase 2 穩定 | Dashboard + API + 追蹤器 |
 

@@ -22,6 +22,13 @@ safety:
   no_task_behavior: emergency_stop
   enforcement_mode: monitor
 
+fallbacks:
+  emergency_stop:
+    type: emergency_stop
+  hold_position:
+    type: hold_position
+    escalates_to: emergency_stop
+
 guards:
   - L0: ood
   - L1: motion
@@ -36,6 +43,8 @@ boundaries:
       - callback: ood_detector
         timeout_sec: 1
         fallback: emergency_stop
+        params:
+          temporal_smoothing_frames: 3
   bounds:
     layer: L1
     type: single

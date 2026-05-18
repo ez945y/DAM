@@ -12,12 +12,67 @@ MAX_ESCALATION_DEPTH = 10
 class FallbackRegistry:
     def __init__(self) -> None:
         self._strategies: dict[str, Fallback] = {}
+        self._templates: dict[str, type[Fallback]] = {}
 
     def register(self, strategy: Fallback) -> None:
         name = strategy.get_name()
         if name in self._strategies:
             raise ValueError(f"Fallback strategy '{name}' is already registered")
         self._strategies[name] = strategy
+        self._templates[strategy.get_type()] = strategy.__class__
+
+    def register_template(self, name: str, cls: type[Fallback]) -> None:
+        if name in self._templates and self._templates[name] is not cls:
+            raise ValueError(f"Fallback template '{name}' is already registered")
+        self._templates[name] = cls
+
+    def configure(
+        self,
+        *,
+        name: str,
+        type_name: str,
+        params: dict[str, Any] | None = None,
+        escalates_to: str | None = None,
+    ) -> None:
+        if name in self._strategies:
+            raise ValueError(f"Fallback strategy '{name}' is already registered")
+        if type_name not in self._templates:
+            raise ValueError(
+                f"Fallback template '{type_name}' not found. Registered: {sorted(self._templates)}"
+            )
+        strategy = self._templates[type_name]()
+        strategy._fallback_name = name
+        strategy._fallback_type = type_name
+        strategy._params = dict(params or {})
+        strategy._escalates_to = escalates_to
+        self._strategies[name] = strategy
+
+    def configured_copy(self, configs: dict[str, Any] | None = None) -> FallbackRegistry:
+        reg = FallbackRegistry()
+        reg._templates = dict(self._templates)
+        if configs:
+            for name, cfg in configs.items():
+                type_name = cfg.get("type") if isinstance(cfg, dict) else cfg.type
+                if not isinstance(type_name, str):
+                    raise ValueError(f"Fallback '{name}' must define a string type")
+                params = cfg.get("params", {}) if isinstance(cfg, dict) else cfg.params
+                escalates_to = (
+                    cfg.get("escalates_to") if isinstance(cfg, dict) else cfg.escalates_to
+                )
+                reg.configure(
+                    name=name,
+                    type_name=type_name,
+                    params=params,
+                    escalates_to=escalates_to,
+                )
+        else:
+            for type_name, cls in self._templates.items():
+                strategy = cls()
+                strategy._fallback_name = type_name
+                strategy._fallback_type = type_name
+                strategy._params = {}
+                reg.register(strategy)
+        return reg
 
     def get(self, name: str) -> Fallback:
         if name not in self._strategies:
@@ -27,6 +82,9 @@ class FallbackRegistry:
 
     def list_all(self) -> list[str]:
         return sorted(self._strategies.keys())
+
+    def list_templates(self) -> list[str]:
+        return sorted(self._templates.keys())
 
     def execute_with_escalation(
         self, name: str, context: FallbackContext, bus: Any

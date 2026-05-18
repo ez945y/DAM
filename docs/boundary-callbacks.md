@@ -48,6 +48,7 @@ Return False if the observation is flagged as out-of-distribution.
 | `nn_threshold` | `2.0` | Nearest-neighbour threshold |
 | `nll_threshold` | `5.0` | NLL threshold |
 | `backend` | `"memory_bank"` | OOD backend |
+| `temporal_smoothing_frames` | `3` | Consecutive abnormal frames required before REJECT |
 
 ---
 

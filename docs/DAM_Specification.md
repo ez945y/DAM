@@ -55,10 +55,10 @@ Reference for all DAM-specific terms, categorized by architectural role and sort
 | :--- | :--- |
 | **Guard** | A Python class decorated with `@dam.guard` that implements `check(**kwargs) → GuardResult`. The unit of safety logic. |
 | **GuardProfile** | Named subset of guards + enforcement mode declared in Stackfile. Activated via `dam.use_profile()`. |
-| **GuardLayer** | Conceptual grouping of guards: L0 (OOD), L1 (Sim), L2 (Motion), L3 (Execution), L4 (Hardware). |
+| **GuardLayer** | Conceptual grouping of guards: L0 (OOD), L1 (Physical Kinematics), L2 (Task Execution), L3 (Hardware). |
 | **GuardResult** | Return type of `guard.check()`. Contains `decision`, `reason`, and optionally `clamp_target`. |
 | **Boundary** | A named safety constraint node in YAML. Boundaries are M:N-mapped to Python callbacks. |
-| **Enforcement Mode** | Per-profile policy: `enforce` (block unsafe actions), `monitor` (log only), or `log_only` (silent). |
+| **Enforcement Mode** | Per-profile policy: `enforce` (reject/clamp unsafe actions and trigger fallbacks), `monitor` (check and record without modifying output or triggering fallbacks), or `log_only` (cycle logging only). |
 | **RiskLevel** | Enum produced by `RiskController`: `NOMINAL`, `ELEVATED`, `CRITICAL`. Included in `CycleResult`. |
 | **Fallback Strategy** | User-defined action taken when a guard REJECTS a proposal (e.g., `stop`, `hold_position`). |
 | **Fault** | A guard result indicating an exception or timeout. Treated as REJECT under fail-safe semantics. |
@@ -156,7 +156,7 @@ Everything else — you write none of this:
  ┌────────────────────────────▼────────────────────────────────┐
  │  EXECUTE  (per cycle, 50 Hz default)                        │
  │  Sense → [L0 gate] → Think → [L1‥L3 validate] → Act        │
- │                              └─ L4 hardware monitor (async) │
+ │                              └─ L3 hardware monitor (async) │
  └────────────────────────────┬────────────────────────────────┘
                               │  guard returns REJECT
  ┌────────────────────────────▼────────────────────────────────┐
@@ -213,16 +213,15 @@ DAM's modules are organized into two distinct responsibilities: **Core Guard Log
 
 ### 1.1 Core Guard Logic
 
-7 modules that carry **safety decision-making authority**, organized across 5 layers and a cross-cutting risk control band.
+7 modules that carry **safety decision-making authority**, organized across 4 layers and a cross-cutting risk control band.
 
 | Module | Layer | Role |
 | :--- | :--- | :--- |
 | **Guard Runtime** | Core | Orchestrates all guards, aggregates decisions, merges named sources |
 | **OOD Guard** | L0 | Rejects out-of-distribution observations (autoencoder) |
-| **Simulation Preflight Guard** | L1 | Pre-executes actions in simulation to detect collisions |
-| **Motion Guard** | L2 | Enforces joint limits, velocity, acceleration, workspace |
-| **Execution Guard** | L3 | Monitors boundary container constraints + node timeouts |
-| **Hardware Guard** | L4 | Monitors current, temperature; triggers hardware E-Stop |
+| **Motion Guard** | L1 | Enforces joint limits, velocity, acceleration, workspace |
+| **Execution Guard** | L2 | Monitors boundary container constraints + node timeouts |
+| **Hardware Guard** | L3 | Monitors current, temperature; triggers hardware E-Stop |
 | **Risk Controller** | Cross-cutting | Windowed risk tracking, global emergency override |
 
 ### Supporting Modules
@@ -330,9 +329,9 @@ Physical hardware entities (motors, arms) are encapsulated as a single **Node** 
        ▲ Sensor Adapter reads      ▲ Action Adapter writes
 ```
 
-### 3.6 Layered Guard Architecture (L0–L4)
+### 3.6 Layered Guard Architecture (L0–L3)
 
-Guards are organized in 5 layers, executed sequentially from L0 (perception) to L4 (hardware). If L4 issues a REJECT, it **short-circuits** immediately — no further checks are needed because hardware-level danger is absolute.
+Guards are organized in 4 layers, executed sequentially from L0 (perception) to L3 (hardware). The final decision is the most restrictive result across active guards.
 
 ### 3.7 Decision Aggregation: REJECT > CLAMP > PASS
 
@@ -461,19 +460,17 @@ Guards are organized into execution stages with explicit dependencies. Within a 
                │
 [Stage 1]  L0 OOD Guard                   ← synchronous gate; REJECT short-circuits
                │ pass
-[Stage 2]  L2 Motion  ║  L1 Sim Preflight (async lookahead shadow thread)
-               │ L2 output: clamped_action or original
-[Stage 3]  L3 Execution Guard              ← consumes L2 output, not raw proposal
+[Stage 2]  L1 Motion Guard                 ← output: clamped_action or original
+               │
+[Stage 3]  L2 Execution Guard              ← consumes L1 output, not raw proposal
                │
 [Stage 4]  Decision Aggregation            ← collects stage 2+3; timeout → fault
                │
 [Stage 5]  Act via ActionBus
-[Always]   L4 Hardware Guard               ← independent async monitor, not in DAG
+[Always]   L3 Hardware Guard               ← independent async monitor, not in DAG
 ```
 
-L1 Sim Preflight runs on a shadow thread with a lookahead buffer. Its result is incorporated if available before the Stage 4 deadline; otherwise it is marked `TIMEOUT` and logged to Risk Controller without blocking the cycle.
-
-The layer strings ("L0"–"L4") passed to `@dam.guard(layer=…)` are converted to `GuardLayer(IntEnum)` at decoration time. The Stage DAG is built as a `list[list[Guard]]` at startup — per-cycle execution is pure list iteration with no string comparison or dynamic lookup. See §3.19 for the full static acceleration strategy.
+The layer strings ("L0"–"L3") passed to `@dam.guard(layer=…)` are converted to `GuardLayer(IntEnum)` at decoration time. The Stage DAG is built as a `list[list[Guard]]` at startup — per-cycle execution is pure list iteration with no string comparison or dynamic lookup. See §3.19 for the full static acceleration strategy.
 
 ### 3.15 Declarative Sources / Sinks — DAM Owns the Entry Point
 
@@ -527,9 +524,9 @@ DAM supports three **runtime enforcement modes** and **named guard profiles** to
 
 | Mode | Guard pipeline | Action dispatched | Use case |
 | :--- | :--- | :--- | :--- |
-| `enforce` | Full validation | `ValidatedAction` (clamped or rejected) | Production deployment |
-| `monitor` | Full validation (runs but does not block) | Original `ActionProposal` unchanged | Policy evaluation, safety labelling, baseline violation rate |
-| `log_only` | Runs guards, records results | Original `ActionProposal` unchanged | Dataset annotation during demonstration recording |
+| `enforce` | Full validation | `ValidatedAction` (clamped or rejected); fallbacks may run | Production deployment |
+| `monitor` | Full validation, record-only enforcement | Original `ActionProposal` unchanged; no violation hooks or fallbacks | Policy evaluation, safety labelling, baseline violation rate |
+| `log_only` | Cycle logging only | Original `ActionProposal` unchanged | Demonstration recording without guard execution |
 
 **Named Profiles** allow different guard subsets per scenario, declared in Stackfile and selected at runtime:
 
@@ -560,7 +557,7 @@ Everything that does not change per-cycle is computed once at startup (or on hot
 | Item | When computed | Hot-path cost |
 | :--- | :--- | :--- |
 | Signature inspection (`inspect.signature`) | `@dam.guard` / `@dam.callback` at import | Zero — cached as `list[str]` |
-| `GuardLayer` ("L0"–"L4" → `IntEnum`) | Decoration time | Zero — string never re-evaluated |
+| `GuardLayer` ("L0"–"L3" → `IntEnum`) | Decoration time | Zero — string never re-evaluated |
 | Stage DAG topology | Startup | `list[list[Guard]]` — pure index access |
 | `_static_kwargs` per guard/callback | Startup / hot-reload | Frozen `dict` unpack, O(1) per key |
 | `_runtime_keys` per guard/callback | Startup / hot-reload | `list[str]`, 2–4 dict lookups per cycle |
@@ -615,21 +612,20 @@ flowchart LR
     HW["Hardware<br/>Sensors + Motors"] -->|raw data| SA["Sensor Adapter"]
     SA -->|Observation| L0["L0: OOD Guard"]
     L0 -->|pass| PA["Policy Adapter"]
-    PA -->|ActionProposal| L1["L1: Sim Preflight"]
-    L1 -->|pass| L2["L2: Motion Guard"]
-    L2 -->|pass/clamp| L3["L3: Execution Guard"]
-    L3 -->|GuardResults| DA["Decision Aggregator"]
+    PA -->|ActionProposal| L1["L1: Motion Guard"]
+    L1 -->|pass/clamp| L2["L2: Execution Guard"]
+    L2 -->|GuardResults| DA["Decision Aggregator"]
     DA -->|ValidatedAction| AA["Action Adapter"]
     AA -->|hw commands| HW
 
     L0 -->|reject| FB["Fallback Registry"]
     L1 -->|reject| FB
-    L2 -.->|clamp| DA
-    L3 -->|reject| FB
+    L1 -.->|clamp| DA
+    L2 -->|reject| FB
     FB -->|fallback action| AA
 
-    L4["L4: Hardware Guard"] -->|monitor| HW
-    L4 -->|E-Stop| HW
+    HWG["L3: Hardware Guard"] -->|monitor| HW
+    HWG -->|E-Stop| HW
 
     subgraph Risk["Cross-Cutting Risk Control Band"]
         RC["Risk Controller"]
@@ -641,8 +637,7 @@ flowchart LR
     L0 -.->|report| RC
     L1 -.->|report| RC
     L2 -.->|report| RC
-    L3 -.->|report| RC
-    L4 -.->|report| RC
+    HWG -.->|report| RC
     RC -.->|emergency override| DA
 ```
 
@@ -756,7 +751,7 @@ class Decision(Enum):
 class GuardResult:
     decision: Decision
     guard_name: str
-    layer: str                                # "L0" ~ "L4"
+    layer: str                                # "L0" ~ "L3"
     reason: str
     clamped_action: Optional[ValidatedAction]
     metadata: Dict[str, Any]
@@ -774,7 +769,7 @@ class GuardResult:
 
 ```python
 class Guard(ABC):
-    def get_layer(self) -> str: ...           # "L0" ~ "L4"
+    def get_layer(self) -> str: ...           # "L0" ~ "L3"
     def get_name(self) -> str: ...
     def check(self, observation, action) -> GuardResult: ...
     def on_violation(self, result) -> None: ...
@@ -1020,7 +1015,7 @@ Available injectable keys: `obs`, `action`, `cycle_id`, `trace_id`, `timestamp`,
 
 ### 7.3 Tier 3: Custom Guard Development
 
-Custom guards extend the guard pipeline. Only needed when built-in L0–L4 guards are insufficient. All injection rules from §7.2 apply — guards use the same InjectionPool.
+Custom guards extend the guard pipeline. Only needed when built-in L0–L3 guards are insufficient. All injection rules from §7.2 apply — guards use the same InjectionPool.
 
 ```python
 import dam
@@ -1085,9 +1080,9 @@ while task_running:
     success = action_adapter.apply(validated)
 
     if not success:
-        # ⑥ L4: Hardware anomaly → E-Stop
+        # ⑥ L3: Hardware anomaly → E-Stop
         action_adapter.emergency_stop()
-        risk_controller.trigger(level="L4", action=validated)
+        risk_controller.trigger(level="L3", action=validated)
 ```
 
 ### 8.2 Guard Runtime `validate()` Internal Flow
@@ -1096,12 +1091,12 @@ while task_running:
 flowchart TD
     Start["validate(observation, action)"] --> ECheck{"Risk Controller:<br/>Emergency Stop?"}
     ECheck -->|yes| RetNull["return None"]
-    ECheck -->|no| Loop["For each Guard L0→L4"]
+    ECheck -->|no| Loop["For each Guard L0→L3"]
     Loop --> Check["guard.check(obs, action)"]
     Check --> Report["risk_controller.report(result)"]
-    Report --> IsL4{"L4 REJECT?"}
-    IsL4 -->|yes| L4Stop["guard.on_violation()<br/>return None"]
-    IsL4 -->|no| Next{"More guards?"}
+    Report --> IsL3{"L3 REJECT?"}
+    IsL3 -->|yes| L3Stop["guard.on_violation()<br/>return None"]
+    IsL3 -->|no| Next{"More guards?"}
     Next -->|yes| Loop
     Next -->|no| Agg["aggregator.aggregate(all_results)"]
     Agg --> Final{"Final decision?"}
@@ -1165,7 +1160,7 @@ flowchart LR
 | **On Exceed** | CLAMP to safe limits (returns modified `ValidatedAction`) |
 | **On Workspace Breach** | REJECT + return to last safe pose |
 
-### 9.4 L3 — Execution Guard
+### 9.4 L2 — Execution Guard
 
 **Purpose**: Monitor active boundary container constraints and manage node transitions during task execution.
 
@@ -1176,7 +1171,7 @@ flowchart LR
 | **Transitions** | Evaluates `advance()` on each step; transitions to next node when condition met |
 | **On Violation** | Trigger per-node fallback strategy (Hold, Gentle Release, Return to Checkpoint, etc.) |
 
-### 9.5 L4 — Hardware Guard
+### 9.5 L3 — Hardware Guard
 
 **Purpose**: Monitor hardware health metrics as the last line of defense. Cannot be overridden by software.
 
@@ -1185,7 +1180,7 @@ flowchart LR
 | **Checks** | Motor current, temperature, force/torque sensor thresholds |
 | **Source** | `ActionAdapter.get_hardware_status()` |
 | **On Violation** | Immediate hardware E-Stop + soft signal to upper layers |
-| **Short-Circuit** | L4 REJECT immediately halts the validation pipeline |
+| **Short-Circuit** | L3 REJECT immediately halts the validation pipeline |
 
 ---
 
@@ -1261,10 +1256,10 @@ Transition:          # Node-to-node transition rule
 
 ### 9.10 Decision Aggregator
 
-Merges all `GuardResult` objects from L0–L4 into a single final decision.
+Merges all `GuardResult` objects from L0–L3 into a single final decision.
 
 **`PriorityDecisionAggregator` Rules:**
-1. Sort results by layer (L4 highest priority → L0 lowest)
+1. Sort results by layer (L3 highest priority → L0 lowest)
 2. Any REJECT → return the highest-layer REJECT
 3. No REJECT but any CLAMP → return the highest-layer CLAMP (with its `clamped_action`)
 4. All PASS → return PASS
@@ -1423,7 +1418,7 @@ All functions that must be implemented, grouped by module. **Bold** = must exist
 | Function | Signature | Notes |
 | :--- | :--- | :--- |
 | **`Guard.check`** | `(**injected) → GuardResult` | ABC; framework wraps in try/except |
-| `Guard.get_layer` | `() → str` | Returns "L0"–"L4" |
+| `Guard.get_layer` | `() → str` | Returns "L0"–"L3" |
 | `Guard.get_name` | `() → str` | Auto-derived from class name if not overridden |
 | `Guard.on_violation` | `(GuardResult) → None` | Hook for side effects |
 | **`DecisionAggregator.aggregate`** | `(List[GuardResult]) → GuardResult` | REJECT > CLAMP > PASS; highest-layer REJECT wins |
@@ -1636,7 +1631,7 @@ First real hardware loop. LeRobot is the primary target for early validation.
 | **Rust MetricBus + RiskController** | Windowed risk aggregation; atomic emergency flag |
 | **Rust WatchdogTimer** | Cycle deadline enforcement |
 | `OODGuard` (L0) | Autoencoder-based, uses `obs.images` from LeRobot cameras |
-| `ExecutionGuard` (L3) | Boundary container evaluation per cycle |
+| `ExecutionGuard` (L2) | Boundary container evaluation per cycle |
 | MCAP context capture on violation | Rolling 30s snapshot |
 
 **Exit criterion:** Real so101 arm runs a pick-and-place task with L0 + L2 + L3 guards active. Violations trigger fallback. Risk Controller escalates to E-Stop on repeated REJECTs.
@@ -1649,7 +1644,7 @@ First real hardware loop. LeRobot is the primary target for early validation.
 | `ROS2SinkAdapter` | Publishes validated actions to declared topics |
 | `ROS2Runner` | Integrates with rclpy executor via timer callback |
 | **Rust ActionBus** | Fallback strategies write via PyO3; hardware receives from Rust |
-| **Rust Hardware Guard (L4)** | Pure Rust hardware monitor; E-Stop independent of Python |
+| **Rust Hardware Guard (L3)** | Pure Rust hardware monitor; E-Stop independent of Python |
 | Stage DAG parallel execution | L1 ‖ L2 in Stage 2; configurable timeouts |
 | `process_group` routing | Multi-process guard isolation via shared memory |
 | Hot reload (double-buffer + fence) | Config version counter across processes |

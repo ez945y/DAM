@@ -55,10 +55,10 @@
 | :--- | :--- |
 | **Guard** | 使用 `@dam.guard` 裝飾並實現 `check(**kwargs) → GuardResult` 的 Python 類。安全邏輯的基本單位。 |
 | **GuardProfile** | Stackfile 中聲明的具名守衛子集 + 執行模式。通過 `dam.use_profile()` 激活。 |
-| **GuardLayer** | 守衛的邏輯分組：L0 (OOD), L1 (Sim), L2 (Motion), L3 (Execution), L4 (Hardware)。 |
+| **GuardLayer** | 守衛的邏輯分組：L0 (OOD), L1 (Physical Kinematics), L2 (Task Execution), L3 (Hardware)。 |
 | **GuardResult** | `guard.check()` 的返回類型。包含 `decision`、`reason` 以及可選的 `clamp_target`。 |
 | **Boundary** | YAML 中定義的具名安全約束節點。邊界與 Python 回調函數之間為 M:N 映射關係。 |
-| **Enforcement Mode** | **執行模式**：每個配置文件的策略：`enforce`（封鎖不安全動作）、`monitor`（僅記錄）或 `log_only`（靜默）。 |
+| **Enforcement Mode** | **執行模式**：每個配置文件的策略：`enforce`（拒絕/限制不安全動作並可觸發 fallback）、`monitor`（檢查並記錄，但不修改輸出、不觸發 violation hook 或 fallback）或 `log_only`（僅記錄 cycle）。 |
 | **RiskLevel** | `RiskController` 產生的評分：`NOMINAL`、`ELEVATED`、`CRITICAL`。包含在 `CycleResult` 中。 |
 | **Fallback Strategy** | 當守衛拒絕提案時採取的用戶定義動作（例如：`stop`、`hold_position`）。 |
 | **Fault** | 表示在 `guard.check()` 期間發生異常或超時。在故障安全語義下視為 REJECT。 |
@@ -156,7 +156,7 @@ DAM 用戶分為三個層次，各層次累加——進階層包含所有基礎�
  ┌────────────────────────────▼────────────────────────────────┐
  │  執行 (每週期，默認 50 Hz)                                   │
  │  感知(Sense) → [L0 閘門] → 思考(Think) → [L1‥L3 驗證] → 行動│
- │                              └─ L4 硬體監控 (異步)          │
+ │                              └─ L3 硬體監控 (異步)          │
  └────────────────────────────┬────────────────────────────────┘
                               │  守衛返回 REJECT
  ┌────────────────────────────▼────────────────────────────────┐
@@ -218,16 +218,15 @@ DAM 的模組分為兩個截然不同的職責：**核心守衛邏輯**（安全
 
 ### 1.1 核心守衛邏輯
 
-具備**安全決策權**的 7 個模組，分佈於 5 個層級以及一個跨層級的風險控制帶。
+具備**安全決策權**的 7 個模組，分佈於 4 個層級以及一個跨層級的風險控制帶。
 
 | 模組 | 層級 | 角色 |
 | :--- | :--- | :--- |
 | **Guard Runtime** | 核心 | 編排所有守衛、聚合決策並分發 |
 | **OOD Guard** | L0 | 拒絕分佈外觀測值（使用 Autoencoder） |
-| **Simulation Preflight Guard** | L1 | 在模擬器中預執行動作以檢測碰撞 |
-| **Motion Guard** | L2 | 強制執行關節限制、速度、加速度與工作空間邊界 |
-| **Execution Guard** | L3 | 監控邊界容器約束 + 節點超時 |
-| **Hardware Guard** | L4 | 監控電流、溫度；觸發硬體 E-Stop |
+| **Motion Guard** | L1 | 強制執行關節限制、速度、加速度與工作空間邊界 |
+| **Execution Guard** | L2 | 監控邊界容器約束 + 節點超時 |
+| **Hardware Guard** | L3 | 監控電流、溫度；觸發硬體 E-Stop |
 | **Risk Controller** | 跨層級 | 窗口化風險追蹤，全局緊急覆蓋 |
 
 ### 輔助模組
@@ -326,8 +325,8 @@ DAM 的模組分為兩個截然不同的職責：**核心守衛邏輯**（安全
        ▲ 傳感器適配器讀取           ▲ 動作適配器寫入
 ```
 
-### 3.6 分層守衛架構 (L0–L4)
-守衛被組織在 5 個層級中，從 L0（感知）到 L4（硬體）順序執行。如果 L4 發出 REJECT，它會立即**短路** —— 因為硬體級別的危險是絕對的，無需進行進一步檢查。
+### 3.6 分層守衛架構 (L0–L3)
+守衛被組織在 4 個層級中，從 L0（感知）到 L3（硬體）順序執行。如果 L3 發出 REJECT，它會立即**短路** —— 因為硬體級別的危險是絕對的，無需進行進一步檢查。
 
 ### 3.7 決策聚合：REJECT > CLAMP > PASS
 所有守衛結果由**優先級決策聚合器**合併：
@@ -458,12 +457,12 @@ dam.stop_task()   # → 安全停止，邊界停用
 [階段 4]  決策聚合 (Decision Aggregation)   ← 收集階段 2+3；超時 → fault
                │
 [階段 5]  通過 ActionBus 執行
-[始終執行] L4 硬體守衛                       ← 獨立的異步監控，不在 DAG 中
+[始終執行] L3 硬體守衛                       ← 獨立的異步監控，不在 DAG 中
 ```
 
 L1 模擬預檢在帶有前瞻緩衝區的影子線程上運行。如果其結果在階段 4 截止日期前可用，則會被納入；否則將被標記為 `TIMEOUT` 並記錄到風險控制器，而不阻塞控制週期。
 
-> **靜態加速注意事項：** 傳遞給 `@dam.guard(layer=…)` 的層字串（`"L0"`–`"L4"`）在裝飾時即轉換為 `GuardLayer(IntEnum)`，運行時永不比較字串。Stage DAG 在啟動時構建為 `list[list[Guard]]`——每週期執行是純列表迭代，無字串比較或動態查找。完整的靜態加速策略詳見 §3.19。
+> **靜態加速注意事項：** 傳遞給 `@dam.guard(layer=…)` 的層字串（`"L0"`–`"L3"`）在裝飾時即轉換為 `GuardLayer(IntEnum)`，運行時永不比較字串。Stage DAG 在啟動時構建為 `list[list[Guard]]`——每週期執行是純列表迭代，無字串比較或動態查找。完整的靜態加速策略詳見 §3.19。
 
 ### 3.15 聲明式來源/接收端 —— DAM 擁有入口點
 用戶無需編寫控制循環或 ROS2 節點。他們在 Stackfile 中聲明**數據來源 (Sources)** 和**驗證後動作的去向 (Sinks)**。DAM 在啟動時自動創建所有訂閱者、發佈者和硬體連接。
@@ -513,9 +512,9 @@ DAM 支持三種**運行時執行模式**和**具名守衛配置文件**，以�
 
 | 模式 | 守衛管線 | 動作分發 | 用例 |
 | :--- | :--- | :--- | :--- |
-| `enforce` | 完整驗證 | `ValidatedAction` (限制或拒絕) | 生產部署 |
-| `monitor` | 完整驗證 (運行但不阻塞) | 原始 `ActionProposal` 不變 | 策略評估、安全標註、基準違規率 |
-| `log_only` | 運行守衛，記錄結果 | 原始 `ActionProposal` 不變 | 示範錄製期間的數據集標註 |
+| `enforce` | 完整驗證 | `ValidatedAction`（限制或拒絕）；可觸發 fallback | 生產部署 |
+| `monitor` | 完整驗證，只做記錄式 enforcement | 原始 `ActionProposal` 不變；不觸發 violation hook 或 fallback | 策略評估、安全標註、基準違規率 |
+| `log_only` | 僅記錄 cycle | 原始 `ActionProposal` 不變 | 不執行守衛的示範錄製 |
 
 **具名配置文件 (Named Profiles)** 允許按場景使用不同的守衛子集，在 Stackfile 中聲明並在運行時選擇：
 
@@ -585,21 +584,20 @@ flowchart LR
     HW["硬體<br/>傳感器 + 電機"] -->|原始數據| SA["Sensor Adapter"]
     SA -->|Observation| L0["L0: OOD Guard"]
     L0 -->|通過| PA["Policy Adapter"]
-    PA -->|ActionProposal| L1["L1: Sim Preflight"]
-    L1 -->|通過| L2["L2: Motion Guard"]
-    L2 -->|通過/限制| L3["L3: Execution Guard"]
-    L3 -->|GuardResults| DA["Decision Aggregator"]
+    PA -->|ActionProposal| L1["L1: Motion Guard"]
+    L1 -->|通過/限制| L2["L2: Execution Guard"]
+    L2 -->|GuardResults| DA["Decision Aggregator"]
     DA -->|ValidatedAction| AA["Action Adapter"]
     AA -->|硬體指令| HW
 
     L0 -->|拒絕| FB["Fallback Registry"]
     L1 -->|拒絕| FB
-    L2 -.->|限制| DA
-    L3 -->|拒絕| FB
+    L1 -.->|限制| DA
+    L2 -->|拒絕| FB
     FB -->|回退動作| AA
 
-    L4["L4: Hardware Guard"] -->|監控| HW
-    L4 -->|E-Stop| HW
+    HWG["L3: Hardware Guard"] -->|監控| HW
+    HWG -->|E-Stop| HW
 
     subgraph Risk["跨層級風險控制帶"]
         RC["Risk Controller"]
@@ -612,7 +610,7 @@ flowchart LR
     L1 -.->|報告| RC
     L2 -.->|報告| RC
     L3 -.->|報告| RC
-    L4 -.->|報告| RC
+    L3 -.->|報告| RC
     RC -.->|緊急覆蓋| DA
 ```
 
@@ -725,7 +723,7 @@ class Decision(Enum):
 class GuardResult:
     decision: Decision
     guard_name: str
-    layer: str                                # "L0" ~ "L4"
+    layer: str                                # "L0" ~ "L3"
     reason: str
     clamped_action: Optional[ValidatedAction]
     metadata: Dict[str, Any]
@@ -743,7 +741,7 @@ class GuardResult:
 
 ```python
 class Guard(ABC):
-    def get_layer(self) -> str: ...           # "L0" ~ "L4"
+    def get_layer(self) -> str: ...           # "L0" ~ "L3"
     def get_name(self) -> str: ...
     def check(self, observation, action) -> GuardResult: ...
     def on_violation(self, result) -> None: ...
@@ -987,7 +985,7 @@ def bad_cb(obs, typo_param) -> bool: ...
 
 ### 7.3 第三層：自定義 Guard 開發
 
-自定義 Guard 用於擴展守衛管線，僅在內建 L0–L4 守衛不足時使用。所有注入規則與 §7.2 相同——Guard 使用同一個 InjectionPool。
+自定義 Guard 用於擴展守衛管線，僅在內建 L0–L3 守衛不足時使用。所有注入規則與 §7.2 相同——Guard 使用同一個 InjectionPool。
 
 ```python
 import dam
@@ -1093,7 +1091,7 @@ L1 守衛運行在獨立線程上，使用當前觀測值、提議動作以及 `
 | 函數 | 簽名 | 備註 |
 | :--- | :--- | :--- |
 | **`Guard.check`** | `(**injected) → GuardResult` | ABC；框架會對其進行 try/except 封裝 |
-| `Guard.get_layer` | `() → str` | 返回 "L0"–"L4" |
+| `Guard.get_layer` | `() → str` | 返回 "L0"–"L3" |
 | `Guard.get_name` | `() → str` | 若未覆蓋則從類名自動衍生 |
 | `Guard.on_violation` | `(GuardResult) → None` | 副作用鉤子 |
 | **`DecisionAggregator.aggregate`** | `(List[GuardResult]) → GuardResult` | REJECT > CLAMP > PASS；最高層級拒絕勝出 |
@@ -1264,7 +1262,7 @@ def test_safety_regression():
 | **Rust ObservationBus** | 基於 MCAP 的環形緩衝區；Python 通過 PyO3 讀取 |
 | **Rust 監測與風險控制** | 窗口化風險聚合；原子緊急標誌 |
 | `OODGuard` (L0) | 基於自動編碼器，使用圖像觀測數據 |
-| `ExecutionGuard` (L3) | 每循環進行邊界容器評估 |
+| `ExecutionGuard` (L2) | 每循環進行邊界容器評估 |
 | 違規時的 MCAP 上下文捕獲 | 滾動 30s 快照 |
 
 **退出準則：** 真實的 so101 機械臂運行抓放任務，L0 + L2 + L3 守衛處於激活狀態。違規會觸發回退，重複拒絕會引發 E-Stop。
@@ -1275,7 +1273,7 @@ def test_safety_regression():
 | :--- | :--- |
 | `ROS2Source/Sink Adapters` | 通過話題訂閱/發佈實現數據交換 |
 | **Rust 動作總線 (ActionBus)** | 硬體直接從 Rust 側接收動作，繞過 Python GIL |
-| **Rust 硬體守衛 (L4)** | 純 Rust 動力學監控；緊急停止獨立於 Python |
+| **Rust 硬體守衛 (L3)** | 純 Rust 動力學監控；緊急停止獨立於 Python |
 | 階段 DAG 多線程/並行執行 | L1 與 L2 並行執行；可配置超時 |
 | 跨進程守衛隔離 | 通過共享內存進行負載分配 |
 | 配置場景熱重載 | 運行時雙緩衝切換配置 |

@@ -40,7 +40,7 @@ class CycleRecord:
     Latency fields
     --------------
     latency_stages : source / policy / guards / sink / total  (ms)
-    latency_layers : L0 … L4 accumulated guard time per layer (ms)
+    latency_layers : L0 … L3 accumulated guard time per layer (ms)
     latency_guards : per-guard individual time, keyed by guard_name (ms)
     """
 
@@ -76,7 +76,7 @@ class CycleRecord:
 
     # ── Latencies (ms) ────────────────────────────────────────────────────────
     latency_stages: dict[str, float]  # source / policy / guards / sink / total
-    latency_layers: dict[str, float]  # L0 … L4
+    latency_layers: dict[str, float]  # L0 … L3
     latency_guards: dict[str, float]  # per guard_name
 
     # ── Violation / clamp summary ─────────────────────────────────────────────
@@ -84,6 +84,19 @@ class CycleRecord:
     has_clamp: bool  # any CLAMP this cycle
     violated_layer_mask: int  # bitmask: bit i → layer Li had REJECT/FAULT
     clamped_layer_mask: int  # bitmask: bit i → layer Li had CLAMP
+
+    # ── Failure harvesting summary ───────────────────────────────────────────
+    # failure_type:
+    #   None                 no failure-worthy guard outcome
+    #   "ood_only"           abnormal perception; only L0/OOD fired
+    #   "guard_triggered"    non-hardware guard rejected/clamped an action
+    #   "hardware_triggered" hardware health/watchdog risk
+    failure_type: str | None = None
+    failure_guard_names: tuple[str, ...] = ()
+    failure_layers: tuple[str, ...] = ()
+    failure_decisions: tuple[str, ...] = ()
+    failure_reasons: tuple[str, ...] = ()
+    failure_tuple: dict[str, Any] | None = None
 
     # ── Provenance ────────────────────────────────────────────────────────────
     # 0 = initial config; bumped by GuardRuntime on every successful hot-reload

@@ -1,4 +1,4 @@
-"""Unit tests for HardwareGuard (L4)."""
+"""Unit tests for HardwareGuard (L3)."""
 
 from __future__ import annotations
 

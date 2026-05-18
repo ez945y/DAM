@@ -41,7 +41,8 @@ _MCAP_MAGIC_SIZE = 8
 #            obs_joint_positions, obs_channels, action_positions, action_velocities,
 #            validated_positions, validated_velocities, was_clamped, fallback_triggered,
 #            guard_results, latency_stages, latency_layers, latency_guards, image_data,
-#            config_version]
+#            config_version, failure_type, failure_guard_names, failure_layers,
+#            failure_decisions, failure_reasons, failure_tuple]
 _IDX_CYCLE = 0
 _IDX_OBS_TIMESTAMP = 1
 _IDX_HAS_VIOLATION = 2
@@ -58,6 +59,12 @@ _IDX_WAS_CLAMPED = 15
 _IDX_GUARD_RESULTS = 17
 _IDX_LATENCY_STAGES = 18
 _IDX_LATENCY_LAYERS = 19
+_IDX_FAILURE_TYPE = 23
+_IDX_FAILURE_GUARD_NAMES = 24
+_IDX_FAILURE_LAYERS = 25
+_IDX_FAILURE_DECISIONS = 26
+_IDX_FAILURE_REASONS = 27
+_IDX_FAILURE_TUPLE = 28
 
 # GuardResult array indices (within guard_results list)
 # Structure: [cycle_id, timestamp, guard_name, layer, layer_int, decision, reason, latency_ms, is_violation, is_clamp, fault_source]
@@ -118,9 +125,8 @@ _DETAIL_TOPICS = {
     "/dam/L1",
     "/dam/L2",
     "/dam/L3",
-    "/dam/L4",
 }
-_LAYER_TOPICS = {f"/dam/L{i}" for i in range(5)}
+_LAYER_TOPICS = {f"/dam/L{i}" for i in range(4)}
 
 
 def _message_get(data: Any, key: str, default: Any = None) -> Any:
@@ -314,7 +320,7 @@ class McapSessionService:
 
     @staticmethod
     def _mask_to_layers(mask: int) -> list[str]:
-        return [f"L{i}" for i in range(5) if mask & (1 << i)]
+        return [f"L{i}" for i in range(4) if mask & (1 << i)]
 
     def _resolve(self, filename: str) -> Path | None:
         """Resolve a filename to a Path object safely and efficiently."""
@@ -417,6 +423,7 @@ class McapSessionService:
                     "cameras": [],
                     "violated_layers": [],
                     "clamped_layers": [],
+                    "failure_types": {},
                     "min_cycle_id": None,
                     "max_cycle_id": None,
                 },
@@ -431,6 +438,7 @@ class McapSessionService:
         violation_cycles, clamp_cycles = 0, 0
         first_ts, last_ts = None, None
         cameras, violated_layers, clamped_layers = set(), set(), set()
+        failure_types: dict[str, int] = {}
         min_cycle_id, max_cycle_id = None, None
         _got_total_from_summary = False
         # Track whether SeekingReader succeeded so we know if we need a
@@ -502,7 +510,7 @@ class McapSessionService:
                                 if len(d) > _IDX_VIOLATED_LAYER_MASK
                                 else 0
                             )
-                            for i in range(5):
+                            for i in range(4):
                                 if v_mask & (1 << i):
                                     violated_layers.add(f"L{i}")
                         has_clamp = bool(d[_IDX_HAS_CLAMP]) if len(d) > _IDX_HAS_CLAMP else False
@@ -513,9 +521,12 @@ class McapSessionService:
                                 if len(d) > _IDX_CLAMPED_LAYER_MASK
                                 else 0
                             )
-                            for i in range(5):
+                            for i in range(4):
                                 if c_mask & (1 << i):
                                     clamped_layers.add(f"L{i}")
+                        failure_type = d[_IDX_FAILURE_TYPE] if len(d) > _IDX_FAILURE_TYPE else None
+                        if isinstance(failure_type, str) and failure_type:
+                            failure_types[failure_type] = failure_types.get(failure_type, 0) + 1
                     except Exception:  # noqa: BLE001
                         continue
 
@@ -565,6 +576,7 @@ class McapSessionService:
                 "cameras": sorted(cameras),
                 "violated_layers": sorted(violated_layers),
                 "clamped_layers": sorted(clamped_layers),
+                "failure_types": failure_types,
                 "min_cycle_id": min_cycle_id,
                 "max_cycle_id": max_cycle_id,
             },
@@ -637,6 +649,9 @@ class McapSessionService:
                                     if len(d) > _IDX_CLAMPED_LAYER_MASK
                                     else 0
                                 ),
+                                "failure_type": d[_IDX_FAILURE_TYPE]
+                                if len(d) > _IDX_FAILURE_TYPE
+                                else None,
                             }
                         )
                         seq += 1
@@ -726,7 +741,7 @@ class McapSessionService:
 
                     if topic == _TOPIC_CYCLE:
                         found = True
-                        # Rust msgpack format (array, 22 elements):
+                        # Rust msgpack format (array, appended fields remain backward-compatible):
                         # [0]cycle_id [1]obs_timestamp [2]has_violation [3]has_clamp
                         # [4]violated_layer_mask [5]clamped_layer_mask [6]active_task
                         # [7]active_boundaries [8]active_cameras [9]obs_joint_positions
@@ -734,6 +749,7 @@ class McapSessionService:
                         # [13]validated_positions [14]validated_velocities [15]was_clamped
                         # [16]fallback_triggered [17]guard_results [18]latency_stages
                         # [19]latency_layers [20]latency_guards [21]image_data
+                        # [22]config_version [23]failure_type ... [28]failure_tuple
                         arr_len = len(d)
                         latency_stages = (
                             d[_IDX_LATENCY_STAGES] if arr_len > _IDX_LATENCY_STAGES else {}
@@ -779,6 +795,24 @@ class McapSessionService:
                                     if arr_len > _IDX_CLAMPED_LAYER_MASK
                                     else 0
                                 ),
+                                "failure_type": d[_IDX_FAILURE_TYPE]
+                                if arr_len > _IDX_FAILURE_TYPE
+                                else None,
+                                "failure_guard_names": d[_IDX_FAILURE_GUARD_NAMES]
+                                if arr_len > _IDX_FAILURE_GUARD_NAMES
+                                else [],
+                                "failure_layers": d[_IDX_FAILURE_LAYERS]
+                                if arr_len > _IDX_FAILURE_LAYERS
+                                else [],
+                                "failure_decisions": d[_IDX_FAILURE_DECISIONS]
+                                if arr_len > _IDX_FAILURE_DECISIONS
+                                else [],
+                                "failure_reasons": d[_IDX_FAILURE_REASONS]
+                                if arr_len > _IDX_FAILURE_REASONS
+                                else [],
+                                "failure_tuple": d[_IDX_FAILURE_TUPLE]
+                                if arr_len > _IDX_FAILURE_TUPLE
+                                else None,
                                 "active_task": d[_IDX_ACTIVE_TASK]
                                 if arr_len > _IDX_ACTIVE_TASK
                                 else None,
@@ -853,7 +887,6 @@ class McapSessionService:
                                 "L1_ms",
                                 "L2_ms",
                                 "L3_ms",
-                                "L4_ms",
                             )
                         }
                     elif topic in _LAYER_TOPICS:

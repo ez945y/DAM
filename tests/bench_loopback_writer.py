@@ -92,12 +92,11 @@ def create_test_cycle(
             "L1": 0.6,
             "L2": 0.7,
             "L3": 0.8,
-            "L4": 0.9,
         },
         latency_guards={f"guard_{i}": 1.0 + i * 0.1 for i in range(num_guards)},
         has_violation=has_violation,
         has_clamp=False,
-        violated_layer_mask=0x1F if has_violation else 0,
+        violated_layer_mask=0x0F if has_violation else 0,
         clamped_layer_mask=0,
     )
 
@@ -164,7 +163,7 @@ def benchmark_json_serialization(num_cycles: int = 1000) -> dict:
         _json(action_msg)
         timings["/dam/action"].append(time.perf_counter_ns() - t0)
 
-        # 4. /dam/L0-L4 (one per guard result)
+        # 4. /dam/L0-L3 (one per guard result)
         for result in rec.guard_results:
             layer_int = int(result.layer)
             is_violation = result.decision in (GuardDecision.REJECT, GuardDecision.FAULT)
@@ -193,7 +192,7 @@ def benchmark_json_serialization(num_cycles: int = 1000) -> dict:
         }
         for key in ("source", "policy", "guards", "sink", "total"):
             latency_msg[f"{key}_ms"] = rec.latency_stages.get(key, 0.0)
-        for key in ("L0", "L1", "L2", "L3", "L4"):
+        for key in ("L0", "L1", "L2", "L3"):
             latency_msg[f"{key}_ms"] = rec.latency_layers.get(key, 0.0)
         t0 = time.perf_counter_ns()
         _json(latency_msg)

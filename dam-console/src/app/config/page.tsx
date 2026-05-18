@@ -362,9 +362,9 @@ export default function ConfigPage() {
   }
 
   const ENFORCEMENT_MODES: { id: EnforcementMode; label: string; description: string }[] = [
-    { id: 'enforce',  label: 'Enforce',  description: 'Actions blocked on reject' },
-    { id: 'monitor',  label: 'Monitor',  description: 'Validates but does not block' },
-    { id: 'log_only', label: 'Log only', description: 'Records only, no interference' },
+    { id: 'enforce',  label: 'Enforce',  description: 'Rejects or clamps unsafe actions and may trigger fallbacks' },
+    { id: 'monitor',  label: 'Monitor',  description: 'Checks and records guard results without modifying actions or triggering fallbacks' },
+    { id: 'log_only', label: 'Log only', description: 'Records cycles without running guard checks' },
   ]
 
   return (
@@ -681,6 +681,7 @@ export default function ConfigPage() {
             {ENFORCEMENT_MODES.map(m => (
               <button
                 key={m.id}
+                title={m.description}
                 onClick={() => set('enforcement_mode', m.id)}
                 className={`px-3 py-1.5 rounded text-xs border transition-all ${
                   cfg.enforcement_mode === m.id

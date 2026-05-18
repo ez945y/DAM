@@ -1,6 +1,6 @@
 # Guard Stack Explained
 
-The **guard stack** is the heart of DAM. Five independent layers evaluate every proposed action from different angles. This document explains how each guard works, what they detect, and how to configure them.
+The **guard stack** is the heart of DAM. Four independent layers evaluate every proposed action from different angles. This document explains how each guard works, what they detect, and how to configure them.
 
 ---
 
@@ -15,9 +15,7 @@ Observation
     ↓ (if passes)
 [ L2 — Motion Safety ]       ← Are joint limits and dynamics safe?
     ↓ (if passes)
-[ L3 — Task Execution ]      ← Does this fit the task boundary?
-    ↓ (if passes)
-[ L4 — Hardware Monitor ]    ← Is the hardware healthy?
+[ L3 — Hardware Monitor ]    ← Is the hardware healthy?
     ↓
 DECISION: Pass / Clamp / Reject
 
@@ -275,7 +273,7 @@ guards:
 
 ---
 
-## Layer 3: Task Execution (L3)
+## Layer 3: Task Execution (L2)
 
 **Responsibility:** Enforce task-specific boundaries and constraints.
 
@@ -352,13 +350,13 @@ boundaries:
 
 ---
 
-## Layer 4: Hardware Monitoring (L4)
+## Layer 3: Hardware Monitoring (L3)
 
 **Responsibility:** Check hardware health and reject if faulted.
 
 ### Health Status
 
-L4 queries the hardware sink for health information:
+L3 queries the hardware sink for health information:
 
 ```python
 @dataclass
@@ -464,8 +462,7 @@ guards:
 | L0 OOD | 0.1–1.0 ms | High (NN lookup) | Optional (FeatureExtractor) |
 | L1 Preflight | 5–50 ms | Very high (simulation) | Optional |
 | L2 Motion | < 1 ms | Low (algebraic checks) | No |
-| L3 Execution | 0.5–2.0 ms | Medium (constraint evaluation) | No |
-| L4 Hardware | < 0.5 ms | Low (sensor queries) | No |
+| L3 Hardware | < 0.5 ms | Low (sensor queries) | No |
 
 **Total typical per-cycle latency:** 1–5 ms at 50 Hz control frequency.
 

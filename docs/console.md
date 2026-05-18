@@ -47,7 +47,7 @@ Real-time overview of the running DAM runtime.
 | **Runtime Control** | Start / Pause / Resume / Stop / E-STOP / Reset |
 | **Cycle Latency** | Rolling area chart of the last 60 end-to-end cycle times |
 | **Pipeline Breakdown** | Horizontal stacked bar showing Source / Policy / Guards / Sink split for the latest cycle (requires MetricBus) |
-| **Guard Layers** | Per-layer (L0–L4) guard latency bars for the latest cycle (requires MetricBus) |
+| **Guard Layers** | Per-layer (L0–L3) guard latency bars for the latest cycle (requires MetricBus) |
 | **Deadline Margin** | Badge next to the latency panel header showing remaining headroom before the cycle budget deadline (green / amber / red) |
 | **Guard Status** | Per-guard table: name, layer, last decision, reason |
 | **Event Log** | Filterable scrolling event log with timestamps |
@@ -83,8 +83,7 @@ Colour mapping:
 | L0 | Violet | OOD Detection guards |
 | L1 | Green | Preflight Simulation guards |
 | L2 | Emerald | Motion Safety guards |
-| L3 | Light-green | Task Execution guards |
-| L4 | Red | Hardware Monitoring guards |
+| L3 | Light-green | Hardware Monitoring guards |
 
 ### Config `/config`
 
@@ -128,9 +127,9 @@ View and analyze recorded loopback sessions.
 | **Session List** | All `.mcap` files in `output_dir`, sorted by date. Shows file size, violation count, clamp count, camera availability. |
 | **Timeline View** | Horizontal timeline of 10,000 cycles (or current session). Each bar coloured by outcome: green=PASS, amber=CLAMP, red=REJECT/FAULT. Click to jump to cycle. |
 | **Cycle Inspector** | When you click a cycle on the timeline, shows: joint angles, EE pose, force/torque, active guards, latency breakdown. |
-| **Guard Result Detail** | Per-guard decision (PASS/CLAMP/REJECT/FAULT) with reason string and latency. Colour-coded by layer (L0–L4). |
+| **Guard Result Detail** | Per-guard decision (PASS/CLAMP/REJECT/FAULT) with reason string and latency. Colour-coded by layer (L0–L3). |
 | **Image Gallery** | If violation has images, displays side-by-side crops from violation ±2 seconds (pre/during/post context). Tap to enlarge. |
-| **Latency Graphs** | Per-cycle latency for source / policy / guards / sink, plus per-layer (L0–L4) stacked area chart. |
+| **Latency Graphs** | Per-cycle latency for source / policy / guards / sink, plus per-layer (L0–L3) stacked area chart. |
 | **Export** | Download filtered subset (date range, cycle range, specific guards) as CSV or new MCAP file for sharing. |
 
 #### Quick workflow
@@ -175,7 +174,7 @@ for the full field reference and wiring instructions.
 
   "perf": {
     "stages":  { "source": 0.8, "policy": 2.1, "guards": 5.4, "sink": 0.4, "total": 8.7 },
-    "layers":  { "L0": 2.1, "L2": 2.0, "L4": 1.3 },
+    "layers":  { "L0": 2.1, "L2": 2.0, "L3": 1.3 },
     "guards":  { "OODGuard": 2.1, "MotionGuard": 1.0, "HardwareGuard": 1.3 },
     "deadline_ms": 20.0,
     "slack_ms": 11.3

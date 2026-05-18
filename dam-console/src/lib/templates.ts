@@ -8,10 +8,11 @@ import type {
   TaskDef,
   BoundaryDef,
   ConstraintNodeDef,
+  FallbackDef,
 } from './types'
 
 // ── Re-export types ──────────────────────────────────────────────────────────
-export type { EnforcementMode, JointDef, PolicyConfig, TaskDef, BoundaryDef, ConstraintNodeDef }
+export type { EnforcementMode, JointDef, PolicyConfig, TaskDef, BoundaryDef, ConstraintNodeDef, FallbackDef }
 
 export type LoopbackConfig = {
   backend: 'mcap' | 'pickle'
@@ -48,6 +49,7 @@ export interface DamConfig {
   joints: JointDef[]
   controlFrequencyHz: number
   enforcement_mode: EnforcementMode
+  fallbacks: FallbackDef[]
   guardsEnabled: Partial<Record<'ood' | 'motion' | 'execution' | 'hardware', boolean>>
   tasks: TaskDef[]
   boundaries: BoundaryDef[]
@@ -123,7 +125,7 @@ const SO101_CAMERAS: CameraConfig[] = [
 const DEFAULT_BOUNDARIES: BoundaryDef[] = [
   {
     name: 'ood_detector', layer: 'L0', type: 'single',
-    nodes: [{ node_id: 'default', params: {}, callback: 'ood_detector', fallback: 'emergency_stop', timeout_sec: 1 }]
+    nodes: [{ node_id: 'default', params: { temporal_smoothing_frames: 3 }, callback: 'ood_detector', fallback: 'emergency_stop', timeout_sec: 1 }]
   },
   {
     name: 'bounds', layer: 'L1', type: 'single',
@@ -141,6 +143,11 @@ const DEFAULT_BOUNDARIES: BoundaryDef[] = [
     name: 'hardware_watchdog', layer: 'L3', type: 'single',
     nodes: [{ node_id: 'default', params: { max_staleness_ms: 1000 }, callback: 'hardware_watchdog', fallback: 'emergency_stop', timeout_sec: 0.1 }]
   },
+]
+
+const DEFAULT_FALLBACKS: FallbackDef[] = [
+  { name: 'emergency_stop', type: 'emergency_stop', params: {}, escalates_to: null },
+  { name: 'hold_position', type: 'hold_position', params: {}, escalates_to: 'emergency_stop' },
 ]
 
 // Helper: add `qp_solver` + `slack_weight` to ANY L1 motion boundary.
@@ -249,7 +256,7 @@ export function defaultConfig(templateId = ''): DamConfig {
     ros2JointTopic: '/joint_states', ros2CmdTopic: '/joint_commands',
     policy: { type: 'noop', pretrained_path: '', device: 'cpu' },
     joints: SO101_JOINTS, controlFrequencyHz: 30, enforcement_mode: 'monitor',
-    guardsEnabled: {}, tasks: [], boundaries: [],
+    fallbacks: DEFAULT_FALLBACKS, guardsEnabled: {}, tasks: [], boundaries: [],
   }
   if (!preset) return base
   // Apply preset but keep identity anonymous (stateless)
@@ -435,6 +442,23 @@ const SCHEMA: YamlSection[] = [
     scalar('enforcement_mode', cfg => cfg.enforcement_mode),
   ]),
   blank,
+  custom((cfg, indent) => {
+    const defs = cfg.fallbacks?.length ? cfg.fallbacks : DEFAULT_FALLBACKS
+    return [
+      `${indent}fallbacks:`,
+      ...defs.flatMap(f => {
+        const lines = [`${indent}  ${f.name}:`, `${indent}    type: ${f.type}`]
+        if (f.escalates_to) lines.push(`${indent}    escalates_to: ${f.escalates_to}`)
+        const params = f.params ?? {}
+        if (Object.keys(params).length > 0) {
+          lines.push(`${indent}    params:`)
+          Object.entries(params).forEach(([k, v]) => lines.push(`${indent}      ${k}: ${fmtValue(v)}`))
+        }
+        return lines
+      }),
+    ]
+  }),
+  blank,
   list('guards', guardLines),
   blank,
   custom((cfg, indent) => !cfg.boundaries.length ? [`${indent}boundaries:`, `${indent}  {}`] : [`${indent}boundaries:`, ...cfg.boundaries.flatMap(b => boundaryLines(b).map(l => `${indent}  ${l}`))]),
@@ -503,19 +527,29 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
   }
   result.guardsEnabled = guardsEnabled
 
-  const lines = yaml.split('\n'); let section: 'none' | 'boundaries' | 'tasks' = 'none';
-  let currentBoundary: any = null; let currentNode: any = null; const boundaries: any[] = []; const tasks: any[] = [];
+  const lines = yaml.split('\n'); let section: 'none' | 'boundaries' | 'tasks' | 'fallbacks' = 'none';
+  let currentBoundary: any = null; let currentNode: any = null; let currentFallback: any = null
+  const boundaries: any[] = []; const tasks: any[] = []; const fallbacks: any[] = [];
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]; const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) continue;
     if (line.startsWith('boundaries:')) { section = 'boundaries'; continue }
     if (line.startsWith('tasks:')) { section = 'tasks'; continue }
+    if (line.startsWith('fallbacks:')) { section = 'fallbacks'; continue }
     if (line.startsWith('version:') || line.startsWith('safety:') || line.startsWith('guards:') || line.startsWith('hardware:') || line.startsWith('policy:') || line.startsWith('loopback:')) {
        section = 'none'; continue
     }
 
-    if (section === 'boundaries') {
+    if (section === 'fallbacks') {
+      if (line.startsWith('  ') && !line.startsWith('    ')) {
+        currentFallback = { name: trimmed.replaceAll(':', ''), type: '', params: {}, escalates_to: null }
+        fallbacks.push(currentFallback)
+      } else if (currentFallback && line.startsWith('    ')) {
+        if (trimmed.startsWith('type:')) currentFallback.type = trimmed.replaceAll('type:', '').trim()
+        else if (trimmed.startsWith('escalates_to:')) currentFallback.escalates_to = trimmed.replaceAll('escalates_to:', '').trim()
+      }
+    } else if (section === 'boundaries') {
       if (line.startsWith('  ') && !line.startsWith('    ')) {
         currentBoundary = { name: trimmed.replaceAll(':', ''), layer: 'L1', type: 'single', nodes: [] }; boundaries.push(currentBoundary);
         currentNode = null  // reset — don't leak previous boundary's last node
@@ -556,6 +590,7 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
   }
   if (boundaries.length > 0) result.boundaries = boundaries
   if (tasks.length > 0) result.tasks = tasks
+  if (fallbacks.length > 0) result.fallbacks = fallbacks
 
   // Parse cameras from BOTH formats:
   // 1. Legacy nested: cameras: { top: { type: opencv, ... } }

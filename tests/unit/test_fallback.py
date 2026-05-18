@@ -77,3 +77,44 @@ def test_fallback_terminal_never_escalates():
     ctx = make_context()
     result = reg.execute_with_escalation("emergency_stop", ctx, bus=None)
     assert result.success
+
+
+def test_configured_fallback_alias_uses_registered_template():
+    reg = FallbackRegistry()
+    reg.register(EmergencyStop())
+    configured = reg.configured_copy(
+        {
+            "hard_stop": type(
+                "Cfg",
+                (),
+                {
+                    "type": "emergency_stop",
+                    "params": {"require_sink": True},
+                    "escalates_to": None,
+                },
+            )()
+        }
+    )
+
+    strat = configured.get("hard_stop")
+    assert strat.get_name() == "hard_stop"
+    assert strat.get_type() == "emergency_stop"
+    assert strat.get_param("require_sink") is True
+
+
+def test_emergency_stop_calls_sink_hook():
+    class Sink:
+        called = False
+
+        def emergency_stop(self):
+            self.called = True
+
+    sink = Sink()
+    reg = FallbackRegistry()
+    reg.register(EmergencyStop())
+    build_escalation_chain(reg)
+
+    result = reg.execute_with_escalation("emergency_stop", make_context(), bus={"sink": sink})
+
+    assert result.success
+    assert sink.called

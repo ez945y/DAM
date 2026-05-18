@@ -33,7 +33,7 @@ DAM decouples safety from learning. Safety becomes a **modular, swappable stack*
 
 | Feature | Benefit |
 |---------|---------|
-| **5-Layer Guard Stack** | Progressive defense from perception (L0) → hardware (L4) |
+| **4-Layer Guard Stack** | Progressive defense from perception (L0) → hardware health (L3) |
 | **Rust Data Plane** | Deterministic, real-time-safe execution outside the Python GIL |
 | **Stackfile-Driven** | Swap hardware, policies, and safety rules via simple YAML. Zero Python code for tier-1 deployments. |
 | **Hot-Reload Boundaries** | Update safety constraints without stopping the loop |
@@ -68,7 +68,7 @@ DAM decouples safety from learning. Safety becomes a **modular, swappable stack*
 
 ## The Guard Stack
 
-DAM evaluates actions through **5 independent layers**, each with a specific responsibility:
+DAM evaluates actions through **4 independent layers**, each with a specific responsibility:
 
 ```
 Policy Output (proposed action)
@@ -79,9 +79,7 @@ Policy Output (proposed action)
     ↓
 [ L2 — Motion Safety ]       ← Are joint limits and dynamics safe?
     ↓
-[ L3 — Task Execution ]      ← Does this fit the task boundaries?
-    ↓
-[ L4 — Hardware Monitor ]    ← Is the hardware healthy?
+[ L3 — Hardware Monitor ]    ← Is the hardware healthy?
     ↓
 DECISION: Pass / Clamp / Reject
     ↓
@@ -127,7 +125,7 @@ Test policies in simulation, deploy directly to hardware with DAM guardrails. Up
 4. **DAM steps every cycle:**
    - Read observations from hardware
    - Propose action from policy
-   - Evaluate through 5-layer guard stack
+   - Evaluate through 4-layer guard stack
    - Clamp/reject if unsafe
    - Send command to hardware
    - Log everything to MCAP

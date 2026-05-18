@@ -50,6 +50,18 @@ pub struct CycleRecordData {
     /// `serde(default)` lets older Python writers omit this field.
     #[serde(default)]
     pub config_version: u64,
+    #[serde(default)]
+    pub failure_type: Option<String>,
+    #[serde(default)]
+    pub failure_guard_names: Vec<String>,
+    #[serde(default)]
+    pub failure_layers: Vec<String>,
+    #[serde(default)]
+    pub failure_decisions: Vec<String>,
+    #[serde(default)]
+    pub failure_reasons: Vec<String>,
+    #[serde(default)]
+    pub failure_tuple: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -523,6 +535,12 @@ mod tests {
             latency_guards: HashMap::new(),
             image_data: vec![],
             config_version: 0,
+            failure_type: None,
+            failure_guard_names: vec![],
+            failure_layers: vec![],
+            failure_decisions: vec![],
+            failure_reasons: vec![],
+            failure_tuple: None,
         }
     }
 

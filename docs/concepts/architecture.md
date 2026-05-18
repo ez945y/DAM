@@ -19,12 +19,11 @@ DAM is designed as a **transparent safety middleware** that intercepts all polic
            │
            ▼ Proposed Action
 ┌─────────────────────────────────────┐
-│  DAM Guard Stack (L0–L4)            │  Multi-layer safety filter
+│  DAM Guard Stack (L0–L3)            │  Multi-layer safety filter
 │  • L0: OOD Detection                │
 │  • L1: Preflight Simulation         │  Decision:
 │  • L2: Motion Safety                │  PASS / CLAMP / REJECT
-│  • L3: Task Execution Logic         │
-│  • L4: Hardware Health Monitor      │
+│  • L3: Hardware Health Monitor      │
 └──────────┬──────────────────────────┘
            │
            ▼ Validated Action
@@ -93,15 +92,14 @@ Falls back to pure-Python if Rust extension is not compiled.
 
 ### 3. **Guard Stack** (Python + optional Rust acceleration)
 
-Five independent layers evaluate the proposed action in sequence.
+Four independent layers evaluate the proposed action in sequence.
 
 | Layer | Responsibility | Implementation |
 |-------|-----------------|-----------------|
 | **L0** | Detect out-of-distribution observations | Memory bank NN or Welford z-score |
 | **L1** | Shadow physics simulation and prediction | Open-source physics engine (configurable) |
 | **L2** | Joint limits, workspace, velocity & dynamics | Vectorized constraint checking |
-| **L3** | Task boundaries and logical consistency | Boundary node evaluation |
-| **L4** | Motor status, temperature, watchdogs | Hardware sink health queries |
+| **L3** | Motor status, temperature, watchdogs | Hardware sink health queries |
 
 Each guard is **completely independent**. You can enable/disable any layer in your Stackfile.
 
@@ -155,7 +153,7 @@ class MySink:
         ...
 
     def health_check(self) -> HealthStatus:
-        """Report hardware health for L4 guard."""
+        """Report hardware health for L3 guard."""
         return HealthStatus(...)
 ```
 
@@ -283,7 +281,7 @@ Only **static** configuration (guard limits, boundary constraints) reloads. Guar
 ## Design Principles
 
 1. **Fail-to-Reject** — any guard timeout, exception, or unexpected behavior results in immediate rejection
-2. **Defense-in-Depth** — safety is not a single check; it's five independent layers
+2. **Defense-in-Depth** — safety is not a single check; it's four independent layers
 3. **Configuration over Code** — use YAML for 99% of deployments; Python for advanced tier-2/3 setups
 4. **Modularity** — swap hardware, policies, and safety rules independently
 5. **Observability** — every decision is auditable; violations are captured for post-incident analysis

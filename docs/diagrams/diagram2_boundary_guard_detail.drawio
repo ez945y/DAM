@@ -47,7 +47,7 @@
         <mxCell id="stage3_lbl" value="Stage 3" style="text;html=1;fontSize=11;fontColor=#64748B;align=left;" vertex="1" parent="1">
           <mxGeometry x="80" y="455" width="60" height="20" as="geometry" />
         </mxCell>
-        <mxCell id="l3" value="L3  Execution Guard&#xa;real-time monitoring · per-joint enforcement" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#6B21A8;strokeColor=#C084FC;fontColor=#F3E8FF;fontSize=14;" vertex="1" parent="1">
+        <mxCell id="l3" value="L2  Execution Guard&#xa;real-time monitoring · per-joint enforcement" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#6B21A8;strokeColor=#C084FC;fontColor=#F3E8FF;fontSize=14;" vertex="1" parent="1">
           <mxGeometry x="200" y="450" width="500" height="70" as="geometry" />
         </mxCell>
 

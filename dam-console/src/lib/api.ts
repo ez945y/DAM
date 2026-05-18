@@ -86,7 +86,7 @@ export const api = {
       '/catalog/guards'
     ),
   getFallbacks: () =>
-    apiFetch<{ fallbacks: { name: string; description?: string; escalates_to?: string }[] }>(
+    apiFetch<{ fallbacks: { name: string; type?: string; params?: Record<string, unknown>; description?: string; escalates_to?: string }[] }>(
       '/control/fallbacks'
     ),
   start: (params?: { task_name?: string; n_cycles?: number; cycle_budget_ms?: number }) => {
@@ -185,6 +185,7 @@ export interface McapSessionDetail extends McapSessionSummary {
     cameras: string[]
     violated_layers: string[]
     clamped_layers: string[]
+    failure_types?: Record<string, number>
   }
   error?: string
 }
@@ -206,6 +207,7 @@ export interface McapCycle {
   clamped_layer_mask: number
   violated_layers: string[]
   clamped_layers: string[]
+  failure_type?: string | null
 }
 
 export interface McapCycleDetail {
@@ -218,6 +220,12 @@ export interface McapCycleDetail {
   clamped_layer_mask: number
   violated_layers: string[]
   clamped_layers: string[]
+  failure_type?: string | null
+  failure_guard_names?: string[]
+  failure_layers?: string[]
+  failure_decisions?: string[]
+  failure_reasons?: string[]
+  failure_tuple?: Record<string, unknown> | null
   active_task: string | null
   active_boundaries: string[]
   // Latency (from /dam/cycle quick access)

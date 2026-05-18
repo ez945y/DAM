@@ -406,6 +406,25 @@ function NodeForm({
                       className={`w-full ${inputCls} h-9 rounded-lg`}
                     />
                  </div>
+                 <div className="space-y-1">
+                    <label
+                      htmlFor={`node-${index}-temporal-smoothing`}
+                      className="text-dam-muted text-[9px] uppercase font-bold tracking-tight px-1 flex justify-between cursor-help group"
+                      title="Temporal smoothing: require this many consecutive OOD frames before the boundary rejects. Use this to absorb lighting, shadow, and brief occlusion false positives."
+                    >
+                      <span className="flex items-center gap-1 underline decoration-dotted underline-offset-2 group-hover:text-dam-blue transition-colors">Temporal Frames <Info size={8} /></span>
+                      <span className="opacity-40 italic">1+</span>
+                    </label>
+                    <input
+                      id={`node-${index}-temporal-smoothing`}
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={node.params.temporal_smoothing_frames ?? 3}
+                      onChange={e => onChange({ ...node, params: { ...node.params, temporal_smoothing_frames: Math.max(1, Number(e.target.value) || 1) } })}
+                      className={`w-full ${inputCls} h-9 rounded-lg`}
+                    />
+                 </div>
         </div>
             </div>
           )

@@ -58,10 +58,10 @@
         <mxCell id="g_kin" value="Motion Guard&#xa;L2" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#166534;strokeColor=#4ADE80;fontColor=#F0FDF4;fontSize=12;" vertex="1" parent="1">
           <mxGeometry x="365" y="486" width="110" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="g_exec" value="Execution Guard&#xa;L3" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#166534;strokeColor=#4ADE80;fontColor=#F0FDF4;fontSize=12;" vertex="1" parent="1">
+        <mxCell id="g_exec" value="Execution Guard&#xa;L2" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#166534;strokeColor=#4ADE80;fontColor=#F0FDF4;fontSize=12;" vertex="1" parent="1">
           <mxGeometry x="490" y="486" width="110" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="g_hw" value="Hardware Guard&#xa;L4" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#166534;strokeColor=#4ADE80;fontColor=#F0FDF4;fontSize=12;" vertex="1" parent="1">
+        <mxCell id="g_hw" value="Hardware Guard&#xa;L3" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#166534;strokeColor=#4ADE80;fontColor=#F0FDF4;fontSize=12;" vertex="1" parent="1">
           <mxGeometry x="615" y="486" width="110" height="70" as="geometry" />
         </mxCell>
         <mxCell id="g_custom" value="Custom Guard&#xa;(user)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#166534;strokeColor=#4ADE80;fontColor=#F0FDF4;fontSize=12;dashed=1;" vertex="1" parent="1">

@@ -68,6 +68,9 @@ Written every cycle. Summarises the decision and latency snapshot.
   "has_clamp": false,
   "violated_layer_mask": 0,
   "clamped_layer_mask": 0,
+  "failure_type": null,
+  "failure_guard_names": [],
+  "failure_tuple": null,
   "source_ms": 0.8,
   "policy_ms": 2.1,
   "guards_ms": 5.4,
@@ -81,6 +84,8 @@ Written every cycle. Summarises the decision and latency snapshot.
 - `violated_layer_mask`: Bitmask (bit i = Layer i had a violation); used to quickly filter MCAP
 - `has_clamp`: true if any guard **clamped** (and `capture_images_on_clamp=true`)
 - `clamped_layer_mask`: Bitmask for clamps
+- `failure_type`: Failure harvesting class: `ood_only`, `guard_triggered`, `hardware_triggered`, or `null`
+- `failure_tuple`: Structured evidence object used for paper/export analysis
 - `latency_*`: Pipeline timings (source, policy, guards, sink) from `MetricBus`
 
 ### `/dam/obs` — Sensor observation
@@ -118,7 +123,7 @@ Command trajectory before and after guard processing.
 
 **Note:** If `was_rejected=true`, then `validated_*` are `null` (action did not execute).
 
-### `/dam/L0` … `/dam/L4` — Per-layer guard results
+### `/dam/L0` … `/dam/L3` — Per-layer guard results
 
 One message per guard per cycle (only if guard is active).
 
@@ -165,8 +170,7 @@ Aggregate latency per layer, written every cycle (requires `MetricBus`).
   "L0_ms": 2.1,
   "L1_ms": 0.5,
   "L2_ms": 1.9,
-  "L3_ms": 0.3,
-  "L4_ms": 0.6
+  "L3_ms": 0.3
 }
 ```
 

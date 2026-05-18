@@ -17,7 +17,7 @@ MCAP channel layout (flat, training-friendly)
 /dam/cycle          — one per cycle: summary, context, latency, violation flags
 /dam/obs            — one per cycle: joint state, end-effector, force-torque
 /dam/action         — one per cycle: proposal + validated action
-/dam/L0 … /dam/L4  — one message *per guard result* per cycle; ``is_violation``
+/dam/L0 … /dam/L3  — one message *per guard result* per cycle; ``is_violation``
                        distinguishes normal from violated results; multiple
                        boundaries firing simultaneously → multiple messages with
                        the same ``cycle_id``
@@ -182,6 +182,12 @@ def _record_to_dict(
         "has_clamp": rec.has_clamp,
         "violated_layer_mask": rec.violated_layer_mask,
         "clamped_layer_mask": rec.clamped_layer_mask,
+        "failure_type": rec.failure_type,
+        "failure_guard_names": list(rec.failure_guard_names),
+        "failure_layers": list(rec.failure_layers),
+        "failure_decisions": list(rec.failure_decisions),
+        "failure_reasons": list(rec.failure_reasons),
+        "failure_tuple": rec.failure_tuple,
         "active_task": rec.active_task,
         "active_boundaries": list(rec.active_boundaries),
         "active_cameras": list(rec.active_cameras),
@@ -387,6 +393,12 @@ class _WriterSession:
                 "has_clamp": {"type": "boolean"},
                 "violated_layer_mask": {"type": "integer"},
                 "clamped_layer_mask": {"type": "integer"},
+                "failure_type": {"type": ["string", "null"]},
+                "failure_guard_names": {"type": "array", "items": {"type": "string"}},
+                "failure_layers": {"type": "array", "items": {"type": "string"}},
+                "failure_decisions": {"type": "array", "items": {"type": "string"}},
+                "failure_reasons": {"type": "array", "items": {"type": "string"}},
+                "failure_tuple": {"type": ["object", "null"]},
                 "source_ms": {"type": "number"},
                 "policy_ms": {"type": "number"},
                 "guards_ms": {"type": "number"},
@@ -430,9 +442,9 @@ class _WriterSession:
         )
         self._reg_channel("/dam/action", sid)
 
-        # /dam/L0 … /dam/L4  — each layer gets its own channel so downstream
+        # /dam/L0 … /dam/L3  — each layer gets its own channel so downstream
         # tools can subscribe to exactly the layer they care about.
-        for layer_int in range(5):
+        for layer_int in range(4):
             sid = self._reg_schema(
                 f"dam.GuardResult.L{layer_int}",
                 self._GUARD_RESULT_SCHEMA_PROPS,
@@ -444,7 +456,7 @@ class _WriterSession:
             "cycle_id": {"type": "integer"},
             "timestamp": {"type": "number"},
         }
-        for key in ("source", "policy", "guards", "sink", "total", "L0", "L1", "L2", "L3", "L4"):
+        for key in ("source", "policy", "guards", "sink", "total", "L0", "L1", "L2", "L3"):
             latency_props[f"{key}_ms"] = {"type": "number"}
         sid = self._reg_schema("dam.Latency", latency_props)
         self._reg_channel("/dam/latency", sid, user_data={"unit": "ms"})
@@ -791,6 +803,12 @@ class LoopbackWriter:
             "has_clamp": rec.has_clamp,
             "violated_layer_mask": rec.violated_layer_mask,
             "clamped_layer_mask": rec.clamped_layer_mask,
+            "failure_type": rec.failure_type,
+            "failure_guard_names": list(rec.failure_guard_names),
+            "failure_layers": list(rec.failure_layers),
+            "failure_decisions": list(rec.failure_decisions),
+            "failure_reasons": list(rec.failure_reasons),
+            "failure_tuple": rec.failure_tuple,
             "source_ms": rec.latency_stages.get("source", 0.0),
             "policy_ms": rec.latency_stages.get("policy", 0.0),
             "guards_ms": rec.latency_stages.get("guards", 0.0),
@@ -824,7 +842,7 @@ class LoopbackWriter:
             action_msg["validated_velocities"] = rec.validated_velocities
         session.write("/dam/action", _json(action_msg), log_time_ns)
 
-        # 4. /dam/L0 … /dam/L4 — one message per guard result.
+        # 4. /dam/L0 … /dam/L3 — one message per guard result.
         #    Multiple boundaries firing at once → multiple messages on the same
         #    channel, all sharing cycle_id for easy joining in analysis.
         for result in rec.guard_results:
@@ -853,7 +871,7 @@ class LoopbackWriter:
         }
         for key in ("source", "policy", "guards", "sink", "total"):
             latency_msg[f"{key}_ms"] = rec.latency_stages.get(key, 0.0)
-        for key in ("L0", "L1", "L2", "L3", "L4"):
+        for key in ("L0", "L1", "L2", "L3"):
             latency_msg[f"{key}_ms"] = rec.latency_layers.get(key, 0.0)
         session.write("/dam/latency", _json(latency_msg), log_time_ns)
 

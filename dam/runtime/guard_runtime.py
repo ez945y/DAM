@@ -47,6 +47,7 @@ class GuardRuntime:
         kinematics_resolver: KinematicsResolver | None = None,
         boundary_to_kind: dict[str, str] | None = None,
         frame_hub: Any | None = None,
+        default_fallback: str = "emergency_stop",
     ) -> None:
         if always_active is None:
             always_active = []
@@ -90,6 +91,7 @@ class GuardRuntime:
         self._policy: Any = None
         self._sink: Any = None
         self._kinematics_resolver = kinematics_resolver
+        self._default_fallback = default_fallback
         self._stages: list[Any] | None = None
         self._frame_hub = frame_hub
 
@@ -150,6 +152,7 @@ class GuardRuntime:
             enforcement_mode=enforcement_mode,
             fallback_registry=fallback_registry,
             metric_bus=self._metric_bus,
+            default_fallback=default_fallback,
         )
 
         # Startup: pre-compute injection for all guards
@@ -498,6 +501,8 @@ class GuardRuntime:
             kinematics_resolver=self._kinematics_resolver,
             hardware_status=self._collect_hardware_status(obs),
             risk_controller=self._risk_controller,
+            sink=self._sink,
+            runtime=self,
             prev_validated_positions=self._prev_validated_positions,
             dynamics=self._select_dynamics(),
         )
@@ -748,6 +753,19 @@ class GuardRuntime:
         obs_channels: dict[str, list[float]] = {
             name: arr.tolist() for name, arr in obs.iter_channels()
         }
+        failure = self._build_failure_harvest(
+            obs=obs,
+            action=action,
+            validated=validated,
+            guard_results=guard_results,
+            fallback_triggered=fallback_triggered,
+            trace_id=trace_id,
+            has_violation=has_violation,
+            has_clamp=has_clamp,
+            violated_layer_mask=violated_layer_mask,
+            clamped_layer_mask=clamped_layer_mask,
+            obs_channels=obs_channels,
+        )
 
         rec = CycleRecord(
             cycle_id=self._cycle_id - 1,
@@ -774,9 +792,96 @@ class GuardRuntime:
             has_clamp=has_clamp,
             violated_layer_mask=violated_layer_mask,
             clamped_layer_mask=clamped_layer_mask,
+            failure_type=failure["failure_type"],
+            failure_guard_names=tuple(failure["guard_names"]),
+            failure_layers=tuple(failure["layers"]),
+            failure_decisions=tuple(failure["decisions"]),
+            failure_reasons=tuple(failure["reasons"]),
+            failure_tuple=failure["tuple"],
             config_version=self._config_version,
         )
         self._loopback.submit(rec)  # type: ignore[union-attr]
+
+    def _build_failure_harvest(
+        self,
+        *,
+        obs: Observation,
+        action: ActionProposal,
+        validated: ValidatedAction | None,
+        guard_results: list[GuardResult],
+        fallback_triggered: str | None,
+        trace_id: str,
+        has_violation: bool,
+        has_clamp: bool,
+        violated_layer_mask: int,
+        clamped_layer_mask: int,
+        obs_channels: dict[str, list[float]],
+    ) -> dict[str, Any]:
+        failure_results = [
+            r
+            for r in guard_results
+            if r.decision in (GuardDecision.REJECT, GuardDecision.FAULT, GuardDecision.CLAMP)
+        ]
+        guard_names = [r.guard_name for r in failure_results]
+        layers = [f"L{int(r.layer)}" for r in failure_results]
+        decisions = [r.decision.name for r in failure_results]
+        reasons = [r.reason for r in failure_results]
+
+        failure_type: str | None = None
+        if failure_results:
+            has_hardware = any(
+                int(r.layer) == 3
+                or r.fault_source == "hardware"
+                or "hardware" in r.guard_name.lower()
+                for r in failure_results
+            )
+            all_ood = all(
+                int(r.layer) == 0 or "ood" in r.guard_name.lower() for r in failure_results
+            )
+            if has_hardware:
+                failure_type = "hardware_triggered"
+            elif all_ood:
+                failure_type = "ood_only"
+            else:
+                failure_type = "guard_triggered"
+
+        failure_tuple = None
+        if failure_type is not None:
+            failure_tuple = {
+                "schema": "dam.failure_tuple.v1",
+                "cycle_id": self._cycle_id - 1,
+                "trace_id": trace_id,
+                "timestamp": obs.timestamp,
+                "failure_type": failure_type,
+                "active_task": self._active_task,
+                "active_boundaries": list(self._active_container_names),
+                "guard_names": guard_names,
+                "layers": layers,
+                "decisions": decisions,
+                "reasons": reasons,
+                "fault_sources": [r.fault_source for r in failure_results],
+                "has_violation": has_violation,
+                "has_clamp": has_clamp,
+                "violated_layer_mask": violated_layer_mask,
+                "clamped_layer_mask": clamped_layer_mask,
+                "fallback_triggered": fallback_triggered,
+                "action_target_positions": action.target_joint_positions.tolist(),
+                "validated_positions": (
+                    validated.target_joint_positions.tolist()
+                    if validated is not None and validated.target_joint_positions is not None
+                    else None
+                ),
+                "observation_channels": sorted(obs_channels),
+            }
+
+        return {
+            "failure_type": failure_type,
+            "guard_names": guard_names,
+            "layers": layers,
+            "decisions": decisions,
+            "reasons": reasons,
+            "tuple": failure_tuple,
+        }
 
     def _log_source_latency_if_slow(
         self,
@@ -883,6 +988,7 @@ class GuardRuntime:
         Called by ``from_stackfile`` and by ``RuntimeFactory`` (which already
         holds a parsed config and uses this to avoid re-parsing the YAML).
         """
+        from dam.fallback.builtin import register_all as register_fallbacks
         from dam.fallback.chain import build_escalation_chain
         from dam.fallback.registry import get_global_registry
         from dam.registry.callback import get_global_registry as _get_cb_registry
@@ -893,7 +999,8 @@ class GuardRuntime:
             config, _get_cb_registry(), get_guard_registry()
         )
 
-        fallback_registry = get_global_registry()
+        register_fallbacks()
+        fallback_registry = get_global_registry().configured_copy(config.fallbacks)
         build_escalation_chain(fallback_registry)
 
         task_config = {tname: tcfg.boundaries for tname, tcfg in config.tasks.items()}
@@ -924,6 +1031,7 @@ class GuardRuntime:
             kinematics_resolver=kinematics_resolver,
             boundary_to_kind=boundary_to_kind,
             frame_hub=frame_hub,
+            default_fallback=config.safety.no_task_behavior,
         )
 
     @classmethod
@@ -1026,7 +1134,7 @@ class GuardRuntime:
         return BoundaryNode(
             node_id=ncfg.node_id,
             constraint=constraint,
-            fallback=ncfg.fallback,
+            fallback=ncfg.fallback or config.safety.no_task_behavior,
             timeout_sec=ncfg.timeout_sec,
         )
 

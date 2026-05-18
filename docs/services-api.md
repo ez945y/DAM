@@ -84,7 +84,7 @@ The `perf` field is present only when `MetricBus` is wired in (see above).
     "layers": {
       "L0": 2.1,
       "L2": 2.0,
-      "L4": 1.3
+      "L3": 1.3
     },
     "guards": {
       "OODGuard":    2.1,
@@ -105,7 +105,7 @@ The `perf` field is present only when `MetricBus` is wired in (see above).
 | `stages.guards` | float ms | All guards combined (`validate()`) |
 | `stages.sink` | float ms | Action dispatch (`sink.apply()`) |
 | `stages.total` | float ms | End-to-end cycle time |
-| `layers.*` | float ms | Sum of guard latencies for that `GuardLayer` in this cycle.<br>Keys follow the `"L0"`–`"L4"` convention; only layers that executed appear. |
+| `layers.*` | float ms | Sum of guard latencies for that `GuardLayer` in this cycle.<br>Keys follow the `"L0"`–`"L3"` convention; only layers that executed appear. |
 | `guards.*` | float ms | Per-guard latest execution time. |
 | `deadline_ms` | float ms | Configured cycle budget (`1000 / control_frequency_hz`). |
 | `slack_ms` | float ms | Remaining headroom: `deadline_ms − total_ms`. Negative means over-budget. |

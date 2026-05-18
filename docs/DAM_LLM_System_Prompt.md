@@ -32,14 +32,14 @@ DAM 是「可拆卸」的——附加到任何已存在的機器人系統上，�
 
 ### 守衛層級與 Stage DAG
 
-五層守衛：L0(OOD) → L1(SimPreflight) → L2(Motion) → L3(Execution) → L4(Hardware)
+四層守衛：L0(OOD) → L1(Motion/Physical Kinematics) → L2(Execution) → L3(Hardware)
 
 執行拓撲（list[list[Guard]]，啟動時構建）：
 - Stage 0: L0 同步閘門（REJECT 短路）
-- Stage 1: L2 ‖ L1（並行）
-- Stage 2: L3（消耗 L2 輸出）
+- Stage 1: L1 Motion（可限制 action）
+- Stage 2: L2 Execution（消耗 L1 輸出）
 - DecisionAggregator: max(GuardDecision IntEnum) → REJECT > CLAMP > PASS
-- L4 獨立異步監控，不在 DAG 中
+- L3 Hardware 監控硬體健康
 
 ### 決策類型
 

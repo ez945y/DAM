@@ -129,8 +129,45 @@ class TestOodPostWarmup:
         """After training on near-zero data, a 1e6 observation must be OOD."""
         self._train_welford(n=50, positions=[0.0] * 6)
         extreme_obs = _obs([1e6] * 6)
-        result = ood_detector(obs=extreme_obs, backend="welford", ood_model_path="__pw__")
+        result = ood_detector(
+            obs=extreme_obs,
+            backend="welford",
+            ood_model_path="__pw__",
+            temporal_smoothing_frames=1,
+        )
         assert result is False, "extreme outlier must be flagged as OOD after warmup"
+
+    def test_extreme_outlier_requires_configured_consecutive_frames(self):
+        """Temporal smoothing suppresses isolated OOD false positives."""
+        self._train_welford(n=50, positions=[0.0] * 6)
+        extreme_obs = _obs([1e6] * 6)
+        assert (
+            ood_detector(
+                obs=extreme_obs,
+                backend="welford",
+                ood_model_path="__pw__",
+                temporal_smoothing_frames=3,
+            )
+            is True
+        )
+        assert (
+            ood_detector(
+                obs=extreme_obs,
+                backend="welford",
+                ood_model_path="__pw__",
+                temporal_smoothing_frames=3,
+            )
+            is True
+        )
+        assert (
+            ood_detector(
+                obs=extreme_obs,
+                backend="welford",
+                ood_model_path="__pw__",
+                temporal_smoothing_frames=3,
+            )
+            is False
+        )
 
 
 # ── OOD in monitor-mode pipeline ──────────────────────────────────────────────

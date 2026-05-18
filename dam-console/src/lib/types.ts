@@ -10,7 +10,7 @@ export interface PerfSnapshot {
   /** Pipeline-stage breakdown: source / policy / guards / sink / total */
   stages:      Record<string, number>
   /** Per-layer guard latency sums for the last committed cycle.
-   *  Keys are "L0" … "L4" (only layers that executed are present). */
+   *  Keys are "L0" … "L3" (only layers that executed are present). */
   layers:      Record<string, number>
   /** Per-guard latest latency. */
   guards:      Record<string, number>
@@ -95,6 +95,13 @@ export interface BoundaryConfig {
 }
 
 export type EnforcementMode = 'enforce' | 'monitor' | 'log_only'
+
+export interface FallbackDef {
+  name: string
+  type: string
+  params: Record<string, any>
+  escalates_to: string | null
+}
 
 export interface JointDef {
   name: string
@@ -200,10 +207,14 @@ export interface McapCycleData {
   action: Record<string, any>
   /** Guard execution results for this cycle */
   guard_results: GuardStatus[]
-  /** Bitmask of violated layers (L0-L4) */
+  /** Bitmask of violated layers (L0-L3) */
   violated_layer_mask: number
-  /** Bitmask of clamped layers (L0-L4) */
+  /** Bitmask of clamped layers (L0-L3) */
   clamped_layer_mask: number
+  /** Failure harvesting class for this cycle, when a guard/clamp/fault fired. */
+  failure_type?: 'ood_only' | 'guard_triggered' | 'hardware_triggered' | null
+  /** Structured paper/export schema with evidence for the harvested failure. */
+  failure_tuple?: Record<string, unknown> | null
   /** Latency breakdown for this cycle (ms) */
   latency_ms: Record<string, number>
   /** Images captured (if enabled) for this cycle: { camera_name: frame_idx } */

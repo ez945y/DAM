@@ -44,7 +44,7 @@ The policy was trained on a distribution of observations (e.g., arm configuratio
 
 **Does NOT guarantee:**
 - Perfect OOD detection (like all statistical methods, it has false negatives and false positives)
-- Policy safety even on in-distribution observations (that's L2–L4's job)
+- Policy safety even on in-distribution observations (that's L1–L3's job)
 
 **Typical configuration:**
 ```yaml
@@ -119,7 +119,7 @@ guards:
 
 ---
 
-### Layer 3: Task Execution (L3)
+### Layer 3: Task Execution (L2)
 
 **What it guards against:** Actions that violate task-level constraints.
 
@@ -154,11 +154,11 @@ boundaries:
 
 ---
 
-### Layer 4: Hardware Monitoring (L4)
+### Layer 3: Hardware Monitoring (L3)
 
 **What it guards against:** Hardware faults (motor overheating, disconnection, watchdog timeout).
 
-L4 queries the hardware sink to check motor status, temperature, and other health indicators.
+L3 queries the hardware sink to check motor status, temperature, and other health indicators.
 
 **Example health check:**
 ```python
@@ -172,7 +172,7 @@ class MySink:
         )
 ```
 
-L4 rejects any action if:
+L3 rejects any action if:
 - Motor is faulted
 - Temperature exceeds safe limit
 - Watchdog is not responding

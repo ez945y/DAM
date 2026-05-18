@@ -55,9 +55,12 @@ def fallback(
 
     def decorator(cls: G) -> G:
         cls._fallback_name = name
+        cls._fallback_type = name
+        cls._params = {}
         cls._escalates_to = escalates_to
         from dam.fallback.registry import get_global_registry
 
+        get_global_registry().register_template(name, cls)
         with contextlib.suppress(ValueError):
             get_global_registry().register(cls())
         return cls

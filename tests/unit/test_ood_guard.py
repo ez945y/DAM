@@ -52,3 +52,30 @@ def test_ood_rejects_extreme_obs_after_warmup(OG):
     # Extreme observation — very different from baseline
     result = g.check(obs=make_obs([100.0] * 6), nn_threshold=0.5)
     assert result.decision == GuardDecision.REJECT
+
+
+def test_ood_temporal_smoothing_requires_consecutive_outliers(OG):
+    g = OG()
+    precompute_injection(g, {})
+    for _ in range(40):
+        g.check(obs=make_obs([0.01] * 6), nn_threshold=0.5)
+
+    first = g.check(
+        obs=make_obs([100.0] * 6),
+        nn_threshold=0.5,
+        temporal_smoothing_frames=3,
+    )
+    second = g.check(
+        obs=make_obs([100.0] * 6),
+        nn_threshold=0.5,
+        temporal_smoothing_frames=3,
+    )
+    third = g.check(
+        obs=make_obs([100.0] * 6),
+        nn_threshold=0.5,
+        temporal_smoothing_frames=3,
+    )
+
+    assert first.decision == GuardDecision.PASS
+    assert second.decision == GuardDecision.PASS
+    assert third.decision == GuardDecision.REJECT

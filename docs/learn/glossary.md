@@ -91,10 +91,10 @@ Computing end-effector position/orientation from joint angles. Used by L2 and L3
 A boundary type where nodes form a directed acyclic graph (DAG). Allows arbitrary transitions between nodes. Currently Python-only (not supported via Stackfile).
 
 **Guard**
-An independent constraint evaluator running once per cycle. DAM has 5 guards (L0–L4). Each uses different inputs and logic. Decisions are combined using "most restrictive wins."
+An independent constraint evaluator running once per cycle. DAM has 4 guards (L0–L3). Each uses different inputs and logic. Decisions are combined using "most restrictive wins."
 
 **Guard Stack**
-The collection of all 5 guard layers (L0–L4) evaluating in sequence. Each layer votes independently; the most restrictive decision is applied.
+The collection of all 4 guard layers (L0–L3) evaluating in sequence. Each layer votes independently; the most restrictive decision is applied.
 
 ---
 
@@ -109,7 +109,7 @@ A software interface to robot hardware accepting validated actions and executing
 A software interface reading sensor data from robot hardware (joint positions, velocities, forces, cameras). Feeds observations into DAM.
 
 **Health Status**
-Information about hardware health returned by a sink: motor fault flags, temperature, watchdog status, connection state. Evaluated by L4 guard.
+Information about hardware health returned by a sink: motor fault flags, temperature, watchdog status, connection state. Evaluated by L3 guard.
 
 **Hold Position**
 A fallback strategy that commands zero velocity, keeping the robot at its current position without moving.
@@ -147,9 +147,9 @@ Robot motion constraints based on geometry: joint limits, workspace bounds, velo
 
 **L2 Guard** (See **Motion Safety**)
 
-**L3 Guard** (See **Task Execution**)
+**L2 Guard** (See **Task Execution**)
 
-**L4 Guard** (See **Hardware Monitoring**)
+**L3 Guard** (See **Hardware Monitoring**)
 
 **Layer** (See **Guard**)
 
@@ -261,7 +261,7 @@ An observation older than the configured threshold (e.g., 0.1 seconds). DAM warn
 **Task**
 A named job that activates one or more boundary containers. Example: "pick_and_place" task activates "reach" and "place" boundaries.
 
-**Task Execution Guard** (L3)
+**Task Execution Guard** (L2)
 Guard layer enforcing task-specific boundary constraints: max speed, workspace bounds, force limits, callbacks, timeouts.
 
 **Telemetry**

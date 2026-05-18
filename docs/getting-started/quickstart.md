@@ -65,7 +65,7 @@ make lint         # Linters only
 ## Customize with Stackfiles
 
 Edit `.dam_stackfile.yaml` to change:
-- Guard parameters (L0–L4)
+- Guard parameters (L0–L3)
 - Task boundaries
 - Hardware adapters
 - Safety constraints

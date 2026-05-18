@@ -64,6 +64,7 @@ Top-level keys accepted by a Stackfile:
 | `hardware` | object | no | — | Hardware sources, sinks, and joint presets |
 | `policy` | object | no | — | Policy adapter type and parameters |
 | `guards` | object | no | `{}` | Guard enable flags and parameters |
+| `fallbacks` | object | no | built-ins | Named fallback strategies. Each entry references a registered `@dam.fallback` type. |
 | `boundaries` | object | no | `{}` | Named boundary containers |
 | `tasks` | object | no | `{}` | Named tasks referencing boundary containers |
 | `safety` | object | no | see below | Global safety settings |
@@ -81,6 +82,23 @@ Top-level keys accepted by a Stackfile:
 | `control_frequency_hz` | float | `30.0` | Target control loop frequency |
 | `max_obs_age_sec` | float | `0.1` | Maximum observation age before stale warning |
 | `cycle_budget_ms` | float | `20.0` | Per-cycle time budget; excess triggers watchdog |
+
+### `fallbacks` section
+
+Fallback implementations are registered in Python with `@dam.fallback`, independently
+from boundary callbacks. The Stackfile defines named fallback strategies and boundary
+nodes reference those names.
+
+```yaml
+fallbacks:
+  emergency_stop:
+    type: emergency_stop
+  hold_position:
+    type: hold_position
+    escalates_to: emergency_stop
+    params:
+      require_sink: false
+```
 
 ### `runtime` section defaults
 
@@ -123,6 +141,7 @@ Out-of-distribution gate. Checks the reconstruction error of the full observatio
 |-------|------|---------|-------------|
 | `enabled` | bool | `true` | Enable/disable this guard |
 | `params.reconstruction_threshold` | float | `0.05` | Maximum allowed reconstruction error |
+| `params.temporal_smoothing_frames` | int | `3` | Consecutive OOD frames required before rejecting; absorbs lighting, shadow, and brief occlusion false positives |
 
 ### `guards.builtin.execution` (L3)
 
@@ -404,7 +423,7 @@ loopback:
 - `/dam/cycle` — control loop summary (pass / clamp / reject / fault)
 - `/dam/obs` — sensor state (joint angles, EE pose, force/torque)
 - `/dam/action` — proposal and validated action
-- `/dam/L0` … `/dam/L4` — per-layer guard results
+- `/dam/L0` … `/dam/L3` — per-layer guard results
 - `/dam/latency` — per-layer latency aggregates
 - `/dam/images/{cam}` — camera frames (on violation or clamp)
 

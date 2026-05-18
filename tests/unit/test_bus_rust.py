@@ -262,10 +262,10 @@ class TestPipelineMetricBus:
 
     def test_layer_key_format_is_L_prefixed(self):
         mb = PipelineMetricBus()
-        mb.push_guard("g", 4, 1.0)
+        mb.push_guard("g", 3, 1.0)
         mb.commit_cycle()
         snap = mb.snapshot()
-        assert "L4" in snap["layers"]
+        assert "L3" in snap["layers"]
 
     # ── snapshot — guards field ────────────────────────────────────────────
 

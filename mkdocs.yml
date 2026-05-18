@@ -53,6 +53,7 @@ nav:
     - Guards: guards-reference.md
     - Boundary Callbacks: boundary-callbacks.md
     - Loopback Logging: loopback-logging.md
+    - Failure Tuple Schema: failure-tuple-schema.md
     - Specification: DAM_Specification.md
     - Experiments: experiments.md
   - Console:

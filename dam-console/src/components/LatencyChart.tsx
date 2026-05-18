@@ -24,7 +24,6 @@ const LAYER_META: Record<string, { label: string; color: string }> = {
   L1: { label: 'L1 Preflight', color: '#34D399' },
   L2: { label: 'L2 Motion',    color: '#10B981' },
   L3: { label: 'L3 Execution', color: '#6EE7B7' },
-  L4: { label: 'L4 Hardware',  color: '#F87171' },
 }
 
 // ── Compact CSS bar row (shared by pipeline stages and guard layers) ─────────

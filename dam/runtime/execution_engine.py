@@ -34,10 +34,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Default fallback handler name when no active container specifies one.
-# Must match a registered fallback in dam.fallback.registry.
-_DEFAULT_FALLBACK = "emergency_stop"
-
 
 @dataclasses.dataclass
 class ValidationContext:
@@ -76,13 +72,15 @@ class ValidationContext:
     kinematics_resolver: Any | None
     hardware_status: dict[str, Any] | None
     risk_controller: RiskController
+    sink: Any | None = None
+    runtime: Any | None = None
     prev_validated_positions: list[float] | None = None
     # DynamicsContext (FK + cached Jacobians) refreshed by the sensor adapter
     # in its read() path.  Guards consume it via the ``dynamics`` injection key.
     dynamics: Any | None = None
 
 
-def _make_dummy_node() -> Any:
+def _make_dummy_node(fallback_name: str) -> Any:
     """Return a minimal BoundaryNode-like object used when no active container exists."""
     from dam.boundary.constraint import BoundaryConstraint
     from dam.boundary.node import BoundaryNode
@@ -90,7 +88,7 @@ def _make_dummy_node() -> Any:
     return BoundaryNode(
         node_id="__dummy__",
         constraint=BoundaryConstraint(params={}),
-        fallback=_DEFAULT_FALLBACK,
+        fallback=fallback_name,
     )
 
 
@@ -125,10 +123,12 @@ class ExecutionEngine:
         enforcement_mode: EnforcementMode,
         fallback_registry: FallbackRegistry,
         metric_bus: PipelineMetricBus,
+        default_fallback: str = "emergency_stop",
     ) -> None:
         self._enforcement_mode = enforcement_mode
         self._fallback_registry = fallback_registry
         self._metric_bus = metric_bus
+        self._default_fallback = default_fallback
         self._thread_pool: ThreadPoolExecutor | None = None
 
     def _get_executor(self, max_workers: int) -> ThreadPoolExecutor:
@@ -159,6 +159,10 @@ class ExecutionEngine:
             (ValidatedAction, results, None)       — action passed or was clamped
             (None,           results, fallback_name) — action rejected and fallback fired
         """
+        if self._enforcement_mode == EnforcementMode.LOG_ONLY:
+            ctx.risk_controller.record(was_clamped=False, was_rejected=False)
+            return self._make_validated_action(action), [], None
+
         runtime_pool = self._build_runtime_pool(obs, action, trace_id, ctx, now)
 
         if ctx.stages is not None:
@@ -175,6 +179,8 @@ class ExecutionEngine:
 
         if aggregated.decision == GuardDecision.CLAMP:
             ctx.risk_controller.record(was_clamped=True, was_rejected=False)
+            if self._enforcement_mode != EnforcementMode.ENFORCE:
+                return self._make_validated_action(action), all_results, None
             return aggregated.clamped_action, all_results, None
 
         ctx.risk_controller.record(was_clamped=False, was_rejected=False)
@@ -225,25 +231,33 @@ class ExecutionEngine:
         ctx: ValidationContext,
     ) -> tuple[ValidatedAction | None, list[GuardResult], str | None]:
         ctx.risk_controller.record(was_clamped=False, was_rejected=True)
-        for g in ctx.guards:
-            g.on_violation(aggregated)
 
         if self._enforcement_mode != EnforcementMode.ENFORCE:
-            # MONITOR / LOG_ONLY — record violation but pass original action through
+            # MONITOR / LOG_ONLY — record the violation result but do not mutate
+            # output actions and do not fire violation hooks or fallbacks.
             return self._make_validated_action(action), all_results, None
+
+        for g in ctx.guards:
+            g.on_violation(aggregated)
 
         fallback_name = (
             ctx.active_containers[0].get_active_node().fallback
             if ctx.active_containers
-            else _DEFAULT_FALLBACK
+            else self._default_fallback
         )
         fallback_ctx = FallbackContext(
             rejected_proposal=action,
             guard_result=aggregated,
             current_node=self._resolve_current_node(ctx),
             cycle_id=ctx.cycle_id,
+            sink=ctx.sink,
+            runtime=ctx.runtime,
         )
-        self._fallback_registry.execute_with_escalation(fallback_name, fallback_ctx, bus=None)
+        self._fallback_registry.execute_with_escalation(
+            fallback_name,
+            fallback_ctx,
+            bus={"sink": ctx.sink, "runtime": ctx.runtime},
+        )
         return None, all_results, fallback_name
 
     def _resolve_current_node(self, ctx: ValidationContext) -> Any:
@@ -251,7 +265,7 @@ class ExecutionEngine:
             return ctx.active_containers[0].get_active_node()
         if ctx.boundary_containers:
             return next(iter(ctx.boundary_containers.values())).get_active_node()
-        return _make_dummy_node()
+        return _make_dummy_node(self._default_fallback)
 
     def _make_validated_action(self, action: ActionProposal) -> ValidatedAction:
         return ValidatedAction(

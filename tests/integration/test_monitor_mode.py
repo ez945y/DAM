@@ -125,6 +125,76 @@ def test_monitor_mode_passes_original_positions():
     )
 
 
+def test_monitor_mode_does_not_apply_clamp():
+    """A CLAMP result is recorded, but monitor mode forwards the original proposal."""
+    runtime = _make_runtime(enforcement_mode="monitor")
+    runtime.start_task("task")
+
+    target = np.array([9.0, 0.2, 0.3, 0.4, 0.5, 0.6])
+    obs = _obs(ee_x=0.1)
+    action = ActionProposal(target_joint_positions=target)
+    validated, results, fallback = runtime.validate(obs, action, "trace-clamp")
+
+    assert validated is not None
+    assert fallback is None
+    assert GuardDecision.CLAMP in [r.decision for r in results]
+    assert not validated.was_clamped
+    np.testing.assert_array_equal(validated.target_joint_positions, target)
+
+
+def test_monitor_mode_does_not_call_violation_hooks():
+    """Monitor mode checks and records violations without triggering guard side effects."""
+
+    class SpyMotionGuard(MotionGuard):
+        violation_count = 0
+
+        def on_violation(self, result):  # type: ignore[no-untyped-def]
+            type(self).violation_count += 1
+            super().on_violation(result)
+
+    KG = guard_decorator("L2")(SpyMotionGuard)
+    SpyMotionGuard.violation_count = 0
+    g = KG()
+    g.set_name("main")
+
+    reg = FallbackRegistry()
+    reg.register(EmergencyStop())
+    build_escalation_chain(reg)
+
+    node = BoundaryNode("n0", BoundaryConstraint(), fallback="emergency_stop")
+    container = SingleNodeContainer(node)
+    runtime = GuardRuntime(
+        guards=[g],
+        boundary_containers={"main": container},
+        fallback_registry=reg,
+        task_config={"task": ["main"]},
+        config_pool={
+            "upper": np.full(6, 5.0),
+            "lower": np.full(6, -5.0),
+            "bounds": np.array([[0.0, 0.5], [0.0, 0.5], [0.0, 0.5]]),
+        },
+        enforcement_mode="monitor",
+    )
+    runtime.start_task("task")
+
+    _validated, results, fallback = runtime.validate(_obs(ee_x=-1.0), _action(), "trace-hook")
+
+    assert GuardDecision.REJECT in [r.decision for r in results]
+    assert fallback is None
+    assert SpyMotionGuard.violation_count == 0
+
+
+def test_log_only_skips_guard_checks():
+    runtime = _make_runtime(enforcement_mode="log_only")
+    runtime.start_task("task")
+
+    validated, results, fallback = runtime.validate(_obs(ee_x=-1.0), _action(), "trace-log")
+
+    assert validated is not None
+    assert results == []
+    assert fallback is None
+
+
 # ── Policy I/O wiring ─────────────────────────────────────────────────────────
 
 

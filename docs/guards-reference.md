@@ -52,6 +52,7 @@ guard.save("extractor.pt", "bank.npy")
 |-----|------|---------|-------------|
 | `nn_threshold` | float | 0.5 | NN distance threshold (memory-bank detector) |
 | `nll_sigma` | float | 3.0 | Sensitivity multiplier for density-model threshold (`threshold = mean_train_nll + nll_sigma × std_train_nll`). Stackfile-configurable; higher values are more permissive. |
+| `temporal_smoothing_frames` | int | 3 | Consecutive abnormal observations required before an OOD REJECT is surfaced through the boundary callback. Use 1 to disable smoothing. |
 | `ood_model_path` | str | None | Path to feature extractor weights |
 | `bank_path` | str | None | Path to memory bank `.npy` file |
 

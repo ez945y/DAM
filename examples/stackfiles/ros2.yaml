@@ -33,6 +33,13 @@ safety:
   no_task_behavior: emergency_stop
   enforcement_mode: monitor
 
+fallbacks:
+  emergency_stop:
+    type: emergency_stop
+  hold_position:
+    type: hold_position
+    escalates_to: emergency_stop
+
 guards:
   - L1: motion
   - L3: hardware

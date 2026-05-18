@@ -73,8 +73,10 @@ def create_control_router(control: RuntimeControlService | None) -> APIRouter:
             fallbacks.append(
                 {
                     "name": name,
+                    "type": f.get_type(),
+                    "params": f.get_params(),
                     "description": (f.__doc__ or "").strip(),
-                    "escalates_to": getattr(f.__class__, "_escalates_to", None),
+                    "escalates_to": f.get_escalation_target(),
                 }
             )
         return {"fallbacks": fallbacks}

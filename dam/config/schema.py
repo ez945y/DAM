@@ -26,8 +26,22 @@ class NodeConfig(BaseModel):
     node_id: str = "default"
     params: dict[str, Any] = {}
     callback: str | None = None
-    fallback: str = "emergency_stop"
+    fallback: str | None = None
     timeout_sec: float | None = None
+
+
+class FallbackConfig(BaseModel):
+    """Stackfile-defined fallback strategy.
+
+    ``type`` references a registered fallback implementation, while the map key
+    is the local strategy name used by boundary nodes. This keeps fallback
+    definitions independent from boundary callbacks.
+    """
+
+    model_config = ConfigDict(extra="allow")
+    type: str
+    params: dict[str, Any] = {}
+    escalates_to: str | None = None
 
 
 # Container type normalisation: accept both "single"/"list"/"graph"
@@ -197,6 +211,7 @@ class StackfileConfig(BaseModel):
     version: str = "1"
     # Unified architecture
     boundaries: dict[str, ContainerConfig] = {}
+    fallbacks: dict[str, FallbackConfig] = {}
     tasks: dict[str, TaskConfig] = {}
     safety: SafetyConfig = SafetyConfig()
     # Hierarchical list of active guards (e.g. [{"L0": "ood"}, {"L1": "motion"}, {"L2": "execution"}, {"L3": "hardware"}])

@@ -1,6 +1,6 @@
 # Boundary System
 
-**Boundaries** define the **safety envelope** for task execution. They are task-specific constraints that L3 (Task Execution guard) enforces. This document explains how boundaries work, how to design them, and common patterns.
+**Boundaries** define the **safety envelope** for task execution. They are task-specific constraints that L2 (Task Execution guard) enforces. This document explains how boundaries work, how to design them, and common patterns.
 
 ---
 

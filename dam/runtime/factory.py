@@ -3,7 +3,7 @@
 This factory handles:
   1. Parsing the Stackfile YAML
   2. Resolving the appropriate hardware adapters (LeRobot, ROS2, or Simulation)
-  3. Configuring safety layers (L0-L4) and boundaries
+  3. Configuring safety layers (L0-L3) and boundaries
   4. Wiring up the Source, Policy, and Sink
 """
 

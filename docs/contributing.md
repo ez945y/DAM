@@ -96,7 +96,7 @@ from dam.guard.base import Guard
 from dam.types import Observation, ActionProposal, GuardResult
 import dam
 
-@dam.guard(layer="L2")  # L0, L1, L2, L3, or L4
+@dam.guard(layer="L2")  # L0, L1, L2, L3, or L3
 class MyGuard(Guard):
     """Guard description."""
 
@@ -144,7 +144,7 @@ def apply(self, action: ValidatedAction) -> None:
     """Send validated action to hardware."""
 
 def get_hardware_status(self) -> dict:  # optional
-    """Return motor health, temperature, etc. for L4 guard."""
+    """Return motor health, temperature, etc. for L3 guard."""
 ```
 
 Register with runtime:

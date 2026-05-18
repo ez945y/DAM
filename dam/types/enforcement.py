@@ -6,8 +6,9 @@ from enum import StrEnum
 class EnforcementMode(StrEnum):
     """Controls whether guard decisions block action dispatch.
 
-    ENFORCE:  full validation; rejected/clamped actions are blocked (production default)
-    MONITOR:  validation runs and is logged but does NOT block action dispatch
+    ENFORCE:  full validation; rejects/clamps unsafe actions and may trigger fallbacks
+    MONITOR:  validation runs and is logged; actions pass through unchanged and no
+              violation hooks or fallbacks are triggered
     LOG_ONLY: guard pipeline is skipped; only logs that a cycle occurred
     """
 

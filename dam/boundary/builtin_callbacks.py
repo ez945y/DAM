@@ -93,12 +93,14 @@ def ood_detector(
     nn_threshold: float = 2.0,
     nll_threshold: float = 5.0,
     backend: str = "memory_bank",
+    temporal_smoothing_frames: int = 3,
 ) -> bool:
     """Return False if the observation is flagged as out-of-distribution."""
     from dam.decorators import guard as _guard_deco
     from dam.guard.builtin.ood import OODGuard
 
     decorated_ood = _guard_deco("L0")(OODGuard)
+    smoothing_frames = max(1, int(temporal_smoothing_frames))
     cache_key = (ood_model_path, bank_path, backend)
 
     with _ood_cache_lock:
@@ -122,6 +124,7 @@ def ood_detector(
         nll_threshold=nll_threshold,
         ood_model_path=ood_model_path or None,
         bank_path=bank_path or None,
+        temporal_smoothing_frames=smoothing_frames,
     )
     return result.decision == GuardDecision.PASS
 

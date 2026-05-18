@@ -256,6 +256,12 @@ describe('generateYaml', () => {
     expect(yaml).toContain('enforcement_mode: enforce')
   })
 
+  it('includes OOD temporal smoothing in the default Stackfile', () => {
+    const cfg = defaultConfig('so101_act')
+    const yaml = generateYaml(cfg)
+    expect(yaml).toContain('temporal_smoothing_frames: 3')
+  })
+
   it('disabled guard appears as enabled: false in guards section', () => {
     const cfg = defaultConfig('so101_act')
     cfg.guardsEnabled = { ood: false }

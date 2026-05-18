@@ -37,7 +37,7 @@ You have a robot and an ML policy. The policy sometimes makes bad decisions:
 
 ### 1.2 The Guard Stack
 
-DAM evaluates actions through **5 independent layers**:
+DAM evaluates actions through **4 independent layers**:
 
 ```
 Policy Output
@@ -46,7 +46,7 @@ Policy Output
 [ L1 Preflight ]  ← Will this work physically?
 [ L2 Motion ]     ← Are joints and workspace safe?
 [ L3 Task ]       ← Does this fit the task?
-[ L4 Hardware ]   ← Is the robot healthy?
+[ L3 Hardware ]   ← Is the robot healthy?
     ↓
 DECISION
 ```
@@ -573,7 +573,7 @@ Combine everything you learned into one complete project.
 
 3. **Hardware (Simulated):**
    - 6-DOF arm with joint limits
-   - Force/torque sensor for L4 guard
+   - Force/torque sensor for L3 guard
    - Realistic forward kinematics
 
 4. **Monitoring:**
@@ -585,7 +585,7 @@ Combine everything you learned into one complete project.
 
 - ✅ Stackfile validates without errors
 - ✅ Run 500+ cycles without hardware errors
-- ✅ All 5 guards enabled and functional
+- ✅ All 4 guards enabled and functional
 - ✅ Reject/clamp decisions logged
 - ✅ Console shows live telemetry
 - ✅ MCAP violations exported and readable
