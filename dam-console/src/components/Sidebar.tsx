@@ -21,6 +21,7 @@ const NAV = [
   { href: '/',             label: 'Dashboard',    icon: LayoutDashboard, section: 'Monitor' },
   { href: '/risk-log',     label: 'Risk Log',     icon: AlertTriangle,   section: 'Monitor' },
   { href: '/mcap-viewer',  label: 'MCAP Sessions',icon: Film,            section: 'Monitor' },
+  { href: '/replay',       label: 'Replay',       icon: RotateCcw,       section: 'Monitor' },
   { href: '/experiments',  label: 'Experiments',  icon: FlaskConical,    section: 'Monitor' },
   { href: '/config',       label: 'Config',       icon: Settings,        section: 'Setup'   },
   { href: '/guard',        label: 'Guard',        icon: ShieldCheck,     section: 'Setup'   },
@@ -93,7 +94,7 @@ export function Sidebar() {
           const isStartupError = !!status.startup_error
 
           let btnAction = recheckHardware
-          let btnLabel = 'Recheck HW'
+          let btnLabel = 'Reload Stackfile'
           let btnIcon = <RotateCcw size={12} />
           let btnStyle = 'bg-dam-orange/20 text-dam-orange border-dam-orange/40 hover:bg-dam-orange/30'
 
@@ -106,7 +107,7 @@ export function Sidebar() {
             // Hardware never came up — skip the Reset-then-Recheck two-step
             // and go directly to a full hardware recheck.
             btnAction = recheckHardware
-            btnLabel = 'Recheck HW'
+            btnLabel = 'Reload Stackfile'
             btnStyle = 'bg-dam-orange/20 text-dam-orange border-dam-orange/40 hover:bg-dam-orange/30 animate-pulse'
           } else if (isEmergency) {
             btnAction = async () => { await reset() }
@@ -125,7 +126,7 @@ export function Sidebar() {
               >
                 {loading ? <Loader size={12} className="animate-spin" /> : btnIcon}
                 {loading
-                  ? (isStartupError ? 'Checking…' : isFault ? 'Confirming…' : 'Resetting…')
+                  ? (isStartupError ? 'Reloading…' : isFault ? 'Confirming…' : 'Resetting…')
                   : btnLabel}
               </button>
 

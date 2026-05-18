@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { RefreshCw, Check, Plus, Trash2, Usb, FolderOpen, AlertCircle } from 'lucide-react'
+import { RefreshCw, Check, Plus, Trash2, Usb, FolderOpen, AlertCircle, Pencil, Upload as UploadIcon } from 'lucide-react'
 import { TEMPLATES, defaultConfig, generateYaml, parseConfigFromYaml } from '@/lib/templates'
 import type { DamConfig, CameraConfig } from '@/lib/templates'
 import type { EnforcementMode, UsbDeviceInfo } from '@/lib/types'
@@ -152,11 +152,31 @@ export default function ConfigPage() {
   const [_saving, setSaving] = useState(false)
   const [lastSavedYaml, setLastSavedYaml] = useState('')
 
+  // ── Stackfile library: which target the editor reads/writes.
+  //   '__live__' = the running .dam_stackfile.yaml (default, unchanged behaviour)
+  //   '<name>'   = a managed config under data/stackfiles/<name>.yaml
+  const LIVE = '__live__'
+  const [target, setTarget] = useState<string>(LIVE)
+  const [libNames, setLibNames] = useState<string[]>([])
+  const [libError, setLibError] = useState<string | null>(null)
+  const targetRef = useRef(LIVE)
+  useEffect(() => { targetRef.current = target }, [target])
+
+  const refreshLibrary = useCallback(async () => {
+    try {
+      const res = await api.listStackfiles()
+      setLibNames(res.entries.map(e => e.name))
+    } catch { /* backend may still be starting */ }
+  }, [])
+  useEffect(() => { refreshLibrary() }, [refreshLibrary])
+
   const saveToBackend = useCallback(async (content: string) => {
     if (!content || content === lastSavedYaml) return
     setSaving(true)
     try {
-      await api.saveConfig(content)
+      const t = targetRef.current
+      if (t === LIVE) await api.saveConfig(content)
+      else await api.saveStackfile(t, content)
       setLastSavedYaml(content)
     } catch (err) {
       console.error('Failed to save config:', err)
@@ -230,6 +250,111 @@ export default function ConfigPage() {
     setYamlDirty(false)
     // Save immediately on template change
     saveToBackend(nextYaml)
+  }
+
+  const [libBusy, setLibBusy] = useState(false)
+  const [libOk, setLibOk] = useState<string | null>(null)
+  const flashOk = (m: string) => { setLibOk(m); setTimeout(() => setLibOk(null), 2500) }
+
+  const applyLoadedYaml = (content: string) => {
+    setYaml(content)
+    setLastSavedYaml(content)   // don't echo it straight back on the next autosave
+    setYamlDirty(false)
+    const parsed = parseConfigFromYaml(content)
+    if (Object.keys(parsed).length > 0) setCfg(prev => ({ ...prev, ...parsed }))
+  }
+
+  const switchTarget = useCallback(async (t: string) => {
+    setLibError(null)
+    setLibBusy(true)
+    try {
+      let content: string
+      if (t === LIVE) {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/api/system/config`)
+        content = res.ok ? await res.text() : yaml
+      } else {
+        content = await api.getStackfile(t)
+      }
+      setTarget(t)
+      targetRef.current = t
+      applyLoadedYaml(content)
+    } catch (e) {
+      setLibError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLibBusy(false)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [yaml])
+
+  const handleCreateStackfile = async () => {
+    const name = window.prompt('New stackfile name (letters, digits, . _ -):')?.trim()
+    if (!name) return
+    setLibBusy(true)
+    setLibError(null)
+    try {
+      await api.saveStackfile(name, yaml)
+      await refreshLibrary()
+      setTarget(name)
+      targetRef.current = name
+      setLastSavedYaml(yaml)
+      flashOk(`Created ${name}`)
+    } catch (e) {
+      setLibError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLibBusy(false)
+    }
+  }
+
+  const handleRenameStackfile = async () => {
+    if (target === LIVE) return
+    const next = window.prompt('Rename stackfile to:', target)?.trim()
+    if (!next || next === target) return
+    setLibBusy(true)
+    setLibError(null)
+    try {
+      await api.renameStackfile(target, next)
+      await refreshLibrary()
+      setTarget(next)
+      targetRef.current = next
+      flashOk(`Renamed to ${next}`)
+    } catch (e) {
+      setLibError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLibBusy(false)
+    }
+  }
+
+  const handleDeleteStackfile = async () => {
+    if (target === LIVE) return
+    if (!window.confirm(`Delete stackfile "${target}" from the library?`)) return
+    setLibBusy(true)
+    setLibError(null)
+    try {
+      await api.deleteStackfile(target)
+      await refreshLibrary()
+      await switchTarget(LIVE)
+      flashOk('Deleted')
+    } catch (e) {
+      setLibError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLibBusy(false)
+    }
+  }
+
+  const handleApplyToLive = async () => {
+    if (target === LIVE) return
+    if (!window.confirm(`Copy "${target}" into the live .dam_stackfile.yaml?`)) return
+    setLibBusy(true)
+    setLibError(null)
+    try {
+      await api.saveStackfile(target, yaml)
+      await api.applyStackfile(target)
+      flashOk(`Applied ${target} → live`)
+    } catch (e) {
+      setLibError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLibBusy(false)
+    }
   }
 
   const set = <K extends keyof DamConfig>(key: K, value: DamConfig[K]) => {
@@ -383,6 +508,70 @@ export default function ConfigPage() {
     >
       <input ref={jsonInputRef} type="file" accept=".json" onChange={handleImportJson} className="hidden" />
       {/* Config Sections */}
+
+      <Section title="Stackfile">
+        <div className="space-y-3">
+          <p className="text-dam-muted text-[10px]">
+            Edit the live config the runtime executes, or manage a separate library of
+            named configs under <span className="font-mono">data/stackfiles/</span>.
+            Library edits never touch the running system until you apply them.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={target}
+              disabled={libBusy}
+              onChange={e => switchTarget(e.target.value)}
+              className={`${inputCls} min-w-[16rem]`}
+            >
+              <option value={LIVE}>● Live · .dam_stackfile.yaml (running)</option>
+              {libNames.length > 0 && <option disabled>──────────</option>}
+              {libNames.map(n => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+
+            <button
+              onClick={handleCreateStackfile}
+              disabled={libBusy}
+              className="flex items-center gap-1 px-2.5 py-1.5 bg-dam-surface-3 border border-dam-border text-dam-muted text-xs rounded hover:text-dam-text transition-colors disabled:opacity-50"
+            >
+              <Plus size={11} /> New
+            </button>
+            <button
+              onClick={handleRenameStackfile}
+              disabled={libBusy || target === LIVE}
+              className="flex items-center gap-1 px-2.5 py-1.5 bg-dam-surface-3 border border-dam-border text-dam-muted text-xs rounded hover:text-dam-text transition-colors disabled:opacity-40"
+            >
+              <Pencil size={11} /> Rename
+            </button>
+            <button
+              onClick={handleDeleteStackfile}
+              disabled={libBusy || target === LIVE}
+              className="flex items-center gap-1 px-2.5 py-1.5 bg-dam-surface-3 border border-dam-border text-dam-muted text-xs rounded hover:text-dam-red hover:border-dam-red/40 transition-colors disabled:opacity-40"
+            >
+              <Trash2 size={11} /> Delete
+            </button>
+            <button
+              onClick={handleApplyToLive}
+              disabled={libBusy || target === LIVE}
+              className="flex items-center gap-1 px-2.5 py-1.5 bg-dam-blue/10 border border-dam-blue/30 text-dam-blue text-xs font-semibold rounded hover:bg-dam-blue/20 transition-colors disabled:opacity-40"
+            >
+              <UploadIcon size={11} /> Apply to live
+            </button>
+          </div>
+          {target !== LIVE && (
+            <p className="text-dam-orange text-[10px]">
+              Editing library config <span className="font-mono">{target}</span> — the running system is unaffected until “Apply to live”.
+            </p>
+          )}
+          {libError && (
+            <p className="flex items-center gap-1 text-dam-red text-[10px]"><AlertCircle size={10} /> {libError}</p>
+          )}
+          {libOk && (
+            <p className="flex items-center gap-1 text-dam-green text-[10px]"><Check size={10} /> {libOk}</p>
+          )}
+        </div>
+      </Section>
 
       <Section title="Template">
         <TemplateGallery

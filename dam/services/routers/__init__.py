@@ -5,7 +5,9 @@ from dam.services.routers.control import create_control_router
 from dam.services.routers.experiments import create_experiments_router
 from dam.services.routers.mcap import create_mcap_router
 from dam.services.routers.ood import create_ood_router
+from dam.services.routers.replay import create_replay_router
 from dam.services.routers.risk_log import create_risk_log_router
+from dam.services.routers.stackfiles import create_stackfiles_router
 from dam.services.routers.system import create_system_router
 from dam.services.routers.telemetry import create_telemetry_router
 
@@ -18,4 +20,6 @@ __all__ = [
     "create_system_router",
     "create_ood_router",
     "create_mcap_router",
+    "create_replay_router",
+    "create_stackfiles_router",
 ]

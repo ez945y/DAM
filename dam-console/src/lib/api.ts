@@ -47,6 +47,7 @@ export const api = {
     min_risk_level?: string
     rejected_only?: boolean
     clamped_only?: boolean
+    failure_type?: string
     limit?: number
   }) => {
     const q = new URLSearchParams()
@@ -55,6 +56,7 @@ export const api = {
     if (params?.min_risk_level) q.set('min_risk_level', params.min_risk_level)
     if (params?.rejected_only) q.set('rejected_only', 'true')
     if (params?.clamped_only) q.set('clamped_only', 'true')
+    if (params?.failure_type) q.set('failure_type', params.failure_type)
     if (params?.limit) q.set('limit', String(params.limit))
     const qs = q.toString()
     return apiFetch<{ events: RiskEvent[]; count: number }>(`/risk-log${qs ? `?${qs}` : ''}`)
@@ -146,6 +148,15 @@ export const api = {
     ),
   deleteMcapSession: (filename: string) =>
     apiFetch<{ success: boolean }>(`/mcap/sessions/${encodeURIComponent(filename)}`, { method: 'DELETE' }),
+  archiveMcapSessions: (filenames: string[]) =>
+    apiFetch<{
+      success: boolean
+      archived: Array<{ filename: string; archived_filename: string; archived_path: string }>
+      failed: string[]
+    }>('/mcap/sessions/archive', {
+      method: 'POST',
+      body: JSON.stringify({ filenames }),
+    }),
   listMcapFrames: (filename: string, cam: string) =>
     apiFetch<{ camera: string; count: number; frames: McapFrame[] }>(
       `/mcap/sessions/${encodeURIComponent(filename)}/frames/${encodeURIComponent(cam)}`
@@ -156,6 +167,50 @@ export const api = {
     `${API_BASE}/api/mcap/sessions/${encodeURIComponent(filename)}/frame_at/${encodeURIComponent(cam)}?ts_ns=${tsNs}`,
   mcapDownloadUrl: (filename: string) =>
     `${API_BASE}/api/mcap/sessions/${encodeURIComponent(filename)}/download`,
+
+  // ── Stackfile library (data/stackfiles, separate from live) ───────────────
+  listStackfiles: () =>
+    apiFetch<{
+      entries: { name: string; size_bytes: number; modified_at: number }[]
+      live: { exists: boolean }
+    }>('/stackfiles'),
+  getStackfile: async (name: string): Promise<string> => {
+    const res = await fetch(`${API_BASE}/api/stackfiles/${encodeURIComponent(name)}`, {
+      cache: 'no-store',
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    return res.text()
+  },
+  saveStackfile: (name: string, yaml: string) =>
+    apiFetch<{ name: string; created: boolean }>(`/stackfiles/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ yaml }),
+    }),
+  renameStackfile: (name: string, newName: string) =>
+    apiFetch<{ name: string }>(`/stackfiles/${encodeURIComponent(name)}/rename`, {
+      method: 'POST',
+      body: JSON.stringify({ new_name: newName }),
+    }),
+  deleteStackfile: (name: string) =>
+    apiFetch<void>(`/stackfiles/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  applyStackfile: (name: string) =>
+    apiFetch<{ applied: string; live_path: string }>(
+      `/stackfiles/${encodeURIComponent(name)}/apply`,
+      { method: 'POST' },
+    ),
+
+  // ── Replay-through-guards jobs ────────────────────────────────────────────
+  startReplayJob: (mcap: string, stack: string) =>
+    apiFetch<{ job_id: string; mcap: string; stack: string }>('/replay/jobs', {
+      method: 'POST',
+      body: JSON.stringify({ mcap, stack }),
+    }),
+  replayEventsUrl: (jobId: string) =>
+    `${API_BASE}/api/replay/jobs/${encodeURIComponent(jobId)}/events`,
+  stopReplayJob: (jobId: string) =>
+    apiFetch<{ stopping: string }>(`/replay/jobs/${encodeURIComponent(jobId)}/stop`, {
+      method: 'POST',
+    }),
 
   // ── System ────────────────────────────────────────────────────────────────
   saveConfig: (yaml: string) =>
