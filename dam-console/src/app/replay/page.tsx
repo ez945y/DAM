@@ -187,25 +187,6 @@ function ReplayLane({
             ))}
           </select>
         </div>
-
-        <div className="flex gap-2 pt-1">
-          {status === 'running' ? (
-            <button
-              onClick={stop}
-              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-dam-orange/10 border border-dam-orange/30 text-dam-orange text-xs font-bold rounded hover:bg-dam-orange/20 transition-colors"
-            >
-              <Square size={11} /> Stop
-            </button>
-          ) : (
-            <button
-              onClick={start}
-              disabled={!mcap}
-              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-dam-blue/10 border border-dam-blue/30 text-dam-blue text-xs font-bold rounded hover:bg-dam-blue/20 transition-colors disabled:opacity-40"
-            >
-              <Play size={11} /> Run
-            </button>
-          )}
-        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto border-t border-dam-border/40 p-3 space-y-3">

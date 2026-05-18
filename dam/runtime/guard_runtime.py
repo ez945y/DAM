@@ -617,10 +617,24 @@ class GuardRuntime:
 
         t_bus = time.monotonic()
         if obs.images:
-            # Retain a reference for live preview (simulation/dataset sources
-            # deliver frames here, not via the camera frame hub) before the
-            # control-loop record path strips them off the observation.
+            # Simulation / dataset sources deliver camera frames on the
+            # observation, not via an async camera hub the way the OpenCV
+            # hardware adapter does. Retain a reference for live preview, and
+            # — when recording — push them into the frame hub so the Rust
+            # MCAP image writer captures them (otherwise sim sessions have no
+            # /dam/images at all). Encoding only runs while recording is on,
+            # matching the hardware adapter's per-frame encode cost.
             self._last_live_arrays = dict(obs.images)
+            if self._frame_hub is not None and self._loopback is not None:
+                from dam.logging.loopback_writer import _compress_image
+
+                for _cam, _arr in obs.images.items():
+                    try:
+                        _jpeg, _w, _h, _fmt = _compress_image(_arr)
+                        if _jpeg:
+                            self._frame_hub.put_jpeg(str(_cam), obs.timestamp, _jpeg, _w, _h)
+                    except Exception:  # noqa: BLE001 — a bad frame must not stall the loop
+                        continue
             object.__setattr__(obs, "images", None)
         self._obs_bus.write(obs)  # scalar observation ring buffer for loopback / MCAP capture
         _obs_bus_ms = (time.monotonic() - t_bus) * 1000.0

@@ -68,19 +68,75 @@ def iter_replay_through_guards(
     recorded: dict[int, str] = {}
     task_name: str | None = None
 
+    # The Rust writer serialises CycleRecordData as a *positional* msgpack
+    # array (rmp_serde::to_vec). Reuse the canonical index map the MCAP
+    # session reader uses so replay stays in lock-step with the on-disk
+    # format. The legacy Python writer emitted JSON maps — accept both.
+    from dam.services.mcap_sessions import (
+        _IDX_ACTION_POSITIONS,
+        _IDX_ACTION_VELOCITIES,
+        _IDX_ACTIVE_TASK,
+        _IDX_CYCLE,
+        _IDX_HAS_CLAMP,
+        _IDX_HAS_VIOLATION,
+        _IDX_OBS_CHANNELS,
+        _IDX_OBS_JOINT_POSITIONS,
+        _IDX_OBS_TIMESTAMP,
+    )
+
+    def _decode(data: Any) -> Any:
+        try:
+            import msgpack
+
+            return msgpack.unpackb(data, raw=False)
+        except Exception:  # noqa: BLE001 — fall back to JSON map
+            try:
+                return json.loads(data)
+            except Exception:  # noqa: BLE001
+                return None
+
+    def _norm(rec: Any) -> dict[str, Any] | None:
+        """Normalise a decoded /dam/cycle record (positional list *or* dict)
+        into the field subset replay needs."""
+        if isinstance(rec, list):
+
+            def at(i: int) -> Any:
+                return rec[i] if 0 <= i < len(rec) else None
+
+            return {
+                "cycle_id": at(_IDX_CYCLE),
+                "obs_timestamp": at(_IDX_OBS_TIMESTAMP),
+                "has_violation": at(_IDX_HAS_VIOLATION),
+                "has_clamp": at(_IDX_HAS_CLAMP),
+                "active_task": at(_IDX_ACTIVE_TASK),
+                "obs_joint_positions": at(_IDX_OBS_JOINT_POSITIONS),
+                "obs_channels": at(_IDX_OBS_CHANNELS),
+                "action_positions": at(_IDX_ACTION_POSITIONS),
+                "action_velocities": at(_IDX_ACTION_VELOCITIES),
+            }
+        if isinstance(rec, dict):
+            return rec
+        return None
+
     try:
         with open(mcap_path, "rb") as fh:
             for _schema, channel, message in make_reader(fh).iter_messages():
-                try:
-                    rec = json.loads(message.data)
-                    cid = int(rec["cycle_id"])
-                except Exception:  # noqa: BLE001 — skip unparseable frames
+                rec = _norm(_decode(message.data))
+                if not rec or rec.get("cycle_id") is None:
                     continue
-                if channel.topic == "/dam/obs":
-                    obs_by_cycle[cid] = rec
-                elif channel.topic == "/dam/action":
-                    action_by_cycle[cid] = rec
-                elif channel.topic == "/dam/cycle":
+                try:
+                    cid = int(rec["cycle_id"])
+                except (TypeError, ValueError):
+                    continue
+                topic = channel.topic
+                if topic == "/dam/obs":
+                    obs_by_cycle[cid] = rec  # legacy explicit obs topic
+                elif topic == "/dam/action":
+                    action_by_cycle[cid] = rec  # legacy explicit action topic
+                elif topic == "/dam/cycle":
+                    # Current format: the full record (obs + action + decision)
+                    # is packed into the single /dam/cycle message. Reconstruct
+                    # the obs/action views replay needs from its fields.
                     if rec.get("has_violation"):
                         recorded[cid] = "REJECT"
                     elif rec.get("has_clamp"):
@@ -89,12 +145,28 @@ def iter_replay_through_guards(
                         recorded[cid] = "PASS"
                     if task_name is None:
                         task_name = rec.get("active_task")
+                    if cid not in obs_by_cycle:
+                        ch = rec.get("obs_channels") or {}
+                        obs_by_cycle[cid] = {
+                            "joint_positions": rec.get("obs_joint_positions"),
+                            "timestamp": rec.get("obs_timestamp", 0.0),
+                            "obs_channels": ch,
+                            **{k: v for k, v in ch.items() if isinstance(v, list)},
+                        }
+                    if cid not in action_by_cycle:
+                        action_by_cycle[cid] = {
+                            "target_positions": rec.get("action_positions"),
+                            "target_velocities": rec.get("action_velocities"),
+                        }
     except Exception as exc:  # noqa: BLE001
         yield {"type": "error", "message": f"failed to read MCAP: {exc}"}
         return
 
     if not obs_by_cycle:
-        yield {"type": "error", "message": "no /dam/obs frames in session"}
+        yield {
+            "type": "error",
+            "message": "no observation data in session (no /dam/cycle or /dam/obs records)",
+        }
         return
 
     try:
