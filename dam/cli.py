@@ -13,6 +13,7 @@ Subcommands
   loopback ``.mcap`` session. ``--through-guards --stack <s>`` re-runs the
   recorded obs/action through that Stackfile and diffs recorded vs current
   decisions (regression / threshold tuning).
+- ``dam experiment`` — list/run native experiment runners used by the console.
 - ``dam doctor`` — check environment / dependency readiness.
 - ``dam inspect <stack>`` — print the resolved Stackfile graph (guards,
   boundaries, tasks, fallbacks) without touching hardware.
@@ -399,6 +400,40 @@ def _replay_summary(args: argparse.Namespace) -> int:
     return 0
 
 
+# ── experiment ────────────────────────────────────────────────────────────────
+
+
+def _cmd_experiment(args: argparse.Namespace) -> int:
+    from dam.experiments import list_experiments, run_experiment
+
+    if args.experiment_cmd == "list":
+        for exp in list_experiments():
+            print(f"{exp.id:<16} {exp.rq:<4} {exp.title}")
+        return 0
+
+    params: dict[str, Any] = {}
+    if args.trials is not None:
+        params["trials"] = args.trials
+    if args.frames is not None:
+        params["frames"] = args.frames
+    if args.samples is not None:
+        params["samples"] = args.samples
+    if args.trials_per_scenario is not None:
+        params["trials_per_scenario"] = args.trials_per_scenario
+    if args.outdir is not None:
+        params["outdir"] = args.outdir
+    result = run_experiment(args.experiment_id, params)
+    print(f"experiment : {result.id}")
+    print(f"status     : {result.status}")
+    print(f"elapsed    : {result.elapsed_sec:.2f}s")
+    print(f"outdir     : {result.outdir}")
+    if result.artifacts:
+        print("artifacts  :")
+        for path in result.artifacts:
+            print(f"  {path}")
+    return 0
+
+
 # ── doctor ────────────────────────────────────────────────────────────────────
 
 
@@ -574,6 +609,30 @@ def build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.Argument
     )
     p_rep.set_defaults(func=_cmd_replay)
 
+    p_exp = sub.add_parser("experiment", help="list/run native experiment tools")
+    exp_sub = p_exp.add_subparsers(dest="experiment_cmd", required=True)
+    p_exp_list = exp_sub.add_parser("list", help="list available experiments")
+    p_exp_list.set_defaults(func=_cmd_experiment)
+    p_exp_run = exp_sub.add_parser("run", help="run an experiment")
+    p_exp_run.add_argument(
+        "experiment_id",
+        choices=[
+            "l0-calibration",
+            "boundary-scan",
+            "usability",
+            "latency-bench",
+            "failure-record-quality",
+        ],
+    )
+    p_exp_run.add_argument("--trials", type=int, help="boundary-scan trials per level")
+    p_exp_run.add_argument("--frames", type=int, help="latency-bench frames per config")
+    p_exp_run.add_argument("--samples", type=int, help="l0-calibration synthetic sample count")
+    p_exp_run.add_argument(
+        "--trials-per-scenario", type=int, help="usability trials per normal scenario"
+    )
+    p_exp_run.add_argument("--outdir", help="output directory")
+    p_exp_run.set_defaults(func=_cmd_experiment)
+
     p_doc = sub.add_parser("doctor", help="check environment / dependency readiness")
     p_doc.set_defaults(func=_cmd_doctor)
 
@@ -596,6 +655,7 @@ def build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.Argument
         "callbacks": p_cb,
         "run": p_run,
         "replay": p_rep,
+        "experiment": p_exp,
         "doctor": p_doc,
         "inspect": p_ins,
         "help": p_help,

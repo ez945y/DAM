@@ -18,7 +18,7 @@ from dam.types.risk import CycleResult, RiskLevel
 
 
 def _resolve_version() -> str:
-    version_file = Path(__file__).resolve().parents[1] / "version.toml"
+    version_file = Path(__file__).resolve().parents[1] / "pyproject.toml"
     if version_file.exists():
         with version_file.open("rb") as fh:
             data = tomllib.load(fh)

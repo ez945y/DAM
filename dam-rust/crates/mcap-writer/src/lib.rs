@@ -77,6 +77,8 @@ pub struct GuardResultData {
     pub is_violation: bool,
     pub is_clamp: bool,
     pub fault_source: Option<String>,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

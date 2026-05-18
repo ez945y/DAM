@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sync DAM release versions from the root version.toml file."""
+"""Sync DAM release versions from the root pyproject.toml file."""
 
 from __future__ import annotations
 
@@ -9,14 +9,14 @@ import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION_FILE = ROOT / "version.toml"
+VERSION_FILE = ROOT / "pyproject.toml"
 
 
 def load_version() -> str:
     data = tomllib.loads(VERSION_FILE.read_text())
     version = data.get("project", {}).get("version")
     if not isinstance(version, str) or not re.fullmatch(r"\d+\.\d+\.\d+", version):
-        raise SystemExit("version.toml must contain [project].version like 0.4.0")
+        raise SystemExit("pyproject.toml must contain [project].version like 0.4.0")
     return version
 
 
@@ -72,7 +72,6 @@ def sync_cargo_lock(path: Path, version: str) -> None:
 def main() -> None:
     version = load_version()
 
-    replace(ROOT / "pyproject.toml", r'^version = "[^"]+"', f'version = "{version}"', count=1)
     replace(ROOT / "uv.lock", r'(name = "dam"\nversion = )"[^"]+"', rf'\1"{version}"')
 
     sync_json_package(ROOT / "dam-console/package.json", version)

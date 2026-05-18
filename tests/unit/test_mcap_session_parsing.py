@@ -21,6 +21,7 @@ def test_guard_result_from_mapping() -> None:
             "decision_name": "FAULT",
             "reason": "camera disconnected",
             "is_violation": True,
+            "metadata": {"host_health": {"memory_percent": 80.0}},
         }
     )
 
@@ -28,6 +29,7 @@ def test_guard_result_from_mapping() -> None:
     assert parsed["guard_name"] == "hardware"
     assert parsed["layer_name"] == "L3"
     assert parsed["is_violation"] is True
+    assert parsed["metadata"]["host_health"]["memory_percent"] == 80.0
 
 
 def test_guard_result_from_tuple_payload() -> None:

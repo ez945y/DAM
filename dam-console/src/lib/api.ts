@@ -25,7 +25,15 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json() as Promise<T>
 }
 
-import type { BoundaryConfig, RiskEvent, RiskLogStats, RuntimeStatus, UsbDeviceInfo } from './types'
+import type {
+  BoundaryConfig,
+  ExperimentDef,
+  ExperimentResult,
+  RiskEvent,
+  RiskLogStats,
+  RuntimeStatus,
+  UsbDeviceInfo,
+} from './types'
 
 export const api = {
   // ── Telemetry ────────────────────────────────────────────────────────────
@@ -103,6 +111,17 @@ export const api = {
   reset: () => apiFetch<{ reset: boolean; state: string }>('/control/reset', { method: 'POST' }),
   confirmFault: () => apiFetch<{ success: boolean; backend_state: string }>('/control/confirm-fault', { method: 'POST' }),
   recheckHardware: () => apiFetch<{ success: boolean; state: string }>('/control/recheck-hardware', { method: 'POST' }),
+
+  // ── Experiments ──────────────────────────────────────────────────────────
+  listExperiments: () =>
+    apiFetch<{ experiments: ExperimentDef[] }>('/experiments'),
+  runExperiment: (id: string, params?: Record<string, unknown>) =>
+    apiFetch<ExperimentResult>(`/experiments/${encodeURIComponent(id)}/run`, {
+      method: 'POST',
+      body: JSON.stringify({ params: params ?? {} }),
+    }),
+  experimentArtifactUrl: (path: string) =>
+    `${API_BASE}/api/experiments/artifact?path=${encodeURIComponent(path)}`,
 
   // ── MCAP Sessions ─────────────────────────────────────────────────────────
   listMcapSessions: () =>
@@ -243,6 +262,7 @@ export interface McapCycleDetail {
     end_effector_pose: number[] | null
     force_torque: number[] | null
     obs_timestamp: number | null
+    [key: string]: unknown
   } | null
   // Policy action
   action: {
@@ -252,6 +272,7 @@ export interface McapCycleDetail {
     validated_velocities: number[] | null
     was_clamped: boolean
     fallback_triggered: string | null
+    [key: string]: unknown
   } | null
   // Guard results (one per guard that executed)
   guard_results: Array<{
@@ -265,5 +286,6 @@ export interface McapCycleDetail {
     is_violation: boolean
     is_clamp: boolean
     fault_source: string | null
+    metadata?: Record<string, unknown>
   }>
 }

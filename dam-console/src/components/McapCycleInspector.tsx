@@ -4,7 +4,7 @@ import { api } from '@/lib/api'
 import type { McapCycleDetail } from '@/lib/api'
 import {
   ChevronDown, ChevronRight, Loader2,
-  Activity, Shield, Cpu, Eye,
+  Activity, Shield, Cpu, Eye, AlertTriangle,
 } from 'lucide-react'
 
 // ── Sub-components ────────────────────────────────────────────────────────
@@ -92,6 +92,45 @@ function Sparkline({ values, label }: { values: number[]; label: string }) {
   )
 }
 
+function isNumberArray(value: unknown): value is number[] {
+  return Array.isArray(value) && value.every((v) => typeof v === 'number')
+}
+
+function JsonTree({ value, depth = 0 }: { value: unknown; depth?: number }) {
+  if (value == null) return <span className="text-dam-muted/60">null</span>
+  if (typeof value === 'number') return <span className="font-mono text-dam-text">{value.toFixed(Math.abs(value) < 10 ? 4 : 2)}</span>
+  if (typeof value === 'boolean') return <span className="font-mono text-dam-blue">{String(value)}</span>
+  if (typeof value === 'string') return <span className="font-mono text-dam-text/90 break-all">{value}</span>
+  if (Array.isArray(value)) {
+    if (isNumberArray(value)) {
+      return <Sparkline values={value} label={`array[${value.length}]`} />
+    }
+    return (
+      <div className="space-y-1">
+        {value.map((item, idx) => (
+          <div key={idx} className="flex gap-2">
+            <span className="font-mono text-[10px] text-dam-muted">[{idx}]</span>
+            <JsonTree value={item} depth={depth + 1} />
+          </div>
+        ))}
+      </div>
+    )
+  }
+  if (typeof value === 'object') {
+    return (
+      <div className={`space-y-1 ${depth > 0 ? 'pl-2 border-l border-dam-border/40' : ''}`}>
+        {Object.entries(value as Record<string, unknown>).map(([key, val]) => (
+          <div key={key} className="grid grid-cols-[130px_1fr] gap-2 items-start">
+            <span className="text-[10px] text-dam-muted font-mono truncate" title={key}>{key}</span>
+            <JsonTree value={val} depth={depth + 1} />
+          </div>
+        ))}
+      </div>
+    )
+  }
+  return <span className="font-mono text-dam-muted">{String(value)}</span>
+}
+
 const DECISION_STYLE: Record<string, string> = {
   PASS:   'text-green-400 bg-green-500/10 border-green-500/20',
   CLAMP:  'text-dam-blue bg-blue-500/10 border-blue-500/20',
@@ -139,6 +178,7 @@ export function McapCycleInspector({ filename, cycleId, tsNs, fallbackDetail, ov
     latency: false,
     obs:     false,
     action:  false,
+    failure: false,
   })
   const toggle = (k: keyof typeof open) => setOpen(p => ({ ...p, [k]: !p[k] }))
 
@@ -306,6 +346,11 @@ export function McapCycleInspector({ filename, cycleId, tsNs, fallbackDetail, ov
                 {g.latency_ms != null && (
                   <p className="text-[9px] text-dam-muted/50 font-mono mt-0.5">{g.latency_ms.toFixed(2)} ms</p>
                 )}
+                {g.metadata && Object.keys(g.metadata).length > 0 && (
+                  <div className="mt-1.5 bg-dam-surface-1 border border-dam-border/50 rounded p-2">
+                    <JsonTree value={g.metadata} />
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -356,18 +401,7 @@ export function McapCycleInspector({ filename, cycleId, tsNs, fallbackDetail, ov
           {!detail.observation ? (
             <p className="text-dam-muted/60 italic text-[10px]">No observation data</p>
           ) : (
-            <>
-              <Sparkline values={detail.observation.joint_positions} label="joint_positions" />
-              {detail.observation.joint_velocities && (
-                <Sparkline values={detail.observation.joint_velocities} label="joint_velocities" />
-              )}
-              {detail.observation.end_effector_pose && (
-                <Sparkline values={detail.observation.end_effector_pose} label="ee_pose" />
-              )}
-              {detail.observation.force_torque && (
-                <Sparkline values={detail.observation.force_torque} label="force_torque" />
-              )}
-            </>
+            <JsonTree value={detail.observation} />
           )}
         </div>
       )}
@@ -380,13 +414,7 @@ export function McapCycleInspector({ filename, cycleId, tsNs, fallbackDetail, ov
             <p className="text-dam-muted/60 italic text-[10px]">No action data</p>
           ) : (
             <>
-              <Sparkline values={detail.action.target_positions} label="target_pos" />
-              {detail.action.target_velocities && (
-                <Sparkline values={detail.action.target_velocities} label="target_vel" />
-              )}
-              {detail.action.validated_positions && (
-                <Sparkline values={detail.action.validated_positions} label="validated_pos" />
-              )}
+              <JsonTree value={detail.action} />
               {detail.action.was_clamped && (
                 <div className="px-2 py-1 bg-dam-blue/10 border border-dam-blue/20 rounded text-[10px] text-dam-blue font-bold">
                   Action was clamped by safety system
@@ -394,6 +422,27 @@ export function McapCycleInspector({ filename, cycleId, tsNs, fallbackDetail, ov
                 </div>
               )}
             </>
+          )}
+        </div>
+      )}
+
+      {/* Failure harvest */}
+      <SectionHeader icon={AlertTriangle} label="Failure Record" open={open.failure} onToggle={() => toggle('failure')} />
+      {open.failure && (
+        <div className="px-3 py-2 space-y-2">
+          {detail.failure_type ? (
+            <JsonTree
+              value={{
+                failure_type: detail.failure_type,
+                failure_guard_names: detail.failure_guard_names ?? [],
+                failure_layers: detail.failure_layers ?? [],
+                failure_decisions: detail.failure_decisions ?? [],
+                failure_reasons: detail.failure_reasons ?? [],
+                failure_tuple: detail.failure_tuple ?? null,
+              }}
+            />
+          ) : (
+            <p className="text-dam-muted/60 italic text-[10px]">No failure record for this cycle</p>
           )}
         </div>
       )}

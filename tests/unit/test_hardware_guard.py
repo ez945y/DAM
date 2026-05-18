@@ -94,6 +94,18 @@ def _hardware_watchdog_container(max_staleness_ms: float):
     return SingleNodeContainer(BoundaryNode("hardware_watchdog", constraint))
 
 
+def _host_health_container(max_cpu_percent: float):
+    from dam.boundary.constraint import BoundaryConstraint
+    from dam.boundary.node import BoundaryNode
+    from dam.boundary.single import SingleNodeContainer
+
+    constraint = BoundaryConstraint(
+        callback="host_health_limit",
+        params={"max_cpu_percent": max_cpu_percent},
+    )
+    return SingleNodeContainer(BoundaryNode("host_health", constraint))
+
+
 def test_watchdog_callback_uses_boundary_params(HG):
     """L3 callback params should be read from the active boundary node."""
     from dam.boundary.builtin_callbacks import register_all
@@ -137,3 +149,56 @@ def test_watchdog_callback_fault_reports_boundary_param_limit(HG):
 
     assert result.decision == GuardDecision.FAULT
     assert "limit 500ms" in result.reason
+
+
+def test_host_health_callback_faults_through_l3_boundary(HG, monkeypatch):
+    """Computer health must use the L3 boundary callback path, not side-channel logging."""
+    import importlib
+
+    from dam.boundary.builtin_callbacks import register_all
+
+    register_all()
+    hw_module = importlib.import_module("dam.guard.builtin.hardware")
+    monkeypatch.setattr(
+        hw_module,
+        "collect_host_health",
+        lambda: {"cpu_percent": 99.5, "memory_percent": 30.0, "timestamp": 1.0},
+    )
+
+    obs = Observation(
+        timestamp=time.monotonic(),
+        joint_positions=np.zeros(6),
+        joint_velocities=np.zeros(6),
+    )
+
+    result = HG.check(obs=obs, active_containers=[_host_health_container(90.0)])
+
+    assert result.decision == GuardDecision.FAULT
+    assert result.fault_source == "hardware"
+    assert "CPU" in result.reason
+    assert result.metadata["host_health"]["cpu_percent"] == 99.5
+
+
+def test_host_health_boundary_metadata_is_recorded_on_pass(HG, monkeypatch):
+    import importlib
+
+    from dam.boundary.builtin_callbacks import register_all
+
+    register_all()
+    hw_module = importlib.import_module("dam.guard.builtin.hardware")
+    monkeypatch.setattr(
+        hw_module,
+        "collect_host_health",
+        lambda: {"cpu_percent": 12.0, "memory_percent": 30.0, "timestamp": 1.0},
+    )
+
+    obs = Observation(
+        timestamp=time.monotonic(),
+        joint_positions=np.zeros(6),
+        joint_velocities=np.zeros(6),
+    )
+
+    result = HG.check(obs=obs, active_containers=[_host_health_container(90.0)])
+
+    assert result.decision == GuardDecision.PASS
+    assert result.metadata["host_health"]["cpu_percent"] == 12.0

@@ -132,6 +132,19 @@ boundaries:
         fallback: emergency_stop
         params:
           max_staleness_ms: 1000
+  host_health:
+    layer: L3
+    type: single
+    nodes:
+      - callback: host_health_limit
+        timeout_sec: 0.1
+        fallback: emergency_stop
+        params:
+          max_cpu_percent: 99.0
+          max_memory_percent: 98.0
+          max_temperature_c: 95.0
+          max_gpu_percent: 99.0
+          max_gpu_temperature_c: 95.0
 
 tasks:
   collaborative_pick_place:
@@ -145,6 +158,7 @@ tasks:
       - orientation_limit
       - force_limit
       - hardware_watchdog
+      - host_health
 
 loopback:
   backend: mcap

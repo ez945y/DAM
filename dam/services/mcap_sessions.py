@@ -55,7 +55,11 @@ _IDX_ACTIVE_CAMERAS = 8
 _IDX_OBS_JOINT_POSITIONS = 9
 _IDX_OBS_CHANNELS = 10
 _IDX_ACTION_POSITIONS = 11
+_IDX_ACTION_VELOCITIES = 12
+_IDX_VALIDATED_POSITIONS = 13
+_IDX_VALIDATED_VELOCITIES = 14
 _IDX_WAS_CLAMPED = 15
+_IDX_FALLBACK_TRIGGERED = 16
 _IDX_GUARD_RESULTS = 17
 _IDX_LATENCY_STAGES = 18
 _IDX_LATENCY_LAYERS = 19
@@ -149,6 +153,7 @@ def _guard_result_from_mapping(data: Any) -> dict[str, Any] | None:
         "is_violation": bool(data.get("is_violation", False)),
         "is_clamp": bool(data.get("is_clamp", False)),
         "fault_source": data.get("fault_source"),
+        "metadata": data.get("metadata") if isinstance(data.get("metadata"), dict) else {},
     }
 
 
@@ -843,6 +848,12 @@ class McapSessionService:
                             "joint_positions": obs_joint_positions
                             if isinstance(obs_joint_positions, list)
                             else [],
+                            **(
+                                d[_IDX_OBS_CHANNELS]
+                                if arr_len > _IDX_OBS_CHANNELS
+                                and isinstance(d[_IDX_OBS_CHANNELS], dict)
+                                else {}
+                            ),
                             "obs_timestamp": d[_IDX_OBS_TIMESTAMP]
                             if arr_len > _IDX_OBS_TIMESTAMP
                             else None,
@@ -851,9 +862,24 @@ class McapSessionService:
                             "target_positions": action_positions
                             if isinstance(action_positions, list)
                             else [],
+                            "target_velocities": d[_IDX_ACTION_VELOCITIES]
+                            if arr_len > _IDX_ACTION_VELOCITIES
+                            and isinstance(d[_IDX_ACTION_VELOCITIES], list)
+                            else None,
+                            "validated_positions": d[_IDX_VALIDATED_POSITIONS]
+                            if arr_len > _IDX_VALIDATED_POSITIONS
+                            and isinstance(d[_IDX_VALIDATED_POSITIONS], list)
+                            else None,
+                            "validated_velocities": d[_IDX_VALIDATED_VELOCITIES]
+                            if arr_len > _IDX_VALIDATED_VELOCITIES
+                            and isinstance(d[_IDX_VALIDATED_VELOCITIES], list)
+                            else None,
                             "was_clamped": d[_IDX_WAS_CLAMPED]
                             if arr_len > _IDX_WAS_CLAMPED
                             else False,
+                            "fallback_triggered": d[_IDX_FALLBACK_TRIGGERED]
+                            if arr_len > _IDX_FALLBACK_TRIGGERED
+                            else None,
                         }
                         if isinstance(guard_results, list | tuple):
                             for gr in guard_results:
@@ -867,12 +893,25 @@ class McapSessionService:
                     elif topic == "/dam/obs":
                         detail["observation"] = {
                             "joint_positions": _message_get(d, "joint_positions", []),
+                            **(
+                                {
+                                    k: v
+                                    for k, v in d.items()
+                                    if k not in {"cycle_id", "timestamp", "joint_positions"}
+                                }
+                                if isinstance(d, dict)
+                                else {}
+                            ),
                             "obs_timestamp": _message_get(d, "timestamp"),
                         }
                     elif topic == "/dam/action":
                         detail["action"] = {
                             "target_positions": _message_get(d, "target_positions", []),
+                            "target_velocities": _message_get(d, "target_velocities"),
+                            "validated_positions": _message_get(d, "validated_positions"),
+                            "validated_velocities": _message_get(d, "validated_velocities"),
                             "was_clamped": bool(_message_get(d, "was_clamped")),
+                            "fallback_triggered": _message_get(d, "fallback_triggered"),
                         }
                     elif topic == "/dam/latency":
                         detail["latency"] = {

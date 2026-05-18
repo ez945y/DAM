@@ -277,6 +277,7 @@ impl SerializerBus {
             "is_violation": result.get("is_violation").ok_or("Missing is_violation")?,
             "is_clamp": result.get("is_clamp").ok_or("Missing is_clamp")?,
             "fault_source": result.get("fault_source"),
+            "metadata": result.get("metadata").cloned().unwrap_or_else(|| serde_json::json!({})),
         }))
     }
 

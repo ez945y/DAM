@@ -39,6 +39,9 @@ Endpoints
 
     POST /api/system/save-config     → write YAML to .dam_stackfile.yaml
     POST /api/system/restart         → save YAML (if provided) + restart process
+
+    GET  /api/experiments            → list native experiment runners
+    POST /api/experiments/{id}/run   → run one experiment and return rows/artifacts
 """
 
 from __future__ import annotations
@@ -81,6 +84,7 @@ def create_app(services: ServiceContainer | None = None) -> Any:
     from dam.services.routers import (
         create_boundaries_router,
         create_control_router,
+        create_experiments_router,
         create_mcap_router,
         create_ood_router,
         create_risk_log_router,
@@ -145,5 +149,6 @@ def create_app(services: ServiceContainer | None = None) -> Any:
     app.include_router(create_system_router(services.control))
     app.include_router(create_ood_router(services.ood_trainer))
     app.include_router(create_mcap_router(services.mcap_sessions, services.control))
+    app.include_router(create_experiments_router())
 
     return app

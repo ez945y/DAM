@@ -81,6 +81,25 @@ export interface RiskLogStats {
   avg_latency_ms: number | null
 }
 
+export interface ExperimentDef {
+  id: string
+  title: string
+  rq: string
+  description: string
+  default_params: Record<string, unknown>
+  outputs: string[]
+}
+
+export interface ExperimentResult {
+  id: string
+  status: string
+  elapsed_sec: number
+  outdir: string
+  rows: Record<string, unknown>[]
+  summary: Record<string, unknown>
+  artifacts: string[]
+}
+
 export interface BoundaryConfig {
   name: string
   layer?: string

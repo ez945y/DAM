@@ -29,6 +29,7 @@ from dam.boundary.callbacks.hardware import (
     current_limit,
     force_limit,
     hardware_watchdog,
+    host_health_limit,
     temperature_limit,
     voltage_limit,
 )
@@ -59,6 +60,7 @@ __all__ = [
     "force_limit",
     "get_catalog",
     "hardware_watchdog",
+    "host_health_limit",
     "joint_position_limits",
     "joint_velocity_limit",
     "keep_out_zone",

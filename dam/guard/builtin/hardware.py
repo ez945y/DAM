@@ -14,6 +14,7 @@ import logging
 from typing import Any
 
 import dam
+from dam.boundary.callbacks.hardware import collect_host_health
 from dam.guard.base import Guard
 from dam.guard.callbacks import evaluate_boundary_callbacks
 from dam.types.observation import Observation
@@ -72,6 +73,7 @@ class HardwareGuard(Guard):
     ) -> GuardResult:
         layer = self.get_layer()
         name = self.get_name()
+        host_health = self._collect_host_health_if_active(active_containers)
 
         # 1. Boundary callbacks — L3 nodes own their params in constraint.params.
         _, callback_res = evaluate_boundary_callbacks(
@@ -80,6 +82,7 @@ class HardwareGuard(Guard):
                 "obs": obs,
                 "now": now,
                 "hardware_status": hardware_status,
+                "host_health": host_health,
                 "node_start_times": node_start_times or {},
             },
             expected_layer=layer.name,
@@ -105,9 +108,24 @@ class HardwareGuard(Guard):
 
         reason = self._telemetry_summary(hardware_status, exceptions)
         telemetry = self._extract_telemetry(hardware_status)
+        if host_health is not None:
+            telemetry["host_health"] = host_health
         if exceptions:
             telemetry["exception_joints"] = sorted(exceptions)
         return GuardResult.success(guard_name=name, layer=layer, metadata=telemetry, reason=reason)
+
+    @staticmethod
+    def _collect_host_health_if_active(
+        active_containers: list[Any] | None,
+    ) -> dict[str, Any] | None:
+        if not active_containers:
+            return None
+        for container in active_containers:
+            node = container.get_active_node()
+            callback = node.constraint.callback if node.constraint else None
+            if callback == "host_health_limit":
+                return collect_host_health()
+        return None
 
     def _check_health_telemetry(
         self,

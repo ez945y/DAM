@@ -168,6 +168,7 @@ def _record_to_dict(
                 "is_violation": is_violation,
                 "is_clamp": is_clamp,
                 "fault_source": result.fault_source,
+                "metadata": result.metadata,
             }
         )
 
@@ -312,6 +313,7 @@ class _WriterSession:
         "is_violation": {"type": "boolean"},  # REJECT or FAULT
         "is_clamp": {"type": "boolean"},  # CLAMP (action was modified)
         "fault_source": {"type": ["string", "null"]},
+        "metadata": {"type": "object"},
     }
 
     def __init__(self, path: Path, session_meta: dict[str, str]) -> None:
@@ -861,6 +863,7 @@ class LoopbackWriter:
                 "is_violation": is_violation,
                 "is_clamp": is_clamp,
                 "fault_source": result.fault_source,
+                "metadata": result.metadata,
             }
             session.write(f"/dam/L{layer_int}", _json(guard_msg), log_time_ns)
 

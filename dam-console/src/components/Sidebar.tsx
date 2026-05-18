@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, AlertTriangle, Settings,
-  Zap, Activity, Circle, ShieldCheck, Film, RotateCcw, Loader
+  Zap, Activity, Circle, ShieldCheck, Film, RotateCcw, Loader, FlaskConical
 } from 'lucide-react'
 import { useRuntimeControl } from '@/hooks/useRuntimeControl'
 import { useTelemetry } from '@/hooks/useTelemetry'
@@ -21,6 +21,7 @@ const NAV = [
   { href: '/',             label: 'Dashboard',    icon: LayoutDashboard, section: 'Monitor' },
   { href: '/risk-log',     label: 'Risk Log',     icon: AlertTriangle,   section: 'Monitor' },
   { href: '/mcap-viewer',  label: 'MCAP Sessions',icon: Film,            section: 'Monitor' },
+  { href: '/experiments',  label: 'Experiments',  icon: FlaskConical,    section: 'Monitor' },
   { href: '/config',       label: 'Config',       icon: Settings,        section: 'Setup'   },
   { href: '/guard',        label: 'Guard',        icon: ShieldCheck,     section: 'Setup'   },
 ]
