@@ -28,6 +28,13 @@ logger = logging.getLogger(__name__)
 
 _CATALOG: list[dict[str, Any]] = []  # [{name, layer, description, params, doc}, ...]
 
+# name → fn, populated by @boundary_callback at import time.  register_all()
+# iterates this so new callbacks are picked up automatically — no manual list
+# to keep in sync.  Registration is still deferred to register_all() (called by
+# the runtime/service init) so importing this module stays side-effect free,
+# per the project's "no import-time side effects" rule.
+_CALLBACKS: dict[str, Callable[..., Any]] = {}
+
 
 def boundary_callback(
     *,
@@ -64,6 +71,9 @@ def boundary_callback(
                 "doc": doc,
             }
         )
+        if name in _CALLBACKS and _CALLBACKS[name] is not fn:
+            raise ValueError(f"Duplicate boundary callback name: {name!r}")
+        _CALLBACKS[name] = fn
         return fn
 
     return decorator
@@ -248,6 +258,122 @@ def check_joints_not_moving(*, obs: Observation, max_speed_rad_s: float = 0.01) 
     return float(np.max(np.abs(obs.joint_velocities))) <= max_speed_rad_s
 
 
+@boundary_callback(
+    name="cartesian_velocity_limit",
+    layer="L1",
+    description="Caps end-effector Cartesian speed (linear m/s, angular rad/s).",
+)
+def cartesian_velocity_limit(
+    *,
+    obs: Observation,
+    dynamics: Any | None = None,
+    max_linear_speed: float = 0.25,
+    max_angular_speed: float = 1.0,
+    frame: str | int | None = None,
+) -> bool | tuple[bool, str]:
+    """Return False if the end-effector twist exceeds Cartesian speed limits.
+
+    The default 0.25 m/s linear cap follows the ISO/TS 15066 reduced-speed
+    guidance for human-collaborative operation.  Requires a ``dynamics``
+    context (pinocchio) for the frame Jacobian; if unavailable the check
+    passes (degrade gracefully, like ``workspace``).
+    """
+    if obs.joint_velocities is None or obs.joint_positions is None:
+        return True
+    if dynamics is None or not getattr(dynamics, "available", False):
+        return True
+    fid = frame if frame is not None else dynamics.default_frame_id
+    if fid is None:
+        return True
+    dynamics.update(np.asarray(obs.joint_positions, dtype=np.float64))
+    jac = np.asarray(dynamics.frame_jacobian(fid), dtype=np.float64)  # 6 × nq
+    qd = np.asarray(obs.joint_velocities, dtype=np.float64)
+    n = min(jac.shape[1], qd.shape[0])
+    twist = jac[:, :n] @ qd[:n]
+    v_lin = float(np.linalg.norm(twist[:3]))
+    v_ang = float(np.linalg.norm(twist[3:6]))
+    if v_lin > max_linear_speed or v_ang > max_angular_speed:
+        return (
+            False,
+            f"EE speed exceeded: {v_lin:.3f} m/s (max {max_linear_speed}), "
+            f"{v_ang:.3f} rad/s (max {max_angular_speed})",
+        )
+    return True
+
+
+@boundary_callback(
+    name="keep_out_zone",
+    layer="L1",
+    description="Rejects if the end-effector enters a keep-out box or sphere.",
+)
+def keep_out_zone(
+    *,
+    obs: Observation,
+    boxes: list[list[list[float]]] | None = None,
+    spheres: list[list[float]] | None = None,
+    kinematics_resolver: KinematicsResolver | None = None,
+    dynamics: Any | None = None,
+) -> bool | tuple[bool, str]:
+    """Return False if the end-effector position is inside any keep-out region.
+
+    The inverse of ``workspace`` — used for fixtures, no-go corridors, and
+    human-occupied volumes.  ``boxes`` is a list of ``[[xmin,xmax],[ymin,ymax],
+    [zmin,zmax]]``; ``spheres`` a list of ``[cx,cy,cz,radius]`` (metres).
+    """
+    pos = _resolve_ee_translation(obs, kinematics_resolver=kinematics_resolver, dynamics=dynamics)
+    if pos is None:
+        return True
+    for box in boxes or []:
+        b = np.asarray(box, dtype=np.float64)  # 3 × 2
+        if np.all((pos >= b[:, 0]) & (pos <= b[:, 1])):
+            return False, f"EE inside keep-out box {box}"
+    for sphere in spheres or []:
+        s = np.asarray(sphere, dtype=np.float64)  # [cx, cy, cz, r]
+        if float(np.linalg.norm(pos - s[:3])) <= float(s[3]):
+            return False, f"EE inside keep-out sphere (center {s[:3].tolist()})"
+    return True
+
+
+@boundary_callback(
+    name="orientation_limit",
+    layer="L1",
+    description="Rejects if end-effector tilt from a reference axis exceeds a limit (deg).",
+)
+def orientation_limit(
+    *,
+    obs: Observation,
+    max_tilt_deg: float = 30.0,
+    reference_axis: list[float] | None = None,
+    tool_axis: list[float] | None = None,
+    kinematics_resolver: KinematicsResolver | None = None,
+    dynamics: Any | None = None,
+) -> bool | tuple[bool, str]:
+    """Return False if the tool axis tilts past *max_tilt_deg* from reference.
+
+    Keeps a carried payload upright (e.g. open containers, trays).
+    ``tool_axis`` is the axis in the EE frame to keep aligned (default local
+    +Z); ``reference_axis`` is the world direction to align it with (default
+    world up ``[0,0,1]``).
+    """
+    rot = _resolve_ee_rotation(obs, kinematics_resolver=kinematics_resolver, dynamics=dynamics)
+    if rot is None:
+        return True
+    tool = np.asarray(tool_axis if tool_axis is not None else [0.0, 0.0, 1.0], dtype=np.float64)
+    ref = np.asarray(
+        reference_axis if reference_axis is not None else [0.0, 0.0, 1.0], dtype=np.float64
+    )
+    tool_norm = float(np.linalg.norm(tool))
+    ref_norm = float(np.linalg.norm(ref))
+    if tool_norm == 0.0 or ref_norm == 0.0:
+        return True
+    tool_world = rot @ (tool / tool_norm)
+    cos_tilt = float(np.clip(np.dot(tool_world, ref / ref_norm), -1.0, 1.0))
+    tilt_deg = float(np.degrees(np.arccos(cos_tilt)))
+    if tilt_deg > max_tilt_deg:
+        return False, f"EE tilt {tilt_deg:.1f}° exceeds {max_tilt_deg}°"
+    return True
+
+
 # ── L2: TASK EXECUTION ────────────────────────────────────────────────────────
 
 
@@ -425,26 +551,74 @@ def _get_ee_pose(
     return None
 
 
+def _quat_to_rotmat(quat: np.ndarray) -> np.ndarray:
+    """Rotation matrix from a ``[qx, qy, qz, qw]`` quaternion."""
+    x, y, z, w = (float(v) for v in quat[:4])
+    n = x * x + y * y + z * z + w * w
+    if n == 0.0:
+        return np.eye(3)
+    s = 2.0 / n
+    return np.array(
+        [
+            [1.0 - s * (y * y + z * z), s * (x * y - z * w), s * (x * z + y * w)],
+            [s * (x * y + z * w), 1.0 - s * (x * x + z * z), s * (y * z - x * w)],
+            [s * (x * z - y * w), s * (y * z + x * w), 1.0 - s * (x * x + y * y)],
+        ],
+        dtype=np.float64,
+    )
+
+
+def _resolve_ee_translation(
+    obs: Observation,
+    kinematics_resolver: KinematicsResolver | None = None,
+    dynamics: Any | None = None,
+) -> np.ndarray | None:
+    """End-effector position (3,), preferring the cached ``dynamics`` context."""
+    if (
+        dynamics is not None
+        and getattr(dynamics, "available", False)
+        and dynamics.default_frame_id is not None
+        and obs.joint_positions is not None
+    ):
+        dynamics.update(np.asarray(obs.joint_positions, dtype=np.float64))
+        placement = dynamics.frame_placement(dynamics.default_frame_id)
+        return np.asarray(placement.translation, dtype=np.float64)
+    pose = _get_ee_pose(obs, kinematics_resolver=kinematics_resolver)
+    if pose is None:
+        return None
+    return np.asarray(pose[:3], dtype=np.float64)
+
+
+def _resolve_ee_rotation(
+    obs: Observation,
+    kinematics_resolver: KinematicsResolver | None = None,
+    dynamics: Any | None = None,
+) -> np.ndarray | None:
+    """End-effector rotation matrix (3, 3), or None if unobtainable."""
+    if (
+        dynamics is not None
+        and getattr(dynamics, "available", False)
+        and dynamics.default_frame_id is not None
+        and obs.joint_positions is not None
+    ):
+        dynamics.update(np.asarray(obs.joint_positions, dtype=np.float64))
+        placement = dynamics.frame_placement(dynamics.default_frame_id)
+        return np.asarray(placement.rotation, dtype=np.float64)
+    pose = _get_ee_pose(obs, kinematics_resolver=kinematics_resolver)
+    if pose is None or len(pose) < 7:
+        return None
+    return _quat_to_rotmat(np.asarray(pose[3:7], dtype=np.float64))
+
+
 def register_all() -> None:
+    """Register every ``@boundary_callback``-decorated function.
+
+    Auto-discovered from ``_CALLBACKS`` (populated by the decorator at import
+    time), so adding a new callback to this module needs no edit here.
+    """
     reg = get_global_registry()
-
-    def _safe_reg(n, f):
+    for name, fn in _CALLBACKS.items():
         with contextlib.suppress(ValueError):
-            reg.register(n, f)
+            reg.register(name, fn)
 
-    _safe_reg("ood_detector", ood_detector)
-    _safe_reg("semantic_state", semantic_state)
-    _safe_reg("joint_velocity_limit", joint_velocity_limit)
-    _safe_reg("joint_position_limits", joint_position_limits)
-    _safe_reg("workspace", workspace)
-    _safe_reg("check_velocity_smooth", check_velocity_smooth)
-    _safe_reg("check_joints_not_moving", check_joints_not_moving)
-    _safe_reg("check_force_torque_safe", check_force_torque_safe)
-    _safe_reg("check_gripper_clear", check_gripper_clear)
-    _safe_reg("hardware_watchdog", hardware_watchdog)
-    _safe_reg("temperature_limit", temperature_limit)
-    _safe_reg("current_limit", current_limit)
-    _safe_reg("voltage_limit", voltage_limit)
-    _safe_reg("force_limit", force_limit)
-
-    logger.info("DAM: built-in boundary callbacks registered [L0-L3]")
+    logger.info("DAM: %d built-in boundary callbacks registered [L0-L3]", len(_CALLBACKS))

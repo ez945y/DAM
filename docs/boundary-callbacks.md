@@ -89,6 +89,42 @@ Reject if joint velocity norm exceeds `max_jerk_norm` per cycle.
 
 Reject if any joint moves faster than `max_speed_rad_s`.
 
+### `cartesian_velocity_limit`
+
+Reject if the end-effector twist exceeds Cartesian speed limits. The 0.25 m/s
+default follows ISO/TS 15066 reduced-speed guidance for human-collaborative
+operation. Requires a `dynamics` (pinocchio) context for the frame Jacobian;
+passes when unavailable.
+
+| Param | Default | Description |
+|---|---|---|
+| `max_linear_speed` | `0.25` | Max EE linear speed (m/s) |
+| `max_angular_speed` | `1.0` | Max EE angular speed (rad/s) |
+| `frame` | `None` | Frame id/name (defaults to the primary EE frame) |
+
+### `keep_out_zone`
+
+Reject if the end-effector position is inside any keep-out region — the
+inverse of `workspace`, for fixtures and operator-occupied volumes. Uses the
+`dynamics` context or `kinematics_resolver`; passes when neither resolves a
+pose.
+
+| Param | Default | Description |
+|---|---|---|
+| `boxes` | `None` | List of `[[xmin,xmax],[ymin,ymax],[zmin,zmax]]` (m) |
+| `spheres` | `None` | List of `[cx,cy,cz,radius]` (m) |
+
+### `orientation_limit`
+
+Reject if the tool axis tilts past `max_tilt_deg` from a reference direction —
+keeps a carried payload upright.
+
+| Param | Default | Description |
+|---|---|---|
+| `max_tilt_deg` | `30.0` | Max tilt of `tool_axis` from `reference_axis` (deg) |
+| `reference_axis` | `[0,0,1]` | World direction to align with (default: up) |
+| `tool_axis` | `[0,0,1]` | EE-frame axis to keep aligned (default: local +Z) |
+
 ---
 
 ## L2: Task Execution

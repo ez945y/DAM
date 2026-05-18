@@ -6,6 +6,7 @@ when you need to register the built-in callback set programmatically.
 
 from dam.boundary.builtin_callbacks import (
     boundary_callback,
+    cartesian_velocity_limit,
     check_force_torque_safe,
     check_gripper_clear,
     check_joints_not_moving,
@@ -16,7 +17,9 @@ from dam.boundary.builtin_callbacks import (
     hardware_watchdog,
     joint_position_limits,
     joint_velocity_limit,
+    keep_out_zone,
     ood_detector,
+    orientation_limit,
     register_all,
     semantic_state,
     temperature_limit,
@@ -26,6 +29,7 @@ from dam.boundary.builtin_callbacks import (
 
 __all__ = [
     "boundary_callback",
+    "cartesian_velocity_limit",
     "check_force_torque_safe",
     "check_gripper_clear",
     "check_joints_not_moving",
@@ -36,7 +40,9 @@ __all__ = [
     "hardware_watchdog",
     "joint_position_limits",
     "joint_velocity_limit",
+    "keep_out_zone",
     "ood_detector",
+    "orientation_limit",
     "register_all",
     "semantic_state",
     "temperature_limit",

@@ -5,11 +5,16 @@ from __future__ import annotations
 import numpy as np
 
 from dam.boundary.builtin_callbacks import (
+    _CALLBACKS,
+    cartesian_velocity_limit,
     check_force_torque_safe,
     check_gripper_clear,
     check_joints_not_moving,
     check_velocity_smooth,
+    get_catalog,
     joint_position_limits,
+    keep_out_zone,
+    orientation_limit,
     register_all,
 )
 from dam.registry.callback import CallbackRegistry
@@ -172,3 +177,162 @@ class TestRegisterAll:
             register_all()  # second call must not crash
         finally:
             rcmod._registry = orig
+
+    def test_register_all_auto_captures_decorated(self):
+        """Every @boundary_callback fn must be auto-registered (no manual list)."""
+        import dam.registry.callback as rcmod
+
+        orig = rcmod._registry
+        rcmod._registry = CallbackRegistry()
+        try:
+            register_all()
+            registered = set(rcmod._registry.list_all())
+            assert set(_CALLBACKS) == registered
+            assert {c["name"] for c in get_catalog()} == registered
+        finally:
+            rcmod._registry = orig
+
+
+# ── Fake pinocchio-like dynamics context ──────────────────────────────────────
+
+
+class _FakePlacement:
+    def __init__(self, translation, rotation):
+        self.translation = np.asarray(translation, dtype=float)
+        self.rotation = np.asarray(rotation, dtype=float)
+
+
+class _FakeDynamics:
+    def __init__(self, jac=None, translation=None, rotation=None, available=True):
+        self._jac = jac
+        self._placement = _FakePlacement(
+            translation if translation is not None else [0.0, 0.0, 0.0],
+            rotation if rotation is not None else np.eye(3),
+        )
+        self.available = available
+        self.default_frame_id = 0
+        self.updated_with = None
+
+    def update(self, q):
+        self.updated_with = np.asarray(q, dtype=float)
+
+    def frame_jacobian(self, _fid):
+        return self._jac
+
+    def frame_placement(self, _fid):
+        return self._placement
+
+
+# ── cartesian_velocity_limit ──────────────────────────────────────────────────
+
+
+class TestCartesianVelocityLimit:
+    def test_within_limit_pass(self):
+        obs = _obs(positions=[0.0] * 6, velocities=[0.2, 0, 0, 0, 0, 0])
+        dyn = _FakeDynamics(jac=np.eye(6))
+        assert cartesian_velocity_limit(obs=obs, dynamics=dyn, max_linear_speed=0.25) is True
+
+    def test_exceeds_linear_fail(self):
+        obs = _obs(positions=[0.0] * 6, velocities=[0.5, 0, 0, 0, 0, 0])
+        dyn = _FakeDynamics(jac=np.eye(6))
+        result = cartesian_velocity_limit(obs=obs, dynamics=dyn, max_linear_speed=0.25)
+        assert result is not True
+        assert result[0] is False
+
+    def test_exceeds_angular_fail(self):
+        obs = _obs(positions=[0.0] * 6, velocities=[0, 0, 0, 5.0, 0, 0])
+        dyn = _FakeDynamics(jac=np.eye(6))
+        result = cartesian_velocity_limit(
+            obs=obs, dynamics=dyn, max_linear_speed=10.0, max_angular_speed=1.0
+        )
+        assert result is not True
+        assert result[0] is False
+
+    def test_no_dynamics_pass(self):
+        obs = _obs(velocities=[9.0] * 6)
+        assert cartesian_velocity_limit(obs=obs, dynamics=None) is True
+
+    def test_unavailable_dynamics_pass(self):
+        obs = _obs(velocities=[9.0] * 6)
+        dyn = _FakeDynamics(jac=np.eye(6), available=False)
+        assert cartesian_velocity_limit(obs=obs, dynamics=dyn) is True
+
+    def test_no_velocities_pass(self):
+        obs = _obs(positions=[0.0] * 6)
+        dyn = _FakeDynamics(jac=np.eye(6))
+        assert cartesian_velocity_limit(obs=obs, dynamics=dyn) is True
+
+
+# ── keep_out_zone ─────────────────────────────────────────────────────────────
+
+
+class TestKeepOutZone:
+    def test_outside_box_pass(self):
+        obs = _obs(ee_pose=[1.0, 1.0, 1.0, 0, 0, 0, 1])
+        boxes = [[[-0.1, 0.1], [-0.1, 0.1], [-0.1, 0.1]]]
+        assert keep_out_zone(obs=obs, boxes=boxes) is True
+
+    def test_inside_box_fail(self):
+        obs = _obs(ee_pose=[0.0, 0.0, 0.0, 0, 0, 0, 1])
+        boxes = [[[-0.1, 0.1], [-0.1, 0.1], [-0.1, 0.1]]]
+        result = keep_out_zone(obs=obs, boxes=boxes)
+        assert result is not True
+        assert result[0] is False
+
+    def test_inside_sphere_fail(self):
+        obs = _obs(ee_pose=[0.05, 0.0, 0.0, 0, 0, 0, 1])
+        result = keep_out_zone(obs=obs, spheres=[[0.0, 0.0, 0.0, 0.1]])
+        assert result is not True
+        assert result[0] is False
+
+    def test_outside_sphere_pass(self):
+        obs = _obs(ee_pose=[0.5, 0.0, 0.0, 0, 0, 0, 1])
+        assert keep_out_zone(obs=obs, spheres=[[0.0, 0.0, 0.0, 0.1]]) is True
+
+    def test_no_pose_pass(self):
+        obs = _obs()
+        assert keep_out_zone(obs=obs, boxes=[[[-1, 1], [-1, 1], [-1, 1]]]) is True
+
+    def test_uses_dynamics_translation(self):
+        obs = _obs(positions=[0.1] * 6)
+        dyn = _FakeDynamics(translation=[0.0, 0.0, 0.0])
+        result = keep_out_zone(
+            obs=obs, boxes=[[[-0.1, 0.1], [-0.1, 0.1], [-0.1, 0.1]]], dynamics=dyn
+        )
+        assert result is not True
+        assert result[0] is False
+
+
+# ── orientation_limit ─────────────────────────────────────────────────────────
+
+
+class TestOrientationLimit:
+    def test_upright_pass(self):
+        obs = _obs(ee_pose=[0, 0, 0.3, 0, 0, 0, 1])  # identity quat
+        assert orientation_limit(obs=obs, max_tilt_deg=30.0) is True
+
+    def test_tilted_fail(self):
+        # 90° rotation about x: tool +z maps away from world +z.
+        s = float(np.sin(np.pi / 4))
+        obs = _obs(ee_pose=[0, 0, 0.3, s, 0, 0, s])
+        result = orientation_limit(obs=obs, max_tilt_deg=30.0)
+        assert result is not True
+        assert result[0] is False
+
+    def test_tilt_within_generous_limit_pass(self):
+        s = float(np.sin(np.pi / 4))
+        obs = _obs(ee_pose=[0, 0, 0.3, s, 0, 0, s])
+        assert orientation_limit(obs=obs, max_tilt_deg=120.0) is True
+
+    def test_no_pose_pass(self):
+        obs = _obs()
+        assert orientation_limit(obs=obs) is True
+
+    def test_uses_dynamics_rotation(self):
+        obs = _obs(positions=[0.0] * 6)
+        # rotation that flips tool z to -z → 180° tilt
+        rot = np.diag([1.0, -1.0, -1.0])
+        dyn = _FakeDynamics(rotation=rot)
+        result = orientation_limit(obs=obs, max_tilt_deg=30.0, dynamics=dyn)
+        assert result is not True
+        assert result[0] is False
