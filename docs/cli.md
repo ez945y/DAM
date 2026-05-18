@@ -19,6 +19,29 @@ dam <command> [options]
 `dam --version` prints the package version. `dam` with no command prints
 help and exits non-zero.
 
+### Default Stackfile
+
+`validate`, `run`, and `inspect` fall back to the **`.dam_stackfile.yaml`**
+convention file (repo root) when no `STACK` argument is given — the same
+file `make run` / the host use. So from a project with that file:
+
+```bash
+dam inspect          # == dam inspect .dam_stackfile.yaml
+dam validate         # == dam validate .dam_stackfile.yaml
+dam run --cycles 50
+```
+
+### Via make
+
+The venv must be active for a bare `dam`; otherwise use the Make wrappers
+(they call `.venv/bin/dam` directly, no activation needed):
+
+```bash
+make dam ARGS="inspect"                 # any subcommand
+make dam ARGS="callbacks --layer L1"
+make validate                           # validate all example Stackfiles (CI gate)
+```
+
 ---
 
 ## `dam validate`
@@ -27,6 +50,7 @@ Schema-validates one or more Stackfiles. Exit code is `1` if **any** file
 fails — this is the CI stackfile gate.
 
 ```bash
+dam validate                              # → .dam_stackfile.yaml
 dam validate examples/stackfiles/test.yaml
 dam validate examples/stackfiles/*.yaml
 ```

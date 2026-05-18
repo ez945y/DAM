@@ -13,7 +13,7 @@
 #   make ci-import         ← build Rust + import
 #   make ci-stackfile     ← validate stackfile
 #
-.PHONY: setup dev run docs test test-py test-rs test-ui lint build-rs clean help ci-lint ci-syntax ci-import ci-stackfile _kill_port
+.PHONY: setup dev run docs test test-py test-rs test-ui lint build-rs clean help dam validate ci-lint ci-syntax ci-import ci-stackfile _kill_port
 
 # Ensure scripts are executable before every target that uses them
 _chmod:
@@ -78,6 +78,12 @@ help:   ## Show this help message
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 
+dam:   ## Run the dam CLI (e.g. make dam ARGS="inspect" or ARGS="callbacks")
+	@.venv/bin/dam $(ARGS)
+
+validate:   ## Validate all example Stackfiles (the CI stackfile gate)
+	@.venv/bin/dam validate examples/stackfiles/*.yaml
+
 # CI targets (mirrors GitHub Actions)
 ci-lint: _chmod
 	@bash scripts/test.sh --lint
@@ -90,4 +96,4 @@ ci-import: _chmod
 	@python -c "import dam; print('OK')"
 
 ci-stackfile: _chmod
-	@python -c "from dam.config.loader import StackfileLoader; StackfileLoader.validate('examples/stackfiles/test.yaml')"
+	@.venv/bin/dam validate examples/stackfiles/*.yaml

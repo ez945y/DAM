@@ -2,8 +2,9 @@
 
 Subcommands
 -----------
-- ``dam validate <stack...>`` — schema-validate one or more Stackfiles
-  (the CI stackfile gate). Exit 1 if any file is invalid.
+- ``dam validate [stack...]`` — schema-validate one or more Stackfiles
+  (the CI stackfile gate). Exit 1 if any file is invalid. With no path,
+  validates the ``.dam_stackfile.yaml`` convention file.
 - ``dam callbacks`` — list every built-in boundary callback (name, layer,
   description). ``--layer L1`` filters; ``--json`` for machine output.
 - ``dam run <stack>`` — build the runtime from a Stackfile and run a
@@ -30,6 +31,9 @@ from dam import __version__
 
 _LAYER_ORDER = ("L0", "L1", "L2", "L3")
 
+# Convention file used when no Stackfile is given (mirrors scripts/dam_host.py).
+_DEFAULT_STACK = ".dam_stackfile.yaml"
+
 
 # ── validate ──────────────────────────────────────────────────────────────────
 
@@ -37,8 +41,9 @@ _LAYER_ORDER = ("L0", "L1", "L2", "L3")
 def _cmd_validate(args: argparse.Namespace) -> int:
     from dam.config.loader import StackfileLoader
 
+    stacks = list(args.stacks) or [_DEFAULT_STACK]
     failed = 0
-    for path in args.stacks:
+    for path in stacks:
         try:
             StackfileLoader.validate(path)
         except Exception as exc:  # noqa: BLE001 — surface any loader/schema error per file
@@ -46,7 +51,7 @@ def _cmd_validate(args: argparse.Namespace) -> int:
             print(f"FAIL  {path}\n      {type(exc).__name__}: {exc}")
         else:
             print(f"OK    {path}")
-    total = len(args.stacks)
+    total = len(stacks)
     print(f"\n{total - failed}/{total} valid")
     return 1 if failed else 0
 
@@ -333,7 +338,12 @@ def build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.Argument
     sub = parser.add_subparsers(dest="command", metavar="<command>")
 
     p_val = sub.add_parser("validate", help="schema-validate Stackfile(s)")
-    p_val.add_argument("stacks", nargs="+", metavar="STACK", help="Stackfile path(s)")
+    p_val.add_argument(
+        "stacks",
+        nargs="*",
+        metavar="STACK",
+        help=f"Stackfile path(s) (default: {_DEFAULT_STACK})",
+    )
     p_val.set_defaults(func=_cmd_validate)
 
     p_cb = sub.add_parser("callbacks", help="list built-in boundary callbacks")
@@ -342,7 +352,13 @@ def build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.Argument
     p_cb.set_defaults(func=_cmd_callbacks)
 
     p_run = sub.add_parser("run", help="run a headless control loop from a Stackfile")
-    p_run.add_argument("stack", metavar="STACK", help="Stackfile path")
+    p_run.add_argument(
+        "stack",
+        nargs="?",
+        default=_DEFAULT_STACK,
+        metavar="STACK",
+        help=f"Stackfile path (default: {_DEFAULT_STACK})",
+    )
     p_run.add_argument("--task", default="default", help="task name (default: default)")
     p_run.add_argument(
         "--cycles", type=int, default=100, help="cycles to run, -1 for unbounded (default: 100)"
@@ -358,7 +374,13 @@ def build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.Argument
     p_doc.set_defaults(func=_cmd_doctor)
 
     p_ins = sub.add_parser("inspect", help="print the resolved Stackfile graph")
-    p_ins.add_argument("stack", metavar="STACK", help="Stackfile path")
+    p_ins.add_argument(
+        "stack",
+        nargs="?",
+        default=_DEFAULT_STACK,
+        metavar="STACK",
+        help=f"Stackfile path (default: {_DEFAULT_STACK})",
+    )
     p_ins.set_defaults(func=_cmd_inspect)
 
     p_help = sub.add_parser("help", help="show help for the CLI or a subcommand")

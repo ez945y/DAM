@@ -32,6 +32,14 @@ class TestValidate:
         assert rc == 1
         assert "FAIL" in capsys.readouterr().out
 
+    def test_defaults_to_convention_file(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.chdir(tmp_path)  # empty dir, no .dam_stackfile.yaml
+        rc = main(["validate"])
+        out = capsys.readouterr().out
+        assert rc == 1
+        assert ".dam_stackfile.yaml" in out
+        assert "FAIL" in out
+
     def test_mixed_reports_each_and_fails(self, capsys):
         rc = main(["validate", VALID_STACK, "/no/such.yaml"])
         out = capsys.readouterr().out
@@ -143,6 +151,19 @@ class TestInspect:
         rc = main(["inspect", "/no/such/stack.yaml"])
         assert rc == 1
         assert "dam inspect:" in capsys.readouterr().err
+
+    def test_inspect_defaults_to_convention_file(self, tmp_path, monkeypatch, capsys):
+        import pathlib
+        import shutil
+
+        src = pathlib.Path(VALID_STACK).resolve()
+        monkeypatch.chdir(tmp_path)
+        shutil.copy(src, tmp_path / ".dam_stackfile.yaml")
+        rc = main(["inspect"])
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert ".dam_stackfile.yaml" in out
+        assert "boundaries" in out
 
     def test_inspect_reports_boundary_layers(self, capsys):
         rc = main(["inspect", "examples/stackfiles/manipulation_safe.yaml"])
