@@ -142,10 +142,6 @@ export const api = {
     apiFetch<{ cycle_id: number; filename: string | null; found: boolean }>(
       `/mcap/find?cycle_id=${cycleId}`
     ),
-  mcapLiveSession: () =>
-    apiFetch<{ filename: string | null; active: boolean; updated_at?: number }>(
-      '/mcap/live'
-    ),
   deleteMcapSession: (filename: string) =>
     apiFetch<{ success: boolean }>(`/mcap/sessions/${encodeURIComponent(filename)}`, { method: 'DELETE' }),
   archiveMcapSessions: (filenames: string[]) =>

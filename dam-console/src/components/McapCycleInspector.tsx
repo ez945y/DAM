@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 import type { McapCycleDetail } from '@/lib/api'
+import { CycleSafetyInspector } from '@/components/CycleSafetyInspector'
 import {
   ChevronDown, ChevronRight, Loader2,
   Activity, Shield, Cpu, Eye, AlertTriangle,
@@ -280,14 +281,33 @@ export function McapCycleInspector({ filename, cycleId, tsNs, fallbackDetail, ov
 
   const totalMs = detail.total_ms || detail.latency?.total_ms || 0
   const cycleStatusLabel = detail.has_violation ? 'REJECT' : detail.has_clamp ? 'CLAMP' : 'PASS'
+  const layerTags = [
+    ...detail.violated_layers.map(layer => ({ layer, tone: 'red' as const })),
+    ...detail.clamped_layers.map(layer => ({ layer, tone: 'blue' as const })),
+  ]
+  const inspectorGuards = detail.guard_results.map(g => ({
+    name: g.guard_name,
+    layer: g.layer_name || `L${g.layer}`,
+    decision: g.decision_name,
+    reason: g.reason,
+    latency_ms: g.latency_ms,
+    is_violation: g.is_violation,
+    is_clamp: g.is_clamp,
+    metadata: g.metadata,
+  }))
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto bg-dam-surface-1 border border-dam-border rounded-lg text-xs">
+    <div className="flex flex-col h-full min-h-0 bg-dam-surface-1 border border-dam-border rounded-lg text-xs overflow-hidden">
       {/* Header */}
-      <div className="px-3 py-2.5 border-b border-dam-border/50 bg-dam-surface-2/50">
-        <div className="flex items-center justify-between">
-          <span className="font-mono font-bold text-dam-text">Cycle <span className="text-dam-blue">#{detail.cycle_id}</span></span>
-          <div className="flex items-center gap-1.5">
+      <div className="px-3 py-2 border-b border-dam-border/50 bg-dam-surface-2/50">
+        <div className="flex items-center gap-2">
+          <span className="font-mono font-bold text-dam-text shrink-0">Cycle <span className="text-dam-blue">#{detail.cycle_id}</span></span>
+          {detail.active_task && (
+            <span className="min-w-0 truncate text-[10px] text-dam-muted/70">
+              · {detail.active_task}
+            </span>
+          )}
+          <div className="ml-auto flex items-center gap-1.5 flex-wrap justify-end">
             {usingFallback && (
               <span className="px-1.5 py-0.5 rounded border text-[9px] font-bold uppercase bg-amber-500/10 border-amber-500/20 text-amber-400">
                 Live
@@ -300,152 +320,43 @@ export function McapCycleInspector({ filename, cycleId, tsNs, fallbackDetail, ov
             }`}>
               {cycleStatusLabel}
             </span>
+            {layerTags.map(({ layer, tone }) => (
+              <span
+                key={`${tone}-${layer}`}
+                className={`px-1.5 py-0.5 rounded font-mono text-[9px] border ${
+                  tone === 'red'
+                    ? 'bg-red-500/20 text-red-400 border-red-500/20'
+                    : 'bg-blue-500/20 text-dam-blue border-blue-500/20'
+                }`}
+              >
+                {layer}
+              </span>
+            ))}
           </div>
         </div>
-        <p className="text-[10px] text-dam-muted/60 mt-0.5">
-          {new Date(detail.timestamp_ns / 1_000_000).toLocaleString([], { timeStyle: 'medium' })}
-          {detail.active_task && <span className="ml-2 text-dam-text/50">· {detail.active_task}</span>}
-        </p>
-        {(detail.violated_layers.length > 0 || detail.clamped_layers.length > 0) && (
-          <div className="flex gap-1 mt-1.5 flex-wrap">
-            {detail.violated_layers.map(l => (
-              <span key={l} className="px-1.5 py-0.5 rounded font-mono text-[9px] bg-red-500/20 text-red-400 border border-red-500/20">{l}</span>
-            ))}
-            {detail.clamped_layers.map(l => (
-              <span key={l} className="px-1.5 py-0.5 rounded font-mono text-[9px] bg-blue-500/20 text-dam-blue border border-blue-500/20">{l}</span>
-            ))}
-          </div>
-        )}
       </div>
 
-      {/* Guard results */}
-      <SectionHeader icon={Shield} label={`Guards (${detail.guard_results.length})`} open={open.guards} onToggle={() => toggle('guards')} />
-      {open.guards && (
-        <div className="px-3 py-2 space-y-1.5">
-          {detail.guard_results.length === 0 ? (
-            <p className="text-dam-muted/60 italic text-[10px]">No guard results recorded</p>
-          ) : detail.guard_results.map((g, i) => (
-            <div key={`${g.layer}-${i}`} className={`flex items-start gap-2 p-2 rounded border ${
-              g.is_violation ? 'bg-red-500/5 border-red-500/20' :
-              g.is_clamp     ? 'bg-blue-500/5 border-blue-500/20' :
-                               'bg-dam-surface-2 border-dam-border/40'
-            }`}>
-              <span className="font-mono text-[9px] text-dam-muted bg-dam-surface-1 px-1 py-0.5 rounded border border-dam-border shrink-0 mt-0.5">
-                L{g.layer}
-              </span>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between gap-1">
-                  <span className="font-mono text-[10px] font-bold text-dam-text truncate">{g.guard_name}</span>
-                  <span className={`px-1.5 py-0.5 rounded border text-[9px] font-bold uppercase shrink-0 ${DECISION_STYLE[g.decision_name] ?? 'text-dam-muted border-dam-border'}`}>
-                    {g.decision_name}
-                  </span>
-                </div>
-                {g.reason && (
-                  <p className="text-[10px] text-dam-muted/70 mt-0.5 truncate" title={g.reason}>{g.reason}</p>
-                )}
-                {g.latency_ms != null && (
-                  <p className="text-[9px] text-dam-muted/50 font-mono mt-0.5">{g.latency_ms.toFixed(2)} ms</p>
-                )}
-                {g.metadata && Object.keys(g.metadata).length > 0 && (
-                  <div className="mt-1.5 bg-dam-surface-1 border border-dam-border/50 rounded p-2">
-                    <JsonTree value={g.metadata} />
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
+      <div className="min-h-0 flex-1">
+        <div className="h-full min-h-0">
+          <CycleSafetyInspector
+            chrome="flush"
+            mode="mcap"
+            guards={inspectorGuards}
+            latency={detail.latency}
+            totalMs={totalMs}
+            observation={detail.observation}
+            action={detail.action}
+            failure={{
+              type: detail.failure_type,
+              guardNames: detail.failure_guard_names,
+              layers: detail.failure_layers,
+              decisions: detail.failure_decisions,
+              reasons: detail.failure_reasons,
+              tuple: detail.failure_tuple,
+            }}
+          />
         </div>
-      )}
-
-      {/* Latency */}
-      <SectionHeader icon={Activity} label="Latency" open={open.latency} onToggle={() => toggle('latency')} />
-      {open.latency && (
-        <div className="px-3 py-2 space-y-1.5">
-          {(['source_ms', 'policy_ms', 'guards_ms', 'sink_ms'] as const).map(key => (
-            <LatencyBar
-              key={key}
-              label={key.replaceAll('_ms', '')}
-              ms={detail.latency?.[key] ?? detail[key] ?? 0}
-              totalMs={totalMs}
-              color={STAGE_COLORS[key]}
-            />
-          ))}
-          {/* Total: number only — the bar is always 100% wide and adds no information */}
-          <div className="flex items-center gap-2 pt-0.5 mt-0.5 border-t border-dam-border/40">
-            <span className="w-16 shrink-0 text-[10px] font-bold text-dam-text">total</span>
-            <span className="flex-1" />
-            <span className="font-mono text-[10px] font-bold text-dam-orange">
-              {totalMs.toFixed(2)} ms
-            </span>
-          </div>
-          {/* Per-layer breakdown */}
-          {(['L0_ms', 'L1_ms', 'L2_ms', 'L3_ms'] as const).some(k => (detail.latency?.[k] ?? 0) > 0) && (
-            <div className="pt-1.5 border-t border-dam-border/30 space-y-1.5 mt-1">
-              <p className="text-[9px] font-bold text-dam-muted/60 uppercase tracking-wider">Per Layer</p>
-              {(['L0_ms', 'L1_ms', 'L2_ms', 'L3_ms'] as const).map(key => {
-                const ms = detail.latency?.[key] ?? 0
-                if (ms === 0) return null
-                return (
-                  <LatencyBar key={key} label={key.replaceAll('_ms', '')} ms={ms} totalMs={totalMs} color={LAYER_COLORS[key]} />
-                )
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Observation */}
-      <SectionHeader icon={Eye} label="Observation" open={open.obs} onToggle={() => toggle('obs')} />
-      {open.obs && (
-        <div className="px-3 py-2 space-y-2">
-          {!detail.observation ? (
-            <p className="text-dam-muted/60 italic text-[10px]">No observation data</p>
-          ) : (
-            <JsonTree value={detail.observation} />
-          )}
-        </div>
-      )}
-
-      {/* Action */}
-      <SectionHeader icon={Cpu} label="Action" open={open.action} onToggle={() => toggle('action')} />
-      {open.action && (
-        <div className="px-3 py-2 space-y-2">
-          {!detail.action ? (
-            <p className="text-dam-muted/60 italic text-[10px]">No action data</p>
-          ) : (
-            <>
-              <JsonTree value={detail.action} />
-              {detail.action.was_clamped && (
-                <div className="px-2 py-1 bg-dam-blue/10 border border-dam-blue/20 rounded text-[10px] text-dam-blue font-bold">
-                  Action was clamped by safety system
-                  {detail.action.fallback_triggered && <span className="ml-1 opacity-70">→ {detail.action.fallback_triggered}</span>}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
-
-      {/* Failure harvest */}
-      <SectionHeader icon={AlertTriangle} label="Failure Record" open={open.failure} onToggle={() => toggle('failure')} />
-      {open.failure && (
-        <div className="px-3 py-2 space-y-2">
-          {detail.failure_type ? (
-            <JsonTree
-              value={{
-                failure_type: detail.failure_type,
-                failure_guard_names: detail.failure_guard_names ?? [],
-                failure_layers: detail.failure_layers ?? [],
-                failure_decisions: detail.failure_decisions ?? [],
-                failure_reasons: detail.failure_reasons ?? [],
-                failure_tuple: detail.failure_tuple ?? null,
-              }}
-            />
-          ) : (
-            <p className="text-dam-muted/60 italic text-[10px]">No failure record for this cycle</p>
-          )}
-        </div>
-      )}
+      </div>
     </div>
   )
 }

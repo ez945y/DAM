@@ -83,6 +83,7 @@ _IDX_GR_LATENCY_MS = 7
 _IDX_GR_IS_VIOLATION = 8
 _IDX_GR_IS_CLAMP = 9
 _IDX_GR_FAULT_SOURCE = 10
+_IDX_GR_METADATA = 11
 
 
 @contextmanager
@@ -174,6 +175,9 @@ def _guard_result_from_sequence(data: Any) -> dict[str, Any] | None:
         else False,
         "is_clamp": bool(data[_IDX_GR_IS_CLAMP]) if len(data) > _IDX_GR_IS_CLAMP else False,
         "fault_source": data[_IDX_GR_FAULT_SOURCE] if len(data) > _IDX_GR_FAULT_SOURCE else None,
+        "metadata": data[_IDX_GR_METADATA]
+        if len(data) > _IDX_GR_METADATA and isinstance(data[_IDX_GR_METADATA], dict)
+        else {},
     }
 
 
@@ -1160,26 +1164,64 @@ class McapSessionService:
     def resolve_path(self, filename: str) -> Path | None:
         return self._resolve(filename)
 
-    def delete_session(self, filename: str) -> bool:
+    def _close_pooled_readers_for(self, path: Path) -> None:
+        path_str = str(path)
+        with self._pool_meta_lock:
+            for k in [k for k in self._reader_pool if k[0] == path_str]:
+                e = self._reader_pool.pop(k)
+                with contextlib.suppress(Exception):
+                    e["fh"].close()
+
+    def _drop_session_index(self, filename: str) -> None:
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute("DELETE FROM sessions WHERE filename=?", (filename,))
+            cur.execute("DELETE FROM cycles WHERE filename=?", (filename,))
+            cur.execute("DELETE FROM frames WHERE filename=?", (filename,))
+            self._conn.commit()
+        self._cycle_cache = {k: v for k, v in self._cycle_cache.items() if k[0] != filename}
+        self._frames_mem = {k: v for k, v in self._frames_mem.items() if k[0] != filename}
+        self._frame_cache = OrderedDict(
+            (k, v) for k, v in self._frame_cache.items() if k[0] != filename
+        )
+
+    def _archive_target_for(self, path: Path) -> Path:
+        archive_dir = self._dir / "_trash"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+
+        target = archive_dir / path.name
+        if not target.exists():
+            return target
+
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        for i in range(1, 1000):
+            candidate = archive_dir / f"{path.stem}-{stamp}-{i}{path.suffix}"
+            if not candidate.exists():
+                return candidate
+        raise FileExistsError(f"Could not find a free archive name for {path.name}")
+
+    def archive_session(self, filename: str) -> dict[str, Any] | None:
         path = self._resolve(filename)
         if not path:
-            return False
+            return None
         try:
-            path.unlink()
-            with self._lock:
-                cur = self._conn.cursor()
-                cur.execute("DELETE FROM sessions WHERE filename=?", (filename,))
-                cur.execute("DELETE FROM cycles WHERE filename=?", (filename,))
-                cur.execute("DELETE FROM frames WHERE filename=?", (filename,))
-                self._conn.commit()
-            # Release any pooled reader for this file.
-            path_str = str(path)
-            with self._pool_meta_lock:
-                for k in [k for k in self._reader_pool if k[0] == path_str]:
-                    e = self._reader_pool.pop(k)
-                    with contextlib.suppress(Exception):
-                        e["fh"].close()
-            return True
+            self._close_pooled_readers_for(path)
+            target = self._archive_target_for(path)
+            path.replace(target)
+            self._drop_session_index(filename)
+            return {
+                "filename": filename,
+                "archived_filename": target.name,
+                "archived_path": str(target),
+            }
+        except Exception as e:
+            logger.error("Failed to archive session %s: %s", filename, e)
+            return None
+
+    def delete_session(self, filename: str) -> bool:
+        """Backward-compatible delete API that archives instead of unlinking."""
+        try:
+            return self.archive_session(filename) is not None
         except Exception as e:
             logger.error("Failed to delete session %s: %s", filename, e)
             return False

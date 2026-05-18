@@ -173,7 +173,7 @@ def main() -> None:
                                         n,
                                         n_subs,
                                     )
-                        telemetry.push(res, live_images=live_imgs if live_imgs else None)
+                        telemetry.push(res, camera_jpegs=live_imgs if live_imgs else None)
                         risk_log.record(
                             res,
                             perf=runner.metric_snapshot(),

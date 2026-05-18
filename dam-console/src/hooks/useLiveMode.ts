@@ -4,7 +4,7 @@
  *
  * Both the Dashboard's camera panel and the MCAP Viewer share the same
  * live-mode flag.  When live mode is ON:
- *   - Camera images come from WebSocket telemetry (lastCycle.live_images)
+ *   - Camera images come from binary WebSocket telemetry frames
  *   - The MCAP timeline / player are hidden
  *   - The camera player shows a realtime feed instead of MCAP frames
  *

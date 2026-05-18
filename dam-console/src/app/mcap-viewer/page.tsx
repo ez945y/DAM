@@ -601,33 +601,32 @@ function McapViewerContent() {
               Move
             </button>
           </div>
-          {sessions.length > 0 && (
-            <label className="flex items-center gap-2 px-1 text-[10px] text-dam-muted">
-              <input
-                type="checkbox"
-                checked={
-                  sessions.length > 0 && selectedForArchive.size === sessions.length
-                }
-                onChange={(e) =>
-                  setSelectedForArchive(
-                    e.target.checked
-                      ? new Set(sessions.map((s) => s.filename))
-                      : new Set(),
-                  )
-                }
-                className="h-3.5 w-3.5 accent-dam-muted"
-              />
-              Select all
-            </label>
-          )}
+          <label className="flex items-center gap-2 px-1 text-[10px] text-dam-muted">
+            <input
+              type="checkbox"
+              checked={
+                sessions.length > 0 && selectedForArchive.size === sessions.length
+              }
+              disabled={sessions.length === 0}
+              onChange={(e) =>
+                setSelectedForArchive(
+                  e.target.checked
+                    ? new Set(sessions.map((s) => s.filename))
+                    : new Set(),
+                )
+              }
+              className="h-3.5 w-3.5 accent-dam-muted disabled:opacity-40"
+            />
+            Select all
+          </label>
 
           {sessionsLoading ? (
-            <div className="flex items-center gap-2 text-dam-muted py-8 justify-center">
+            <div className="flex items-center gap-2 text-dam-muted py-8 justify-center rounded-lg border border-dam-border/40 bg-dam-surface-2/50">
               <Loader2 size={16} className="animate-spin" />
               <span className="text-sm">Loading…</span>
             </div>
           ) : sessions.length === 0 ? (
-            <div className="py-8 text-center text-dam-muted space-y-2">
+            <div className="flex min-h-[220px] flex-col items-center justify-center rounded-lg border border-dashed border-dam-border/70 bg-dam-surface-2/50 px-4 py-8 text-center text-dam-muted space-y-2">
               <FileText size={28} className="mx-auto opacity-30" />
               <p className="text-sm">No sessions recorded yet</p>
               <p className="text-[10px] opacity-60">
@@ -664,15 +663,98 @@ function McapViewerContent() {
         {/* Right: session detail */}
         <div className="flex-1 min-w-0 flex flex-col gap-4">
           {!selectedFilename ? (
-            <div className="flex-1 flex items-center justify-center text-dam-muted">
-              <div className="text-center space-y-2">
-                <Film size={32} className="mx-auto opacity-30" />
-                <p className="text-sm">Select a session to view details</p>
-                <p className="text-[10px] opacity-60">
-                  Recorded cycles and camera frames appear here
-                </p>
+            <>
+              <div className="bg-dam-surface-2 border border-dam-border rounded-lg px-4 py-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center gap-2 flex-1 min-w-0 text-dam-muted">
+                    <Film size={14} className="shrink-0 opacity-50" />
+                    <span className="font-mono text-sm font-bold truncate">
+                      No session selected
+                    </span>
+                    <span className="text-xs shrink-0">0.0 MB</span>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-dam-muted bg-dam-surface-1 px-2 py-1 rounded border border-dam-border">
+                      0 cycles
+                    </span>
+                    <span className="text-xs text-dam-muted bg-dam-surface-1 px-2 py-1 rounded border border-dam-border">
+                      0 violations
+                    </span>
+                    <span className="text-xs text-dam-muted bg-dam-surface-1 px-2 py-1 rounded border border-dam-border">
+                      0 clamps
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled
+                      className="text-[10px] text-dam-muted border border-dam-border px-2 py-1 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      Metadata
+                    </button>
+                    <button
+                      type="button"
+                      disabled
+                      className="flex items-center gap-1.5 text-[10px] font-bold text-dam-blue bg-dam-blue/10 border border-dam-blue/30 px-2.5 py-1 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <Download size={11} />
+                      Download
+                    </button>
+                    <button
+                      type="button"
+                      disabled
+                      className="flex items-center justify-center p-1 text-dam-muted border border-transparent rounded disabled:opacity-40 disabled:cursor-not-allowed"
+                      title="Move to _trash"
+                    >
+                      <Archive size={12} />
+                    </button>
+                  </div>
+                </div>
               </div>
-            </div>
+
+              <div className="bg-dam-surface-1/50 rounded-lg p-3 min-h-[60px] relative border border-dam-border/30">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[9px] font-bold text-dam-muted/50 uppercase tracking-[0.15em]">
+                    Cycle Timeline
+                  </p>
+                </div>
+                <div className="flex h-10 items-center justify-center rounded border border-dashed border-dam-border/50 text-[10px] text-dam-muted/70">
+                  No cycles recorded
+                </div>
+              </div>
+
+              <div className="flex min-h-[360px] max-h-[calc(100vh-330px)] gap-4 overflow-hidden">
+                <div className="flex flex-col flex-1 min-w-0 min-h-0">
+                  <p className="text-[9px] font-bold text-dam-muted/50 uppercase tracking-[0.15em] mb-2 px-1">
+                    Cycle Inspector
+                  </p>
+                  <div className="flex-1 min-h-0 rounded-lg border border-dam-border/70 bg-dam-surface-1/40 flex items-center justify-center text-center text-dam-muted">
+                    <div className="space-y-2 px-6">
+                      <Activity size={28} className="mx-auto opacity-30" />
+                      <p className="text-sm">Select a session to view details</p>
+                      <p className="text-[10px] opacity-60">
+                        Recorded cycles appear here
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col w-80 shrink-0 min-h-0">
+                  <p className="text-[9px] font-bold text-dam-muted/50 uppercase tracking-[0.15em] mb-2 px-1">
+                    Camera Footage
+                  </p>
+                  <div className="flex-1 min-h-0 rounded-lg border border-dam-border/70 bg-dam-surface-1/40 flex items-center justify-center text-center text-dam-muted">
+                    <div className="space-y-2 px-6">
+                      <Film size={28} className="mx-auto opacity-30" />
+                      <p className="text-sm">No camera footage</p>
+                      <p className="text-[10px] opacity-60">
+                        Session frames appear here
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
           ) : (
             <>
               {selectedDetail ? (
@@ -707,15 +789,12 @@ function McapViewerContent() {
                 />
               </div>
 
-              <div
-                className="flex gap-4 flex-1 min-h-0"
-                style={{ minHeight: 360 }}
-              >
-                <div className="flex-1 min-w-0">
+              <div className="flex min-h-[360px] max-h-[calc(100vh-330px)] gap-4 overflow-hidden">
+                <div className="flex flex-col flex-1 min-w-0 min-h-0">
                   <p className="text-[9px] font-bold text-dam-muted/50 uppercase tracking-[0.15em] mb-2 px-1">
                     Cycle Inspector
                   </p>
-                  <div className="h-[360px]">
+                  <div className="flex-1 min-h-0">
                     <McapCycleInspector
                       filename={selectedFilename}
                       cycleId={selectedCycleId}
@@ -724,12 +803,12 @@ function McapViewerContent() {
                 </div>
 
                 <div
-                  className={`${cameras.length > 1 ? "w-[560px]" : "w-80"} shrink-0`}
+                  className={`flex flex-col min-h-0 ${cameras.length > 1 ? "w-[560px]" : "w-80"} shrink-0`}
                 >
                   <p className="text-[9px] font-bold text-dam-muted/50 uppercase tracking-[0.15em] mb-2 px-1">
                     Camera Footage
                   </p>
-                  <div className="h-[360px]">
+                  <div className="flex-1 min-h-0">
                     <McapCameraPlayer
                       filename={selectedFilename}
                       cameras={cameras}

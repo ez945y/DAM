@@ -317,7 +317,7 @@ export function McapCameraPlayer({
 
   if (!liveMode && cameras.length === 0) {
     return (
-      <div className="h-full flex flex-col items-center justify-center gap-2 text-dam-muted py-8">
+      <div className="h-full rounded-lg border border-dam-border/70 bg-dam-surface-1/40 flex flex-col items-center justify-center gap-2 px-6 py-8 text-center text-dam-muted">
         <Camera size={28} className="opacity-30" />
         <p className="text-sm">No camera footage in this session</p>
         <p className="text-xs opacity-60">Images are captured on REJECT / CLAMP events</p>
@@ -327,7 +327,7 @@ export function McapCameraPlayer({
 
   if (liveMode && liveCamList.length === 0) {
     return (
-      <div className="h-full flex flex-col items-center justify-center gap-2 text-dam-muted py-8">
+      <div className="h-full rounded-lg border border-dam-border/70 bg-dam-surface-1/40 flex flex-col items-center justify-center gap-2 px-6 py-8 text-center text-dam-muted">
         <Radio size={28} className="opacity-30 animate-pulse" />
         <p className="text-sm">Waiting for live camera data…</p>
         <p className="text-xs opacity-60">Camera frames arrive with each cycle event</p>

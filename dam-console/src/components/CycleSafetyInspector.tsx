@@ -29,6 +29,7 @@ export interface CycleSafetyInspectorProps {
   readonly observation?: unknown
   readonly action?: unknown
   readonly mode?: 'mcap' | 'risk'
+  readonly chrome?: 'card' | 'flush'
 }
 
 // DAM event taxonomy (dam.runtime.failure_classify):
@@ -393,7 +394,7 @@ function LatencySummary({ latency = {}, totalMs }: { latency?: Record<string, nu
   )
 }
 
-export function CycleSafetyInspector({ guards, latency, totalMs, failure, observation, action, mode = 'mcap' }: CycleSafetyInspectorProps) {
+export function CycleSafetyInspector({ guards, latency, totalMs, failure, observation, action, mode = 'mcap', chrome = 'card' }: CycleSafetyInspectorProps) {
   const displayGuards = useMemo(() => {
     const hasHostGuard = guards.some(g => g.name.toLowerCase().includes('host_health'))
     const hostHealth = guards
@@ -421,9 +422,12 @@ export function CycleSafetyInspector({ guards, latency, totalMs, failure, observ
   ] as const
   const failureLabel = failure?.type ? (FAILURE_LABEL[String(failure.type)] ?? String(failure.type)) : null
   const topReason = failing.find(g => g.reason)?.reason ?? failure?.reasons?.[0]
+  const rootClass = chrome === 'flush'
+    ? 'flex flex-col h-full min-h-0 bg-dam-surface-1 overflow-hidden'
+    : 'flex flex-col h-full min-h-0 rounded-lg border border-dam-border bg-dam-surface-1 overflow-hidden'
 
   return (
-    <div className="flex flex-col h-full min-h-0 rounded-lg border border-dam-border bg-dam-surface-1 overflow-hidden">
+    <div className={rootClass}>
       <div className="flex items-center gap-1 border-b border-dam-border/50 bg-dam-surface-2 px-2 py-1.5">
         {tabs.map(([key, label]) => (
           <button

@@ -283,10 +283,6 @@ class RuntimeLoopRunner(BaseRunner):
             hub_jpegs = self._frame_hub.latest_jpegs()
             if hub_jpegs:
                 return {str(name): bytes(jpeg) for name, jpeg in hub_jpegs.items()}
-        # Hub empty (e.g. simulation/dataset source) — let the runtime serve
-        # the latest observation frames instead.
-        if hasattr(self._runtime, "get_latest_images"):
-            return self._runtime.get_latest_images()
         return {}
 
     @property

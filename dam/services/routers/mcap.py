@@ -3,10 +3,15 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import Response
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
 _SVC_UNAVAILABLE = "MCAP session service not configured"
+
+
+class McapArchiveRequest(BaseModel):
+    filenames: list[str] = Field(default_factory=list, min_length=1)
 
 
 def _require_mcap_svc(svc: Any) -> Any:
@@ -34,6 +39,18 @@ def create_mcap_router(mcap_sessions: Any | None, control_svc: Any | None = None
             and hasattr(control_svc, "force_save_mcap")
         )
 
+    def _active_session_filename(svc: Any) -> str | None:
+        if not _control_svc_ready():
+            return None
+        try:
+            is_running = control_svc.status().get("state") == "running"
+            sessions = svc.list_sessions()
+            if is_running and sessions:
+                return str(sessions[0]["filename"])
+        except Exception:
+            return None
+        return None
+
     @router.get("/sessions", responses={503: {"description": _SVC_UNAVAILABLE}})
     def mcap_list_sessions(svc: Annotated[Any, Depends(get_mcap_service)]) -> Any:
         svc = _require_mcap_svc(svc)
@@ -58,7 +75,7 @@ def create_mcap_router(mcap_sessions: Any | None, control_svc: Any | None = None
     @router.delete(
         "/sessions/{filename}",
         responses={
-            404: {"description": "Session not found or failed to delete"},
+            404: {"description": "Session not found or failed to archive"},
             409: {"description": "Session is currently being recorded"},
             503: {"description": _SVC_UNAVAILABLE},
         },
@@ -68,25 +85,47 @@ def create_mcap_router(mcap_sessions: Any | None, control_svc: Any | None = None
     ) -> Any:
         svc = _require_mcap_svc(svc)
 
-        if _control_svc_ready():
-            try:
-                is_running = control_svc.status().get("state") == "running"
-                sessions = svc.list_sessions()
-                is_active = bool(is_running and sessions and sessions[0]["filename"] == filename)
-                if is_active:
-                    raise HTTPException(
-                        409,
-                        "This session is currently being recorded. Stop the system before deleting.",
-                    )
-            except HTTPException:
-                raise
-            except Exception:
-                pass
+        if _active_session_filename(svc) == filename:
+            raise HTTPException(
+                409,
+                "This session is currently being recorded. Stop the system before archiving.",
+            )
 
-        success = svc.delete_session(filename)
-        if not success:
-            raise HTTPException(404, f"Session not found or failed to delete: {filename}")
-        return {"success": True}
+        archived = svc.archive_session(filename)
+        if not archived:
+            raise HTTPException(404, f"Session not found or failed to archive: {filename}")
+        return {"success": True, "archived": archived}
+
+    @router.post(
+        "/sessions/archive",
+        responses={
+            207: {"description": "Some sessions could not be archived"},
+            409: {"description": "A selected session is currently being recorded"},
+            503: {"description": _SVC_UNAVAILABLE},
+        },
+    )
+    def mcap_archive_sessions(
+        body: McapArchiveRequest, svc: Annotated[Any, Depends(get_mcap_service)]
+    ) -> Any:
+        svc = _require_mcap_svc(svc)
+        active = _active_session_filename(svc)
+        filenames = list(dict.fromkeys(body.filenames))
+        if active in filenames:
+            raise HTTPException(
+                409,
+                "A selected session is currently being recorded. Stop the system before archiving.",
+            )
+
+        archived: list[dict[str, Any]] = []
+        failed: list[str] = []
+        for filename in filenames:
+            result = svc.archive_session(filename)
+            if result:
+                archived.append(result)
+            else:
+                failed.append(filename)
+
+        return {"success": len(failed) == 0, "archived": archived, "failed": failed}
 
     @router.get("/sessions/{filename}/cycles", responses={503: {"description": _SVC_UNAVAILABLE}})
     def mcap_list_cycles(
@@ -121,16 +160,6 @@ def create_mcap_router(mcap_sessions: Any | None, control_svc: Any | None = None
         svc = _require_mcap_svc(svc)
         filename = svc.find_session_by_cycle(cycle_id)
         return {"cycle_id": cycle_id, "filename": filename, "found": filename is not None}
-
-    @router.get("/live", responses={503: {"description": _SVC_UNAVAILABLE}})
-    def mcap_live_session(svc: Annotated[Any, Depends(get_mcap_service)]) -> Any:
-        """Return the most-recently-modified MCAP session — the one currently being written."""
-        svc = _require_mcap_svc(svc)
-        sessions = svc.list_sessions()
-        if not sessions:
-            return {"filename": None, "active": False}
-        latest = sessions[0]
-        return {"filename": latest["filename"], "active": True, "updated_at": latest["created_at"]}
 
     @router.get(
         "/sessions/{filename}/frames/{cam_name}",

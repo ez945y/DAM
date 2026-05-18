@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 import type { McapSessionDetail, McapSessionSummary } from '@/lib/api'
-import { FileText, AlertTriangle, AlertCircle, Download, Loader2, Film, Activity, Trash2 } from 'lucide-react'
+import { FileText, AlertTriangle, AlertCircle, Download, Loader2, Film, Activity, Archive } from 'lucide-react'
 
 export interface McapSessionListProps {
   readonly onSelectSession?: (filename: string) => void
@@ -19,6 +19,8 @@ export function McapSessionList({
   const [detailsMap, setDetailsMap] = useState<Record<string, McapSessionDetail>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [archiving, setArchiving] = useState(false)
 
   useEffect(() => {
     loadSessions()
@@ -31,6 +33,7 @@ export function McapSessionList({
       const data = await api.listMcapSessions()
       const sessions = data?.sessions ?? []
       setSessions(sessions)
+      setSelected(prev => new Set([...prev].filter(name => sessions.some(s => s.filename === name))))
 
       // Load details for each session in batches to avoid overwhelming the backend
       const detailsMap: Record<string, McapSessionDetail> = {}
@@ -56,6 +59,36 @@ export function McapSessionList({
     }
   }
 
+  async function archiveSessions(filenames: string[]) {
+    if (filenames.length === 0) return
+    const label = filenames.length === 1 ? filenames[0] : `${filenames.length} sessions`
+    if (!confirm(`Move ${label} to the MCAP _trash folder?`)) return
+
+    try {
+      setArchiving(true)
+      setError(null)
+      if (filenames.length === 1) {
+        await api.deleteMcapSession(filenames[0])
+      } else {
+        const result = await api.archiveMcapSessions(filenames)
+        if (result.failed.length > 0) {
+          throw new Error(`Failed to archive: ${result.failed.join(', ')}`)
+        }
+      }
+      filenames.forEach(filename => onDeleteSession?.(filename))
+      setSelected(prev => {
+        const next = new Set(prev)
+        filenames.forEach(filename => next.delete(filename))
+        return next
+      })
+      await loadSessions()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to archive sessions')
+    } finally {
+      setArchiving(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-8 text-dam-muted">
@@ -75,18 +108,61 @@ export function McapSessionList({
 
   if (sessions.length === 0) {
     return (
-      <div className="py-8 text-center text-dam-muted">
-        <FileText size={32} className="mx-auto mb-2 opacity-50" />
-        <p className="text-sm">No MCAP sessions recorded yet</p>
+      <div className="rounded-lg border border-dam-border/70 bg-dam-surface-1/40 p-3 space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <label className="flex items-center gap-2 text-xs text-dam-muted">
+            <input
+              type="checkbox"
+              checked={false}
+              disabled
+              className="h-4 w-4 accent-dam-blue disabled:opacity-40"
+            />
+            Select all
+          </label>
+          <button
+            type="button"
+            disabled
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-dam-muted bg-dam-surface-2 border border-dam-border rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            <Archive size={12} />
+            Move selected
+          </button>
+        </div>
+        <div className="flex min-h-[180px] flex-col items-center justify-center rounded-lg border border-dashed border-dam-border/70 bg-dam-surface-2/50 px-4 py-8 text-center text-dam-muted">
+          <FileText size={32} className="mx-auto mb-2 opacity-50" />
+          <p className="text-sm">No MCAP sessions recorded yet</p>
+          <p className="mt-1 text-xs opacity-60">Start a run to create a session</p>
+        </div>
       </div>
     )
   }
 
   return (
     <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <label className="flex items-center gap-2 text-xs text-dam-muted">
+          <input
+            type="checkbox"
+            checked={sessions.length > 0 && selected.size === sessions.length}
+            onChange={e => setSelected(e.target.checked ? new Set(sessions.map(s => s.filename)) : new Set())}
+            className="h-4 w-4 accent-dam-blue"
+          />
+          Select all
+        </label>
+        <button
+          type="button"
+          onClick={() => archiveSessions([...selected])}
+          disabled={selected.size === 0 || archiving}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-dam-muted bg-dam-surface-2 border border-dam-border rounded-lg hover:text-dam-text hover:border-dam-blue/40 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          {archiving ? <Loader2 size={12} className="animate-spin" /> : <Archive size={12} />}
+          Move selected
+        </button>
+      </div>
       {sessions.map(session => {
         const details = detailsMap[session.filename]
         const isSelected = selectedFilename === session.filename
+        const isChecked = selected.has(session.filename)
         const hasViolations = (details?.stats.violation_cycles ?? 0) > 0
         const hasClamps = (details?.stats.clamp_cycles ?? 0) > 0
 
@@ -103,6 +179,21 @@ export function McapSessionList({
           >
             {/* Header: Icon + Filename + Size */}
             <div className="flex items-center gap-3 mb-3">
+              <input
+                aria-label={`Select ${session.filename}`}
+                type="checkbox"
+                checked={isChecked}
+                onClick={e => e.stopPropagation()}
+                onChange={e => {
+                  setSelected(prev => {
+                    const next = new Set(prev)
+                    if (e.target.checked) next.add(session.filename)
+                    else next.delete(session.filename)
+                    return next
+                  })
+                }}
+                className="h-4 w-4 accent-dam-blue shrink-0"
+              />
               <div className={`p-2 rounded-lg ${isSelected ? 'bg-dam-blue/20' : 'bg-dam-surface-1'}`}>
                 <Film size={16} className={isSelected ? 'text-dam-blue' : 'text-dam-muted'} />
               </div>
@@ -120,17 +211,13 @@ export function McapSessionList({
               <button
                 onClick={(e) => {
                   e.stopPropagation()
-                  if (confirm(`Completely delete session ${session.filename}?`)) {
-                    api.deleteMcapSession(session.filename).then(() => {
-                      onDeleteSession?.(session.filename)
-                      loadSessions()
-                    })
-                  }
+                  archiveSessions([session.filename])
                 }}
-                className="p-1.5 text-dam-muted hover:text-red-500 hover:bg-red-500/10 rounded transition-colors"
-                title="Delete Session"
+                disabled={archiving}
+                className="p-1.5 text-dam-muted hover:text-dam-blue hover:bg-dam-blue/10 rounded transition-colors disabled:opacity-40"
+                title="Move to _trash"
               >
-                <Trash2 size={14} />
+                <Archive size={14} />
               </button>
             </div>
 
