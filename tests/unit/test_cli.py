@@ -116,3 +116,37 @@ class TestRun:
         rc = main(["run", "/no/such/stack.yaml"])
         assert rc == 1
         assert "dam run:" in capsys.readouterr().err
+
+
+class TestDoctor:
+    def test_doctor_runs(self, capsys):
+        rc = main(["doctor"])
+        out = capsys.readouterr().out
+        assert rc in (0, 1)
+        assert "python" in out
+        assert "dam_rs" in out
+        # core 'dam' is always importable in the test process
+        assert "OK    dam" in out
+
+
+class TestInspect:
+    def test_inspect_valid(self, capsys):
+        rc = main(["inspect", VALID_STACK])
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "boundaries" in out
+        assert "tasks" in out
+        assert "fallbacks" in out
+        assert "guards" in out
+
+    def test_inspect_missing_returns_one(self, capsys):
+        rc = main(["inspect", "/no/such/stack.yaml"])
+        assert rc == 1
+        assert "dam inspect:" in capsys.readouterr().err
+
+    def test_inspect_reports_boundary_layers(self, capsys):
+        rc = main(["inspect", "examples/stackfiles/manipulation_safe.yaml"])
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "keep_out_zone" in out
+        assert "[L3 single]" in out  # force_limit / hardware_watchdog at L3

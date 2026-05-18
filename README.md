@@ -64,6 +64,8 @@ dam validate examples/stackfiles/*.yaml   # schema-check Stackfiles (CI gate)
 dam callbacks                             # list built-in boundary callbacks
 dam run <stack> --cycles 200              # headless control loop
 dam replay <session>.mcap                 # summarise a recorded session
+dam doctor                                # check environment / dependencies
+dam inspect <stack>                       # print the resolved Stackfile graph
 dam help [command]
 ```
 

@@ -10,6 +10,9 @@ Subcommands
   headless control loop for ``--cycles`` cycles.
 - ``dam replay <mcap>`` — summarise the guard decisions recorded in a
   loopback ``.mcap`` session.
+- ``dam doctor`` — check environment / dependency readiness.
+- ``dam inspect <stack>`` — print the resolved Stackfile graph (guards,
+  boundaries, tasks, fallbacks) without touching hardware.
 - ``dam help [command]`` — show help for the CLI or a subcommand.
 
 The console entry point is wired via ``[project.scripts] dam = dam.cli:main``.
@@ -195,6 +198,113 @@ def _cmd_replay(args: argparse.Namespace) -> int:
     return 0
 
 
+# ── doctor ────────────────────────────────────────────────────────────────────
+
+
+def _probe(module: str, attr: str | None = None) -> tuple[bool, str]:
+    """Import *module* (optionally check *attr*); return (ok, detail)."""
+    import importlib
+
+    try:
+        mod = importlib.import_module(module)
+    except Exception as exc:  # noqa: BLE001 — any import failure means "not available"
+        return False, f"{type(exc).__name__}: {exc}"
+    if attr is not None and not hasattr(mod, attr):
+        return False, f"imported but missing {attr!r}"
+    version = getattr(mod, "__version__", "")
+    return True, str(version)
+
+
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    import platform
+
+    # (label, module, attr, required)
+    checks = [
+        ("dam", "dam", None, True),
+        ("dam_rs (Rust data plane)", "dam_rs", None, True),
+        ("dam_rs.ImageHub (camera/loopback)", "dam_rs", "ImageHub", False),
+        ("pinocchio (FK/Jacobian callbacks)", "pinocchio", None, False),
+        ("torch (policy / OOD)", "torch", None, False),
+        ("mcap (replay / loopback)", "mcap", None, False),
+        ("lerobot (SO-ARM adapter)", "lerobot", None, False),
+        ("rclpy (ROS 2 adapter)", "rclpy", None, False),
+    ]
+    print(f"python  : {platform.python_version()} ({sys.executable})")
+    missing_required = 0
+    for label, module, attr, required in checks:
+        ok, detail = _probe(module, attr)
+        if ok:
+            mark = "OK  "
+        elif required:
+            mark = "FAIL"
+            missing_required += 1
+        else:
+            mark = "WARN"
+        suffix = f"  ({detail})" if detail else ""
+        print(f"  {mark}  {label}{suffix}")
+    if missing_required:
+        print(f"\n{missing_required} required component(s) missing", file=sys.stderr)
+        return 1
+    print("\ncore environment OK")
+    return 0
+
+
+# ── inspect ───────────────────────────────────────────────────────────────────
+
+
+def _format_guards(guards: object) -> str:
+    if isinstance(guards, dict):
+        return " ".join(f"{k}={v}" for k, v in guards.items())
+    if isinstance(guards, list):
+        parts: list[str] = []
+        for g in guards:
+            if isinstance(g, dict):
+                parts += [f"{k}={v}" for k, v in g.items()]
+            else:
+                parts.append(str(g))
+        return " ".join(parts)
+    return str(guards)
+
+
+def _cmd_inspect(args: argparse.Namespace) -> int:
+    from dam.config.loader import StackfileLoader
+
+    try:
+        config = StackfileLoader.load(args.stack)
+    except Exception as exc:  # noqa: BLE001 — surface any loader/schema error
+        print(f"dam inspect: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+
+    safety = config.safety
+    print(f"stack   : {args.stack}  (version {config.version})")
+    print(
+        f"safety  : control_frequency_hz={safety.control_frequency_hz} "
+        f"no_task_behavior={safety.no_task_behavior}"
+    )
+    print(f"guards  : {_format_guards(config.guards) or '—'}")
+
+    print(f"\nboundaries ({len(config.boundaries)}):")
+    for name, cont in config.boundaries.items():
+        print(f"  {name}  [{cont.layer} {cont.type}]")
+        for node in cont.nodes:
+            params = ",".join(sorted(node.params)) or "—"
+            timeout = "—" if node.timeout_sec is None else f"{node.timeout_sec}s"
+            print(
+                f"    - callback={node.callback} fallback={node.fallback} "
+                f"timeout={timeout} params=[{params}]"
+            )
+
+    print(f"\ntasks ({len(config.tasks)}):")
+    for name, task in config.tasks.items():
+        print(f"  {name}: {list(task.boundaries)}")
+
+    print(f"\nfallbacks ({len(config.fallbacks)}):")
+    for name, fb in config.fallbacks.items():
+        chain = f" -> {fb.escalates_to}" if fb.escalates_to else ""
+        print(f"  {name}: {fb.type}{chain}")
+    return 0
+
+
 # ── help ──────────────────────────────────────────────────────────────────────
 
 
@@ -244,6 +354,13 @@ def build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.Argument
     p_rep.add_argument("--limit", type=int, default=20, help="max cycle ids to list per category")
     p_rep.set_defaults(func=_cmd_replay)
 
+    p_doc = sub.add_parser("doctor", help="check environment / dependency readiness")
+    p_doc.set_defaults(func=_cmd_doctor)
+
+    p_ins = sub.add_parser("inspect", help="print the resolved Stackfile graph")
+    p_ins.add_argument("stack", metavar="STACK", help="Stackfile path")
+    p_ins.set_defaults(func=_cmd_inspect)
+
     p_help = sub.add_parser("help", help="show help for the CLI or a subcommand")
     p_help.add_argument("topic", nargs="?", help="subcommand to describe")
     p_help.set_defaults(func=_cmd_help)
@@ -253,6 +370,8 @@ def build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.Argument
         "callbacks": p_cb,
         "run": p_run,
         "replay": p_rep,
+        "doctor": p_doc,
+        "inspect": p_ins,
         "help": p_help,
     }
     return parser, choices

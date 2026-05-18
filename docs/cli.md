@@ -11,6 +11,8 @@ dam <command> [options]
   callbacks  list built-in boundary callbacks
   run        run a headless control loop from a Stackfile
   replay     summarise a loopback .mcap session
+  doctor     check environment / dependency readiness
+  inspect    print the resolved Stackfile graph
   help       show help for the CLI or a subcommand
 ```
 
@@ -78,6 +80,29 @@ dam replay data/robot/sessions/session-001.mcap --limit 20
 ```
 
 Requires the optional `mcap` dependency (`pip install 'dam[torch]'`).
+
+## `dam doctor`
+
+Checks that the runtime dependencies are importable in the current
+interpreter — `dam`, `dam_rs` (+ `ImageHub`), `pinocchio`, `torch`, `mcap`,
+`lerobot`, `rclpy`. Required components missing → exit `1`; optional ones
+report `WARN`. Use it to diagnose a broken venv (e.g. a missing
+`dam_rs.ImageHub`).
+
+```bash
+dam doctor
+```
+
+## `dam inspect`
+
+Loads a Stackfile and prints the resolved graph — safety settings, active
+guards, every boundary (layer, container type, callback, fallback, param
+keys), tasks, and the fallback escalation chain. Pure config read; no
+hardware, registry, or runtime is started.
+
+```bash
+dam inspect examples/stackfiles/manipulation_safe.yaml
+```
 
 ## `dam help`
 

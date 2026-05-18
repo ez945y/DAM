@@ -137,6 +137,14 @@ rm -rf "$WHEEL_DIR"
     || die "dam_rs wheel installed but import failed — check Rust build output above."
 ok "dam_rs installed into .venv"
 
+# Install the dam project itself (editable) so the `dam` console command is
+# available.  --no-deps: dependencies are already provisioned above; avoid
+# re-resolving and disturbing the locally-built dam_rs / torch wheels.
+"$UV" pip install --python "$ROOT/.venv/bin/python" -e "$ROOT" --no-deps --quiet
+"$ROOT/.venv/bin/python" -c "import dam" \
+    || die "dam package install failed."
+ok "dam CLI installed (.venv/bin/dam)"
+
 # ── Frontend (optional) ────────────────────────────────────────────────────────
 if ! $RUST_ONLY; then
     if command -v node &>/dev/null; then
