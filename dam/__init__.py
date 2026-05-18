@@ -4,10 +4,13 @@ from importlib.metadata import version as _package_version
 from pathlib import Path
 
 from dam import testing
+from dam.api import RunSummary, build_runner, run
 from dam.decorators import callback, fallback, guard
 from dam.guard.aggregator import aggregate_decisions
 from dam.guard.base import Guard
 from dam.guard.layer import GuardLayer
+from dam.runner.base import BaseRunner as Runner
+from dam.runner.base import RunnerStatus
 from dam.types.action import ActionProposal, ValidatedAction
 from dam.types.observation import Observation
 from dam.types.result import GuardDecision, GuardResult
@@ -46,4 +49,9 @@ __all__ = [
     "RiskLevel",
     "CycleResult",
     "testing",
+    "build_runner",
+    "run",
+    "RunSummary",
+    "Runner",
+    "RunnerStatus",
 ]

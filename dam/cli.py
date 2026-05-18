@@ -95,45 +95,19 @@ def _cmd_callbacks(args: argparse.Namespace) -> int:
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
-    from dam.boundary.callbacks import register_all as reg_callbacks
-    from dam.fallback.builtin import register_all as reg_fallbacks
-    from dam.guard.builtin import register_all as reg_guards
-    from dam.runner.base import RunnerStatus
-    from dam.runtime.factory import RuntimeFactory
-
-    reg_callbacks()
-    reg_fallbacks()
-    reg_guards()
+    from dam.api import run as run_api
 
     try:
-        runner = RuntimeFactory.build_from_stackfile(args.stack)
-        runner.connect()
-        runner.verify()
-        runner.start(task=args.task, n_cycles=args.cycles)
+        summary = run_api(args.stack, task=args.task, cycles=args.cycles)
+    except KeyboardInterrupt:
+        print("\ninterrupted — stopped", file=sys.stderr)
+        return 1
     except Exception as exc:  # noqa: BLE001 — report build/connect/verify failures cleanly
         print(f"dam run: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
 
-    import time
-
-    terminal = (
-        RunnerStatus.STOPPED,
-        RunnerStatus.IDLE,
-        RunnerStatus.EMERGENCY,
-    )
-    try:
-        while runner.status not in terminal:
-            time.sleep(0.05)
-    except KeyboardInterrupt:
-        print("\ninterrupted — stopping", file=sys.stderr)
-        runner.stop()
-    finally:
-        cycles = getattr(runner, "cycle_count", "?")
-        status = runner.status
-        runner.shutdown()
-
-    print(f"finished: status={status.name} cycles={cycles}")
-    return 0 if status != RunnerStatus.EMERGENCY else 1
+    print(f"finished: status={summary.status} cycles={summary.cycles}")
+    return 1 if summary.emergency else 0
 
 
 # ── replay ────────────────────────────────────────────────────────────────────

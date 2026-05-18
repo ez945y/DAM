@@ -51,6 +51,7 @@ nav:
     - Stackfile Guide: quick-stack.md
     - CLI: cli.md
   - Reference:
+    - Library API: library-api.md
     - Guards: guards-reference.md
     - Boundary Callbacks: boundary-callbacks.md
     - Loopback Logging: loopback-logging.md
