@@ -29,6 +29,8 @@ This design enables strong safety boundaries while keeping the learning/policy l
 - **Hot-Reload Boundaries**: Update safety constraints without stopping the robot
 - **Fail-to-Reject**: Any guard timeout, crash, or exception → immediate rejection
 - **MCAP Loopback Buffer**: Capture ±30s of context around safety events for analysis
+- **Host Health Boundary**: L3 `host_health` guard treats computer CPU/GPU/temperature/memory breaches as hardware-risk events
+- **Native Experiments**: Built-in RQ1–RQ5 evaluation runners via console, `dam experiment` CLI, or HTTP API
 - **Built-in Adapters**: LeRobot (SO-ARM101) and ROS 2 support
 
 **Important Disclaimer**:

@@ -333,47 +333,16 @@ def _run_l0_calibration(params: dict[str, Any], outdir: Path) -> ExperimentResul
 
 
 def _run_usability(params: dict[str, Any], outdir: Path) -> ExperimentResult:
+    from scripts import run_usability_study as usab
+
+    trials = int(params.get("trials_per_scenario", 30))
+    seed = int(params.get("seed", 42))
     outdir.mkdir(parents=True, exist_ok=True)
     started = time.perf_counter()
-    trials = int(params.get("trials_per_scenario", 30))
-    rows: list[dict[str, Any]] = [
-        {
-            "scenario": "standard",
-            "trials": trials,
-            "false_triggers": 0,
-            "false_trigger_rate": 0.0,
-            "success_rate": 1.0,
-        },
-        {
-            "scenario": "object_shift",
-            "trials": trials,
-            "false_triggers": 1,
-            "false_trigger_rate": 1 / trials,
-            "success_rate": 0.97,
-        },
-        {
-            "scenario": "natural_light",
-            "trials": trials,
-            "false_triggers": 2,
-            "false_trigger_rate": 2 / trials,
-            "success_rate": 0.97,
-        },
-        {
-            "scenario": "operator_passby",
-            "trials": trials,
-            "false_triggers": 2,
-            "false_trigger_rate": 2 / trials,
-            "success_rate": 0.93,
-        },
-        {
-            "scenario": "small_payload",
-            "trials": trials,
-            "false_triggers": 1,
-            "false_trigger_rate": 1 / trials,
-            "success_rate": 0.97,
-        },
-    ]
-    _write_csv(rows, outdir / "results.csv")
+
+    rows = usab.run_study(trials, seed)
+    usab.write_csv(rows, outdir / "results.csv")
+    usab.plot_results(rows, outdir)
     _write_bar_svg(
         rows,
         outdir / "usability_false_triggers.svg",
@@ -381,6 +350,7 @@ def _run_usability(params: dict[str, Any], outdir: Path) -> ExperimentResult:
         label_key="scenario",
         value_key="false_trigger_rate",
     )
+    total_trials = sum(int(r["trials"]) for r in rows) or 1
     return ExperimentResult(
         id="usability",
         status="success",
@@ -389,25 +359,26 @@ def _run_usability(params: dict[str, Any], outdir: Path) -> ExperimentResult:
         rows=_numeric_rows(rows),
         summary={
             "overall_false_trigger_rate": sum(float(r["false_triggers"]) for r in rows)
-            / (trials * len(rows)),
+            / total_trials,
             "mean_success_rate": sum(float(r["success_rate"]) for r in rows) / len(rows),
         },
-        artifacts=_artifact_paths(outdir, ("results.csv", "usability_false_triggers.svg")),
+        artifacts=_artifact_paths(
+            outdir, ("results.csv", "usability_false_triggers.png", "usability_false_triggers.svg")
+        ),
     )
 
 
 def _run_failure_record_quality(params: dict[str, Any], outdir: Path) -> ExperimentResult:
+    from scripts import run_record_quality as recq
+
+    trials = int(params.get("trials", 40))
+    seed = int(params.get("seed", 42))
     outdir.mkdir(parents=True, exist_ok=True)
     started = time.perf_counter()
-    rows: list[dict[str, Any]] = [
-        {"metric": "required_fields", "rate": 1.00, "count": 120},
-        {"metric": "event_classification", "rate": 0.98, "count": 120},
-        {"metric": "layer_labels", "rate": 1.00, "count": 120},
-        {"metric": "readable_reason", "rate": 0.96, "count": 120},
-        {"metric": "obs_window", "rate": 0.93, "count": 120},
-        {"metric": "semantic_diversity", "rate": 0.88, "count": 8},
-    ]
-    _write_csv(rows, outdir / "results.csv")
+
+    rows = recq.run_quality(trials, seed)
+    recq.write_csv(rows, outdir / "results.csv")
+    recq.plot_results(rows, outdir)
     _write_bar_svg(
         rows,
         outdir / "failure_record_quality.svg",
@@ -415,14 +386,18 @@ def _run_failure_record_quality(params: dict[str, Any], outdir: Path) -> Experim
         label_key="metric",
         value_key="rate",
     )
+    mean_rate = sum(float(r["rate"]) for r in rows) / len(rows) if rows else 0.0
     return ExperimentResult(
         id="failure-record-quality",
         status="success",
         elapsed_sec=time.perf_counter() - started,
         outdir=str(outdir),
         rows=_numeric_rows(rows),
-        summary={"mean_quality_rate": sum(float(r["rate"]) for r in rows) / len(rows)},
-        artifacts=_artifact_paths(outdir, ("results.csv", "failure_record_quality.svg")),
+        summary={"mean_quality_rate": mean_rate},
+        artifacts=_artifact_paths(
+            outdir,
+            ("results.csv", "failure_record_quality.png", "failure_record_quality.svg"),
+        ),
     )
 
 
@@ -460,9 +435,17 @@ _EXPERIMENTS: dict[
             id="usability",
             title="Normal-Use False Trigger Study",
             rq="RQ3",
-            description="Summarizes false-trigger and success rates across legal deployment variations.",
-            default_params={"trials_per_scenario": 30, "outdir": "data/experiments/usability"},
-            outputs=("results.csv", "usability_false_triggers.svg"),
+            description="Runs the real L0-L2 guard stack on benign legal-variation frames and measures genuine false-trigger and success rates.",
+            default_params={
+                "trials_per_scenario": 30,
+                "seed": 42,
+                "outdir": "data/experiments/usability",
+            },
+            outputs=(
+                "results.csv",
+                "usability_false_triggers.png",
+                "usability_false_triggers.svg",
+            ),
         ),
         _run_usability,
     ),
@@ -471,9 +454,17 @@ _EXPERIMENTS: dict[
             id="failure-record-quality",
             title="Failure Record Quality",
             rq="RQ5",
-            description="Scores event-record completeness, classification, layer labels, and reuse readiness.",
-            default_params={"outdir": "data/experiments/failure_record_quality"},
-            outputs=("results.csv", "failure_record_quality.svg"),
+            description="Drives real violating scenarios through the guard stack and scores the harvested failure records for completeness, classification, layer labels, and reuse readiness.",
+            default_params={
+                "trials": 40,
+                "seed": 42,
+                "outdir": "data/experiments/failure_record_quality",
+            },
+            outputs=(
+                "results.csv",
+                "failure_record_quality.png",
+                "failure_record_quality.svg",
+            ),
         ),
         _run_failure_record_quality,
     ),

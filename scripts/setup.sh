@@ -111,6 +111,20 @@ if ! $RUST_ONLY; then
     ok "Python venv ready (.venv)"
 fi
 
+# ── Version sync — single source of truth is the root pyproject.toml ──────────
+# Propagates [project].version to dam-rust/dam-py, every crate Cargo.toml,
+# Cargo.lock, uv.lock, the console package.json and mkdocs.yml. Without this
+# the maturin build below would bake a stale dam-rs version.
+info "Syncing versions from pyproject.toml…"
+_SYNC_PY="$ROOT/.venv/bin/python"
+[[ -x "$_SYNC_PY" ]] || _SYNC_PY="$(command -v python3 || true)"
+if [[ -n "$_SYNC_PY" ]]; then
+    "$_SYNC_PY" "$ROOT/scripts/sync_version.py" \
+        || warn "sync_version.py failed — package versions may be inconsistent"
+else
+    warn "No Python found to run sync_version.py — package versions may be inconsistent"
+fi
+
 # ── Rust extension — dam_rs ────────────────────────────────────────────────────
 info "Building Rust extension (dam_rs) via maturin…"
 

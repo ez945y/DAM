@@ -1,8 +1,32 @@
 # Experiment Scripts
 
-DAM ships two experiment scripts for validating guard behaviour and measuring runtime
-overhead.  Both write results to a configurable output directory and require only the
-standard DAM Python environment plus `matplotlib` for plots.
+DAM ships the thesis evaluation runners (RQ1–RQ5) as native experiments that
+write results to a configurable output directory and require only the standard
+DAM Python environment plus `matplotlib` for plots.
+
+All five are exposed through one registry (`dam.experiments`) and can be run
+from three entry points:
+
+- **Console** — the *Experiments* page (`run` / `artifacts` tabs); SVG/PNG
+  preview inline, CSV via `GET /api/experiments/artifact`.
+- **CLI** — `dam experiment list` and `dam experiment run <id> [flags]`.
+- **HTTP** — `GET /api/experiments`, `POST /api/experiments/{id}/run`.
+
+| RQ | Id | What it measures | Data source |
+|----|----|------------------|-------------|
+| RQ1 | `l0-calibration` | L0 threshold / FPR / FNR / EER | Parametric synthetic study |
+| RQ2 | `boundary-scan` | L1/L2 interception curves | Real `guard.check()` runs |
+| RQ3 | `usability` | False-trigger & success rate on benign legal-variation frames | Real L0–L2 guard runs |
+| RQ4 | `latency-bench` | Cumulative guard latency vs 15 ms budget | Real `guard.check()` runs |
+| RQ5 | `failure-record-quality` | Completeness/classification/diversity of harvested failure records | Real violating-scenario runs |
+
+RQ3 and RQ5 are real measurements driven by the live guard stack and the
+shared production classifier — they are not hardcoded. RQ1 is an explicit
+parametric synthetic calibration.
+
+The sections below detail the two raw scripts that RQ2/RQ4 wrap; RQ3
+(`scripts/run_usability_study.py`) and RQ5 (`scripts/run_record_quality.py`)
+follow the same real-guard methodology.
 
 ---
 
