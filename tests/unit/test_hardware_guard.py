@@ -67,6 +67,50 @@ def test_fault_on_overcurrent(HG):
     assert "current" in result.reason.lower()
 
 
+def test_motor_peak_requires_consecutive_frames_before_fault(HG):
+    status = {
+        "temperatures": {"m1": 90.0},
+        "currents": {"m1": 0.2},
+        "voltages": {"m1": 7.4},
+        "error_codes": [],
+    }
+    obs = Observation(
+        timestamp=time.monotonic(), joint_positions=np.zeros(6), joint_velocities=np.zeros(6)
+    )
+
+    first = HG.check(
+        obs=obs,
+        hardware_status=status,
+        max_temperature_c=80.0,
+        consecutive_fault_frames=2,
+    )
+    second = HG.check(
+        obs=obs,
+        hardware_status=status,
+        max_temperature_c=80.0,
+        consecutive_fault_frames=2,
+    )
+
+    assert first.decision == GuardDecision.PASS
+    assert first.metadata["hardware_peak"]["streak"] == 1
+    assert second.decision == GuardDecision.FAULT
+    assert "streak 2/2" in second.reason
+
+
+def test_voltage_monitor_can_be_enabled(HG):
+    status = {"voltages": {"m1": 5.5}, "error_codes": []}
+    obs = Observation(
+        timestamp=time.monotonic(), joint_positions=np.zeros(6), joint_velocities=np.zeros(6)
+    )
+
+    off = HG.check(obs=obs, hardware_status=status, monitor_voltage=False)
+    on = HG.check(obs=obs, hardware_status=status, monitor_voltage=True, min_voltage_v=6.0)
+
+    assert off.decision == GuardDecision.PASS
+    assert on.decision == GuardDecision.FAULT
+    assert "Voltage" in on.reason
+
+
 def test_fault_on_error_code(HG):
     """Non-zero error code in error_codes list → FAULT."""
     status = {

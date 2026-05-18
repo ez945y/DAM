@@ -41,30 +41,143 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 BINARY_PROTOCOL_VERSION = b"\x02"
+_HOST_HEALTH_KEYS = {
+    "cpu_percent",
+    "memory_percent",
+    "memory_available_mb",
+    "temperature_c",
+    "gpus",
+    "timestamp",
+}
+_HARDWARE_READING_KEYS = {
+    "temperatures",
+    "currents",
+    "voltages",
+    "temperature_c",
+    "current_a",
+    "voltage_v",
+    "error_codes",
+    "exception_joints",
+}
+_HARDWARE_UI_SKIP_KEYS = {
+    "_latency_ms",
+    "latency_ms",
+}
+
+
+def _json_safe(value: Any) -> Any:
+    """Coerce arbitrary guard metadata into JSON-serialisable primitives.
+
+    The telemetry WebSocket frame is encoded with stdlib ``json.dumps``; a
+    single non-serialisable value (e.g. a numpy scalar from a motor adapter)
+    would raise and tear down the whole stream. This makes any hardware
+    metadata safe to attach without that risk.
+    """
+    if value is None or isinstance(value, str | bool | int | float):
+        return value
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, list | tuple | set):
+        return [_json_safe(v) for v in value]
+    if hasattr(value, "tolist"):  # numpy array or scalar
+        try:
+            return _json_safe(value.tolist())
+        except Exception:
+            return str(value)
+    if hasattr(value, "item"):  # other numpy-like scalar
+        try:
+            return value.item()
+        except Exception:
+            return str(value)
+    return str(value)
+
+
+def _layer_int(layer: Any) -> int | None:
+    if hasattr(layer, "value"):
+        try:
+            return int(layer.value)
+        except (TypeError, ValueError):
+            return None
+    try:
+        return int(layer)
+    except (TypeError, ValueError):
+        text = str(layer).upper()
+        if text.startswith("L"):
+            try:
+                return int(text[1:])
+            except ValueError:
+                return None
+    return None
+
+
+def _looks_like_host_health(value: Any) -> bool:
+    return isinstance(value, dict) and bool(_HOST_HEALTH_KEYS.intersection(value.keys()))
+
+
+def _hardware_guard_name(raw_name: str, meta: dict[str, Any]) -> str:
+    normalized = raw_name.lower()
+    if normalized in {"host_health", "host_health_limit"}:
+        return "host_health"
+    if normalized in {"hardwareguard", "hardware", "hardware_guard"} and (
+        _HARDWARE_READING_KEYS.intersection(meta.keys())
+    ):
+        return "hardware_watchdog"
+    return raw_name
 
 
 def _serialise_cycle(
     result: CycleResult,
-    live_images: dict[str, bytes] | None = None,
+    camera_jpegs: dict[str, bytes] | None = None,
 ) -> dict[str, Any]:
     """Convert CycleResult to a JSON-serialisable dict (pure safety data).
 
     Args:
         result: The cycle result to serialise.
-        live_images: Optional dict of camera_name -> JPEG bytes for live camera
-                     preview.  Encoded as binary payloads alongside JSON frames.
+        camera_jpegs: Optional camera_name -> JPEG bytes. Names are included in
+            the JSON cycle event; bytes are sent as binary WebSocket payloads.
     """
     guard_statuses = []
+    # Flexible hardware view: surface the JSON-safe metadata of every L3 /
+    # hardware-reporting guard (e.g. hardware_watchdog temps/currents/voltages,
+    # host_health CPU/GPU/mem) so the console can render whatever is present
+    # without a fixed schema. `host_health` is also hoisted to the top level
+    # for the typed CPU/mem/temp tiles.
+    hardware: dict[str, Any] = {}
+    hw_guards: dict[str, Any] = {}
     for gr in result.guard_results:
-        layer_val = gr.layer.value if hasattr(gr.layer, "value") else int(gr.layer)
+        layer_val = _layer_int(gr.layer)
         guard_statuses.append(
             {
                 "name": gr.guard_name,
-                "layer": f"L{layer_val}",
+                "layer": f"L{layer_val}" if layer_val is not None else str(gr.layer),
                 "decision": gr.decision.name,
                 "reason": gr.reason,
             }
         )
+        meta = gr.metadata if isinstance(gr.metadata, dict) else {}
+        if not meta:
+            continue
+        host_health = meta.get("host_health")
+        if _looks_like_host_health(host_health):
+            hardware["host_health"] = _json_safe(host_health)
+        if layer_val == 3 or "host_health" in meta:
+            safe_meta = _json_safe(meta)
+            if isinstance(safe_meta, dict):
+                # `host_health` is hoisted for typed host tiles above. Leaving
+                # it in the generic guard payload makes the console render the
+                # same CPU/memory/GPU values twice, especially for HardwareGuard
+                # success metadata that combines host and motor telemetry.
+                safe_meta = {
+                    k: v
+                    for k, v in safe_meta.items()
+                    if k != "host_health" and k not in _HARDWARE_UI_SKIP_KEYS
+                }
+            if safe_meta:
+                name = _hardware_guard_name(str(gr.guard_name), safe_meta)
+                if name != "host_health":
+                    hw_guards[name] = safe_meta
+    if hw_guards:
+        hardware["guards"] = hw_guards
     event: dict[str, Any] = {
         "type": "cycle",
         "cycle_id": result.cycle_id,
@@ -81,9 +194,11 @@ def _serialise_cycle(
         "active_boundaries": result.active_boundaries,
         "timestamp": time.time(),
     }
-    if live_images:
+    if hardware:
+        event["hardware"] = hardware
+    if camera_jpegs:
         # We send camera names so the frontend knows how many binary payloads to expect.
-        event["active_cameras"] = list(live_images.keys())
+        event["active_cameras"] = list(camera_jpegs.keys())
     return event
 
 
@@ -144,7 +259,7 @@ class TelemetryService:
     def push(
         self,
         result: CycleResult,
-        live_images: dict[str, bytes] | None = None,
+        camera_jpegs: dict[str, bytes] | None = None,
     ) -> None:
         """Serialise and broadcast a CycleResult to all WebSocket consumers.
 
@@ -153,9 +268,9 @@ class TelemetryService:
 
         Args:
             result: The cycle result to broadcast.
-            live_images: Optional dict of camera_name -> JPEG bytes.
+            camera_jpegs: Optional camera_name -> JPEG bytes.
         """
-        event = _serialise_cycle(result, live_images=live_images)
+        event = _serialise_cycle(result, camera_jpegs=camera_jpegs)
         if self._metric_bus is not None:
             event["perf"] = _build_perf(self._metric_bus, self._cycle_budget_ms)
 
@@ -167,8 +282,8 @@ class TelemetryService:
         if self._loop is not None and subs:
             for q in subs:
                 self._loop.call_soon_threadsafe(_safe_queue_push, q, event)
-                if live_images:
-                    for cam, jpeg in live_images.items():
+                if camera_jpegs:
+                    for cam, jpeg in camera_jpegs.items():
                         if not jpeg:
                             continue
                         name_bytes = cam.encode()
@@ -198,14 +313,14 @@ class TelemetryService:
         """Register the asyncio event loop (called once at app startup)."""
         self._loop = loop
 
-    def subscribe(self) -> asyncio.Queue[dict[str, Any]]:
+    def subscribe(self) -> asyncio.Queue[Any]:
         """Create and register a new subscriber queue."""
-        q: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=500)
+        q: asyncio.Queue[Any] = asyncio.Queue(maxsize=500)
         with self._lock:
             self._subscribers.add(q)
         return q
 
-    def unsubscribe(self, q: asyncio.Queue[dict[str, Any]]) -> None:
+    def unsubscribe(self, q: asyncio.Queue[Any]) -> None:
         """Unregister a subscriber queue."""
         with self._lock:
             self._subscribers.discard(q)

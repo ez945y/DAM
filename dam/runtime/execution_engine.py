@@ -343,6 +343,7 @@ class ExecutionEngine:
         if lookup in active_map:
             container = active_map[lookup]
             node = container.get_active_node()
+            kwargs["active_containers"] = [container]
             if node:
                 node_timeout = node.timeout_sec
                 if node.constraint:
@@ -399,6 +400,10 @@ class ExecutionEngine:
                         )
                     continue
                 try:
+                    if self._is_boundary_specific_guard(g):
+                        for bn in bnames:
+                            results.append(self._run_one_guard(g, bn, runtime_pool))
+                        continue
                     result = self._run_one_guard(g, primary, runtime_pool)
                 except Exception as exc:
                     result = GuardResult.fault(exc, "guard_code", primary, g.get_layer())
@@ -438,10 +443,12 @@ class ExecutionEngine:
     ) -> list[GuardResult]:
         # Build a flat list for the thread pool — one entry per group
         if stage.guard_boundary_pairs:
-            flat_pairs = [
-                (g, bnames[0] if bnames else g.get_name())
-                for g, bnames in stage.guard_boundary_pairs
-            ]
+            flat_pairs: list[tuple[Guard, str]] = []
+            for g, bnames in stage.guard_boundary_pairs:
+                if self._is_boundary_specific_guard(g):
+                    flat_pairs.extend((g, bn) for bn in bnames)
+                else:
+                    flat_pairs.append((g, bnames[0] if bnames else g.get_name()))
         else:
             flat_pairs = [(g, g.get_name()) for g in stage.guards]
 
@@ -477,8 +484,24 @@ class ExecutionEngine:
         # Fan out each group result to all boundary names
         results: list[GuardResult] = []
         if stage.guard_boundary_pairs:
-            for i, (_g, bnames) in enumerate(stage.guard_boundary_pairs):
+            i = 0
+            for _g, bnames in stage.guard_boundary_pairs:
+                if self._is_boundary_specific_guard(_g):
+                    for bn in bnames:
+                        r = raw_results[i]
+                        i += 1
+                        if r is None:
+                            r = GuardResult(
+                                decision=GuardDecision.FAULT,
+                                guard_name=bn,
+                                layer=_g.get_layer(),
+                                reason=f"Stage '{stage.name}' guard did not complete",
+                                fault_source="timeout",
+                            )
+                        results.append(r)
+                    continue
                 r = raw_results[i]
+                i += 1
                 if r is None:
                     r = GuardResult(
                         decision=GuardDecision.FAULT,
@@ -495,6 +518,11 @@ class ExecutionEngine:
                     results.append(r)
 
         return results
+
+    @staticmethod
+    def _is_boundary_specific_guard(g: Guard) -> bool:
+        layer = g.get_layer()
+        return int(layer) == 3
 
     def _run_parallel_entry(
         self,

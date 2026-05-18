@@ -76,8 +76,9 @@ describe('defaultConfig', () => {
     const cfg = defaultConfig('quick_start')
     expect(cfg.adapter).toBe('simulation')
     expect(cfg.enforcement_mode).toBe('monitor')
-    expect(cfg.tasks[0].boundaries).toHaveLength(5)
+    expect(cfg.tasks[0].boundaries).toHaveLength(6)
     expect(cfg.tasks[0].boundaries).toContain('hardware_watchdog')
+    expect(cfg.tasks[0].boundaries).toContain('host_health')
   })
 
   it('falls back to simulation for unknown template id', () => {
@@ -228,6 +229,8 @@ describe('generateYaml', () => {
     const yaml = generateYaml(cfg)
     expect(yaml).toContain('current:')
     expect(yaml).toMatch(/current:\s*\n\s*type: current\s*\n\s*ref: arm/)
+    expect(yaml).toMatch(/temperature:\s*\n\s*type: temperature\s*\n\s*ref: arm/)
+    expect(yaml).toMatch(/voltage:\s*\n\s*type: voltage\s*\n\s*ref: arm/)
   })
 
   it('emits observation channels as peer sources for ros2', () => {
@@ -333,13 +336,15 @@ describe('observation channel round-trip', () => {
     expect(parsed.channel_topic_overrides).toBeUndefined()
   })
 
-  it('lerobot channels round-trip without overrides', () => {
-    const cfg = defaultConfig('so101_act')  // observation_channels: ['current']
+  it('lerobot health channels round-trip without overrides', () => {
+    const cfg = defaultConfig('so101_act')
     const yaml = generateYaml(cfg)
     expect(yaml).toMatch(/current:\s*\n\s*type: current\s*\n\s*ref: arm/)
+    expect(yaml).toMatch(/temperature:\s*\n\s*type: temperature\s*\n\s*ref: arm/)
+    expect(yaml).toMatch(/voltage:\s*\n\s*type: voltage\s*\n\s*ref: arm/)
 
     const parsed = parseConfigFromYaml(yaml)
-    expect(parsed.observation_channels).toEqual(['current'])
+    expect(parsed.observation_channels).toEqual(['current', 'temperature', 'voltage'])
     expect(parsed.channel_topic_overrides).toBeUndefined()
   })
 

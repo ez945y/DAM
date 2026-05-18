@@ -280,6 +280,14 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
           gLiveImages = {}
           gLiveImagesVer++
           gVersion++
+          // The 60-cycle latency window is session-scoped: a Stop→Start (or a
+          // looping sim that wraps its episode back to cycle 0) is a new
+          // session, so drop the stale window and force the chart to refresh.
+          // Without this the old high cycle_ids stay and the restarted low
+          // cycle_ids render as an empty history.
+          gLatency = []
+          gLatencyCycleIds = []
+          gLatencyVer++
         }
 
         if (gProcessedIds.has(cycle.cycle_id)) {

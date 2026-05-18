@@ -279,6 +279,8 @@ class RuntimeControlService:
             try:
                 runner.connect()
                 runner.verify()
+                if hasattr(runner, "clear_fault"):
+                    runner.clear_fault()
                 logger.info("RuntimeControlService: hardware reconnected after reset")
                 with self._lock:
                     self._backend_state = BackendState.READY
@@ -443,6 +445,8 @@ class RuntimeControlService:
             try:
                 runner.connect()
                 runner.verify()
+                if hasattr(runner, "clear_fault"):
+                    runner.clear_fault()
                 logger.info("RuntimeControlService: hardware reconnected after fault confirmation")
             except Exception as exc:
                 logger.error("RuntimeControlService: reconnect after confirm_fault failed: %s", exc)
@@ -451,6 +455,8 @@ class RuntimeControlService:
 
         with self._lock:
             self._backend_state = BackendState.READY
+            if self._state == RuntimeState.EMERGENCY:
+                self._state = RuntimeState.IDLE
         self._notify_state()
         return True
 

@@ -27,6 +27,7 @@ def create_risk_log_router(risk_log: RiskLogService | None) -> APIRouter:
         min_risk_level: Annotated[str | None, Query()] = None,
         rejected_only: Annotated[bool, Query()] = False,
         clamped_only: Annotated[bool, Query()] = False,
+        failure_type: Annotated[str | None, Query()] = None,
         limit: Annotated[int, Query(ge=1, le=5000)] = 100,
     ) -> Any:
         svc = _require_risk_log(risk_log)
@@ -36,6 +37,7 @@ def create_risk_log_router(risk_log: RiskLogService | None) -> APIRouter:
             min_risk_level=min_risk_level,
             rejected_only=rejected_only,
             clamped_only=clamped_only,
+            failure_type=failure_type,
             limit=limit,
         )
         return {"events": [e.to_dict() for e in events], "count": len(events)}

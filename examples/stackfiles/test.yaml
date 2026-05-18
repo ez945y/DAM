@@ -110,7 +110,7 @@ boundaries:
     type: single
     nodes:
       - callback: hardware_watchdog
-        timeout_sec: 0.1
+        timeout_sec: 0.5
         fallback: emergency_stop
         params:
           max_staleness_ms: 1000

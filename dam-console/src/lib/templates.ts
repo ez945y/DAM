@@ -122,6 +122,8 @@ const SO101_CAMERAS: CameraConfig[] = [
   { name: 'wrist', source_type: 'opencv', index: 1, width: 640, height: 480, fps: 30 },
 ]
 
+const SO101_HEALTH_CHANNELS = ['current', 'temperature', 'voltage']
+
 const DEFAULT_BOUNDARIES: BoundaryDef[] = [
   {
     name: 'ood_detector', layer: 'L0', type: 'single',
@@ -141,7 +143,28 @@ const DEFAULT_BOUNDARIES: BoundaryDef[] = [
   },
   {
     name: 'hardware_watchdog', layer: 'L3', type: 'single',
-    nodes: [{ node_id: 'default', params: { max_staleness_ms: 1000 }, callback: 'hardware_watchdog', fallback: 'emergency_stop', timeout_sec: 0.1 }]
+    nodes: [{
+      node_id: 'default',
+      params: {
+        max_staleness_ms: 1000,
+        monitor_temperature: true,
+        max_temperature_c: 80,
+        monitor_current: true,
+        max_current_a: 3,
+        monitor_voltage: true,
+        min_voltage_v: 10,
+        max_voltage_v: 13,
+        consecutive_fault_frames: 3,
+        peak_action: 'warn',
+      },
+      callback: 'hardware_watchdog',
+      fallback: 'emergency_stop',
+      timeout_sec: 0.5,
+    }]
+  },
+  {
+    name: 'host_health', layer: 'L3', type: 'single',
+    nodes: [{ node_id: 'default', params: { max_cpu_percent: 99, max_memory_percent: 98, max_temperature_c: 95, max_gpu_percent: 99, max_gpu_temperature_c: 95 }, callback: 'host_health_limit', fallback: 'emergency_stop', timeout_sec: 0.5 }]
   },
 ]
 
@@ -195,10 +218,10 @@ export const TEMPLATES: TemplatePreset[] = [
     config: {
       hardware_preset: 'so101_follower', adapter: 'lerobot', lerobot_port: '/dev/tty.usbmodem5AA90244141',
       lerobot_robot_id: 'my_awesome_follower_arm', lerobot_cameras: SO101_CAMERAS,
-      observation_channels: ['current'],
+      observation_channels: SO101_HEALTH_CHANNELS,
       policy: { type: 'act', pretrained_path: 'MikeChenYZ/act-soarm-fmb-v2', device: 'mps' },
       joints: SO101_JOINTS, controlFrequencyHz: 30, enforcement_mode: 'enforce',
-      tasks: [{ id: 'soarm101', name: 'soarm101', description: 'Default task', boundaries: ['bounds', 'joint_position_limits', 'joint_velocity_limit', 'hardware_watchdog'] }],
+      tasks: [{ id: 'soarm101', name: 'soarm101', description: 'Default task', boundaries: ['bounds', 'joint_position_limits', 'joint_velocity_limit', 'hardware_watchdog', 'host_health'] }],
       boundaries: DEFAULT_BOUNDARIES,
       loopback: {
         backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10, pre_event_sec: 10,
@@ -214,11 +237,11 @@ export const TEMPLATES: TemplatePreset[] = [
     config: {
       hardware_preset: 'so101_follower', adapter: 'lerobot', lerobot_port: '/dev/tty.usbmodem5AA90244141',
       lerobot_robot_id: 'my_awesome_follower_arm', lerobot_cameras: SO101_CAMERAS,
-      observation_channels: ['current'],
+      observation_channels: SO101_HEALTH_CHANNELS,
       policy: { type: 'act', pretrained_path: 'MikeChenYZ/act-soarm-fmb-v2', device: 'mps' },
       joints: SO101_JOINTS, controlFrequencyHz: 30, enforcement_mode: 'enforce',
       tasks: [{ id: 'soarm101', name: 'soarm101', description: 'QP-protected motion',
-        boundaries: ['bounds', 'joint_position_limits', 'joint_velocity_limit', 'hardware_watchdog'] }],
+        boundaries: ['bounds', 'joint_position_limits', 'joint_velocity_limit', 'hardware_watchdog', 'host_health'] }],
       boundaries: withQpSolver(DEFAULT_BOUNDARIES.filter(b => b.name !== 'ood_detector')),
       loopback: {
         backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10, pre_event_sec: 10,

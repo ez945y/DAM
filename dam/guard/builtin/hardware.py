@@ -68,6 +68,13 @@ class HardwareGuard(Guard):
         now: float | None = None,
         max_temperature_c: float = 80.0,
         max_current_a: float = 5.0,
+        min_voltage_v: float = 6.0,
+        max_voltage_v: float = 8.5,
+        monitor_temperature: bool = True,
+        monitor_current: bool = True,
+        monitor_voltage: bool = False,
+        consecutive_fault_frames: int = 1,
+        peak_action: str = "warn",
         exception_joints: list[int] | None = None,
         **kwargs: Any,
     ) -> GuardResult:
@@ -94,6 +101,14 @@ class HardwareGuard(Guard):
         if callback_res:
             return callback_res
 
+        if host_health is not None and self._has_only_host_health_boundary(active_containers):
+            return GuardResult.success(
+                guard_name=name,
+                layer=layer,
+                metadata={"host_health": host_health},
+                reason="host health ok",
+            )
+
         # 2. Health telemetry checks
         if hardware_status is None and hasattr(obs, "metadata") and obs.metadata:
             hardware_status = obs.metadata.get("hardware_status")
@@ -101,7 +116,19 @@ class HardwareGuard(Guard):
         exceptions = set(exception_joints or [])
         if hardware_status is not None:
             health_res = self._check_health_telemetry(
-                hardware_status, max_temperature_c, max_current_a, exceptions, name, layer
+                hardware_status=hardware_status,
+                max_temp=max_temperature_c,
+                max_curr=max_current_a,
+                min_voltage=min_voltage_v,
+                max_voltage=max_voltage_v,
+                monitor_temperature=monitor_temperature,
+                monitor_current=monitor_current,
+                monitor_voltage=monitor_voltage,
+                consecutive_fault_frames=consecutive_fault_frames,
+                peak_action=peak_action,
+                exceptions=exceptions,
+                name=name,
+                layer=layer,
             )
             if health_res:
                 return health_res
@@ -127,11 +154,29 @@ class HardwareGuard(Guard):
                 return collect_host_health()
         return None
 
+    @staticmethod
+    def _has_only_host_health_boundary(active_containers: list[Any] | None) -> bool:
+        if not active_containers:
+            return False
+        for container in active_containers:
+            node = container.get_active_node()
+            callback = node.constraint.callback if node.constraint else None
+            if callback != "host_health_limit":
+                return False
+        return True
+
     def _check_health_telemetry(
         self,
         hardware_status: dict[str, Any],
         max_temp: float,
         max_curr: float,
+        min_voltage: float,
+        max_voltage: float,
+        monitor_temperature: bool,
+        monitor_current: bool,
+        monitor_voltage: bool,
+        consecutive_fault_frames: int,
+        peak_action: str,
         exceptions: set[int],
         name: str,
         layer: str,
@@ -148,9 +193,11 @@ class HardwareGuard(Guard):
                 fault_source="hardware",
             )
 
+        violations: list[str] = []
+
         # Per-motor temperature check
         temps: dict[str, float] | None = hardware_status.get("temperatures")
-        if temps:
+        if monitor_temperature and temps:
             keys = list(temps.keys())
             over = {
                 m: t
@@ -163,27 +210,15 @@ class HardwareGuard(Guard):
                     for i, (m, t) in enumerate(temps.items())
                 )
                 detail = ", ".join(f"{_jlabel(keys, m)}={t:.1f}°" for m, t in over.items())
-                return GuardResult(
-                    decision=GuardDecision.FAULT,
-                    guard_name=name,
-                    layer=layer,
-                    reason=f"Temp>{max_temp}°: {detail} ({all_str})",
-                    fault_source="hardware",
-                )
-        else:
+                violations.append(f"Temp>{max_temp}°: {detail} ({all_str})")
+        elif monitor_temperature:
             temp = hardware_status.get("temperature_c")
             if temp is not None and temp > max_temp:
-                return GuardResult(
-                    decision=GuardDecision.FAULT,
-                    guard_name=name,
-                    layer=layer,
-                    reason=f"Temp {temp:.1f}° > {max_temp}° limit",
-                    fault_source="hardware",
-                )
+                violations.append(f"Temp {temp:.1f}° > {max_temp}° limit")
 
         # Per-motor current check (overcurrent only — zero current is normal when idle)
         currents: dict[str, float] | None = hardware_status.get("currents")
-        if currents:
+        if monitor_current and currents:
             keys = list(currents.keys())
             over = {
                 m: c
@@ -192,23 +227,60 @@ class HardwareGuard(Guard):
             }
             if over:
                 detail = ", ".join(f"{_jlabel(keys, m)}={c:.2f}A" for m, c in over.items())
-                return GuardResult(
-                    decision=GuardDecision.FAULT,
-                    guard_name=name,
-                    layer=layer,
-                    reason=f"Current>{max_curr}A: {detail}",
-                    fault_source="hardware",
-                )
-        else:
+                violations.append(f"Current>{max_curr}A: {detail}")
+        elif monitor_current:
             curr_a = hardware_status.get("current_a")
             if curr_a is not None and curr_a > max_curr:
-                return GuardResult(
-                    decision=GuardDecision.FAULT,
-                    guard_name=name,
-                    layer=layer,
-                    reason=f"Current {curr_a:.2f}A > {max_curr}A limit",
-                    fault_source="hardware",
-                )
+                violations.append(f"Current {curr_a:.2f}A > {max_curr}A limit")
+
+        voltages: dict[str, float] | None = hardware_status.get("voltages")
+        if monitor_voltage and voltages:
+            keys = list(voltages.keys())
+            out_of_band = {
+                m: v
+                for i, (m, v) in enumerate(voltages.items())
+                if (v < min_voltage or v > max_voltage) and (i + 1) not in exceptions
+            }
+            if out_of_band:
+                detail = ", ".join(f"{_jlabel(keys, m)}={v:.2f}V" for m, v in out_of_band.items())
+                violations.append(f"Voltage outside [{min_voltage}, {max_voltage}]V: {detail}")
+
+        if not violations:
+            self._hardware_violation_streak = 0
+            return None
+
+        frames = max(1, int(consecutive_fault_frames))
+        self._hardware_violation_streak = getattr(self, "_hardware_violation_streak", 0) + 1
+        reason = "; ".join(violations)
+        if self._hardware_violation_streak < frames:
+            # A single motor telemetry spike is useful signal, but should not
+            # immediately stop the robot unless the operator configured one-frame
+            # escalation. Persist the peak in metadata via the PASS result.
+            return GuardResult.success(
+                guard_name=name,
+                layer=layer,
+                reason=(
+                    f"{peak_action} peak: {reason} "
+                    f"(streak {self._hardware_violation_streak}/{frames})"
+                ),
+                metadata={
+                    **self._extract_telemetry(hardware_status),
+                    "hardware_peak": {
+                        "reason": reason,
+                        "streak": self._hardware_violation_streak,
+                        "required_frames": frames,
+                        "action": peak_action,
+                    },
+                },
+            )
+
+        return GuardResult(
+            decision=GuardDecision.FAULT,
+            guard_name=name,
+            layer=layer,
+            reason=f"{reason} (streak {self._hardware_violation_streak}/{frames})",
+            fault_source="hardware",
+        )
 
         return None
 

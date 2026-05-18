@@ -4,17 +4,26 @@ DAM records failure-harvesting fields on `/dam/cycle` so experiments can separat
 
 ## Failure classes
 
-| Class | Meaning | Classification rule |
+Classification is defined **purely by guard layer and fault source** — guard
+names are never inspected. The single source of truth is
+`dam.runtime.failure_classify.classify_failure`, used by both the runtime
+harvester and the RQ5 experiment runner.
+
+| Category | `failure_type` | Classification rule |
 |---|---|---|
-| `ood_only` | abnormal perception | Only L0/OOD guard outcomes fired in the cycle. |
-| `guard_triggered` | actual risky action | A non-hardware guard rejected, clamped, or faulted an action. If OOD and action guards fire together, this class wins over `ood_only`. |
-| `hardware_triggered` | physical risk | Any L3/hardware guard or hardware fault source fired. This class has highest priority. |
+| 感知異常事件 — perception anomaly | `ood_only` | Only L0 perception-anomaly guards fired, and nothing else. |
+| 動作風險事件 — action risk | `guard_triggered` | Any non-hardware guard rejected, limited, or fault-arbitrated an action (e.g. an L0 detector together with an action guard). |
+| 硬體風險事件 — hardware risk | `hardware_triggered` | Any L3 guard, or any guard reporting `fault_source="hardware"`, fired. Highest priority. |
 
 Priority order is:
 
 ```text
 hardware_triggered > guard_triggered > ood_only
 ```
+
+The `host_health` L3 boundary (host CPU/GPU/memory/temperature) reports
+`fault_source="hardware"`, so a computer-side breach is classified as a
+硬體風險事件 (`hardware_triggered`) automatically.
 
 ## MCAP fields
 

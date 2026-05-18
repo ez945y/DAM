@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path as FsPath
 from typing import TYPE_CHECKING, Annotated, Any
 
 if TYPE_CHECKING:
@@ -16,12 +17,23 @@ def _require_boundary(svc: BoundaryConfigService | None) -> BoundaryConfigServic
     return svc  # type: ignore[return-value]
 
 
+def _load_stackfile_if_empty(svc: BoundaryConfigService) -> None:
+    if not svc.is_empty():
+        return
+    for path in (FsPath(".dam_stackfile.yaml"), FsPath("examples/stackfiles/demo.yaml")):
+        if path.exists():
+            svc.load_from_file(str(path))
+            if not svc.is_empty():
+                return
+
+
 def create_boundaries_router(boundary: BoundaryConfigService | None) -> APIRouter:
     router = APIRouter(prefix="/api/boundaries")
 
     @router.get("", responses={503: {"description": _SVC_UNAVAILABLE}})
     async def list_boundaries() -> Any:
         svc = _require_boundary(boundary)
+        _load_stackfile_if_empty(svc)
         return {"boundaries": svc.list()}
 
     @router.get(
@@ -33,6 +45,7 @@ def create_boundaries_router(boundary: BoundaryConfigService | None) -> APIRoute
     )
     async def get_boundary(name: Annotated[str, Path()]) -> Any:
         svc = _require_boundary(boundary)
+        _load_stackfile_if_empty(svc)
         cfg = svc.get(name)
         if cfg is None:
             raise HTTPException(404, f"Boundary '{name}' not found")

@@ -47,6 +47,11 @@ class BoundaryConfigService:
         with self._lock:
             return list(self._configs.values())
 
+    def is_empty(self) -> bool:
+        """Return True when no configs are currently loaded."""
+        with self._lock:
+            return not self._configs
+
     def get(self, name: str) -> dict[str, Any] | None:
         """Return a single config by name, or None if not found."""
         with self._lock:

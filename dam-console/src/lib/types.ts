@@ -1,4 +1,5 @@
 export type RiskLevel = 'NORMAL' | 'ELEVATED' | 'CRITICAL' | 'EMERGENCY'
+export type FailureType = 'ood_only' | 'guard_triggered' | 'hardware_triggered'
 
 /**
  * Point-in-time performance snapshot attached to each `cycle` WebSocket event
@@ -47,13 +48,34 @@ export interface CycleEvent {
   timestamp: number
   /** Present when the backend MetricBus is wired into TelemetryService. */
   perf?: PerfSnapshot
-  /**
-   * Live camera preview images as data-URI strings (data:image/jpeg;base64,...).
-   * Only present when WebSocket subscribers are connected and the runtime has
-   * camera sources.  Keyed by camera name.
-   */
+  /** Camera names whose JPEG frames are delivered as binary WebSocket payloads. */
   active_cameras?: string[]
-  live_images?: Record<string, string | Blob>
+  /**
+   * Host + hardware health snapshot. Present only when an L3 guard that
+   * reports health metadata (e.g. `host_health`, hardware_watchdog) ran.
+   */
+  hardware?: HostHardwareSnapshot
+}
+
+export interface HostHealth {
+  cpu_percent?: number | null
+  memory_percent?: number | null
+  memory_available_mb?: number | null
+  temperature_c?: number | null
+  gpus?: Array<{
+    util_percent?: number
+    temperature_c?: number
+    memory_used_mb?: number
+    memory_total_mb?: number
+  }>
+  timestamp?: number
+}
+
+export interface HostHardwareSnapshot {
+  /** Hoisted for the typed CPU/mem/temp/GPU tiles when a host_health guard ran. */
+  host_health?: HostHealth
+  /** Flexible: JSON-safe metadata of every L3 / hardware guard, keyed by guard name. */
+  guards?: Record<string, Record<string, unknown>>
 }
 
 export interface RiskEvent {
@@ -71,6 +93,12 @@ export interface RiskEvent {
   perf?: PerfSnapshot | null
   /** MCAP filename where this cycle was recorded. Used for direct jump to correct file. */
   mcap_filename?: string | null
+  failure_type?: FailureType | null
+  failure_guard_names?: string[]
+  failure_layers?: string[]
+  failure_decisions?: string[]
+  failure_reasons?: string[]
+  failure_tuple?: Record<string, unknown> | null
 }
 
 export interface RiskLogStats {
@@ -109,6 +137,8 @@ export interface BoundaryConfig {
     node_id: string
     fallback?: string
     timeout_sec?: number | null
+    callback?: string | null
+    params?: Record<string, unknown>
     constraint?: Record<string, unknown>
   }>
 }

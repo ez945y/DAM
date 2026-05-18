@@ -18,6 +18,7 @@ import numpy as np
 
 from dam.boundary.callbacks._helpers import _read_channel
 from dam.boundary.callbacks._registry import boundary_callback
+from dam.guard.layer import GuardLayer
 from dam.types.observation import Observation
 from dam.types.result import GuardDecision, GuardResult
 
@@ -84,7 +85,11 @@ def _try_nvidia_smi(timeout_sec: float = 0.25) -> dict[str, Any]:
         parts = [p.strip() for p in line.split(",")]
         if len(parts) != 4:
             continue
-        util, temp, mem_used, mem_total = (float(p) for p in parts)
+        try:
+            # nvidia-smi can emit "[N/A]" for unsupported metrics — skip those.
+            util, temp, mem_used, mem_total = (float(p) for p in parts)
+        except ValueError:
+            continue
         gpus.append(
             {
                 "util_percent": util,
@@ -299,14 +304,14 @@ def host_health_limit(
         return GuardResult(
             decision=GuardDecision.FAULT,
             guard_name="host_health",
-            layer="L3",
+            layer=GuardLayer.L3,
             reason="; ".join(reasons),
             fault_source="hardware",
             metadata={"host_health": health},
         )
     return GuardResult.success(
         guard_name="host_health",
-        layer="L3",
+        layer=GuardLayer.L3,
         reason="host health within limits",
         metadata={"host_health": health},
     )

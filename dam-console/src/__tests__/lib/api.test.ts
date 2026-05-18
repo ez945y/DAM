@@ -32,6 +32,15 @@ describe('api', () => {
         expect.any(Object),
       )
     })
+
+    it('appends failure_type query param', async () => {
+      mockFetch.mockReturnValue(ok({ events: [], count: 0 }))
+      await api.getRiskLog({ failure_type: 'hardware_triggered' })
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('failure_type=hardware_triggered'),
+        expect.any(Object),
+      )
+    })
   })
 
   describe('listBoundaries', () => {

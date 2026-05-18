@@ -119,3 +119,83 @@ def test_hardware_callback_params_flow_from_stackfile(tmp_path):
     assert watchdog_result.decision == GuardDecision.PASS
     assert validated is not None
     assert fallback is None
+
+
+def test_l3_boundaries_receive_separate_metadata(tmp_path, monkeypatch):
+    from dam.boundary.builtin_callbacks import register_all as reg_callbacks
+    from dam.guard.builtin import register_all as reg_guards
+
+    reg_callbacks()
+    reg_guards()
+
+    import importlib
+
+    hardware_mod = importlib.import_module("dam.guard.builtin.hardware")
+
+    monkeypatch.setattr(
+        hardware_mod,
+        "collect_host_health",
+        lambda: {"cpu_percent": 12.0, "memory_percent": 30.0, "timestamp": 1.0},
+    )
+
+    stack_content = {
+        "version": "1",
+        "guards": [{"hardware": "hardware"}],
+        "boundaries": {
+            "hardware_watchdog": {
+                "layer": "L3",
+                "type": "single",
+                "nodes": [
+                    {
+                        "node_id": "n0",
+                        "callback": "hardware_watchdog",
+                        "params": {
+                            "max_staleness_ms": 1000.0,
+                            "monitor_voltage": True,
+                            "min_voltage_v": 10.0,
+                            "max_voltage_v": 13.0,
+                        },
+                        "fallback": "emergency_stop",
+                    }
+                ],
+            },
+            "host_health": {
+                "layer": "L3",
+                "type": "single",
+                "nodes": [
+                    {
+                        "node_id": "n0",
+                        "callback": "host_health_limit",
+                        "params": {"max_cpu_percent": 90.0, "max_memory_percent": 90.0},
+                        "fallback": "emergency_stop",
+                    }
+                ],
+            },
+        },
+        "tasks": {"default": {"boundaries": ["hardware_watchdog", "host_health"]}},
+        "safety": {"control_frequency_hz": 30.0, "enforcement_mode": "enforce"},
+    }
+
+    sf_path = tmp_path / "stack.yaml"
+    with open(sf_path, "w") as f:
+        yaml.dump(stack_content, f)
+
+    runtime = GuardRuntime.from_stackfile(str(sf_path))
+    runtime.start_task("default")
+
+    obs = Observation(
+        timestamp=100.0,
+        joint_positions=np.zeros(6),
+        joint_velocities=np.zeros(6),
+        metadata={"hardware_status": {"voltages": {"m1": 12.0, "m2": 12.1}}},
+    )
+    action = ActionProposal(target_joint_positions=np.zeros(6))
+
+    _, results, _ = runtime.validate(obs, action, "test-trace", now=100.0)
+
+    watchdog_result = next(r for r in results if r.guard_name == "hardware_watchdog")
+    host_result = next(r for r in results if r.guard_name == "host_health")
+    assert "voltages" in watchdog_result.metadata
+    assert "host_health" not in watchdog_result.metadata
+    assert "host_health" in host_result.metadata
+    assert "voltages" not in host_result.metadata

@@ -10,6 +10,8 @@ from typing import Any
 
 import msgspec
 
+from dam.runtime.failure_classify import classify_failure, select_failure_results
+
 
 class RiskEvent(msgspec.Struct):
     """A single recorded risk event."""
@@ -26,6 +28,12 @@ class RiskEvent(msgspec.Struct):
     latency_ms: dict[str, float] = {}
     perf: dict[str, Any] | None = None
     mcap_filename: str | None = None
+    failure_type: str | None = None
+    failure_guard_names: list[str] = []
+    failure_layers: list[str] = []
+    failure_decisions: list[str] = []
+    failure_reasons: list[str] = []
+    failure_tuple: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dict blazingly fast using msgspec."""
@@ -72,6 +80,8 @@ class RiskLogService:
             }
             for gr in result.guard_results
         ]
+        failure_results = select_failure_results(result.guard_results)
+        failure_type = classify_failure(failure_results)
         event = RiskEvent(
             event_id=self._next_id,
             timestamp=time.time(),
@@ -87,6 +97,30 @@ class RiskLogService:
             latency_ms=dict(result.latency_ms),
             perf=perf,
             mcap_filename=mcap_filename,
+            failure_type=failure_type,
+            failure_guard_names=[gr.guard_name for gr in failure_results],
+            failure_layers=[
+                f"L{int(gr.layer)}" if isinstance(gr.layer, int) else str(gr.layer)
+                for gr in failure_results
+            ],
+            failure_decisions=[gr.decision.name for gr in failure_results],
+            failure_reasons=[gr.reason for gr in failure_results],
+            failure_tuple={
+                "schema": "dam.failure_tuple.v1",
+                "cycle_id": result.cycle_id,
+                "trace_id": result.trace_id,
+                "failure_type": failure_type,
+                "guard_names": [gr.guard_name for gr in failure_results],
+                "layers": [
+                    f"L{int(gr.layer)}" if isinstance(gr.layer, int) else str(gr.layer)
+                    for gr in failure_results
+                ],
+                "decisions": [gr.decision.name for gr in failure_results],
+                "reasons": [gr.reason for gr in failure_results],
+                "fallback_triggered": result.fallback_triggered,
+            }
+            if failure_type is not None
+            else None,
         )
         with self._lock:
             self._next_id += 1
@@ -104,6 +138,7 @@ class RiskLogService:
         min_risk_level: str | None = None,
         rejected_only: bool = False,
         clamped_only: bool = False,
+        failure_type: str | None = None,
         limit: int = 500,
     ) -> list[RiskEvent]:
         """Filter events.
@@ -138,6 +173,8 @@ class RiskLogService:
             if rejected_only and not ev.was_rejected:
                 continue
             if clamped_only and not ev.was_clamped:
+                continue
+            if failure_type and ev.failure_type != failure_type:
                 continue
             results.append(ev)
             if len(results) >= limit:

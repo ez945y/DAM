@@ -77,15 +77,28 @@ boundaries:
     type: single
     nodes:
       - callback: hardware_watchdog
-        timeout_sec: 0.1
+        timeout_sec: 0.5
         fallback: emergency_stop
         params:
           max_staleness_ms: 1000
+  host_health:
+    layer: L3
+    type: single
+    nodes:
+      - callback: host_health_limit
+        timeout_sec: 0.5
+        fallback: emergency_stop
+        params:
+          max_cpu_percent: 99.0
+          max_memory_percent: 98.0
+          max_temperature_c: 95.0
+          max_gpu_percent: 99.0
+          max_gpu_temperature_c: 95.0
 
 tasks:
   demo:
     description: "Full demo"
-    boundaries: [ood_detector, bounds, joint_position_limits, joint_velocity_limit, hardware_watchdog]
+    boundaries: [ood_detector, bounds, joint_position_limits, joint_velocity_limit, hardware_watchdog, host_health]
 
 loopback:
   backend: mcap
