@@ -242,6 +242,9 @@ def write_csv(rows: list[dict[str, Any]], path: Path) -> None:
 
 def plot_results(rows: list[dict[str, Any]], outdir: Path) -> None:
     try:
+        import matplotlib
+
+        matplotlib.use("Agg", force=True)
         import matplotlib.pyplot as plt
     except ImportError:
         print("matplotlib not installed — skipping plot generation.")
