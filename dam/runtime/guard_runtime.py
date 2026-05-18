@@ -145,10 +145,6 @@ class GuardRuntime:
 
         self._running = False
         self._live_img_no_data_warned = False  # one-shot warning for missing camera images
-        # Latest raw camera arrays from the observation (simulation / dataset
-        # sources put frames here instead of the camera frame hub). Kept as a
-        # cheap reference so live preview can JPEG-encode on demand.
-        self._last_live_arrays: dict[str, Any] | None = None
         self._shutdown_complete = False
         self._source_latency_log_t = 0.0
 
@@ -588,10 +584,20 @@ class GuardRuntime:
             raise RuntimeError("No hardware sources registered to GuardRuntime")
 
         obs = full_obs
+        # Camera-frame provenance. Hardware adapters (e.g. OpenCV) run the
+        # camera on their own thread and push frames straight into the shared
+        # frame hub; the runtime injects those into the observation here.
+        # Simulation / dataset sources instead deliver frames *on* the
+        # observation and never touch the hub. Track which case this is so the
+        # runtime — the single place every source's obs flows through — owns
+        # the obs→hub bridge for source-embedded frames (and never re-encodes
+        # hub-injected hardware frames).
+        images_from_hub = False
         if self._frame_hub is not None and hasattr(self._frame_hub, "latest_arrays"):
             camera_images = self._frame_hub.latest_arrays()
             if camera_images:
                 object.__setattr__(obs, "images", camera_images)
+                images_from_hub = True
         active_camera_names = tuple(obs.images.keys()) if obs.images else ()
         t_obs = time.monotonic()
 
@@ -616,25 +622,13 @@ class GuardRuntime:
         t_sink = time.monotonic()
 
         t_bus = time.monotonic()
+        if obs.images and not images_from_hub:
+            # Source-embedded frames (simulation / dataset). Bridge them into
+            # the shared hub so live preview and the Rust MCAP image writer
+            # both see them — exactly as the hardware camera-adapter path
+            # already does, but owned here once instead of per source.
+            self._publish_frames_to_hub(obs.images, obs.timestamp)
         if obs.images:
-            # Simulation / dataset sources deliver camera frames on the
-            # observation, not via an async camera hub the way the OpenCV
-            # hardware adapter does. Retain a reference for live preview, and
-            # — when recording — push them into the frame hub so the Rust
-            # MCAP image writer captures them (otherwise sim sessions have no
-            # /dam/images at all). Encoding only runs while recording is on,
-            # matching the hardware adapter's per-frame encode cost.
-            self._last_live_arrays = dict(obs.images)
-            if self._frame_hub is not None and self._loopback is not None:
-                from dam.logging.loopback_writer import _compress_image
-
-                for _cam, _arr in obs.images.items():
-                    try:
-                        _jpeg, _w, _h, _fmt = _compress_image(_arr)
-                        if _jpeg:
-                            self._frame_hub.put_jpeg(str(_cam), obs.timestamp, _jpeg, _w, _h)
-                    except Exception:  # noqa: BLE001 — a bad frame must not stall the loop
-                        continue
             object.__setattr__(obs, "images", None)
         self._obs_bus.write(obs)  # scalar observation ring buffer for loopback / MCAP capture
         _obs_bus_ms = (time.monotonic() - t_bus) * 1000.0
@@ -703,11 +697,35 @@ class GuardRuntime:
             mcap_filename=self._loopback.current_filename if self._loopback else None,
         )
 
+    def _publish_frames_to_hub(self, images: dict[str, Any], timestamp: float) -> None:
+        """Bridge source-embedded camera frames into the shared frame hub.
+
+        This is the single place that turns ``Observation.images`` (numpy
+        arrays delivered by simulation / dataset sources) into JPEGs in the
+        hub, so both live preview (``get_latest_images``) and the Rust MCAP
+        image writer consume the one hub — sources never re-implement this.
+        Hardware frames already arrive in the hub via the camera adapter and
+        are intentionally not routed here (no double-encode).
+        """
+        if self._frame_hub is None or not hasattr(self._frame_hub, "put_jpeg"):
+            return
+        from dam.logging.loopback_writer import _compress_image
+
+        for cam, arr in images.items():
+            try:
+                jpeg, w, h, _fmt = _compress_image(arr)
+                if jpeg:
+                    self._frame_hub.put_jpeg(str(cam), timestamp, jpeg, w, h)
+            except Exception:  # noqa: BLE001 — a bad frame must not stall the loop
+                continue
+
     def get_latest_images(self) -> dict[str, bytes]:
         """Return latest camera JPEGs for live preview.
 
-        This is intentionally backed by the camera frame hub, not ObservationBus,
-        so live preview never forces images through the control-loop record path.
+        Backed solely by the shared camera frame hub: hardware adapters feed
+        it from the camera thread, and the runtime bridges source-embedded
+        (simulation) frames into it via ``_publish_frames_to_hub``. Live
+        preview never forces images through the control-loop record path.
         """
         result = (
             self._frame_hub.latest_jpegs()
@@ -716,23 +734,6 @@ class GuardRuntime:
         )
         if result:
             return {str(name): bytes(jpeg) for name, jpeg in result.items()}
-
-        # Hardware camera hub is empty — fall back to the latest observation
-        # frames (simulation / dataset path). Encoding only happens here, on
-        # the throttled, subscriber-gated live-preview call, not per cycle.
-        if self._last_live_arrays:
-            from dam.logging.loopback_writer import _compress_image
-
-            encoded: dict[str, bytes] = {}
-            for name, arr in self._last_live_arrays.items():
-                try:
-                    jpeg, _w, _h, _fmt = _compress_image(arr)
-                    if jpeg:
-                        encoded[str(name)] = bytes(jpeg)
-                except Exception:  # noqa: BLE001 — a bad frame must not break preview
-                    continue
-            if encoded:
-                return encoded
 
         if not self._live_img_no_data_warned:
             self._live_img_no_data_warned = True
