@@ -31,9 +31,13 @@ export interface CycleSafetyInspectorProps {
   readonly mode?: 'mcap' | 'risk'
 }
 
+// DAM event taxonomy (dam.runtime.failure_classify):
+//   ood_only           感知異常事件 — only L0 perception guards fired
+//   guard_triggered    動作風險事件 — any non-hardware guard rejected/limited the action
+//   hardware_triggered 硬體風險事件 — any L3 / hardware-source guard fired
 const FAILURE_LABEL: Record<string, string> = {
   ood_only: 'Perception',
-  guard_triggered: 'Motion Guard',
+  guard_triggered: 'Action',
   hardware_triggered: 'Hardware',
 }
 
@@ -176,10 +180,12 @@ function GuardCard({ guard }: { guard: InspectorGuardResult }) {
 
 // ── Failure-layer breakdown (which level had the problem) ─────────────────
 
+// Mirrors dam.guard.layer.GuardLayer:
+//   L0 OOD · L1 Physical Kinematics · L2 Task Execution · L3 Hardware
 const LAYER_LABEL: Record<number, string> = {
   0: 'L0 · Perception (OOD)',
-  1: 'L1 · Preflight',
-  2: 'L2 · Motion',
+  1: 'L1 · Kinematics',
+  2: 'L2 · Task Execution',
   3: 'L3 · Hardware',
 }
 

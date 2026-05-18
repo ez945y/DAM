@@ -67,7 +67,7 @@ function SessionCard({
           checked={checked}
           onClick={(e) => e.stopPropagation()}
           onChange={(e) => onToggleSelect(e.target.checked)}
-          className="h-4 w-4 accent-dam-blue shrink-0"
+          className="h-4 w-4 accent-dam-muted shrink-0"
         />
         {detail && (
           <span className="flex items-center gap-1 text-[10px] text-dam-muted bg-dam-surface-1 px-1.5 py-0.5 rounded border border-dam-border">
@@ -615,7 +615,7 @@ function McapViewerContent() {
                       : new Set(),
                   )
                 }
-                className="h-3.5 w-3.5 accent-dam-blue"
+                className="h-3.5 w-3.5 accent-dam-muted"
               />
               Select all
             </label>

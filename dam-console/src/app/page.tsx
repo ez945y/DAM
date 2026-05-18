@@ -9,6 +9,7 @@ import { RiskGauge }         from '@/components/RiskGauge'
 import { StatsCard }         from '@/components/StatsCard'
 import { GuardTable, DEC_CONFIG } from '@/components/GuardTable'
 import { LatencyChart }      from '@/components/LatencyChart'
+import { HardwarePanel }     from '@/components/HardwarePanel'
 import { McapCameraPlayer }  from '@/components/McapCameraPlayer'
 import { Shield, TrendingDown, Timer, Loader, AlertTriangle, Radio } from 'lucide-react'
 import { PageShell } from '@/components/PageShell'
@@ -86,7 +87,7 @@ function HardwareWarning({ message }: { message: string }) {
                   text-dam-red text-[10px] font-bold hover:bg-dam-red/20 disabled:opacity-50 transition-all uppercase"
               >
                 {loading ? <Loader size={10} className="animate-spin" /> : <TrendingDown size={10} className="rotate-180" />}
-                {loading ? 'Rechecking...' : 'Recheck'}
+                {loading ? 'Reloading...' : 'Reload Stackfile'}
               </button>
             </div>
 
@@ -94,10 +95,10 @@ function HardwareWarning({ message }: { message: string }) {
               {cleaned}
             </pre>
             <div className="border-t border-dam-border/40 pt-2 text-[10px] text-dam-muted space-y-0.5">
-              <p>Connect the device, then click <b>Recheck</b> above.</p>
+              <p>Connect the device, then click <b>Reload Stackfile</b> above.</p>
               <p>Or go to{' '}
                 <a href="/config" className="text-dam-blue hover:underline">Config</a>
-                {' '}→ Apply &amp; Restart.
+                {' '}→ Apply &amp; Restart (full backend reboot).
               </p>
             </div>
           </div>
@@ -144,6 +145,8 @@ export default function DashboardPage() {
     demo.clearReady()
     if (ctrl.status.state === 'idle' || ctrl.status.state === 'stopped') ctrl.start()
   }, [demo.readyToStart, demo.clearReady, ctrl.status.state, ctrl.start])
+
+  const [metricTab, setMetricTab] = useState<'latency' | 'hardware'>('latency')
 
   // Running-time display
   const [liveSegSec, setLiveSegSec] = useState(0)
@@ -286,17 +289,32 @@ export default function DashboardPage() {
         <div className="space-y-4 min-w-0">
           <div className="panel p-4">
             <div className="flex items-center justify-between mb-3">
-              <p className="section-label">
-                {liveMode ? 'Live Camera Feed' : 'Cycle Latency'}
-              </p>
+              {liveMode ? (
+                <p className="section-label">Live Camera Feed</p>
+              ) : (
+                <div className="flex gap-1 bg-dam-surface-2 border border-dam-border rounded-lg p-0.5">
+                  {(['latency', 'hardware'] as const).map((name) => (
+                    <button
+                      key={name}
+                      onClick={() => setMetricTab(name)}
+                      className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                        metricTab === name
+                          ? 'bg-dam-blue/15 text-dam-blue border border-dam-blue/30'
+                          : 'text-dam-muted border border-transparent hover:text-dam-text'
+                      }`}
+                    >
+                      {name === 'latency' ? 'Cycle Latency' : 'Hardware'}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="flex items-center gap-2">
-                {!liveMode && tele.latestPerf != null && (
+                {!liveMode && metricTab === 'latency' && tele.latestPerf != null && (
                   <SlackIndicator
                     slackMs={tele.latestPerf.slack_ms}
                     deadlineMs={tele.latestPerf.deadline_ms}
                   />
                 )}
-                {/* Camera button removed — use Live Camera toggle in top bar instead */}
               </div>
             </div>
 
@@ -310,12 +328,17 @@ export default function DashboardPage() {
                   liveMode
                 />
               </div>
-            ) : (
+            ) : metricTab === 'latency' ? (
               <LatencyChart
                 data={tele.latencyHistory}
                 perf={tele.latestPerf}
                 cycleIds={tele.latencyCycleIds}
                 onCycleClick={(cycleId) => router.push(`/risk-log?cycle_id=${cycleId}`)}
+              />
+            ) : (
+              <HardwarePanel
+                hardware={tele.lastCycle?.hardware}
+                taskLive={ctrl.status.state === 'running'}
               />
             )}
           </div>
@@ -344,7 +367,7 @@ export default function DashboardPage() {
                 const hasGuards = layerGuards.length > 0;
 
                 let worst: string = 'OFF';
-                let colorCls = 'bg-dam-muted/20 text-dam-muted/40';
+                let colorCls = 'bg-dam-muted/70 text-dam-muted';
                 let shadowCls = '';
                 let pulseCls = '';
 
@@ -367,10 +390,10 @@ export default function DashboardPage() {
                 }
 
                 return (
-                  <div key={layer} className={`flex items-center gap-1.5 shrink-0 transition-opacity ${hasGuards ? 'opacity-100' : 'opacity-40'}`}>
+                  <div key={layer} className={`flex items-center gap-1.5 shrink-0 transition-opacity ${hasGuards ? 'opacity-100' : 'opacity-75'}`}>
                     <div className={`w-2 h-2 rounded-full ${colorCls} ${shadowCls} ${pulseCls}`} />
                     <span className="text-[10px] font-bold uppercase tracking-tighter text-dam-muted">{layer}</span>
-                    {!hasGuards && <span className="text-[8px] font-black opacity-30 -ml-0.5 tracking-tighter">OFF</span>}
+                    {!hasGuards && <span className="text-[8px] font-black opacity-50 -ml-0.5 tracking-tighter">OFF</span>}
                   </div>
                 );
               })}

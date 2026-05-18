@@ -507,6 +507,43 @@ function ViewMcapButton({
   );
 }
 
+// ── Failure-category badge (DAM event taxonomy) ───────────────────────────
+// Mirrors dam.runtime.failure_classify — three high-level categories that
+// make incident triage fast without reading individual guard rows.
+const FAILURE_CAT: Record<
+  string,
+  { label: string; cls: string; tip: string }
+> = {
+  ood_only: {
+    label: "Perception",
+    cls: "text-violet-300 bg-violet-500/10 border-violet-500/30",
+    tip: "感知異常事件 — 僅有 L0 感知異常安全防護觸發",
+  },
+  guard_triggered: {
+    label: "Action",
+    cls: "text-amber-300 bg-amber-500/10 border-amber-500/30",
+    tip: "動作風險事件 — 任一非硬體安全防護對動作進行拒絕、限制或故障裁決",
+  },
+  hardware_triggered: {
+    label: "Hardware",
+    cls: "text-red-300 bg-red-500/10 border-red-500/30",
+    tip: "硬體風險事件 — 任一 L3 安全防護或硬體錯誤來源觸發",
+  },
+};
+
+function FailureTypeBadge({ type }: { type?: string | null }) {
+  const cat = type ? FAILURE_CAT[type] : undefined;
+  if (!cat) return <span className="text-dam-muted">—</span>;
+  return (
+    <span
+      title={cat.tip}
+      className={`px-1.5 py-0.5 rounded border text-[10px] font-bold ${cat.cls}`}
+    >
+      {cat.label}
+    </span>
+  );
+}
+
 // ── Main table component ──────────────────────────────────────────────────
 
 export function RiskLogTable() {
@@ -780,9 +817,9 @@ export function RiskLogTable() {
               className="bg-dam-surface-2 border border-dam-border text-dam-text text-xs rounded px-2 py-1.5"
             >
               <option value="">All failure types</option>
-              <option value="ood_only">L0 · Perception anomaly</option>
-              <option value="guard_triggered">L1–L2 · Motion guard</option>
-              <option value="hardware_triggered">L3 · Hardware risk</option>
+              <option value="ood_only">Perception · L0 only</option>
+              <option value="guard_triggered">Action · non-hardware</option>
+              <option value="hardware_triggered">Hardware · L3 / hw</option>
             </select>
           </div>
 
@@ -922,6 +959,9 @@ export function RiskLogTable() {
                 Risk
               </th>
               <th className="text-left px-4 py-2 font-semibold uppercase tracking-wider">
+                Type
+              </th>
+              <th className="text-left px-4 py-2 font-semibold uppercase tracking-wider">
                 Outcome
               </th>
               <th className="text-left px-4 py-2 font-semibold uppercase tracking-wider">
@@ -932,7 +972,7 @@ export function RiskLogTable() {
           <tbody className="divide-y divide-dam-border/40">
             {groupedEvents.length === 0 ? (
               <tr>
-                <td colSpan={6} className="text-center text-dam-muted py-12">
+                <td colSpan={7} className="text-center text-dam-muted py-12">
                   No risk events recorded.
                 </td>
               </tr>
@@ -985,6 +1025,9 @@ export function RiskLogTable() {
                       <td className="px-4 py-3">
                         <RiskBadge level={e.risk_level as RiskLevel} />
                       </td>
+                      <td className="px-4 py-3">
+                        <FailureTypeBadge type={e.failure_type} />
+                      </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <div className="flex items-center gap-2">
                           {e.was_rejected && (
@@ -1018,7 +1061,7 @@ export function RiskLogTable() {
                     {isExpanded && (
                       <tr className="bg-dam-surface-2/40 animate-in slide-in-from-top-1 duration-200">
                         <td
-                          colSpan={6}
+                          colSpan={7}
                           className="px-8 py-4 border-l-2 border-dam-blue"
                         >
                           {e.count === 1 ? (

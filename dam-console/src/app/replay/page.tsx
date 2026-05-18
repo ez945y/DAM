@@ -43,20 +43,17 @@ function StatTile({ label, value, tone }: { label: string; value: string; tone?:
 
 function ReplayLane({
   laneIndex,
-  sessions,
+  mcap,
   stacks,
   runSignal,
   stopSignal,
-  commonMcap,
 }: {
   laneIndex: number
-  sessions: McapSessionSummary[]
+  mcap: string
   stacks: string[]
   runSignal: number
   stopSignal: number
-  commonMcap: string
 }) {
-  const [mcap, setMcap] = useState('')
   const [stack, setStack] = useState(LIVE)
   const [status, setStatus] = useState<LaneStatus>('idle')
   const [progress, setProgress] = useState<ReplayProgress | null>(null)
@@ -73,10 +70,6 @@ function ReplayLane({
   }, [])
 
   useEffect(() => cleanup, [cleanup])
-
-  useEffect(() => {
-    if (commonMcap) setMcap(commonMcap)
-  }, [commonMcap])
 
   const start = useCallback(async () => {
     if (!mcap || status === 'running') return
@@ -178,25 +171,6 @@ function ReplayLane({
       </div>
 
       <div className="space-y-2 p-3">
-        <div className="space-y-1">
-          <span className="text-[9px] font-bold uppercase tracking-widest text-dam-muted/70">
-            MCAP session
-          </span>
-          <select
-            value={mcap}
-            onChange={(e) => setMcap(e.target.value)}
-            disabled={status === 'running'}
-            className="w-full bg-dam-surface-2 border border-dam-border text-dam-text text-xs rounded px-2 py-1.5 disabled:opacity-50"
-          >
-            <option value="">Select a session…</option>
-            {sessions.map((s) => (
-              <option key={s.filename} value={s.filename}>
-                {s.filename} ({s.size_mb.toFixed(1)} MB)
-              </option>
-            ))}
-          </select>
-        </div>
-
         <div className="space-y-1">
           <span className="text-[9px] font-bold uppercase tracking-widest text-dam-muted/70">
             Stackfile
@@ -344,7 +318,7 @@ function ReplayLane({
 function ReplayContent() {
   const [sessions, setSessions] = useState<McapSessionSummary[]>([])
   const [stacks, setStacks] = useState<string[]>([])
-  const [commonMcap, setCommonMcap] = useState('')
+  const [session, setSession] = useState('')
   const [runSignal, setRunSignal] = useState(0)
   const [stopSignal, setStopSignal] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -363,14 +337,14 @@ function ReplayContent() {
       <div className="flex flex-wrap items-end gap-3 rounded-lg border border-dam-border bg-dam-surface-1 p-3">
         <div className="flex flex-col gap-1">
           <span className="text-[9px] font-bold uppercase tracking-widest text-dam-muted/70">
-            Set all lanes to session
+            MCAP session
           </span>
           <select
-            value={commonMcap}
-            onChange={(e) => setCommonMcap(e.target.value)}
-            className="bg-dam-surface-2 border border-dam-border text-dam-text text-xs rounded px-2 py-1.5 min-w-[18rem]"
+            value={session}
+            onChange={(e) => setSession(e.target.value)}
+            className="bg-dam-surface-2 border border-dam-border text-dam-text text-xs rounded px-2 py-1.5 min-w-[20rem]"
           >
-            <option value="">— keep per-lane —</option>
+            <option value="">Select a session…</option>
             {sessions.map((s) => (
               <option key={s.filename} value={s.filename}>
                 {s.filename} ({s.size_mb.toFixed(1)} MB)
@@ -378,14 +352,15 @@ function ReplayContent() {
             ))}
           </select>
         </div>
-        <p className="text-[10px] text-dam-muted max-w-md">
-          Compare one recorded session against up to three stackfiles at once — or three
-          sessions against one stackfile. Each lane streams independently.
+        <p className="text-[10px] text-dam-muted max-w-sm">
+          One recorded session, replayed through up to three stackfiles side by side.
+          Lane 1 defaults to the live config; change any lane to compare.
         </p>
         <div className="ml-auto flex gap-2">
           <button
             onClick={() => setRunSignal((n) => n + 1)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-dam-blue text-white text-xs font-bold rounded hover:bg-dam-blue-bright transition-colors"
+            disabled={!session}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-dam-blue text-white text-xs font-bold rounded hover:bg-dam-blue-bright transition-colors disabled:opacity-40"
           >
             <Play size={12} /> Run all
           </button>
@@ -408,11 +383,10 @@ function ReplayContent() {
             <ReplayLane
               key={i}
               laneIndex={i}
-              sessions={sessions}
+              mcap={session}
               stacks={stacks}
               runSignal={runSignal}
               stopSignal={stopSignal}
-              commonMcap={commonMcap}
             />
           ))}
         </div>
