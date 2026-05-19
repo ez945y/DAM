@@ -276,10 +276,20 @@ def iter_replay_through_guards(
             target_joint_velocities=(np.asarray(tv, dtype=float) if isinstance(tv, list) else None),
         )
         replay_guards: list[dict[str, Any]] = []
+
+        def _vec(arr: Any) -> list[float] | None:
+            if arr is None:
+                return None
+            return [round(float(x), 4) for x in arr]
+
+        in_pos = _vec(action.target_joint_positions)
+        in_vel = _vec(action.target_joint_velocities)
         try:
-            _, guard_results, _ = runtime.validate(
+            validated, guard_results, _ = runtime.validate(
                 obs, action, trace_id=f"replay-{cid}", now=obs.timestamp
             )
+            out_pos = _vec(validated.target_joint_positions) if validated is not None else None
+            out_vel = _vec(validated.target_joint_velocities) if validated is not None else None
             decision = (
                 aggregate_decisions(guard_results).decision if guard_results else GuardDecision.PASS
             )
@@ -307,6 +317,7 @@ def iter_replay_through_guards(
                         "clamp": 0,
                         "reject": 0,
                         "total": 0,
+                        "samples": [],
                     },
                 )
                 slot["total"] += 1
@@ -315,6 +326,21 @@ def iter_replay_through_guards(
                     slot["clamp"] += 1
                 elif d == "REJECT":
                     slot["reject"] += 1
+                # Keep a bounded set of concrete examples: the recorded
+                # action that violated this boundary and the action the
+                # guard produced instead.
+                if d != "PASS" and len(slot["samples"]) < 25:
+                    slot["samples"].append(
+                        {
+                            "cycle": cid,
+                            "decision": r.decision.name,
+                            "reason": (r.reason or "")[:240],
+                            "in_pos": in_pos,
+                            "in_vel": in_vel,
+                            "out_pos": out_pos,
+                            "out_vel": out_vel,
+                        }
+                    )
         except Exception as exc:  # noqa: BLE001 — a crashing guard re-run is a finding
             replayed = f"ERROR({type(exc).__name__})"
         compared += 1

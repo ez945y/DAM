@@ -26,12 +26,22 @@ interface ChangeDriver {
   decisions: string[]
   sample_reason: string
 }
+interface ReplaySample {
+  cycle: number
+  decision: string
+  reason: string
+  in_pos: number[] | null
+  in_vel: number[] | null
+  out_pos: number[] | null
+  out_vel: number[] | null
+}
 interface GuardStat {
   name: string
   layer: number
   clamp: number
   reject: number
   total: number
+  samples: ReplaySample[]
 }
 interface ReplayProgress {
   compared: number
@@ -155,32 +165,102 @@ function BoundaryStats({ stats }: { stats: GuardStat[] }) {
   return (
     <div className="space-y-1.5">
       {triggered.map((s) => (
-        <div key={s.name} className="flex items-center gap-2">
-          <span className="w-[5.5rem] shrink-0 truncate font-mono text-[10px] text-dam-text">
-            <span className="text-dam-muted/60">L{s.layer}</span> {s.name}
-          </span>
-          <div className="flex h-3 flex-1 overflow-hidden rounded bg-dam-surface-3">
-            <div
-              className="bg-red-500/80"
-              style={{ width: `${(s.reject / max) * 100}%` }}
-              title={`REJECT ${s.reject}`}
-            />
-            <div
-              className="bg-dam-blue"
-              style={{ width: `${(s.clamp / max) * 100}%` }}
-              title={`CLAMP ${s.clamp}`}
-            />
+        <details key={s.name} className="group">
+          <summary className="flex cursor-pointer select-none items-center gap-2">
+            <span className="w-[5.5rem] shrink-0 truncate font-mono text-[10px] text-dam-text">
+              <span className="text-dam-muted/60">L{s.layer}</span> {s.name}
+            </span>
+            <div className="flex h-3 flex-1 overflow-hidden rounded bg-dam-surface-3">
+              <div
+                className="bg-red-500/80"
+                style={{ width: `${(s.reject / max) * 100}%` }}
+                title={`REJECT ${s.reject}`}
+              />
+              <div
+                className="bg-dam-blue"
+                style={{ width: `${(s.clamp / max) * 100}%` }}
+                title={`CLAMP ${s.clamp}`}
+              />
+            </div>
+            <span className="w-24 shrink-0 text-right font-mono text-[9px]">
+              {s.reject > 0 && <span className="text-red-400">R{s.reject} </span>}
+              {s.clamp > 0 && <span className="text-dam-blue">C{s.clamp} </span>}
+              <span className="text-dam-muted/60">/{s.total}</span>
+            </span>
+          </summary>
+          <div className="mt-1 ml-2 space-y-1 border-l border-dam-border/40 pl-2">
+            {s.samples.length === 0 ? (
+              <p className="text-[10px] text-dam-muted/60">no captured examples</p>
+            ) : (
+              s.samples.map((ex, i) => <SampleRow key={`${ex.cycle}-${i}`} ex={ex} />)
+            )}
+            {s.samples.length < s.clamp + s.reject && (
+              <p className="text-[9px] text-dam-muted/50">
+                showing first {s.samples.length} of {s.clamp + s.reject}
+              </p>
+            )}
           </div>
-          <span className="w-24 shrink-0 text-right font-mono text-[9px]">
-            {s.reject > 0 && <span className="text-red-400">R{s.reject} </span>}
-            {s.clamp > 0 && <span className="text-dam-blue">C{s.clamp} </span>}
-            <span className="text-dam-muted/60">/{s.total}</span>
-          </span>
-        </div>
+        </details>
       ))}
       {quiet > 0 && (
         <p className="pt-0.5 text-[9px] text-dam-muted/50">
           + {quiet} boundary{quiet > 1 ? 'ies' : ''} always passed
+        </p>
+      )}
+    </div>
+  )
+}
+
+/** Joint indices whose value changed between two vectors. */
+function changedJoints(a: number[] | null, b: number[] | null): number[] {
+  if (!a || !b) return []
+  const n = Math.max(a.length, b.length)
+  const out: number[] = []
+  for (let i = 0; i < n; i++) {
+    if (Math.abs((a[i] ?? 0) - (b[i] ?? 0)) > 1e-6) out.push(i)
+  }
+  return out
+}
+
+/** One concrete violation: the recorded action vs the guard's output. */
+function SampleRow({ ex }: { ex: ReplaySample }) {
+  const rejected = ex.out_pos == null && ex.out_vel == null
+  const posJ = changedJoints(ex.in_pos, ex.out_pos)
+  const velJ = changedJoints(ex.in_vel, ex.out_vel)
+  return (
+    <div className="rounded bg-dam-surface-1 px-2 py-1 text-[10px]">
+      <div className="flex items-center gap-2 font-mono">
+        <span className="text-dam-muted">#{ex.cycle}</span>
+        <span className={`font-bold ${decisionCls(ex.decision)}`}>{ex.decision}</span>
+        {rejected && <span className="text-red-400/80">→ fallback (no output action)</span>}
+      </div>
+      {!rejected && posJ.length > 0 && (
+        <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 font-mono">
+          {posJ.map((j) => (
+            <span key={j}>
+              <span className="text-dam-muted/60">J{j}</span>{' '}
+              <span className="text-dam-text">{ex.in_pos![j].toFixed(3)}</span>
+              <span className="text-dam-muted/50">→</span>
+              <span className="text-dam-orange">{ex.out_pos![j].toFixed(3)}</span>
+            </span>
+          ))}
+        </div>
+      )}
+      {!rejected && velJ.length > 0 && (
+        <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 font-mono">
+          {velJ.map((j) => (
+            <span key={j}>
+              <span className="text-dam-muted/60">J{j}v</span>{' '}
+              <span className="text-dam-text">{ex.in_vel![j].toFixed(3)}</span>
+              <span className="text-dam-muted/50">→</span>
+              <span className="text-dam-orange">{ex.out_vel![j].toFixed(3)}</span>
+            </span>
+          ))}
+        </div>
+      )}
+      {ex.reason && (
+        <p className="mt-0.5 text-dam-muted/80" title={ex.reason}>
+          {ex.reason}
         </p>
       )}
     </div>
