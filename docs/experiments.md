@@ -122,10 +122,11 @@ policy model inference so external module variance does not distort Guard-layer
 latency.
 
 The Console runs the benchmark in three sequential launches for 10 Hz, 20 Hz,
-and 50 Hz. By default each launch is paced at the requested control frequency,
-so 500 time steps take about 50 s at 10 Hz, 25 s at 20 Hz, and 10 s at 50 Hz.
-Results are shown after each frequency finishes, so the table grows from
-10 Hz to 20 Hz to 50 Hz instead of appearing only at the end.
+and 50 Hz. By default each launch uses a short visual pacing window so the page
+does not block for more than a minute, while still evaluating deadline miss
+against the 100/50/20 ms control budgets. Set `realtime=true` for a wall-clock
+paced run. Results are shown after each frequency finishes, so the table grows
+from 10 Hz to 20 Hz to 50 Hz instead of appearing only at the end.
 
 The experiment evaluates four configurations:
 
@@ -148,7 +149,8 @@ curl -X POST http://127.0.0.1:8080/api/experiments/latency-bench/run \
 |------|---------|-------------|
 | `fps_values` | `10,20,50` | Control frequencies to evaluate; the Console runs these sequentially |
 | `steps_per_config` | `500` | Time steps per safety configuration and frequency |
-| `realtime` | `true` | Pace time steps at the requested FPS; set `false` only for quick smoke tests |
+| `realtime` | `false` | Sleep the full control period when `true` |
+| `pace_seconds_per_fps` | `4` | Visual pacing duration for each FPS when `realtime=false` |
 | `seed` | `42` | Deterministic observation/action proposal seed |
 | `outdir` | `data/experiments/latency_bench/` | Directory for output files |
 
@@ -157,7 +159,7 @@ curl -X POST http://127.0.0.1:8080/api/experiments/latency-bench/run \
 | File | Description |
 |------|-------------|
 | `results.csv` | One row per `(frequency, configuration)` with latency distribution and deadline miss rate |
-| `latency_bench.png` | p95 Guard latency across 10/20/50 Hz with the budget reference line |
+| `latency_bench.png` | p95 Guard latency across 10/20/50 Hz with compact budget labels |
 | `latency_bench.svg` | Inline SVG version of the p95 latency chart |
 
 ### Interpreting the results

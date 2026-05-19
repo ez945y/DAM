@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import math
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -251,7 +254,8 @@ def _run_latency_bench(params: dict[str, Any], outdir: Path) -> ExperimentResult
 
     frames = int(params.get("steps_per_config", params.get("frames", 500)))
     seed = int(params.get("seed", 42))
-    realtime = bool(params.get("realtime", True))
+    realtime = bool(params.get("realtime", False))
+    pace_seconds = 0.0 if realtime else float(params.get("pace_seconds_per_fps", 4.0))
     raw_fps = params.get("fps_values", params.get("fps", "10,20,50"))
     if isinstance(raw_fps, str):
         fps_values = [float(part.strip()) for part in raw_fps.split(",") if part.strip()]
@@ -267,9 +271,33 @@ def _run_latency_bench(params: dict[str, Any], outdir: Path) -> ExperimentResult
     for fps in fps_values:
         budget_ms = 1000.0 / fps
         rng = np.random.default_rng(seed)
-        for stats in bench.run_frequency(frames, rng, budget_ms, realtime=realtime):
+        mode = "realtime" if realtime else f"paced {pace_seconds:g}s"
+        message = (
+            f"RQ4 latency-bench: start {fps:g} Hz, {frames} steps, "
+            f"{budget_ms:.1f} ms budget, {mode}"
+        )
+        LOGGER.info(message)
+        print(message, flush=True)
+
+        def progress(done: int, total: int) -> None:
+            pct = (done / total) * 100.0
+            progress_message = f"RQ4 latency-bench: {fps:g} Hz {done}/{total} steps ({pct:.0f}%)"
+            LOGGER.info(progress_message)
+            print(progress_message, flush=True)
+
+        for stats in bench.run_frequency(
+            frames,
+            rng,
+            budget_ms,
+            realtime=realtime,
+            pace_seconds=pace_seconds,
+            progress=progress,
+        ):
             stats.pop("_raw", None)
             rows.append({"target_fps": fps, "budget_ms": budget_ms, **stats})
+        done_message = f"RQ4 latency-bench: done {fps:g} Hz"
+        LOGGER.info(done_message)
+        print(done_message, flush=True)
 
     clean_rows = _numeric_rows(rows)
     bench.write_csv(clean_rows, outdir / "results.csv")
@@ -505,7 +533,8 @@ _EXPERIMENTS: dict[
             default_params={
                 "fps_values": "10,20,50",
                 "steps_per_config": 500,
-                "realtime": True,
+                "realtime": False,
+                "pace_seconds_per_fps": 4,
                 "seed": 42,
                 "outdir": "data/experiments/latency_bench",
             },

@@ -32,6 +32,7 @@ import argparse
 import csv
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -157,11 +158,15 @@ def run_frequency(
     budget_ms: float,
     *,
     realtime: bool = False,
+    pace_seconds: float = 0.0,
+    progress: Callable[[int, int], None] | None = None,
 ) -> list[dict]:
     guard_sets = [(label, _build_guards(guard_names)) for label, guard_names in _CONFIGS]
     latencies: dict[str, list[float]] = {label: [] for label, _ in guard_sets}
+    visual_step_ms = (pace_seconds * 1000.0 / frames) if pace_seconds > 0 else 0.0
+    progress_every = max(1, frames // 10)
 
-    for _ in range(frames):
+    for idx in range(frames):
         cycle_t0 = time.perf_counter()
         obs = _make_nominal_obs(rng)
         action = _make_nominal_action(obs)
@@ -171,8 +176,15 @@ def run_frequency(
         if realtime:
             elapsed_ms = (time.perf_counter() - cycle_t0) * 1000.0
             sleep_ms = budget_ms - elapsed_ms
-            if sleep_ms > 0:
-                time.sleep(sleep_ms / 1000.0)
+        elif visual_step_ms > 0:
+            elapsed_ms = (time.perf_counter() - cycle_t0) * 1000.0
+            sleep_ms = visual_step_ms - elapsed_ms
+        else:
+            sleep_ms = 0.0
+        if sleep_ms > 0:
+            time.sleep(sleep_ms / 1000.0)
+        if progress and ((idx + 1) % progress_every == 0 or idx + 1 == frames):
+            progress(idx + 1, frames)
 
     return [_latency_stats(label, frames, latencies[label], budget_ms) for label, _ in guard_sets]
 
@@ -284,8 +296,20 @@ def plot_results(results: list[dict], outdir: Path) -> None:
                 label=config,
             )
         fps_values = sorted({float(r["target_fps"]) for r in results})
-        ax.plot(
-            fps_values, [1000.0 / fps for fps in fps_values], "k--", linewidth=1.5, label="Budget"
+        latency_max = max(float(r.get("max_ms", r["p95_ms"])) for r in results)
+        ax.set_ylim(0, max(0.01, latency_max * 1.18))
+        budget_text = "Budgets: " + " / ".join(
+            f"{fps:g} Hz={1000.0 / fps:g} ms" for fps in fps_values
+        )
+        ax.text(
+            0.99,
+            0.97,
+            budget_text,
+            transform=ax.transAxes,
+            ha="right",
+            va="top",
+            fontsize=8,
+            color="#666",
         )
         ax.set_xlabel("Control frequency (Hz)")
         ax.set_title("RQ4 — Guard p95 Latency by Control Frequency")
@@ -341,6 +365,12 @@ def main() -> None:
         action="store_true",
         help="Pace time steps at the requested FPS instead of running as fast as possible",
     )
+    parser.add_argument(
+        "--pace-seconds",
+        type=float,
+        default=0.0,
+        help="Visual pacing duration for non-realtime runs",
+    )
     parser.add_argument("--outdir", type=str, default="data/exp3_latency")
     args = parser.parse_args()
 
@@ -354,6 +384,12 @@ def main() -> None:
     if args.realtime:
         print(f"Running all Guard configs for {args.frames} time steps at {args.fps:g} Hz…")
         suite = run_frequency(args.frames, rng, budget_ms, realtime=True)
+    elif args.pace_seconds > 0:
+        print(
+            f"Running all Guard configs for {args.frames} time steps "
+            f"over {args.pace_seconds:g}s visual pacing…"
+        )
+        suite = run_frequency(args.frames, rng, budget_ms, pace_seconds=args.pace_seconds)
     else:
         suite = []
         for label, guard_names in _CONFIGS:

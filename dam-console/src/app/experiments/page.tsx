@@ -82,11 +82,18 @@ function isPreviewArtifact(path: string): boolean {
   );
 }
 
+function primaryPreviewArtifacts(paths: string[]): string[] {
+  const images = paths.filter(isPreviewArtifact);
+  const png = images.find((path) => path.toLowerCase().endsWith(".png"));
+  return png ? [png] : images.slice(0, 1);
+}
+
 function ExperimentCard({
   exp,
   params,
   result,
   running,
+  progressText,
   onRun,
   onParamChange,
 }: {
@@ -94,6 +101,7 @@ function ExperimentCard({
   params: Record<string, unknown>;
   result: ExperimentResult | null;
   running: boolean;
+  progressText?: string;
   onRun: () => void;
   onParamChange: (key: string, value: unknown) => void;
 }) {
@@ -101,7 +109,7 @@ function ExperimentCard({
     () => Object.entries(exp.default_params ?? {}).filter(([key]) => key !== "outdir"),
     [exp.default_params],
   );
-  const previewArtifacts = result?.artifacts.filter(isPreviewArtifact) ?? [];
+  const previewArtifacts = primaryPreviewArtifacts(result?.artifacts ?? []);
 
   return (
     <section className="panel p-4 space-y-4">
@@ -154,6 +162,11 @@ function ExperimentCard({
           {running ? "Running" : "Run"}
         </button>
       </div>
+      {progressText && (
+        <div className="rounded-lg border border-dam-blue/25 bg-dam-blue/10 px-3 py-2 text-xs font-mono text-dam-blue">
+          {progressText}
+        </div>
+      )}
 
       {result && (
         <div className="space-y-3 pt-3 border-t border-dam-border/60">
@@ -200,7 +213,7 @@ function ArtifactPreview({ path }: { path: string }) {
       <a href={url} target="_blank" rel="noreferrer" className="block bg-dam-surface-1 border border-dam-border rounded-lg overflow-hidden">
         <div className="px-2 py-1.5 border-b border-dam-border text-[10px] font-mono text-dam-muted truncate">{path}</div>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={url} alt={path} className="w-full max-h-80 object-contain bg-black" />
+        <img src={url} alt={path} className="w-full max-h-80 object-contain bg-dam-surface-2" />
       </a>
     );
   }
@@ -222,6 +235,7 @@ export default function ExperimentsPage() {
   const [paramsById, setParamsById] = useState<Record<string, Record<string, unknown>>>({});
   const [results, setResults] = useState<Record<string, ExperimentResult>>({});
   const [runningId, setRunningId] = useState<string | null>(null);
+  const [progressById, setProgressById] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"run" | "artifacts">("run");
 
@@ -241,6 +255,7 @@ export default function ExperimentsPage() {
   async function run(exp: ExperimentDef) {
     setError(null);
     setRunningId(exp.id);
+    setProgressById((prev) => ({ ...prev, [exp.id]: "Starting..." }));
     try {
       const params = paramsById[exp.id] ?? exp.default_params;
       if (exp.id === "latency-bench") {
@@ -255,7 +270,11 @@ export default function ExperimentsPage() {
         });
         const baseOutdir = String(params.outdir ?? exp.default_params?.outdir ?? "data/experiments/latency_bench");
         let combined: ExperimentResult | undefined;
-        for (const fps of fpsValues) {
+        for (const [index, fps] of fpsValues.entries()) {
+          setProgressById((prev) => ({
+            ...prev,
+            [exp.id]: `Running ${fps} Hz (${index + 1}/${fpsValues.length})`,
+          }));
           const result = await api.runExperiment(exp.id, {
             ...params,
             fps_values: String(fps),
@@ -263,6 +282,10 @@ export default function ExperimentsPage() {
           });
           combined = mergeExperimentResult(combined, result);
           setResults((prev) => ({ ...prev, [exp.id]: combined as ExperimentResult }));
+          setProgressById((prev) => ({
+            ...prev,
+            [exp.id]: `Finished ${fps} Hz (${index + 1}/${fpsValues.length})`,
+          }));
         }
       } else {
         const result = await api.runExperiment(exp.id, params);
@@ -272,6 +295,11 @@ export default function ExperimentsPage() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setRunningId(null);
+      setProgressById((prev) => {
+        const next = { ...prev };
+        delete next[exp.id];
+        return next;
+      });
     }
   }
 
@@ -309,6 +337,7 @@ export default function ExperimentsPage() {
               params={paramsById[exp.id] ?? exp.default_params}
               result={results[exp.id] ?? null}
               running={runningId === exp.id}
+              progressText={progressById[exp.id]}
               onRun={() => run(exp)}
               onParamChange={(key, value) =>
                 setParamsById((prev) => ({
