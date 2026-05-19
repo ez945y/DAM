@@ -87,19 +87,6 @@ function StatTile({ label, value, tone }: { label: string; value: string; tone?:
   )
 }
 
-function GuardChip({ g }: { g: ReplayGuard }) {
-  return (
-    <span
-      title={g.reason || `${g.name} ${g.decision}`}
-      className="inline-flex items-center gap-1 rounded border border-dam-border/60 bg-dam-surface-1 px-1.5 py-0.5 text-[10px] font-mono"
-    >
-      <span className="text-dam-muted/60">L{g.layer}</span>
-      <span className="text-dam-text">{g.name}</span>
-      <span className={`font-bold ${decisionCls(g.decision)}`}>{g.decision}</span>
-    </span>
-  )
-}
-
 const SEG = { PASS: 'bg-green-500/70', CLAMP: 'bg-dam-blue', REJECT: 'bg-red-500/80' }
 
 /** One stacked bar for a recorded/replay decision distribution. */
@@ -163,10 +150,11 @@ function BoundaryStats({ stats }: { stats: GuardStat[] }) {
     )
   }
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-1">
       {triggered.map((s) => (
-        <details key={s.name} className="group">
-          <summary className="flex cursor-pointer select-none items-center gap-2">
+        <div key={s.name} className="group rounded hover:bg-dam-surface-1/60">
+          {/* Histogram row — hover to reveal the recorded→output actions */}
+          <div className="flex items-center gap-2">
             <span className="w-[5.5rem] shrink-0 truncate font-mono text-[10px] text-dam-text">
               <span className="text-dam-muted/60">L{s.layer}</span> {s.name}
             </span>
@@ -187,26 +175,29 @@ function BoundaryStats({ stats }: { stats: GuardStat[] }) {
               {s.clamp > 0 && <span className="text-dam-blue">C{s.clamp} </span>}
               <span className="text-dam-muted/60">/{s.total}</span>
             </span>
-          </summary>
-          <div className="mt-1 ml-2 space-y-1 border-l border-dam-border/40 pl-2">
+          </div>
+          <div className="ml-2 hidden space-y-1 border-l border-dam-border/40 pl-2 pt-1 group-hover:block">
             {s.samples.length === 0 ? (
               <p className="text-[10px] text-dam-muted/60">no captured examples</p>
             ) : (
-              s.samples.map((ex, i) => <SampleRow key={`${ex.cycle}-${i}`} ex={ex} />)
+              s.samples
+                .slice(0, 6)
+                .map((ex, i) => <SampleRow key={`${ex.cycle}-${i}`} ex={ex} />)
             )}
-            {s.samples.length < s.clamp + s.reject && (
+            {(s.clamp + s.reject > 6 || s.samples.length > 6) && (
               <p className="text-[9px] text-dam-muted/50">
-                showing first {s.samples.length} of {s.clamp + s.reject}
+                showing 6 of {s.clamp + s.reject}
               </p>
             )}
           </div>
-        </details>
+        </div>
       ))}
       {quiet > 0 && (
         <p className="pt-0.5 text-[9px] text-dam-muted/50">
           + {quiet} boundary{quiet > 1 ? 'ies' : ''} always passed
         </p>
       )}
+      <p className="pt-0.5 text-[9px] text-dam-muted/40">hover a bar for example actions</p>
     </div>
   )
 }
@@ -285,7 +276,6 @@ function ReplayLane({
   const [progress, setProgress] = useState<ReplayProgress | null>(null)
   const [summary, setSummary] = useState<ReplaySummary | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [recent, setRecent] = useState<Divergence[]>([])
 
   const esRef = useRef<EventSource | null>(null)
   const jobRef = useRef<string | null>(null)
@@ -304,7 +294,6 @@ function ReplayLane({
     setError(null)
     setSummary(null)
     setProgress(null)
-    setRecent([])
     try {
       const { job_id } = await api.startReplayJob(mcap, stack)
       jobRef.current = job_id
@@ -320,19 +309,6 @@ function ReplayLane({
             done: ev.done,
             total: ev.total,
           })
-          if (ev.recorded !== ev.replayed) {
-            setRecent((r) =>
-              [
-                {
-                  cycle: ev.cycle,
-                  recorded: ev.recorded,
-                  replayed: ev.replayed,
-                  guards: ev.guards ?? [],
-                },
-                ...r,
-              ].slice(0, 200),
-            )
-          }
         } else if (ev.type === 'done') {
           setSummary(ev.summary)
           setStatus(ev.summary.stopped ? 'stopped' : 'done')
@@ -546,37 +522,6 @@ function ReplayLane({
               </p>
             )}
           </div>
-        )}
-
-        {/* Per-cycle decision changes with the guards that fired */}
-        {recent.length > 0 && (
-          <details className="rounded border border-dam-border/40 bg-dam-surface-2/40">
-            <summary className="cursor-pointer select-none px-2 py-1.5 text-[9px] font-bold uppercase tracking-widest text-dam-muted/70">
-              Per-cycle changes ({recent.length}) — expand for raw frames
-            </summary>
-            <div className="space-y-1 p-2 pt-0">
-              {recent.map((d, i) => (
-                <div
-                  key={`${d.cycle}-${i}`}
-                  className="rounded border border-dam-border/40 bg-dam-surface-2/50 px-2 py-1.5"
-                >
-                  <div className="flex items-center gap-2 text-[11px] font-mono">
-                    <span className="text-dam-muted">#{d.cycle}</span>
-                    <span className={decisionCls(d.recorded)}>{d.recorded}</span>
-                    <span className="text-dam-muted/50">→</span>
-                    <span className={`font-bold ${decisionCls(d.replayed)}`}>{d.replayed}</span>
-                  </div>
-                  {d.guards.length > 0 && (
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      {d.guards.map((g, gi) => (
-                        <GuardChip key={`${g.name}-${gi}`} g={g} />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </details>
         )}
 
         {status === 'idle' && !progress && (
