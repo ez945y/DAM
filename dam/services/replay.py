@@ -267,6 +267,7 @@ def iter_replay_through_guards(
             target_joint_positions=tp,
             target_joint_velocities=(np.asarray(tv, dtype=float) if isinstance(tv, list) else None),
         )
+        replay_guards: list[dict[str, Any]] = []
         try:
             _, guard_results, _ = runtime.validate(
                 obs, action, trace_id=f"replay-{cid}", now=obs.timestamp
@@ -275,6 +276,18 @@ def iter_replay_through_guards(
                 aggregate_decisions(guard_results).decision if guard_results else GuardDecision.PASS
             )
             replayed = _norm_decision(decision.name)
+            # The guards that did *not* PASS are exactly the ones that produced
+            # the replay decision — i.e. the knobs the user would tune.
+            replay_guards = [
+                {
+                    "name": r.guard_name,
+                    "layer": int(r.layer),
+                    "decision": r.decision.name,
+                    "reason": (r.reason or "")[:240],
+                }
+                for r in guard_results
+                if r.decision != GuardDecision.PASS
+            ]
         except Exception as exc:  # noqa: BLE001 — a crashing guard re-run is a finding
             replayed = f"ERROR({type(exc).__name__})"
         compared += 1
@@ -282,7 +295,14 @@ def iter_replay_through_guards(
         if rec_dec == replayed:
             matches += 1
         else:
-            diverged.append({"cycle": cid, "recorded": rec_dec, "replayed": replayed})
+            diverged.append(
+                {
+                    "cycle": cid,
+                    "recorded": rec_dec,
+                    "replayed": replayed,
+                    "guards": replay_guards,
+                }
+            )
 
         # Throttle progress: every cycle for small runs, else ~1%.
         step = max(1, total // 100)
@@ -295,6 +315,7 @@ def iter_replay_through_guards(
                 "cycle": cid,
                 "recorded": rec_dec,
                 "replayed": replayed,
+                "guards": replay_guards if rec_dec != replayed else [],
                 "done": idx + 1,
                 "total": total,
             }
@@ -349,6 +370,40 @@ def _summary(
     if not saw_ft and "force_limit" in active:
         add("force_limit", "force_torque missing")
 
+    # Aggregate which guards drove the decision changes — the actionable
+    # "what to tune in the replay stackfile" view. Keyed by guard name.
+    drivers: dict[str, dict[str, Any]] = {}
+    for d in diverged:
+        for g in d.get("guards", []):
+            slot = drivers.setdefault(
+                g["name"],
+                {
+                    "name": g["name"],
+                    "layer": g["layer"],
+                    "count": 0,
+                    "decisions": set(),
+                    "sample_reason": "",
+                },
+            )
+            slot["count"] += 1
+            slot["decisions"].add(g["decision"])
+            if not slot["sample_reason"] and g.get("reason"):
+                slot["sample_reason"] = g["reason"]
+    change_drivers = sorted(
+        (
+            {
+                "name": v["name"],
+                "layer": v["layer"],
+                "count": v["count"],
+                "decisions": sorted(v["decisions"]),
+                "sample_reason": v["sample_reason"],
+            }
+            for v in drivers.values()
+        ),
+        key=lambda x: x["count"],
+        reverse=True,
+    )
+
     return {
         "mcap": Path(mcap_path).name,
         "stack": Path(stack_path).name,
@@ -367,4 +422,5 @@ def _summary(
         },
         "comparable": [n for n in active if n not in degraded],
         "degraded": {n: r for n, r in degraded.items()},
+        "change_drivers": change_drivers,
     }
