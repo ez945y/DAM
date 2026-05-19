@@ -160,7 +160,6 @@ curl -X POST http://127.0.0.1:8080/api/experiments/latency-bench/run \
 |------|-------------|
 | `results.csv` | One row per `(frequency, configuration)` with latency distribution and deadline miss rate |
 | `latency_bench.png` | p95 Guard latency across 10/20/50 Hz with compact budget labels |
-| `latency_bench.svg` | Inline SVG version of the p95 latency chart |
 
 ### Interpreting the results
 

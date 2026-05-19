@@ -302,14 +302,6 @@ def _run_latency_bench(params: dict[str, Any], outdir: Path) -> ExperimentResult
     clean_rows = _numeric_rows(rows)
     bench.write_csv(clean_rows, outdir / "results.csv")
     bench.plot_results(clean_rows, outdir)
-    _write_line_svg(
-        clean_rows,
-        outdir / "latency_bench.svg",
-        title="RQ4 Guard p95 Latency by Control Frequency",
-        series_key="config",
-        x_key="target_fps",
-        y_key="p95_ms",
-    )
     return ExperimentResult(
         id="latency-bench",
         status="success",
@@ -317,9 +309,7 @@ def _run_latency_bench(params: dict[str, Any], outdir: Path) -> ExperimentResult
         outdir=str(outdir),
         rows=clean_rows,
         summary=_summarise_latency(clean_rows),
-        artifacts=_artifact_paths(
-            outdir, ("results.csv", "latency_bench.png", "latency_bench.svg")
-        ),
+        artifacts=_artifact_paths(outdir, ("results.csv", "latency_bench.png")),
     )
 
 
@@ -538,7 +528,7 @@ _EXPERIMENTS: dict[
                 "seed": 42,
                 "outdir": "data/experiments/latency_bench",
             },
-            outputs=("results.csv", "latency_bench.png", "latency_bench.svg"),
+            outputs=("results.csv", "latency_bench.png"),
         ),
         _run_latency_bench,
     ),

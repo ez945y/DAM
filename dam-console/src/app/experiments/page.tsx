@@ -88,9 +88,14 @@ function primaryPreviewArtifacts(paths: string[]): string[] {
   return png ? [png] : images.slice(0, 1);
 }
 
+function visibleArtifacts(result: ExperimentResult | null): string[] {
+  if (!result) return [];
+  return result.id === "latency-bench" ? [] : result.artifacts;
+}
+
 const CHART_COLORS = ["#3b82f6", "#22c55e", "#f97316", "#ef4444", "#a855f7"];
 
-function LatencyLineChart({ rows }: { rows: Record<string, unknown>[] }) {
+function LatencyGroupedBarChart({ rows }: { rows: Record<string, unknown>[] }) {
   const fpsValues = Array.from(
     new Set(rows.map((row) => asNumber(row.target_fps)).filter((n): n is number => n !== null)),
   ).sort((a, b) => a - b);
@@ -109,19 +114,19 @@ function LatencyLineChart({ rows }: { rows: Record<string, unknown>[] }) {
   const margin = { top: 26, right: 26, bottom: 46, left: 58 };
   const plotW = width - margin.left - margin.right;
   const plotH = height - margin.top - margin.bottom;
-  const xMin = Math.min(...fpsValues);
-  const xMax = Math.max(...fpsValues);
   const yMax = Math.max(0.01, Math.max(...values) * 1.2);
-  const x = (fps: number) =>
-    margin.left + (xMax === xMin ? 0.5 : (fps - xMin) / (xMax - xMin)) * plotW;
   const y = (value: number) => margin.top + plotH - (value / yMax) * plotH;
   const ticks = [0, yMax / 2, yMax];
+  const groupW = plotW / configs.length;
+  const barGap = 3;
+  const barW = Math.max(5, Math.min(22, (groupW * 0.72) / Math.max(fpsValues.length, 1) - barGap));
+  const groupCenter = (idx: number) => margin.left + groupW * idx + groupW / 2;
 
   return (
     <div className="rounded-lg border border-dam-border bg-dam-surface-1 overflow-hidden">
       <div className="px-3 py-2 border-b border-dam-border">
         <p className="text-[10px] font-bold uppercase tracking-widest text-dam-muted">
-          RQ4 p95 Guard Latency · FPS × Safety Config
+          RQ4 p95 Guard Latency · Grouped by Safety Config
         </p>
       </div>
       <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-dam-surface-2">
@@ -139,17 +144,10 @@ function LatencyLineChart({ rows }: { rows: Record<string, unknown>[] }) {
             </text>
           </g>
         ))}
-        {fpsValues.map((fps) => (
-          <g key={fps}>
-            <line
-              x1={x(fps)}
-              x2={x(fps)}
-              y1={margin.top}
-              y2={height - margin.bottom}
-              stroke="rgba(255,255,255,0.05)"
-            />
-            <text x={x(fps)} y={height - 18} textAnchor="middle" className="fill-dam-muted text-[11px]">
-              {fps} Hz
+        {configs.map((config, idx) => (
+          <g key={config}>
+            <text x={groupCenter(idx)} y={height - 18} textAnchor="middle" className="fill-dam-muted text-[10px]">
+              {config}
             </text>
           </g>
         ))}
@@ -159,34 +157,40 @@ function LatencyLineChart({ rows }: { rows: Record<string, unknown>[] }) {
         <text x={width - margin.right} y={24} textAnchor="end" className="fill-dam-muted text-[10px]">
           budgets: {fpsValues.map((fps) => `${fps}Hz=${(1000 / fps).toFixed(0)}ms`).join(" · ")}
         </text>
-        {configs.map((config, idx) => {
-          const color = CHART_COLORS[idx % CHART_COLORS.length];
-          const points = fpsValues
-            .map((fps) => rows.find((row) => row.config === config && asNumber(row.target_fps) === fps))
-            .filter((row): row is Record<string, unknown> => Boolean(row))
-            .map((row) => {
-              const fps = asNumber(row.target_fps) ?? xMin;
-              const p95 = asNumber(row.p95_ms) ?? 0;
-              return { fps, p95 };
-            });
-          const d = points.map((pt, i) => `${i === 0 ? "M" : "L"} ${x(pt.fps)} ${y(pt.p95)}`).join(" ");
+        {configs.map((config, configIdx) => {
+          const startX = groupCenter(configIdx) - ((barW + barGap) * fpsValues.length - barGap) / 2;
           return (
             <g key={config}>
-              {points.length > 1 && <path d={d} fill="none" stroke={color} strokeWidth="2.5" />}
-              {points.map((pt) => (
-                <circle key={`${config}-${pt.fps}`} cx={x(pt.fps)} cy={y(pt.p95)} r="4" fill={color}>
-                  <title>{`${config} @ ${pt.fps} Hz: p95 ${pt.p95.toFixed(4)} ms`}</title>
-                </circle>
-              ))}
-              <g transform={`translate(${margin.left + idx * 170}, ${height - 6})`}>
-                <circle cx="0" cy="-4" r="4" fill={color} />
-                <text x="9" y="0" className="fill-dam-muted text-[10px]">
-                  {config}
-                </text>
-              </g>
+              {fpsValues.map((fps, fpsIdx) => {
+                const row = rows.find((item) => item.config === config && asNumber(item.target_fps) === fps);
+                const p95 = asNumber(row?.p95_ms) ?? 0;
+                const barH = plotH - (y(p95) - margin.top);
+                const xPos = startX + fpsIdx * (barW + barGap);
+                return (
+                  <rect
+                    key={fps}
+                    x={xPos}
+                    y={y(p95)}
+                    width={barW}
+                    height={barH}
+                    rx="2"
+                    fill={CHART_COLORS[fpsIdx % CHART_COLORS.length]}
+                  >
+                    <title>{`${config} @ ${fps} Hz: p95 ${p95.toFixed(4)} ms`}</title>
+                  </rect>
+                );
+              })}
             </g>
           );
         })}
+        {fpsValues.map((fps, idx) => (
+          <g key={fps} transform={`translate(${margin.left + idx * 110}, ${height - 6})`}>
+            <rect x="0" y="-9" width="8" height="8" rx="2" fill={CHART_COLORS[idx % CHART_COLORS.length]} />
+            <text x="12" y="0" className="fill-dam-muted text-[10px]">
+              {fps} Hz
+            </text>
+          </g>
+        ))}
       </svg>
     </div>
   );
@@ -213,8 +217,8 @@ function ExperimentCard({
     () => Object.entries(exp.default_params ?? {}).filter(([key]) => key !== "outdir"),
     [exp.default_params],
   );
-  const previewArtifacts =
-    exp.id === "latency-bench" ? [] : primaryPreviewArtifacts(result?.artifacts ?? []);
+  const artifacts = visibleArtifacts(result);
+  const previewArtifacts = primaryPreviewArtifacts(artifacts);
 
   return (
     <section className="panel p-4 space-y-4">
@@ -290,7 +294,7 @@ function ExperimentCard({
             </div>
           </div>
           <RowPreview result={result} />
-          {exp.id === "latency-bench" && <LatencyLineChart rows={result.rows} />}
+          {exp.id === "latency-bench" && <LatencyGroupedBarChart rows={result.rows} />}
           {previewArtifacts.length > 0 && (
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
               {previewArtifacts.map((path) => (
@@ -298,14 +302,16 @@ function ExperimentCard({
               ))}
             </div>
           )}
-          <div className="flex flex-wrap gap-2">
-            {result.artifacts.map((path) => (
-              <span key={path} className="flex items-center gap-1.5 text-[10px] font-mono text-dam-muted bg-dam-surface-2 border border-dam-border rounded px-2 py-1">
-                <FileSpreadsheet size={10} />
-                {path}
-              </span>
-            ))}
-          </div>
+          {artifacts.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {artifacts.map((path) => (
+                <span key={path} className="flex items-center gap-1.5 text-[10px] font-mono text-dam-muted bg-dam-surface-2 border border-dam-border rounded px-2 py-1">
+                  <FileSpreadsheet size={10} />
+                  {path}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </section>
@@ -458,19 +464,26 @@ export default function ExperimentsPage() {
             {Object.values(results).length === 0 ? (
               <p className="text-xs text-dam-muted">No artifacts yet.</p>
             ) : (
-              Object.values(results).map((result) => (
+              Object.values(results).map((result) => {
+                const artifacts = visibleArtifacts(result);
+                return (
                 <div key={result.id} className="bg-dam-surface-2 border border-dam-border rounded-lg p-3 space-y-2">
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-sm font-bold text-dam-text">{result.id}</p>
                     <span className="text-[10px] font-mono text-dam-muted">{result.outdir}</span>
                   </div>
-                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-                    {result.artifacts.map((path) => (
-                      <ArtifactPreview key={path} path={path} />
-                    ))}
-                  </div>
+                  {artifacts.length > 0 ? (
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                      {artifacts.map((path) => (
+                        <ArtifactPreview key={path} path={path} />
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-dam-muted">No displayed artifacts for this run.</p>
+                  )}
                 </div>
-              ))
+                );
+              })
             )}
           </section>
         )}

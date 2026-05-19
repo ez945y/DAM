@@ -37,6 +37,7 @@ def test_latency_benchmark_profiles_guard_configs_per_fps(tmp_path: Path) -> Non
             "fps_values": "10,20",
             "steps_per_config": 2,
             "realtime": False,
+            "pace_seconds_per_fps": 0,
             "outdir": str(tmp_path / "latency"),
         },
     )
@@ -51,7 +52,8 @@ def test_latency_benchmark_profiles_guard_configs_per_fps(tmp_path: Path) -> Non
         "Full RSMF",
     }
     assert "deadline_miss_rate" in result.rows[0]
-    assert any(path.endswith("latency_bench.svg") for path in result.artifacts)
+    assert any(path.endswith("results.csv") for path in result.artifacts)
+    assert not any(path.endswith(".svg") for path in result.artifacts)
 
 
 def test_experiment_artifact_endpoint_serves_workspace_files(tmp_path: Path) -> None:
