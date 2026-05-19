@@ -38,9 +38,9 @@ Open **http://localhost:3000** in your browser to see the DAM Console.
 
 The setup script runs automatically and handles:
 
-1. **Python environment** — creates `.venv/` and installs all Python dependencies via `uv sync` (includes `dev`, `services`, and `torch` extras)
+1. **Python environment** — creates `.venv/` and installs development, service, and PyTorch dependencies via `uv sync --frozen --inexact`
 2. **Rust extension** — compiles `dam_rs` via `maturin` and installs it into `.venv/`
-3. **Frontend** — runs `npm install` in `dam-console/` and creates `.env.local` if it doesn't exist
+3. **Frontend** — installs dashboard dependencies from `package-lock.json` with npm's offline cache preference and creates `.env.local` if it doesn't exist
 
 If `uv` is not installed, the script installs it automatically. `cargo` must be available beforehand — install it with:
 

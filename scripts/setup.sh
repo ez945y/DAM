@@ -96,7 +96,7 @@ if ! $RUST_ONLY; then
     fi
     # Sync environment
     # shellcheck disable=SC2086
-    uv sync $EXTRAS
+    uv sync --frozen --inexact $EXTRAS
 
     # Defensive check: Ensure torch isn't a broken namespace package
     if [[ "$EXTRAS" == *"--extra torch"* ]]; then
@@ -132,20 +132,46 @@ info "Building Rust extension (dam_rs) via maturin…"
 export PATH="$HOME/.cargo/bin:$PATH"
 command -v cargo &>/dev/null || die "cargo not found.  Install rustup: https://rustup.rs/"
 
-WHEEL_DIR="$(mktemp -d)"
-# Pass --interpreter explicitly so maturin uses the venv Python (not whatever
-# 'python3' resolves to in the current shell — which may be conda's Python).
-(
-    cd "$ROOT/dam-rust/dam-py"
-    "$ROOT/.venv/bin/maturin" build --release \
-        --interpreter "$ROOT/.venv/bin/python" \
-        --out "$WHEEL_DIR"
-)
-# uv is a standalone binary, not inside the venv.  Use the resolved path.
-UV="$(_find_cmd uv)"
-"$UV" pip install --python "$ROOT/.venv/bin/python" \
-    --find-links "$WHEEL_DIR" "dam-rs" --force-reinstall --quiet
-rm -rf "$WHEEL_DIR"
+_rust_stamp() {
+    (
+        cd "$ROOT"
+        "$ROOT/.venv/bin/python" - <<'PY'
+import sysconfig
+print(sysconfig.get_config_var("SOABI") or "")
+PY
+        find dam-rust -type f \( \
+            -name '*.rs' -o \
+            -name 'Cargo.toml' -o \
+            -name 'Cargo.lock' -o \
+            -name 'pyproject.toml' \
+        \) -not -path '*/target/*' | LC_ALL=C sort | xargs shasum
+    ) | shasum | awk '{print $1}'
+}
+
+RUST_STAMP_FILE="$ROOT/.venv/.dam_rs_build.stamp"
+RUST_STAMP="$(_rust_stamp)"
+if ! $RUST_ONLY \
+    && [[ -f "$RUST_STAMP_FILE" ]] \
+    && [[ "$(cat "$RUST_STAMP_FILE")" == "$RUST_STAMP" ]] \
+    && "$ROOT/.venv/bin/python" -c "import dam_rs" 2>/dev/null; then
+    ok "dam_rs already up to date; skipping Rust rebuild"
+else
+    WHEEL_DIR="$(mktemp -d)"
+    # Pass --interpreter explicitly so maturin uses the venv Python (not whatever
+    # 'python3' resolves to in the current shell — which may be conda's Python).
+    (
+        cd "$ROOT/dam-rust/dam-py"
+        "$ROOT/.venv/bin/maturin" build --release \
+            --interpreter "$ROOT/.venv/bin/python" \
+            --out "$WHEEL_DIR"
+    )
+    # uv is a standalone binary, not inside the venv.  Use the resolved path.
+    UV="$(_find_cmd uv)"
+    "$UV" pip install --python "$ROOT/.venv/bin/python" \
+        --find-links "$WHEEL_DIR" "dam-rs" --force-reinstall --quiet
+    rm -rf "$WHEEL_DIR"
+    echo "$RUST_STAMP" > "$RUST_STAMP_FILE"
+fi
 
 "$ROOT/.venv/bin/python" -c "import dam_rs" \
     || die "dam_rs wheel installed but import failed — check Rust build output above."
@@ -163,7 +189,27 @@ ok "dam CLI installed (.venv/bin/dam)"
 if ! $RUST_ONLY; then
     if command -v node &>/dev/null; then
         info "Installing frontend dependencies (npm)…"
-        (cd "$ROOT/dam-console" && npm install --silent)
+        _frontend_stamp() {
+            (
+                cd "$ROOT/dam-console"
+                node --version
+                shasum package.json package-lock.json 2>/dev/null || shasum package.json
+            ) | shasum | awk '{print $1}'
+        }
+
+        FRONTEND_STAMP_FILE="$ROOT/dam-console/node_modules/.dam_npm_install.stamp"
+        FRONTEND_STAMP="$(_frontend_stamp)"
+        if [[ -f "$FRONTEND_STAMP_FILE" ]] \
+            && [[ "$(cat "$FRONTEND_STAMP_FILE")" == "$FRONTEND_STAMP" ]] \
+            && [[ -x "$ROOT/dam-console/node_modules/.bin/next" ]]; then
+            ok "Frontend dependencies already up to date; skipping npm install"
+        elif [[ -f "$ROOT/dam-console/package-lock.json" ]]; then
+            (cd "$ROOT/dam-console" && npm ci --prefer-offline --no-audit --silent)
+            echo "$FRONTEND_STAMP" > "$FRONTEND_STAMP_FILE"
+        else
+            (cd "$ROOT/dam-console" && npm install --prefer-offline --no-audit --silent)
+            echo "$FRONTEND_STAMP" > "$FRONTEND_STAMP_FILE"
+        fi
 
         # Provision .env.local from example if it doesn't exist
         if [[ ! -f "$ROOT/dam-console/.env.local" ]]; then
