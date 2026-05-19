@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { PageShell } from '@/components/PageShell'
 import { api } from '@/lib/api'
 import type { McapSessionSummary } from '@/lib/api'
-import { Play, Square, Loader2, AlertTriangle, Wrench, CheckCircle2 } from 'lucide-react'
+import { Play, Square, Loader2, AlertTriangle, Wrench, CheckCircle2, BarChart3 } from 'lucide-react'
 
 const LIVE = '__live__'
 
@@ -26,6 +26,13 @@ interface ChangeDriver {
   decisions: string[]
   sample_reason: string
 }
+interface GuardStat {
+  name: string
+  layer: number
+  clamp: number
+  reject: number
+  total: number
+}
 interface ReplayProgress {
   compared: number
   matches: number
@@ -45,6 +52,8 @@ interface ReplaySummary {
   comparable: string[]
   degraded: Record<string, string[]>
   change_drivers: ChangeDriver[]
+  guard_stats: GuardStat[]
+  decision_dist: { recorded: Record<string, number>; replay: Record<string, number> }
 }
 
 type LaneStatus = 'idle' | 'running' | 'done' | 'error' | 'stopped'
@@ -78,6 +87,103 @@ function GuardChip({ g }: { g: ReplayGuard }) {
       <span className="text-dam-text">{g.name}</span>
       <span className={`font-bold ${decisionCls(g.decision)}`}>{g.decision}</span>
     </span>
+  )
+}
+
+const SEG = { PASS: 'bg-green-500/70', CLAMP: 'bg-dam-blue', REJECT: 'bg-red-500/80' }
+
+/** One stacked bar for a recorded/replay decision distribution. */
+function DecisionDistRow({
+  label,
+  dist,
+  total,
+}: {
+  label: string
+  dist: Record<string, number>
+  total: number
+}) {
+  const order: (keyof typeof SEG)[] = ['PASS', 'CLAMP', 'REJECT']
+  const other = total - order.reduce((s, k) => s + (dist[k] ?? 0), 0)
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-16 shrink-0 text-[9px] uppercase tracking-wider text-dam-muted">
+        {label}
+      </span>
+      <div className="flex h-3 flex-1 overflow-hidden rounded bg-dam-surface-3">
+        {order.map((k) => {
+          const v = dist[k] ?? 0
+          if (v <= 0) return null
+          return (
+            <div
+              key={k}
+              className={SEG[k]}
+              style={{ width: `${(v / Math.max(total, 1)) * 100}%` }}
+              title={`${k}: ${v}`}
+            />
+          )
+        })}
+        {other > 0 && (
+          <div
+            className="bg-yellow-500/60"
+            style={{ width: `${(other / Math.max(total, 1)) * 100}%` }}
+            title={`other/error: ${other}`}
+          />
+        )}
+      </div>
+      <span className="w-28 shrink-0 text-right font-mono text-[9px] text-dam-muted">
+        {order
+          .filter((k) => (dist[k] ?? 0) > 0)
+          .map((k) => `${k[0]}${dist[k]}`)
+          .join(' ') || '—'}
+      </span>
+    </div>
+  )
+}
+
+/** Per-boundary trigger frequency: how often each guard clamped/rejected. */
+function BoundaryStats({ stats }: { stats: GuardStat[] }) {
+  const triggered = stats.filter((s) => s.clamp + s.reject > 0)
+  const quiet = stats.length - triggered.length
+  const max = Math.max(1, ...stats.map((s) => s.total))
+  if (triggered.length === 0) {
+    return (
+      <p className="text-[11px] text-dam-muted/70">
+        No boundary clamped or rejected any of {stats[0]?.total ?? 0} cycles.
+      </p>
+    )
+  }
+  return (
+    <div className="space-y-1.5">
+      {triggered.map((s) => (
+        <div key={s.name} className="flex items-center gap-2">
+          <span className="w-[5.5rem] shrink-0 truncate font-mono text-[10px] text-dam-text">
+            <span className="text-dam-muted/60">L{s.layer}</span> {s.name}
+          </span>
+          <div className="flex h-3 flex-1 overflow-hidden rounded bg-dam-surface-3">
+            <div
+              className="bg-red-500/80"
+              style={{ width: `${(s.reject / max) * 100}%` }}
+              title={`REJECT ${s.reject}`}
+            />
+            <div
+              className="bg-dam-blue"
+              style={{ width: `${(s.clamp / max) * 100}%` }}
+              title={`CLAMP ${s.clamp}`}
+            />
+          </div>
+          <span className="w-24 shrink-0 text-right font-mono text-[9px]">
+            {s.reject > 0 && <span className="text-red-400">R{s.reject} </span>}
+            {s.clamp > 0 && <span className="text-dam-blue">C{s.clamp} </span>}
+            <span className="text-dam-muted/60">/{s.total}</span>
+          </span>
+        </div>
+      ))}
+      {quiet > 0 && (
+        <p className="pt-0.5 text-[9px] text-dam-muted/50">
+          + {quiet} boundary{quiet > 1 ? 'ies' : ''} always passed
+        </p>
+      )}
+    </div>
   )
 }
 
@@ -271,6 +377,35 @@ function ReplayLane({
           </div>
         )}
 
+        {/* Decision distribution — recorded vs replay at a glance */}
+        {summary && (
+          <div className="rounded border border-dam-border/50 bg-dam-surface-2 p-2 space-y-1.5">
+            <p className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-dam-muted/70">
+              <BarChart3 size={11} /> Decision mix · recorded vs replay
+            </p>
+            <DecisionDistRow
+              label="recorded"
+              dist={summary.decision_dist.recorded}
+              total={summary.compared}
+            />
+            <DecisionDistRow
+              label="replay"
+              dist={summary.decision_dist.replay}
+              total={summary.compared}
+            />
+          </div>
+        )}
+
+        {/* Per-boundary statistics — WHERE the problem is */}
+        {summary && (
+          <div className="rounded border border-dam-border/50 bg-dam-surface-2 p-2">
+            <p className="mb-1.5 flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-dam-muted/70">
+              <BarChart3 size={11} /> Boundary trigger frequency
+            </p>
+            <BoundaryStats stats={summary.guard_stats} />
+          </div>
+        )}
+
         {/* Actionable: which guards to tune */}
         {summary && (
           <div className="rounded border border-dam-border/50 bg-dam-surface-2 p-2">
@@ -335,11 +470,11 @@ function ReplayLane({
 
         {/* Per-cycle decision changes with the guards that fired */}
         {recent.length > 0 && (
-          <div className="space-y-1">
-            <p className="text-[9px] font-bold uppercase tracking-widest text-dam-muted/70">
-              Decision changes · recorded → replay ({recent.length})
-            </p>
-            <div className="space-y-1">
+          <details className="rounded border border-dam-border/40 bg-dam-surface-2/40">
+            <summary className="cursor-pointer select-none px-2 py-1.5 text-[9px] font-bold uppercase tracking-widest text-dam-muted/70">
+              Per-cycle changes ({recent.length}) — expand for raw frames
+            </summary>
+            <div className="space-y-1 p-2 pt-0">
               {recent.map((d, i) => (
                 <div
                   key={`${d.cycle}-${i}`}
@@ -361,7 +496,7 @@ function ReplayLane({
                 </div>
               ))}
             </div>
-          </div>
+          </details>
         )}
 
         {status === 'idle' && !progress && (

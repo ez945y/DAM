@@ -199,25 +199,33 @@ def iter_replay_through_guards(
     compared = matches = 0
     diverged: list[dict[str, Any]] = []
     saw_jv = saw_eep = saw_ft = False
+    # Boundary/guard aggregates over *all* compared cycles — the "where is
+    # the problem" view, not per-frame noise.
+    gstats: dict[str, dict[str, Any]] = {}
+    rec_dist: dict[str, int] = {}
+    rep_dist: dict[str, int] = {}
+
+    def finish(*, stopped: bool) -> dict[str, Any]:
+        return _summary(
+            mcap_path,
+            stack_path,
+            chosen,
+            compared,
+            matches,
+            diverged,
+            saw_jv,
+            saw_eep,
+            saw_ft,
+            runtime,
+            gstats=gstats,
+            rec_dist=rec_dist,
+            rep_dist=rep_dist,
+            stopped=stopped,
+        )
 
     for idx, cid in enumerate(cycle_ids):
         if stop():
-            yield {
-                "type": "done",
-                "summary": _summary(
-                    mcap_path,
-                    stack_path,
-                    chosen,
-                    compared,
-                    matches,
-                    diverged,
-                    saw_jv,
-                    saw_eep,
-                    saw_ft,
-                    runtime,
-                    stopped=True,
-                ),
-            }
+            yield {"type": "done", "summary": finish(stopped=True)}
             return
 
         o = obs_by_cycle[cid]
@@ -288,10 +296,31 @@ def iter_replay_through_guards(
                 for r in guard_results
                 if r.decision != GuardDecision.PASS
             ]
+            # Per-guard tally over every compared cycle (not just flips):
+            # this is the boundary-level "how often did each guard fire".
+            for r in guard_results:
+                slot = gstats.setdefault(
+                    r.guard_name,
+                    {
+                        "name": r.guard_name,
+                        "layer": int(r.layer),
+                        "clamp": 0,
+                        "reject": 0,
+                        "total": 0,
+                    },
+                )
+                slot["total"] += 1
+                d = _norm_decision(r.decision.name)
+                if d == "CLAMP":
+                    slot["clamp"] += 1
+                elif d == "REJECT":
+                    slot["reject"] += 1
         except Exception as exc:  # noqa: BLE001 — a crashing guard re-run is a finding
             replayed = f"ERROR({type(exc).__name__})"
         compared += 1
         rec_dec = _norm_decision(recorded[cid])
+        rec_dist[rec_dec] = rec_dist.get(rec_dec, 0) + 1
+        rep_dist[replayed] = rep_dist.get(replayed, 0) + 1
         if rec_dec == replayed:
             matches += 1
         else:
@@ -320,22 +349,7 @@ def iter_replay_through_guards(
                 "total": total,
             }
 
-    yield {
-        "type": "done",
-        "summary": _summary(
-            mcap_path,
-            stack_path,
-            chosen,
-            compared,
-            matches,
-            diverged,
-            saw_jv,
-            saw_eep,
-            saw_ft,
-            runtime,
-            stopped=False,
-        ),
-    }
+    yield {"type": "done", "summary": finish(stopped=False)}
 
 
 def _summary(
@@ -350,6 +364,9 @@ def _summary(
     saw_ft: bool,
     runtime: Any,
     *,
+    gstats: dict[str, dict[str, Any]],
+    rec_dist: dict[str, int],
+    rep_dist: dict[str, int],
     stopped: bool,
 ) -> dict[str, Any]:
     pct = (100.0 * matches / compared) if compared else 0.0
@@ -423,4 +440,15 @@ def _summary(
         "comparable": [n for n in active if n not in degraded],
         "degraded": {n: r for n, r in degraded.items()},
         "change_drivers": change_drivers,
+        # Boundary-level statistics: how often each guard clamped/rejected
+        # across the whole replay, and the recorded vs replay decision mix.
+        "guard_stats": sorted(
+            gstats.values(),
+            key=lambda s: (s["reject"] + s["clamp"], s["name"]),
+            reverse=True,
+        ),
+        "decision_dist": {
+            "recorded": rec_dist,
+            "replay": rep_dist,
+        },
     }
