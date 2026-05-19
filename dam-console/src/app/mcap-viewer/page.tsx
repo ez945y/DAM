@@ -369,19 +369,42 @@ function McapViewerContent() {
           const toFetch = list.filter((s) => !prev[s.filename]);
           if (toFetch.length === 0) return prev;
 
-          Promise.allSettled(toFetch.map((s) => api.getMcapSession(s.filename)))
-            .then((results) => {
-              setDetailMap((curr) => {
-                const next = { ...curr };
-                results.forEach((r, i) => {
-                  if (r.status === "fulfilled" && r.value?.stats) {
-                    next[toFetch[i].filename] = r.value;
-                  }
-                });
-                return next;
-              });
-            })
-            .catch(() => {});
+          // Each getMcapSession() triggers a full MCAP parse on the backend
+          // (first access; SQLite-cached after). Firing one per session at
+          // once stampedes the parser and starves the request the user
+          // actually waits on — the selected session's cycles/inspector/
+          // cameras. So fetch the selected session first, then trickle the
+          // rest with low concurrency.
+          const selected =
+            selectedFilename ?? searchParams.get("filename") ?? list[0]?.filename;
+          const ordered = [...toFetch].sort((a, b) => {
+            if (a.filename === selected) return -1;
+            if (b.filename === selected) return 1;
+            return 0;
+          });
+
+          const applyResult = (filename: string, detail: McapSessionDetail) => {
+            setDetailMap((curr) =>
+              curr[filename] ? curr : { ...curr, [filename]: detail },
+            );
+          };
+
+          const CONCURRENCY = 2;
+          let cursor = 0;
+          const worker = async (): Promise<void> => {
+            while (cursor < ordered.length) {
+              const s = ordered[cursor++];
+              try {
+                const detail = await api.getMcapSession(s.filename);
+                if (detail?.stats) applyResult(s.filename, detail);
+              } catch {
+                /* leave card badge-less; non-critical */
+              }
+            }
+          };
+          void Promise.allSettled(
+            Array.from({ length: Math.min(CONCURRENCY, ordered.length) }, worker),
+          );
 
           return { ...prev };
         });
