@@ -10,6 +10,32 @@ function asNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function parseFpsValues(value: unknown): number[] {
+  if (Array.isArray(value)) {
+    return value.map(Number).filter((fps) => Number.isFinite(fps) && fps > 0);
+  }
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return [value];
+  }
+  return String(value ?? "10,20,50")
+    .split(",")
+    .map((part) => Number(part.trim()))
+    .filter((fps) => Number.isFinite(fps) && fps > 0);
+}
+
+function mergeExperimentResult(
+  previous: ExperimentResult | undefined,
+  next: ExperimentResult,
+): ExperimentResult {
+  const artifacts = Array.from(new Set([...(previous?.artifacts ?? []), ...next.artifacts]));
+  return {
+    ...next,
+    elapsed_sec: (previous?.elapsed_sec ?? 0) + next.elapsed_sec,
+    rows: [...(previous?.rows ?? []), ...next.rows],
+    artifacts,
+  };
+}
+
 function RowPreview({ result }: { result: ExperimentResult }) {
   const rows = result.rows.slice(0, 8);
   const columns = rows.length ? Object.keys(rows[0]).slice(0, 7) : [];
@@ -48,14 +74,18 @@ function RowPreview({ result }: { result: ExperimentResult }) {
 
 function ExperimentCard({
   exp,
+  params,
   result,
   running,
   onRun,
+  onParamChange,
 }: {
   exp: ExperimentDef;
+  params: Record<string, unknown>;
   result: ExperimentResult | null;
   running: boolean;
   onRun: () => void;
+  onParamChange: (key: string, value: unknown) => void;
 }) {
   const defaults = useMemo(
     () => Object.entries(exp.default_params ?? {}).filter(([key]) => key !== "outdir"),
@@ -74,11 +104,33 @@ function ExperimentCard({
             </span>
           </div>
           <p className="text-xs text-dam-muted leading-relaxed max-w-3xl">{exp.description}</p>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 max-w-4xl">
             {defaults.map(([key, value]) => (
-              <span key={key} className="text-[10px] font-mono text-dam-muted bg-dam-surface-2 border border-dam-border rounded px-2 py-1">
-                {key}={String(value)}
-              </span>
+              <label key={key} className="space-y-1">
+                <span className="text-[9px] font-bold uppercase tracking-wider text-dam-muted/70">
+                  {key}
+                </span>
+                {typeof value === "boolean" ? (
+                  <input
+                    type="checkbox"
+                    checked={Boolean(params[key])}
+                    onChange={(e) => onParamChange(key, e.target.checked)}
+                    className="block h-5 w-5 accent-dam-blue"
+                  />
+                ) : (
+                  <input
+                    value={String(params[key] ?? "")}
+                    onChange={(e) => {
+                      const text = e.target.value;
+                      onParamChange(
+                        key,
+                        typeof value === "number" && text.trim() !== "" ? Number(text) : text,
+                      );
+                    }}
+                    className="w-full rounded border border-dam-border bg-dam-surface-2 px-2 py-1 text-[11px] font-mono text-dam-text outline-none focus:border-dam-blue/50"
+                  />
+                )}
+              </label>
             ))}
           </div>
         </div>
@@ -126,7 +178,12 @@ function ExperimentCard({
 function ArtifactPreview({ path }: { path: string }) {
   const url = api.experimentArtifactUrl(path);
   const lower = path.toLowerCase();
-  if (lower.endsWith(".svg") || lower.endsWith(".png")) {
+  if (
+    lower.endsWith(".svg") ||
+    lower.endsWith(".png") ||
+    lower.endsWith(".jpg") ||
+    lower.endsWith(".jpeg")
+  ) {
     return (
       <a href={url} target="_blank" rel="noreferrer" className="block bg-dam-surface-1 border border-dam-border rounded-lg overflow-hidden">
         <div className="px-2 py-1.5 border-b border-dam-border text-[10px] font-mono text-dam-muted truncate">{path}</div>
@@ -150,6 +207,7 @@ function ArtifactPreview({ path }: { path: string }) {
 
 export default function ExperimentsPage() {
   const [experiments, setExperiments] = useState<ExperimentDef[]>([]);
+  const [paramsById, setParamsById] = useState<Record<string, Record<string, unknown>>>({});
   const [results, setResults] = useState<Record<string, ExperimentResult>>({});
   const [runningId, setRunningId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -158,7 +216,13 @@ export default function ExperimentsPage() {
   useEffect(() => {
     api
       .listExperiments()
-      .then((data) => setExperiments(data.experiments))
+      .then((data) => {
+        setExperiments(data.experiments);
+        setParamsById((prev) => ({
+          ...Object.fromEntries(data.experiments.map((exp) => [exp.id, exp.default_params ?? {}])),
+          ...prev,
+        }));
+      })
       .catch((e: Error) => setError(e.message));
   }, []);
 
@@ -166,8 +230,32 @@ export default function ExperimentsPage() {
     setError(null);
     setRunningId(exp.id);
     try {
-      const result = await api.runExperiment(exp.id, exp.default_params);
-      setResults((prev) => ({ ...prev, [exp.id]: result }));
+      const params = paramsById[exp.id] ?? exp.default_params;
+      if (exp.id === "latency-bench") {
+        const fpsValues = parseFpsValues(params.fps_values);
+        if (!fpsValues.length) {
+          throw new Error("fps_values must include at least one frequency");
+        }
+        setResults((prev) => {
+          const next = { ...prev };
+          delete next[exp.id];
+          return next;
+        });
+        const baseOutdir = String(params.outdir ?? exp.default_params?.outdir ?? "data/experiments/latency_bench");
+        let combined: ExperimentResult | undefined;
+        for (const fps of fpsValues) {
+          const result = await api.runExperiment(exp.id, {
+            ...params,
+            fps_values: String(fps),
+            outdir: `${baseOutdir}/${fps}hz`,
+          });
+          combined = mergeExperimentResult(combined, result);
+          setResults((prev) => ({ ...prev, [exp.id]: combined as ExperimentResult }));
+        }
+      } else {
+        const result = await api.runExperiment(exp.id, params);
+        setResults((prev) => ({ ...prev, [exp.id]: result }));
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -206,9 +294,16 @@ export default function ExperimentsPage() {
             <ExperimentCard
               key={exp.id}
               exp={exp}
+              params={paramsById[exp.id] ?? exp.default_params}
               result={results[exp.id] ?? null}
               running={runningId === exp.id}
               onRun={() => run(exp)}
+              onParamChange={(key, value) =>
+                setParamsById((prev) => ({
+                  ...prev,
+                  [exp.id]: { ...(prev[exp.id] ?? exp.default_params), [key]: value },
+                }))
+              }
             />
           ))
         ) : (

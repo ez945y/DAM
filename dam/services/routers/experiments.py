@@ -45,6 +45,8 @@ def create_experiments_router() -> APIRouter:
             ".csv": "text/csv",
             ".svg": "image/svg+xml",
             ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
         }.get(artifact.suffix.lower(), "application/octet-stream")
         return FileResponse(artifact, filename=artifact.name, media_type=media_type)
 

@@ -17,7 +17,6 @@ def test_experiment_registry_covers_all_thesis_rqs(tmp_path: Path) -> None:
         ("l0-calibration", {"samples": 20, "outdir": str(tmp_path / "l0")}),
         ("boundary-scan", {"trials": 1, "outdir": str(tmp_path / "boundary")}),
         ("usability", {"trials_per_scenario": 5, "outdir": str(tmp_path / "use")}),
-        ("latency-bench", {"frames": 1, "outdir": str(tmp_path / "latency")}),
         ("failure-record-quality", {"outdir": str(tmp_path / "quality")}),
     ]
 
@@ -29,6 +28,29 @@ def test_experiment_registry_covers_all_thesis_rqs(tmp_path: Path) -> None:
         assert any(path.endswith(".svg") for path in result.artifacts)
         for artifact in result.artifacts:
             assert Path(artifact).is_file()
+
+
+def test_latency_benchmark_profiles_guard_configs_per_fps(tmp_path: Path) -> None:
+    result = run_experiment(
+        "latency-bench",
+        {
+            "fps_values": "10,20",
+            "steps_per_config": 2,
+            "outdir": str(tmp_path / "latency"),
+        },
+    )
+
+    assert result.status == "success"
+    assert len(result.rows) == 8
+    assert {row["target_fps"] for row in result.rows} == {10.0, 20.0}
+    assert {row["config"] for row in result.rows} == {
+        "No Safety",
+        "Rule-based Safety",
+        "OOD-only",
+        "Full RSMF",
+    }
+    assert "deadline_miss_rate" in result.rows[0]
+    assert any(path.endswith("latency_bench.svg") for path in result.artifacts)
 
 
 def test_experiment_artifact_endpoint_serves_workspace_files(tmp_path: Path) -> None:

@@ -22,9 +22,14 @@ host/robot hardware view on the dashboard.
       across all three event categories, harvests records through the shared
       production classifier, and scores completeness, classification, layer
       labels, readable reasons, observation window, and taxonomy coverage.
-- RQ2 (`run_boundary_scan.py`) and RQ4 (`run_latency_bench.py`) remain real
-  guard-driven runs. RQ1 (L0 calibration) is a parametric synthetic study and
-  is documented as such.
+- RQ2 (`run_boundary_scan.py`) remains a real guard-driven sweep. RQ4 now
+  performs isolated Guard profiling for the thesis latency study: 10 Hz,
+  20 Hz, and 50 Hz are launched sequentially from the console, each comparing
+  No Safety, Rule-based Safety, OOD-only, and Full RSMF over 500 time steps.
+  The measurement window starts at action proposal receipt and ends at the
+  validated action decision, excluding image preprocessing and policy
+  inference. RQ1 (L0 calibration) is a parametric synthetic study and is
+  documented as such.
 
 ## Event Taxonomy
 

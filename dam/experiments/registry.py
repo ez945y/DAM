@@ -221,17 +221,27 @@ def _run_boundary_scan(params: dict[str, Any], outdir: Path) -> ExperimentResult
 
 
 def _summarise_latency(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    return {
-        "configs": {
-            str(row["config"]): {
-                "mean_ms": float(row["mean_ms"]),
-                "p95_ms": float(row["p95_ms"]),
-                "p99_ms": float(row["p99_ms"]),
-                "max_ms": float(row["max_ms"]),
-            }
-            for row in rows
-        }
+    if not rows:
+        return {}
+    summary: dict[str, Any] = {
+        "rows": len(rows),
+        "profiles": sorted({str(row.get("config", "")) for row in rows if row.get("config")}),
     }
+    by_fps: dict[str, Any] = {}
+    for fps in sorted({float(row["target_fps"]) for row in rows if "target_fps" in row}):
+        fps_rows = [row for row in rows if float(row.get("target_fps", -1)) == fps]
+        p95s = sorted(float(row["p95_ms"]) for row in fps_rows)
+        by_fps[str(fps)] = {
+            "configs": len(fps_rows),
+            "budget_ms": 1000.0 / fps,
+            "max_p95_ms": max(p95s),
+            "max_deadline_miss_rate": max(
+                float(row.get("deadline_miss_rate", 0.0)) for row in fps_rows
+            ),
+        }
+    if by_fps:
+        summary["by_fps"] = by_fps
+    return summary
 
 
 def _run_latency_bench(params: dict[str, Any], outdir: Path) -> ExperimentResult:
@@ -239,24 +249,38 @@ def _run_latency_bench(params: dict[str, Any], outdir: Path) -> ExperimentResult
 
     from scripts import run_latency_bench as bench
 
-    frames = int(params.get("frames", 500))
+    frames = int(params.get("steps_per_config", params.get("frames", 500)))
+    seed = int(params.get("seed", 42))
+    raw_fps = params.get("fps_values", params.get("fps", "10,20,50"))
+    if isinstance(raw_fps, str):
+        fps_values = [float(part.strip()) for part in raw_fps.split(",") if part.strip()]
+    elif isinstance(raw_fps, list | tuple):
+        fps_values = [float(value) for value in raw_fps]
+    else:
+        fps_values = [float(raw_fps)]
+    if not fps_values:
+        raise RuntimeError("fps_values must include at least one FPS")
     outdir.mkdir(parents=True, exist_ok=True)
-    rng = np.random.default_rng(int(params.get("seed", 42)))
     started = time.perf_counter()
-
     rows: list[dict[str, Any]] = []
-    for label, guard_names in bench._CONFIGS:
-        rows.append(bench.run_config(label, guard_names, frames, rng))
+    for fps in fps_values:
+        budget_ms = 1000.0 / fps
+        rng = np.random.default_rng(seed)
+        for label, guard_names in bench._CONFIGS:
+            stats = bench.run_config(label, guard_names, frames, rng, budget_ms=budget_ms)
+            stats.pop("_raw", None)
+            rows.append({"target_fps": fps, "budget_ms": budget_ms, **stats})
 
-    bench.write_csv(rows, outdir / "results.csv")
-    bench.plot_results(rows, outdir)
     clean_rows = _numeric_rows(rows)
-    _write_bar_svg(
+    bench.write_csv(clean_rows, outdir / "results.csv")
+    bench.plot_results(clean_rows, outdir)
+    _write_line_svg(
         clean_rows,
         outdir / "latency_bench.svg",
-        title="RQ4 Guard Latency p95",
-        label_key="config",
-        value_key="p95_ms",
+        title="RQ4 Guard p95 Latency by Control Frequency",
+        series_key="config",
+        x_key="target_fps",
+        y_key="p95_ms",
     )
     return ExperimentResult(
         id="latency-bench",
@@ -473,8 +497,17 @@ _EXPERIMENTS: dict[
             id="latency-bench",
             title="Guard Latency Benchmark",
             rq="RQ4",
-            description="Profiles cumulative guard latency for OOD-only, rule-based, and full stacks.",
-            default_params={"frames": 500, "seed": 42, "outdir": "data/experiments/latency_bench"},
+            description=(
+                "Profiles the Guard module in isolation across 10, 20, and 50 Hz budgets. "
+                "The run excludes image preprocessing and policy inference and reports "
+                "deadline miss rate for No Safety, Rule-based Safety, OOD-only, and Full RSMF."
+            ),
+            default_params={
+                "fps_values": "10,20,50",
+                "steps_per_config": 500,
+                "seed": 42,
+                "outdir": "data/experiments/latency_bench",
+            },
             outputs=("results.csv", "latency_bench.png", "latency_bench.svg"),
         ),
         _run_latency_bench,

@@ -1,31 +1,39 @@
-"""Experiment 3 — Latency Overhead Benchmark (實驗三：延遲開銷評估).
+"""RQ4 isolated Guard latency profiling helper.
 
-Measures per-frame guard processing latency across four cumulative configurations:
+This script profiles only the Guard module path: receiving an action proposal,
+running the selected safety checks, and producing the validated action decision.
+It intentionally excludes image preprocessing and policy inference so external
+module jitter does not contaminate Guard-layer latency.
 
-  ① L0-only           (OOD inference baseline)
-  ② L0 + L1           (+ Physical Kinematics)
-  ③ L0 + L1 + L2      (+ Task Execution)
-  ④ Full (L0+L1+L2+L3) (+ Hardware Monitoring)
+The default suite evaluates four safety configurations:
 
-Each configuration runs for a fixed number of frames on synthetic data that
-mimics a Pick & Place observation.  Reports mean ± std, p95, p99, and max
-latency per configuration.  Outputs a CSV and a matplotlib figure with a
-15 ms target line.
+  No Safety           baseline loop/action proposal overhead
+  Rule-based Safety   deterministic motion, execution, and hardware checks
+  OOD-only            L0 perception anomaly detector only
+  Full RSMF           L0 through L3 safety layers
+
+Each configuration runs for a fixed number of time steps and reports mean,
+standard deviation, p95, p99, max latency, and deadline miss rate for the chosen
+control frequency budget.
 
 Usage
 -----
-    python scripts/run_latency_bench.py [--frames N] [--outdir PATH]
+    python scripts/run_latency_bench.py [--frames N] [--fps FPS] [--outdir PATH]
 
-    N       frames per configuration — default 500
-    outdir  output directory         — default ./data/exp3_latency/
+    N       time steps per configuration — default 500
+    FPS     control frequency budget     — default 50
+    outdir  output directory             — default ./data/exp3_latency/
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import sys
 import time
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np
 
@@ -116,10 +124,10 @@ def _make_hardware() -> HardwareGuard:
 # ── Benchmark runner ──────────────────────────────────────────────────────────
 
 _CONFIGS = [
-    ("① L0-only", ["ood"]),
-    ("② L0+L1", ["ood", "motion"]),
-    ("③ L0+L1+L2", ["ood", "motion", "execution"]),
-    ("④ Full L0-L3", ["ood", "motion", "execution", "hardware"]),
+    ("No Safety", []),
+    ("Rule-based Safety", ["motion", "execution", "hardware"]),
+    ("OOD-only", ["ood"]),
+    ("Full RSMF", ["ood", "motion", "execution", "hardware"]),
 ]
 
 
@@ -128,6 +136,7 @@ def run_config(
     guard_names: list[str],
     frames: int,
     rng: np.random.Generator,
+    budget_ms: float | None = None,
 ) -> dict:
     # Build only the requested guard instances.
     guards: dict[str, object] = {}
@@ -173,22 +182,32 @@ def run_config(
         "p95_ms": float(np.percentile(arr, 95)),
         "p99_ms": float(np.percentile(arr, 99)),
         "max_ms": float(np.max(arr)),
+        "deadline_miss_rate": float(np.mean(arr > budget_ms)) if budget_ms else 0.0,
         "_raw": arr,  # kept for plotting; not written to CSV
     }
 
 
 # ── Reporting ─────────────────────────────────────────────────────────────────
 
-_TARGET_MS = 15.0
-
 
 def write_csv(results: list[dict], path: Path) -> None:
-    keys = ["config", "frames", "mean_ms", "std_ms", "p95_ms", "p99_ms", "max_ms"]
+    keys = [
+        "target_fps",
+        "budget_ms",
+        "config",
+        "frames",
+        "mean_ms",
+        "std_ms",
+        "p95_ms",
+        "p99_ms",
+        "max_ms",
+        "deadline_miss_rate",
+    ]
     with open(path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=keys)
+        writer = csv.DictWriter(f, fieldnames=[k for k in keys if k in results[0]])
         writer.writeheader()
         for r in results:
-            writer.writerow({k: r[k] for k in keys})
+            writer.writerow({k: r[k] for k in keys if k in r})
     print(f"CSV saved: {path}")
 
 
@@ -202,20 +221,37 @@ def plot_results(results: list[dict], outdir: Path) -> None:
         print("matplotlib not installed — skipping plot generation.")
         return
 
-    labels = [r["config"] for r in results]
-    means = [r["mean_ms"] for r in results]
-    stds = [r["std_ms"] for r in results]
-
-    fig, ax = plt.subplots(figsize=(8, 4))
-    xs = np.arange(len(labels))
-    ax.errorbar(xs, means, yerr=stds, fmt="o-", linewidth=2, capsize=4, label="Mean ± Std")
-    ax.axhline(
-        _TARGET_MS, color="red", linestyle="--", linewidth=1.5, label=f"{_TARGET_MS} ms target"
-    )
-    ax.set_xticks(xs)
-    ax.set_xticklabels(labels, fontsize=9)
+    fig, ax = plt.subplots(figsize=(9, 4.8))
+    if all("target_fps" in r for r in results):
+        configs = list(dict.fromkeys(str(r["config"]) for r in results))
+        for config in configs:
+            config_rows = sorted(
+                (r for r in results if str(r["config"]) == config),
+                key=lambda row: float(row["target_fps"]),
+            )
+            ax.plot(
+                [float(r["target_fps"]) for r in config_rows],
+                [float(r["p95_ms"]) for r in config_rows],
+                marker="o",
+                linewidth=2,
+                label=config,
+            )
+        fps_values = sorted({float(r["target_fps"]) for r in results})
+        ax.plot(
+            fps_values, [1000.0 / fps for fps in fps_values], "k--", linewidth=1.5, label="Budget"
+        )
+        ax.set_xlabel("Control frequency (Hz)")
+        ax.set_title("RQ4 — Guard p95 Latency by Control Frequency")
+    else:
+        labels = [r["config"] for r in results]
+        means = [r["mean_ms"] for r in results]
+        stds = [r["std_ms"] for r in results]
+        xs = np.arange(len(labels))
+        ax.errorbar(xs, means, yerr=stds, fmt="o-", linewidth=2, capsize=4, label="Mean ± Std")
+        ax.set_xticks(xs)
+        ax.set_xticklabels(labels, fontsize=9)
+        ax.set_title("RQ4 — Guard Latency")
     ax.set_ylabel("Guard latency (ms)")
-    ax.set_title("Experiment 3 — Cumulative Guard Latency")
     ax.legend()
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
@@ -227,17 +263,21 @@ def plot_results(results: list[dict], outdir: Path) -> None:
 
 
 def print_table(results: list[dict]) -> None:
-    print(f"\n{'Config':<22} {'Mean':>8} {'Std':>7} {'p95':>7} {'p99':>7} {'Max':>7}  Target")
-    print("-" * 70)
+    print(
+        f"\n{'FPS':>5} {'Config':<20} {'Mean':>8} {'Std':>7} "
+        f"{'p95':>7} {'p99':>7} {'Max':>7} {'Miss %':>8}"
+    )
+    print("-" * 84)
     for r in results:
-        meets = "✓" if r["mean_ms"] < _TARGET_MS else "✗"
         print(
-            f"  {r['config']:<20} "
+            f"{float(r.get('target_fps', 0)):>5.0f} "
+            f"{r['config']:<20} "
             f"{r['mean_ms']:>7.3f} "
             f"{r['std_ms']:>7.3f} "
             f"{r['p95_ms']:>7.3f} "
             f"{r['p99_ms']:>7.3f} "
-            f"{r['max_ms']:>7.3f}  {meets}"
+            f"{r['max_ms']:>7.3f} "
+            f"{100 * r.get('deadline_miss_rate', 0.0):>7.2f}%"
         )
     print()
 
@@ -248,6 +288,7 @@ def print_table(results: list[dict]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="DAM Experiment 3 — Latency Benchmark")
     parser.add_argument("--frames", type=int, default=500, help="Frames per configuration")
+    parser.add_argument("--fps", type=float, default=50.0, help="Control frequency budget")
     parser.add_argument("--outdir", type=str, default="data/exp3_latency")
     args = parser.parse_args()
 
@@ -257,9 +298,12 @@ def main() -> None:
     rng = np.random.default_rng(42)
     results: list[dict] = []
 
+    budget_ms = 1000.0 / args.fps
     for label, guard_names in _CONFIGS:
         print(f"Running {label} ({args.frames} frames)…")
-        r = run_config(label, guard_names, args.frames, rng)
+        r = run_config(label, guard_names, args.frames, rng, budget_ms=budget_ms)
+        r["target_fps"] = args.fps
+        r["budget_ms"] = budget_ms
         results.append(r)
         print(
             f"  mean={r['mean_ms']:.3f}ms  p95={r['p95_ms']:.3f}ms  "
@@ -271,11 +315,7 @@ def main() -> None:
     print_table(results)
 
     full = results[-1]
-    status = "PASS ✓" if full["mean_ms"] < _TARGET_MS else "FAIL ✗"
-    print(
-        f"Full config mean latency: {full['mean_ms']:.3f} ms  "
-        f"(target < {_TARGET_MS} ms)  → {status}"
-    )
+    print(f"Full RSMF deadline miss rate: {100 * full['deadline_miss_rate']:.2f}%")
 
 
 if __name__ == "__main__":
