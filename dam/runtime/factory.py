@@ -81,8 +81,18 @@ class RuntimeFactory:
         elif adapter_type == "ros2":
             return RuntimeFactory._build_ros2(config, ros2_node=ros2_node)
 
-        # Explicit Simulation or fall-through — reuse already-parsed config
-        runtime = GuardRuntime._from_config(config)
+        # Explicit Simulation or fall-through — reuse already-parsed config.
+        # Build the shared camera frame hub here too (mirrors _build_lerobot):
+        # simulation/dataset sources deliver frames on the observation and the
+        # runtime bridges them into this hub, so live preview and the Rust MCAP
+        # image writer both see them. Without it the hub is None and frames are
+        # silently dropped.
+        from dam.camera.frame_hub import CameraFrameHub
+
+        frame_hub = CameraFrameHub(
+            window_sec=config.loopback.window_sec if config.loopback else 10.0
+        )
+        runtime = GuardRuntime._from_config(config, frame_hub=frame_hub)
         source, policy, sink = RuntimeFactory._build_simulation(config)
         runtime.register_source("main", source)
         if policy:
@@ -90,7 +100,7 @@ class RuntimeFactory:
         runtime.register_sink(sink)
 
         hz = config.safety.control_frequency_hz if config.safety else 10.0
-        return SimulationRunner(runtime, control_frequency_hz=hz)
+        return SimulationRunner(runtime, control_frequency_hz=hz, frame_hub=frame_hub)
 
     @staticmethod
     def _build_lerobot(config: StackfileConfig) -> BaseRunner:

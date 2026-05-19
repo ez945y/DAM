@@ -417,8 +417,19 @@ class RuntimeLoopRunner(BaseRunner):
 class SimulationRunner(RuntimeLoopRunner):
     """Execution strategy for simulated environments (Datasets, Mock robots)."""
 
-    def __init__(self, runtime: GuardRuntime, control_frequency_hz: float = 10.0) -> None:
-        super().__init__(runtime, control_frequency_hz=control_frequency_hz)
+    def __init__(
+        self,
+        runtime: GuardRuntime,
+        control_frequency_hz: float = 10.0,
+        frame_hub: Any | None = None,
+        auxiliary_sources: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            runtime,
+            control_frequency_hz=control_frequency_hz,
+            frame_hub=frame_hub,
+            auxiliary_sources=auxiliary_sources,
+        )
 
     def connect(self) -> None:
         self._mark_connected()
