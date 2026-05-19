@@ -8,8 +8,10 @@ import {
 } from 'lucide-react'
 import { ActionShell } from '@/components/ActionShell'
 import type { TaskDef, BoundaryDef, ConstraintNodeDef } from '@/lib/types'
-import { DamConfig, defaultConfig, generateYaml } from '@/lib/templates'
+import { DamConfig, defaultConfig, generateYaml, parseConfigFromYaml } from '@/lib/templates'
 import { OODTrainer } from '@/components/OODTrainer'
+import { useStackfileLibrary } from '@/hooks/useStackfileLibrary'
+import { StackfileLibraryBar } from '@/components/StackfileLibraryBar'
 import { api } from '@/lib/api'
 
 // ── Guard pipeline definitions ───────────────────────────────────────────────
@@ -915,6 +917,30 @@ export default function GuardPage() {
   const [restartOk, setRestartOk] = useState(false)
   const importRef = useRef<HTMLInputElement>(null)
 
+  // ── Stackfile library (shared with the Config page via a hook) ─────────
+  const lib = useStackfileLibrary()
+
+  const applyStackfileYaml = useCallback((content: string) => {
+    if (!content) return
+    const parsed = migrateConfig(parseConfigFromYaml(content)) as Partial<DamConfig>
+    if (parsed.tasks && parsed.tasks.length > 0) setTasks(parsed.tasks)
+    if (parsed.boundaries && parsed.boundaries.length > 0) setBoundaries(parsed.boundaries)
+    if (parsed.guardsEnabled) setGuardsEnabled(parsed.guardsEnabled)
+    // Keep the localStorage working copy in sync so the YAML preview and
+    // autosave (which merge from it) reflect the loaded stackfile.
+    try {
+      const rawCfg = localStorage.getItem('dam_config_v1')
+      const base: DamConfig = rawCfg ? { ...defaultConfig(), ...JSON.parse(rawCfg) } : defaultConfig()
+      localStorage.setItem('dam_config_v1', JSON.stringify({ ...base, ...parsed }))
+    } catch { /* ignore */ }
+  }, [])
+
+  // Load the active stackfile (live or a library config) once after mount.
+  useEffect(() => {
+    lib.bootstrap(applyStackfileYaml)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Boundaries referenced by ANY task = "active"
   const activeBoundaryNames = new Set(tasks.flatMap(t => t.boundaries))
 
@@ -1054,15 +1080,15 @@ export default function GuardPage() {
         localStorage.setItem('dam_config_v1', JSON.stringify(cfg))
         localStorage.setItem('dam_yaml_v1', yaml)
 
-        // Persist to disk
-        await api.saveConfig(yaml)
+        // Persist to the active stackfile target (live or a library config).
+        await lib.save(yaml)
 
         setSaved(true)
         setTimeout(() => setSaved(false), 1200)
       } catch {}
     }, 500)
     return () => clearTimeout(t)
-  }, [tasks, boundaries, guardsEnabled])
+  }, [tasks, boundaries, guardsEnabled, lib])
 
   const addTask = () => setTasks(prev => [...prev, makeTask()])
   const removeTask = (id: string) => setTasks(prev => prev.filter(t => t.id !== id))
@@ -1158,6 +1184,8 @@ export default function GuardPage() {
       onExport={handleExport}
     >
       <input ref={importRef} type="file" accept=".json" onChange={handleImport} className="hidden" />
+
+      <StackfileLibraryBar lib={lib} getYaml={() => yamlPreview} onLoaded={applyStackfileYaml} />
 
       {/* Summary / Status Bar */}
       {tasks.length > 0 && (
