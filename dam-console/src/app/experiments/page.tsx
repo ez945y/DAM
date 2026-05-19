@@ -467,21 +467,23 @@ export default function ExperimentsPage() {
               Object.values(results).map((result) => {
                 const artifacts = visibleArtifacts(result);
                 return (
-                <div key={result.id} className="bg-dam-surface-2 border border-dam-border rounded-lg p-3 space-y-2">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm font-bold text-dam-text">{result.id}</p>
-                    <span className="text-[10px] font-mono text-dam-muted">{result.outdir}</span>
-                  </div>
-                  {artifacts.length > 0 ? (
-                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-                      {artifacts.map((path) => (
-                        <ArtifactPreview key={path} path={path} />
-                      ))}
+                  <div key={result.id} className="bg-dam-surface-2 border border-dam-border rounded-lg p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-bold text-dam-text">{result.id}</p>
+                      <span className="text-[10px] font-mono text-dam-muted">{result.outdir}</span>
                     </div>
-                  ) : (
-                    <p className="text-xs text-dam-muted">No displayed artifacts for this run.</p>
-                  )}
-                </div>
+                    {result.id === "latency-bench" ? (
+                      <LatencyGroupedBarChart rows={result.rows} />
+                    ) : artifacts.length > 0 ? (
+                      <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                        {artifacts.map((path) => (
+                          <ArtifactPreview key={path} path={path} />
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-dam-muted">No displayed artifacts for this run.</p>
+                    )}
+                  </div>
                 );
               })
             )}
