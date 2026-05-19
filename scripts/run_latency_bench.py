@@ -18,10 +18,11 @@ control frequency budget.
 
 Usage
 -----
-    python scripts/run_latency_bench.py [--frames N] [--fps FPS] [--outdir PATH]
+    python scripts/run_latency_bench.py [--frames N] [--fps FPS] [--realtime] [--outdir PATH]
 
     N       time steps per configuration — default 500
     FPS     control frequency budget     — default 50
+    realtime pace time steps at FPS       — default off for CLI smoke tests
     outdir  output directory             — default ./data/exp3_latency/
 """
 
@@ -138,6 +139,45 @@ def run_config(
     rng: np.random.Generator,
     budget_ms: float | None = None,
 ) -> dict:
+    guards = _build_guards(guard_names)
+    latencies_ms: list[float] = []
+
+    for _ in range(frames):
+        obs = _make_nominal_obs(rng)
+        action = _make_nominal_action(obs)
+        now = time.monotonic()
+        latencies_ms.append(_measure_guards_ms(guards, obs, action, now))
+
+    return _latency_stats(label, frames, latencies_ms, budget_ms)
+
+
+def run_frequency(
+    frames: int,
+    rng: np.random.Generator,
+    budget_ms: float,
+    *,
+    realtime: bool = False,
+) -> list[dict]:
+    guard_sets = [(label, _build_guards(guard_names)) for label, guard_names in _CONFIGS]
+    latencies: dict[str, list[float]] = {label: [] for label, _ in guard_sets}
+
+    for _ in range(frames):
+        cycle_t0 = time.perf_counter()
+        obs = _make_nominal_obs(rng)
+        action = _make_nominal_action(obs)
+        now = time.monotonic()
+        for label, guards in guard_sets:
+            latencies[label].append(_measure_guards_ms(guards, obs, action, now))
+        if realtime:
+            elapsed_ms = (time.perf_counter() - cycle_t0) * 1000.0
+            sleep_ms = budget_ms - elapsed_ms
+            if sleep_ms > 0:
+                time.sleep(sleep_ms / 1000.0)
+
+    return [_latency_stats(label, frames, latencies[label], budget_ms) for label, _ in guard_sets]
+
+
+def _build_guards(guard_names: list[str]) -> dict[str, object]:
     # Build only the requested guard instances.
     guards: dict[str, object] = {}
     if "ood" in guard_names:
@@ -148,31 +188,38 @@ def run_config(
         guards["execution"] = _make_execution()
     if "hardware" in guard_names:
         guards["hardware"] = _make_hardware()
+    return guards
 
-    latencies_ms: list[float] = []
 
-    for _ in range(frames):
-        obs = _make_nominal_obs(rng)
-        action = _make_nominal_action(obs)
-        now = time.monotonic()
+def _measure_guards_ms(
+    guards: dict[str, object],
+    obs: Observation,
+    action: ActionProposal,
+    now: float,
+) -> float:
+    t0 = time.perf_counter()
 
-        t0 = time.perf_counter()
+    if "ood" in guards:
+        guards["ood"].check(obs=obs)  # type: ignore[union-attr]
 
-        if "ood" in guards:
-            guards["ood"].check(obs=obs)  # type: ignore[union-attr]
+    if "motion" in guards:
+        guards["motion"].check(obs=obs, action=action, **_MOTION_KWARGS)  # type: ignore[union-attr]
 
-        if "motion" in guards:
-            guards["motion"].check(obs=obs, action=action, **_MOTION_KWARGS)  # type: ignore[union-attr]
+    if "execution" in guards:
+        guards["execution"].check(obs=obs, active_containers=[], node_start_times={})  # type: ignore[union-attr]
 
-        if "execution" in guards:
-            guards["execution"].check(obs=obs, active_containers=[], node_start_times={})  # type: ignore[union-attr]
+    if "hardware" in guards:
+        guards["hardware"].check(obs=obs, now=now)  # type: ignore[union-attr]
 
-        if "hardware" in guards:
-            guards["hardware"].check(obs=obs, now=now)  # type: ignore[union-attr]
+    return (time.perf_counter() - t0) * 1000.0
 
-        t1 = time.perf_counter()
-        latencies_ms.append((t1 - t0) * 1000.0)
 
+def _latency_stats(
+    label: str,
+    frames: int,
+    latencies_ms: list[float],
+    budget_ms: float | None = None,
+) -> dict:
     arr = np.array(latencies_ms)
     return {
         "config": label,
@@ -289,6 +336,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="DAM Experiment 3 — Latency Benchmark")
     parser.add_argument("--frames", type=int, default=500, help="Frames per configuration")
     parser.add_argument("--fps", type=float, default=50.0, help="Control frequency budget")
+    parser.add_argument(
+        "--realtime",
+        action="store_true",
+        help="Pace time steps at the requested FPS instead of running as fast as possible",
+    )
     parser.add_argument("--outdir", type=str, default="data/exp3_latency")
     args = parser.parse_args()
 
@@ -299,9 +351,16 @@ def main() -> None:
     results: list[dict] = []
 
     budget_ms = 1000.0 / args.fps
-    for label, guard_names in _CONFIGS:
-        print(f"Running {label} ({args.frames} frames)…")
-        r = run_config(label, guard_names, args.frames, rng, budget_ms=budget_ms)
+    if args.realtime:
+        print(f"Running all Guard configs for {args.frames} time steps at {args.fps:g} Hz…")
+        suite = run_frequency(args.frames, rng, budget_ms, realtime=True)
+    else:
+        suite = []
+        for label, guard_names in _CONFIGS:
+            print(f"Running {label} ({args.frames} frames)…")
+            suite.append(run_config(label, guard_names, args.frames, rng, budget_ms=budget_ms))
+
+    for r in suite:
         r["target_fps"] = args.fps
         r["budget_ms"] = budget_ms
         results.append(r)

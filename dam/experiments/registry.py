@@ -251,6 +251,7 @@ def _run_latency_bench(params: dict[str, Any], outdir: Path) -> ExperimentResult
 
     frames = int(params.get("steps_per_config", params.get("frames", 500)))
     seed = int(params.get("seed", 42))
+    realtime = bool(params.get("realtime", True))
     raw_fps = params.get("fps_values", params.get("fps", "10,20,50"))
     if isinstance(raw_fps, str):
         fps_values = [float(part.strip()) for part in raw_fps.split(",") if part.strip()]
@@ -266,8 +267,7 @@ def _run_latency_bench(params: dict[str, Any], outdir: Path) -> ExperimentResult
     for fps in fps_values:
         budget_ms = 1000.0 / fps
         rng = np.random.default_rng(seed)
-        for label, guard_names in bench._CONFIGS:
-            stats = bench.run_config(label, guard_names, frames, rng, budget_ms=budget_ms)
+        for stats in bench.run_frequency(frames, rng, budget_ms, realtime=realtime):
             stats.pop("_raw", None)
             rows.append({"target_fps": fps, "budget_ms": budget_ms, **stats})
 
@@ -505,6 +505,7 @@ _EXPERIMENTS: dict[
             default_params={
                 "fps_values": "10,20,50",
                 "steps_per_config": 500,
+                "realtime": True,
                 "seed": 42,
                 "outdir": "data/experiments/latency_bench",
             },

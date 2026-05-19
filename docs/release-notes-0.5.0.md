@@ -26,10 +26,11 @@ host/robot hardware view on the dashboard.
   performs isolated Guard profiling for the thesis latency study: 10 Hz,
   20 Hz, and 50 Hz are launched sequentially from the console, each comparing
   No Safety, Rule-based Safety, OOD-only, and Full RSMF over 500 time steps.
-  The measurement window starts at action proposal receipt and ends at the
-  validated action decision, excluding image preprocessing and policy
-  inference. RQ1 (L0 calibration) is a parametric synthetic study and is
-  documented as such.
+  Console runs are paced at the requested control frequency, then the plot is
+  embedded directly in the result card. The measurement window starts at action
+  proposal receipt and ends at the validated action decision, excluding image
+  preprocessing and policy inference. RQ1 (L0 calibration) is a parametric
+  synthetic study and is documented as such.
 
 ## Event Taxonomy
 

@@ -36,6 +36,7 @@ def test_latency_benchmark_profiles_guard_configs_per_fps(tmp_path: Path) -> Non
         {
             "fps_values": "10,20",
             "steps_per_config": 2,
+            "realtime": False,
             "outdir": str(tmp_path / "latency"),
         },
     )

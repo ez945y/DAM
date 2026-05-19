@@ -122,8 +122,10 @@ policy model inference so external module variance does not distort Guard-layer
 latency.
 
 The Console runs the benchmark in three sequential launches for 10 Hz, 20 Hz,
-and 50 Hz. Results are shown after each frequency finishes, so the table grows
-from 10 Hz to 20 Hz to 50 Hz instead of appearing only at the end.
+and 50 Hz. By default each launch is paced at the requested control frequency,
+so 500 time steps take about 50 s at 10 Hz, 25 s at 20 Hz, and 10 s at 50 Hz.
+Results are shown after each frequency finishes, so the table grows from
+10 Hz to 20 Hz to 50 Hz instead of appearing only at the end.
 
 The experiment evaluates four configurations:
 
@@ -146,6 +148,7 @@ curl -X POST http://127.0.0.1:8080/api/experiments/latency-bench/run \
 |------|---------|-------------|
 | `fps_values` | `10,20,50` | Control frequencies to evaluate; the Console runs these sequentially |
 | `steps_per_config` | `500` | Time steps per safety configuration and frequency |
+| `realtime` | `true` | Pace time steps at the requested FPS; set `false` only for quick smoke tests |
 | `seed` | `42` | Deterministic observation/action proposal seed |
 | `outdir` | `data/experiments/latency_bench/` | Directory for output files |
 
@@ -177,9 +180,9 @@ deadline miss.
 ### Example
 
 ```bash
-# Quick 20 Hz validation
+# Quick unpaced 20 Hz validation
 python scripts/run_latency_bench.py --frames 200 --fps 20 --outdir results/latency_20hz
 
-# Thesis-sized 50 Hz run
-python scripts/run_latency_bench.py --frames 500 --fps 50 --outdir results/latency_50hz
+# Thesis-sized paced 50 Hz run
+python scripts/run_latency_bench.py --frames 500 --fps 50 --realtime --outdir results/latency_50hz
 ```

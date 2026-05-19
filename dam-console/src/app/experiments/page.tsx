@@ -37,7 +37,7 @@ function mergeExperimentResult(
 }
 
 function RowPreview({ result }: { result: ExperimentResult }) {
-  const rows = result.rows.slice(0, 8);
+  const rows = result.rows;
   const columns = rows.length ? Object.keys(rows[0]).slice(0, 7) : [];
   if (!rows.length) {
     return <p className="text-xs text-dam-muted">No rows returned.</p>;
@@ -72,6 +72,16 @@ function RowPreview({ result }: { result: ExperimentResult }) {
   );
 }
 
+function isPreviewArtifact(path: string): boolean {
+  const lower = path.toLowerCase();
+  return (
+    lower.endsWith(".svg") ||
+    lower.endsWith(".png") ||
+    lower.endsWith(".jpg") ||
+    lower.endsWith(".jpeg")
+  );
+}
+
 function ExperimentCard({
   exp,
   params,
@@ -91,6 +101,7 @@ function ExperimentCard({
     () => Object.entries(exp.default_params ?? {}).filter(([key]) => key !== "outdir"),
     [exp.default_params],
   );
+  const previewArtifacts = result?.artifacts.filter(isPreviewArtifact) ?? [];
 
   return (
     <section className="panel p-4 space-y-4">
@@ -161,6 +172,13 @@ function ExperimentCard({
             </div>
           </div>
           <RowPreview result={result} />
+          {previewArtifacts.length > 0 && (
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+              {previewArtifacts.map((path) => (
+                <ArtifactPreview key={path} path={path} />
+              ))}
+            </div>
+          )}
           <div className="flex flex-wrap gap-2">
             {result.artifacts.map((path) => (
               <span key={path} className="flex items-center gap-1.5 text-[10px] font-mono text-dam-muted bg-dam-surface-2 border border-dam-border rounded px-2 py-1">
@@ -177,13 +195,7 @@ function ExperimentCard({
 
 function ArtifactPreview({ path }: { path: string }) {
   const url = api.experimentArtifactUrl(path);
-  const lower = path.toLowerCase();
-  if (
-    lower.endsWith(".svg") ||
-    lower.endsWith(".png") ||
-    lower.endsWith(".jpg") ||
-    lower.endsWith(".jpeg")
-  ) {
+  if (isPreviewArtifact(path)) {
     return (
       <a href={url} target="_blank" rel="noreferrer" className="block bg-dam-surface-1 border border-dam-border rounded-lg overflow-hidden">
         <div className="px-2 py-1.5 border-b border-dam-border text-[10px] font-mono text-dam-muted truncate">{path}</div>
