@@ -88,6 +88,110 @@ function primaryPreviewArtifacts(paths: string[]): string[] {
   return png ? [png] : images.slice(0, 1);
 }
 
+const CHART_COLORS = ["#3b82f6", "#22c55e", "#f97316", "#ef4444", "#a855f7"];
+
+function LatencyLineChart({ rows }: { rows: Record<string, unknown>[] }) {
+  const fpsValues = Array.from(
+    new Set(rows.map((row) => asNumber(row.target_fps)).filter((n): n is number => n !== null)),
+  ).sort((a, b) => a - b);
+  const configs = Array.from(
+    new Set(rows.map((row) => String(row.config ?? "")).filter(Boolean)),
+  );
+  const values = rows
+    .map((row) => asNumber(row.p95_ms))
+    .filter((n): n is number => n !== null);
+  if (!fpsValues.length || !configs.length || !values.length) {
+    return null;
+  }
+
+  const width = 860;
+  const height = 320;
+  const margin = { top: 26, right: 26, bottom: 46, left: 58 };
+  const plotW = width - margin.left - margin.right;
+  const plotH = height - margin.top - margin.bottom;
+  const xMin = Math.min(...fpsValues);
+  const xMax = Math.max(...fpsValues);
+  const yMax = Math.max(0.01, Math.max(...values) * 1.2);
+  const x = (fps: number) =>
+    margin.left + (xMax === xMin ? 0.5 : (fps - xMin) / (xMax - xMin)) * plotW;
+  const y = (value: number) => margin.top + plotH - (value / yMax) * plotH;
+  const ticks = [0, yMax / 2, yMax];
+
+  return (
+    <div className="rounded-lg border border-dam-border bg-dam-surface-1 overflow-hidden">
+      <div className="px-3 py-2 border-b border-dam-border">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-dam-muted">
+          RQ4 p95 Guard Latency · FPS × Safety Config
+        </p>
+      </div>
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto bg-dam-surface-2">
+        {ticks.map((tick) => (
+          <g key={tick}>
+            <line
+              x1={margin.left}
+              x2={width - margin.right}
+              y1={y(tick)}
+              y2={y(tick)}
+              stroke="rgba(255,255,255,0.08)"
+            />
+            <text x={margin.left - 10} y={y(tick) + 4} textAnchor="end" className="fill-dam-muted text-[10px]">
+              {tick.toFixed(tick < 1 ? 3 : 1)}
+            </text>
+          </g>
+        ))}
+        {fpsValues.map((fps) => (
+          <g key={fps}>
+            <line
+              x1={x(fps)}
+              x2={x(fps)}
+              y1={margin.top}
+              y2={height - margin.bottom}
+              stroke="rgba(255,255,255,0.05)"
+            />
+            <text x={x(fps)} y={height - 18} textAnchor="middle" className="fill-dam-muted text-[11px]">
+              {fps} Hz
+            </text>
+          </g>
+        ))}
+        <text x={18} y={24} className="fill-dam-muted text-[10px]">
+          p95 ms
+        </text>
+        <text x={width - margin.right} y={24} textAnchor="end" className="fill-dam-muted text-[10px]">
+          budgets: {fpsValues.map((fps) => `${fps}Hz=${(1000 / fps).toFixed(0)}ms`).join(" · ")}
+        </text>
+        {configs.map((config, idx) => {
+          const color = CHART_COLORS[idx % CHART_COLORS.length];
+          const points = fpsValues
+            .map((fps) => rows.find((row) => row.config === config && asNumber(row.target_fps) === fps))
+            .filter((row): row is Record<string, unknown> => Boolean(row))
+            .map((row) => {
+              const fps = asNumber(row.target_fps) ?? xMin;
+              const p95 = asNumber(row.p95_ms) ?? 0;
+              return { fps, p95 };
+            });
+          const d = points.map((pt, i) => `${i === 0 ? "M" : "L"} ${x(pt.fps)} ${y(pt.p95)}`).join(" ");
+          return (
+            <g key={config}>
+              {points.length > 1 && <path d={d} fill="none" stroke={color} strokeWidth="2.5" />}
+              {points.map((pt) => (
+                <circle key={`${config}-${pt.fps}`} cx={x(pt.fps)} cy={y(pt.p95)} r="4" fill={color}>
+                  <title>{`${config} @ ${pt.fps} Hz: p95 ${pt.p95.toFixed(4)} ms`}</title>
+                </circle>
+              ))}
+              <g transform={`translate(${margin.left + idx * 170}, ${height - 6})`}>
+                <circle cx="0" cy="-4" r="4" fill={color} />
+                <text x="9" y="0" className="fill-dam-muted text-[10px]">
+                  {config}
+                </text>
+              </g>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
 function ExperimentCard({
   exp,
   params,
@@ -109,7 +213,8 @@ function ExperimentCard({
     () => Object.entries(exp.default_params ?? {}).filter(([key]) => key !== "outdir"),
     [exp.default_params],
   );
-  const previewArtifacts = primaryPreviewArtifacts(result?.artifacts ?? []);
+  const previewArtifacts =
+    exp.id === "latency-bench" ? [] : primaryPreviewArtifacts(result?.artifacts ?? []);
 
   return (
     <section className="panel p-4 space-y-4">
@@ -185,6 +290,7 @@ function ExperimentCard({
             </div>
           </div>
           <RowPreview result={result} />
+          {exp.id === "latency-bench" && <LatencyLineChart rows={result.rows} />}
           {previewArtifacts.length > 0 && (
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
               {previewArtifacts.map((path) => (
