@@ -22,11 +22,13 @@ def _require_risk_log(svc: RiskLogService | None) -> RiskLogService:
 def create_risk_log_router(risk_log: RiskLogService | None) -> APIRouter:
     router = APIRouter(prefix="/api/risk-log")
 
-    @router.get(
-        "",
-        responses={503: {"description": _SVC_UNAVAILABLE}},
-        response_class=MsgspecJSONResponse,
-    )
+    # NOTE: We return MsgspecJSONResponse(...) *instances* (not plain dicts
+    # with response_class=). FastAPI runs serialize_response → jsonable_encoder
+    # → Pydantic on any return value that isn't already a Response, and
+    # Pydantic chokes on msgspec.Struct fields. Returning a Response instance
+    # bypasses serialize_response entirely.
+
+    @router.get("", responses={503: {"description": _SVC_UNAVAILABLE}})
     async def risk_log_query(
         since: Annotated[float | None, Query()] = None,
         until: Annotated[float | None, Query()] = None,
@@ -35,7 +37,7 @@ def create_risk_log_router(risk_log: RiskLogService | None) -> APIRouter:
         clamped_only: Annotated[bool, Query()] = False,
         failure_type: Annotated[str | None, Query()] = None,
         limit: Annotated[int, Query(ge=1, le=5000)] = 100,
-    ) -> Any:
+    ) -> Response:
         svc = _require_risk_log(risk_log)
         events = svc.query(
             since=since,
@@ -46,16 +48,12 @@ def create_risk_log_router(risk_log: RiskLogService | None) -> APIRouter:
             failure_type=failure_type,
             limit=limit,
         )
-        return {"events": events, "count": len(events)}
+        return MsgspecJSONResponse({"events": events, "count": len(events)})
 
-    @router.get(
-        "/stats",
-        responses={503: {"description": _SVC_UNAVAILABLE}},
-        response_class=MsgspecJSONResponse,
-    )
-    async def risk_log_stats() -> Any:
+    @router.get("/stats", responses={503: {"description": _SVC_UNAVAILABLE}})
+    async def risk_log_stats() -> Response:
         svc = _require_risk_log(risk_log)
-        return svc.stats()
+        return MsgspecJSONResponse(svc.stats())
 
     @router.post("/clear", responses={503: {"description": _SVC_UNAVAILABLE}})
     async def risk_log_clear() -> Any:
@@ -83,13 +81,12 @@ def create_risk_log_router(risk_log: RiskLogService | None) -> APIRouter:
     @router.get(
         "/{event_id}",
         responses={404: {"description": "Event not found"}, 503: {"description": _SVC_UNAVAILABLE}},
-        response_class=MsgspecJSONResponse,
     )
-    async def risk_log_get(event_id: Annotated[int, Path()]) -> Any:
+    async def risk_log_get(event_id: Annotated[int, Path()]) -> Response:
         svc = _require_risk_log(risk_log)
         ev = svc.get_by_id(event_id)
         if ev is None:
             raise HTTPException(404, f"Event {event_id} not found")
-        return ev
+        return MsgspecJSONResponse(ev)
 
     return router

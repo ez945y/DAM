@@ -416,6 +416,34 @@ class TestRiskLogService:
         exported = json.loads(svc.export_json())
         assert exported[0]["perf"]["layers"]["L1"] == 1.25
 
+    def test_router_serves_events_with_msgspec_struct_payloads(self):
+        """End-to-end: FastAPI runs serialize_response on dict returns and
+        Pydantic chokes on msgspec.Struct fields. The router must short-
+        circuit that by returning a Response instance directly, so a real
+        HTTP GET returns 200 with the events embedded."""
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from dam.services.routers.risk_log import create_risk_log_router
+
+        svc = RiskLogService()
+        self._record_with_numpy_metadata(svc)
+        app = FastAPI()
+        app.include_router(create_risk_log_router(svc))
+        client = TestClient(app)
+
+        r = client.get("/api/risk-log")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["count"] == 1
+        meta = body["events"][0]["guard_results"][0]["metadata"]["joint_position_limits"]
+        assert meta["upper"] == [1.0, 2.0]  # numpy array survived
+        assert meta["scale"] == 0.5  # np.float32 survived
+
+        first_id = body["events"][0]["event_id"]
+        single = client.get(f"/api/risk-log/{first_id}")
+        assert single.status_code == 200, single.text
+
 
 # ── BoundaryConfigService ──────────────────────────────────────────────────────
 

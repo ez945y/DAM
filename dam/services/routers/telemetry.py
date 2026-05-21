@@ -8,7 +8,7 @@ import msgspec
 if TYPE_CHECKING:
     from dam.services.telemetry import TelemetryService
 
-from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Query, Response, WebSocket, WebSocketDisconnect
 
 from dam.services.serialization import MsgspecJSONResponse, msgspec_enc_hook
 
@@ -67,12 +67,13 @@ def create_telemetry_router(telemetry: TelemetryService | None) -> APIRouter:
     @router.get(
         "/api/telemetry/history",
         responses={503: {"description": _SVC_UNAVAILABLE}},
-        response_class=MsgspecJSONResponse,
     )
-    async def telemetry_history(n: Annotated[int, Query(ge=1, le=1000)] = 50) -> Any:
+    async def telemetry_history(n: Annotated[int, Query(ge=1, le=1000)] = 50) -> Response:
         if telemetry is None:
             raise HTTPException(503, _SVC_UNAVAILABLE)
-        return {"events": telemetry.get_history(n), "total": telemetry.total_pushed}
+        return MsgspecJSONResponse(
+            {"events": telemetry.get_history(n), "total": telemetry.total_pushed}
+        )
 
     @router.websocket("/ws/telemetry")
     async def ws_telemetry(websocket: WebSocket) -> None:
