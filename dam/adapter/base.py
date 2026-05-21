@@ -94,6 +94,10 @@ class PolicyAdapter(ABC):
         """Reset any internal recurrent state (called on task start)."""
         ...
 
+    def preflight(self, camera_names: list[str] | None = None) -> None:
+        """Eagerly load/warm up the policy model if supported."""
+        pass
+
 
 class ActionAdapter(ABC):
     """Sends a ValidatedAction to the physical hardware or ROS2 topic.

@@ -252,6 +252,36 @@ class GuardRuntime:
         if self._boundary_to_kind:
             self._stages = self._build_stages_for_task(active_bnames)
 
+        # Collect active camera names from registered sources or frame hub
+        active_cameras = []
+        for src in self._sources.values():
+            if hasattr(src, "_robot") and hasattr(src._robot, "cameras") and src._robot.cameras:
+                active_cameras.extend(src._robot.cameras.keys())
+            elif hasattr(src, "_prev_images") and src._prev_images:
+                active_cameras.extend(src._prev_images.keys())
+            elif hasattr(src, "_camera_names") and src._camera_names:
+                active_cameras.extend(src._camera_names)
+            elif (
+                src.__class__.__name__ == "OpenCVSourceAdapter"
+                and hasattr(src, "_name")
+                and src._name
+            ):
+                active_cameras.append(src._name)
+        active_cameras = sorted(list(set(active_cameras)))
+
+        # Preflight: call policy preflight
+        if self._policy is not None and hasattr(self._policy, "preflight"):
+            try:
+                import inspect
+
+                sig = inspect.signature(self._policy.preflight)
+                if "camera_names" in sig.parameters:
+                    self._policy.preflight(camera_names=active_cameras)
+                else:
+                    self._policy.preflight()
+            except Exception as exc:
+                logger.error("GuardRuntime: policy preflight failed: %s", exc)
+
         # Preflight: call each guard once per group
         stages_to_preflight = self._stages or []
         for stage in stages_to_preflight:
@@ -275,6 +305,13 @@ class GuardRuntime:
                     logger.debug(
                         "GuardRuntime: preflight '%s' for boundary '%s'", guard_kind, pair_bname
                     )
+
+                    import inspect
+
+                    sig = inspect.signature(g.preflight)
+                    if "camera_names" in sig.parameters:
+                        kwargs["camera_names"] = active_cameras
+
                     g.preflight(**_filter_kwargs(g.preflight, kwargs))
                 except Exception as exc:
                     logger.error(

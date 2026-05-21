@@ -861,6 +861,7 @@ class OODGuard(Guard):
         ood_model_path: str | None = None,
         bank_path: str | None = None,
         device: str = "cpu",
+        camera_names: list[str] | None = None,
         **kwargs: Any,
     ) -> None:
         """Eagerly load model/bank during preflight to avoid lazy-loading delays during check()."""
@@ -880,8 +881,30 @@ class OODGuard(Guard):
             )
             try:
                 self._maybe_load(ood_model_path, bank_path, dummy_obs, device=device)
+
+                # Warm up the PyTorch extractor CNN branch if it expects images
+                if getattr(self._extractor, "_has_images", False):
+                    cams = camera_names or ["camera"]
+                    dummy_obs = Observation(
+                        timestamp=time.monotonic(),
+                        joint_positions=np.zeros(6),
+                        images={cam: np.zeros((224, 224, 3), dtype=np.uint8) for cam in cams},
+                    )
+                    # Re-run maybe_load with image-based dummy_obs so that extractor sees images
+                    self._maybe_load(ood_model_path, bank_path, dummy_obs, device=device)
+
+                # Warm up the PyTorch extractor and classifier layers with a dummy check pass
+                self._default_check(
+                    dummy_obs,
+                    self.get_name(),
+                    self.get_layer(),
+                    nn_threshold=2.0,
+                    nll_sigma=3.0,
+                    nll_threshold=5.0,
+                )
+                logger.info("OODGuard: preflight model loading and warmup pass completed.")
             except Exception as e:
-                logger.error("OODGuard: preflight load failed: %s", e)
+                logger.error("OODGuard: preflight load/warmup failed: %s", e)
 
     def check(
         self,
