@@ -79,45 +79,6 @@ class LeRobotPolicyAdapter(PolicyAdapter):
         if hasattr(self._policy, "reset"):
             self._policy.reset()
 
-    def preflight(self, camera_names: list[str] | None = None) -> None:
-        """Eagerly load/warm up the policy model by doing a dummy predict pass."""
-        logger.info("LeRobotPolicyAdapter: warming up policy model...")
-        import time
-
-        # Try to find expected camera names from the policy config
-        cams = []
-        if hasattr(self._policy, "config") and self._policy.config is not None:
-            if hasattr(self._policy.config, "cameras"):
-                cams = list(self._policy.config.cameras)
-            elif hasattr(self._policy.config, "input_shapes"):
-                cams = [
-                    k[len("observation.images.") :]
-                    for k in self._policy.config.input_shapes
-                    if k.startswith("observation.images.")
-                ]
-
-        # If policy config didn't give us cameras, try to fall back to the runtime's camera names,
-        # or a default list if it's not a JIT policy (official LeRobot policies are almost always image-based)
-        if not cams and camera_names:
-            cams = list(camera_names)
-        if not cams and not self._is_jit:
-            cams = ["laptop"]
-
-        dummy_images = {cam: np.zeros((224, 224, 3), dtype=np.uint8) for cam in cams}
-
-        dummy_obs = Observation(
-            timestamp=time.monotonic(),
-            joint_positions=np.zeros(
-                len(self._joint_names) if self._joint_names else 6, dtype=np.float32
-            ),
-            images=dummy_images,
-        )
-        try:
-            self.predict(dummy_obs)
-            logger.info("LeRobotPolicyAdapter: policy model warmup completed successfully.")
-        except Exception as e:
-            logger.warning("LeRobotPolicyAdapter: policy model warmup failed: %s", e)
-
     # ── Official lerobot API ───────────────────────────────────────────────
 
     def _predict_lerobot(self, obs: Observation) -> ActionProposal:
