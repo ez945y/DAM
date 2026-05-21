@@ -17,6 +17,7 @@ through the legacy shim.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import numpy as np
@@ -29,10 +30,13 @@ from dam.boundary.callbacks._helpers import (
     _resolve_ee_translation,
 )
 from dam.boundary.callbacks._registry import boundary_callback
+from dam.guard.aggregators.motion_qp import MotionQPConstraint
 from dam.guard.pipeline import CallbackResult
 from dam.kinematics.resolver import KinematicsResolver
 from dam.types.action import ActionProposal, ValidatedAction
 from dam.types.observation import Observation
+
+logger = logging.getLogger(__name__)
 
 
 def _to_array(x: Any, *, name: str) -> np.ndarray:
@@ -75,10 +79,14 @@ def joint_velocity_limit(
 
     target_pos = np.asarray(action.target_joint_positions, dtype=np.float64)
     cur_pos = np.asarray(obs.joint_positions, dtype=np.float64)
+    if not _all_finite(target_pos) or not _all_finite(cur_pos):
+        return CallbackResult.violate(bname, "non-finite joint state or action")
     n = min(target_pos.shape[0], cur_pos.shape[0])
 
     if action.target_joint_velocities is not None:
         velocities = np.asarray(action.target_joint_velocities, dtype=np.float64)[:n]
+        if not _all_finite(velocities):
+            return CallbackResult.violate(bname, "non-finite joint velocity action")
         derived = False
     else:
         velocities = (target_pos[:n] - cur_pos[:n]) / max(float(dt), 1e-6)
@@ -116,7 +124,10 @@ def joint_velocity_limit(
         f"velocity scale ratio={max_ratio:.2f} "
         f"(worst: J{worst + 1} {abs(float(velocities[worst])):.3f}>{float(v_max_1d[worst]):.3f})"
     )
-    return CallbackResult.clamp(bname, clamped, reason=reason)
+    # Advertise the per-joint velocity limit (plus the state needed to express
+    # it as a position bound) for an optional QP aggregator.
+    qp_meta = MotionQPConstraint(max_velocity=v_max_1d.copy(), q=cur_pos[:n].copy(), dt=float(dt))
+    return CallbackResult.clamp(bname, clamped, reason=reason, metadata={"motion_qp": qp_meta})
 
 
 @boundary_callback(
@@ -149,6 +160,8 @@ def joint_position_limits(
         up = np.radians(up)
 
     target = np.asarray(action.target_joint_positions, dtype=np.float64)
+    if not _all_finite(target):
+        return CallbackResult.violate(bname, "non-finite joint position action")
     n = min(target.shape[0], lo.shape[0], up.shape[0])
     clipped = target.copy()
     clipped[:n] = np.clip(target[:n], lo[:n], up[:n])
@@ -166,7 +179,10 @@ def joint_position_limits(
         original_proposal=action,
         timestamp=action.timestamp,
     )
-    return CallbackResult.clamp(bname, clamped, reason=reason)
+    # Advertise the joint-position box for an optional QP aggregator (limits in
+    # radians, already unit-normalised above).
+    qp_meta = MotionQPConstraint(upper=up[:n].copy(), lower=lo[:n].copy())
+    return CallbackResult.clamp(bname, clamped, reason=reason, metadata={"motion_qp": qp_meta})
 
 
 @boundary_callback(
@@ -179,6 +195,8 @@ def workspace(
     obs: Observation,
     action: ActionProposal,
     bounds: list[list[float]] | None = None,
+    cbf_gamma: float = 1.0,
+    cbf_alpha: float | None = None,
     kinematics_resolver: KinematicsResolver | None = None,
     dynamics: Any | None = None,
 ) -> CallbackResult:
@@ -187,12 +205,26 @@ def workspace(
     Without IK the framework cannot rewrite a joint target so the EE re-enters
     the box; the safe default is to clamp the proposal back to the current
     joint state — a brake.  Users wanting smooth EE-constrained motion should
-    inject a QP/CBF aggregator that consumes a workspace constraint from
-    callback metadata instead.
+    inject a QP/CBF aggregator that consumes the workspace constraint this
+    callback attaches to ``metadata['motion_qp']``.
+
+    ``cbf_gamma`` is the discrete CBF decay rate γ ∈ [0, 1] (1 = one-step hard
+    bound, →0 = brake early with large margins).  The legacy name ``cbf_alpha``
+    is accepted as an alias and mapped onto ``cbf_gamma`` with a warning.
     """
     bname = "workspace"
     if bounds is None:
         bounds = [[-0.4, 0.4], [-0.4, 0.4], [0.02, 0.6]]
+
+    if cbf_alpha is not None:
+        logger.warning(
+            "workspace: 'cbf_alpha' is deprecated; use 'cbf_gamma' (γ ∈ [0,1]). "
+            "Treating cbf_alpha=%s as cbf_gamma.",
+            cbf_alpha,
+        )
+        cbf_gamma = float(cbf_alpha)
+    if not 0.0 <= cbf_gamma <= 1.0:
+        raise ValueError(f"cbf_gamma must be in [0, 1], got {cbf_gamma}")
 
     ee_pos = _resolve_ee_translation(
         obs, kinematics_resolver=kinematics_resolver, dynamics=dynamics
@@ -212,9 +244,41 @@ def workspace(
         timestamp=action.timestamp,
     )
     reason = f"EE {ee_pos.tolist()} outside workspace {bounds}; halting"
-    return CallbackResult.clamp(
-        bname, halt, reason=reason, metadata={"workspace_bounds": bounds, "ee_pos": ee_pos.tolist()}
+    # A QP/CBF aggregator needs the linear part of the EE Jacobian to turn the
+    # workspace box into a control-affine CBF constraint; supply it when a
+    # dynamics context is available, else only the box (aggregator skips CBF).
+    J_linear = _ee_linear_jacobian(obs, dynamics)
+    qp_meta = MotionQPConstraint(
+        workspace_bounds=b.copy(),
+        cbf_gamma=cbf_gamma,
+        ee_pos=ee_pos.copy(),
+        q=np.asarray(obs.joint_positions, dtype=np.float64).copy(),
+        J_linear=J_linear,
     )
+    return CallbackResult.clamp(
+        bname,
+        halt,
+        reason=reason,
+        metadata={
+            "workspace_bounds": bounds,
+            "ee_pos": ee_pos.tolist(),
+            "motion_qp": qp_meta,
+        },
+    )
+
+
+def _ee_linear_jacobian(obs: Observation, dynamics: Any | None) -> np.ndarray | None:
+    """Linear (translational) part of the EE Jacobian, shape (3, n), or None."""
+    if (
+        dynamics is None
+        or not getattr(dynamics, "available", False)
+        or getattr(dynamics, "default_frame_id", None) is None
+        or obs.joint_positions is None
+    ):
+        return None
+    dynamics.update(np.asarray(obs.joint_positions, dtype=np.float64))
+    jac = np.asarray(dynamics.frame_jacobian(dynamics.default_frame_id), dtype=np.float64)
+    return jac[:3, :].copy()
 
 
 @boundary_callback(

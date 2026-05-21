@@ -19,6 +19,7 @@ from dam.decorators import guard as guard_decorator
 from dam.fallback.builtin import EmergencyStop, HoldPosition
 from dam.fallback.chain import build_escalation_chain
 from dam.fallback.registry import FallbackRegistry
+from dam.guard.builtin.execution import ExecutionGuard
 from dam.guard.builtin.motion import MotionGuard
 from dam.runtime.guard_runtime import GuardRuntime
 from dam.testing.mocks import MockPolicyAdapter, MockSinkAdapter, MockSourceAdapter
@@ -47,8 +48,8 @@ def _make_runtime(
     *,
     enforcement_mode: str = "monitor",
 ) -> GuardRuntime:
-    """Runtime with a MotionGuard wired to a workspace that rejects ee_x < 0."""
-    KG = guard_decorator("L2")(MotionGuard)
+    """Runtime with an ExecutionGuard wired to a workspace that rejects ee_x < 0."""
+    KG = guard_decorator("L2")(ExecutionGuard)
     g = KG()
     g.set_name("main")
 
@@ -57,7 +58,11 @@ def _make_runtime(
     reg.register(HoldPosition())
     build_escalation_chain(reg)
 
-    node = BoundaryNode("n0", BoundaryConstraint(), fallback="emergency_stop")
+    node = BoundaryNode(
+        "n0",
+        BoundaryConstraint(params={"bounds": np.array([[0.0, 0.5], [0.0, 0.5], [0.0, 0.5]])}),
+        fallback="emergency_stop",
+    )
     container = SingleNodeContainer(node)
 
     runtime = GuardRuntime(
@@ -65,12 +70,7 @@ def _make_runtime(
         boundary_containers={"main": container},
         fallback_registry=reg,
         task_config={"task": ["main"]},
-        config_pool={
-            "upper": np.full(6, 5.0),
-            "lower": np.full(6, -5.0),
-            # Workspace requires ee_x in [0, 0.5]; negative x triggers REJECT.
-            "bounds": np.array([[0.0, 0.5], [0.0, 0.5], [0.0, 0.5]]),
-        },
+        config_pool={},
         enforcement_mode=enforcement_mode,
     )
     return runtime
@@ -127,7 +127,32 @@ def test_monitor_mode_passes_original_positions():
 
 def test_monitor_mode_does_not_apply_clamp():
     """A CLAMP result is recorded, but monitor mode forwards the original proposal."""
-    runtime = _make_runtime(enforcement_mode="monitor")
+    from dam.boundary.callbacks._registry import register_all
+
+    register_all()
+    KG = guard_decorator("L1")(MotionGuard)
+    g = KG()
+    g.set_name("main")
+    reg = FallbackRegistry()
+    reg.register(EmergencyStop())
+    reg.register(HoldPosition())
+    build_escalation_chain(reg)
+    node = BoundaryNode(
+        "n0",
+        BoundaryConstraint(
+            callback="joint_position_limits",
+            params={"upper": np.full(6, 5.0), "lower": np.full(6, -5.0)},
+        ),
+        fallback="hold_position",
+    )
+    runtime = GuardRuntime(
+        guards=[g],
+        boundary_containers={"main": SingleNodeContainer(node)},
+        fallback_registry=reg,
+        task_config={"task": ["main"]},
+        config_pool={},
+        enforcement_mode="monitor",
+    )
     runtime.start_task("task")
 
     target = np.array([9.0, 0.2, 0.3, 0.4, 0.5, 0.6])
@@ -145,15 +170,15 @@ def test_monitor_mode_does_not_apply_clamp():
 def test_monitor_mode_does_not_call_violation_hooks():
     """Monitor mode checks and records violations without triggering guard side effects."""
 
-    class SpyMotionGuard(MotionGuard):
+    class SpyExecutionGuard(ExecutionGuard):
         violation_count = 0
 
         def on_violation(self, result):  # type: ignore[no-untyped-def]
             type(self).violation_count += 1
             super().on_violation(result)
 
-    KG = guard_decorator("L2")(SpyMotionGuard)
-    SpyMotionGuard.violation_count = 0
+    KG = guard_decorator("L2")(SpyExecutionGuard)
+    SpyExecutionGuard.violation_count = 0
     g = KG()
     g.set_name("main")
 
@@ -161,18 +186,18 @@ def test_monitor_mode_does_not_call_violation_hooks():
     reg.register(EmergencyStop())
     build_escalation_chain(reg)
 
-    node = BoundaryNode("n0", BoundaryConstraint(), fallback="emergency_stop")
+    node = BoundaryNode(
+        "n0",
+        BoundaryConstraint(params={"bounds": np.array([[0.0, 0.5], [0.0, 0.5], [0.0, 0.5]])}),
+        fallback="emergency_stop",
+    )
     container = SingleNodeContainer(node)
     runtime = GuardRuntime(
         guards=[g],
         boundary_containers={"main": container},
         fallback_registry=reg,
         task_config={"task": ["main"]},
-        config_pool={
-            "upper": np.full(6, 5.0),
-            "lower": np.full(6, -5.0),
-            "bounds": np.array([[0.0, 0.5], [0.0, 0.5], [0.0, 0.5]]),
-        },
+        config_pool={},
         enforcement_mode="monitor",
     )
     runtime.start_task("task")
@@ -181,7 +206,7 @@ def test_monitor_mode_does_not_call_violation_hooks():
 
     assert GuardDecision.REJECT in [r.decision for r in results]
     assert fallback is None
-    assert SpyMotionGuard.violation_count == 0
+    assert SpyExecutionGuard.violation_count == 0
 
 
 def test_log_only_skips_guard_checks():

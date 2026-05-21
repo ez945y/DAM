@@ -104,16 +104,35 @@ aggregate(results, *, action_in, guard_name, layer) -> GuardResult
 8. [x] 432 unit tests passed，2 個 pre-existing 環境失敗 deselected，2 個 QP 直接 inline test 暫時 skip 標記等階段 3 處理。
 
 **未解決，留給後續階段**：
-- 階段 3：MotionGuard `clamp_aggregator` 抽出「QP fusion strategy」作為內建 aggregator 之一（之前的 inline QP path 砍掉了，要用 QP 的使用者目前需要自己寫 aggregator）。
+- ~~階段 3：MotionGuard `clamp_aggregator` 抽出「QP fusion strategy」~~ ✅ 完成，見下方階段 3。
 - 階段 4：OODGuard 還是 model-driven、不走 callback pipeline。如果要對齊可以拆 backend 後讓 callback 跑 backend，但要小心 model state 的 lifecycle。
 
 ### 階段 2 ✅ — 統一 dt 來源（隨階段 1 自然落地）
 
 MotionGuard 自己從 `obs.timestamp` 推 `effective_dt` 那段已隨著 MotionGuard 重寫一併刪除。`dt` 現在統一由 GuardRuntime 從 `safety.control_frequency_hz` 算好注入到 config pool（見 [`guard_runtime.py:407-410`](../dam/runtime/guard_runtime.py)），callback 簽名宣告 `dt` 就拿到。
 
-### 階段 3 — MotionGuard solver strategy 拆分
+### 階段 3 ✅ — MotionGuard solver strategy 拆分
 
-階段 1 完成後，QP / box-clamp / CBF 從 MotionGuard 抽出來成可注入 aggregator。`cbf_alpha` 改名 `cbf_gamma`（語義改為直接 γ ∈ [0,1]）。proxsuite 不可用時 build time 報錯，不再 silent fallback。
+階段 1 移除的 QP / CBF 邏輯，以**可注入的 clamp aggregator** 形式回來，MotionGuard 維持 thin shell。設計選擇 **A + B + B**：
+
+- **A — 專門檔案**：新增 [`dam/guard/aggregators/`](../dam/guard/aggregators/) package，QP 策略在 [`motion_qp.py`](../dam/guard/aggregators/motion_qp.py)。共用 pipeline（`dam/guard/pipeline.py`）完全不 import 它，也不認識 QP / CBF / MotionQPConstraint。
+- **B — 小型 dataclass**：[`MotionQPConstraint`](../dam/guard/aggregators/motion_qp.py)（frozen）。**它只屬於 motion QP aggregator，不是通用 `CallbackResult` schema 的一部分** —— 框架不預設 constraint 語意（見 `feedback-no-predefined-semantics`）。除了 limits 本身，它還順帶 callback 從 runtime pool 拿到、aggregator 簽名拿不到的狀態（velocity 的 `q`/`dt`、CBF 的 `ee_pos`/`J_linear`），因為 aggregator 只收到 CLAMP results。
+- **B — L1 callbacks 同時提供** fallback clamp（既有的 `clamped_action`）+ QP aggregator 可讀的 metadata（`metadata["motion_qp"]`）。
+
+**`motion_qp_aggregator` fallback 行為**：
+- 沒有任何 `metadata["motion_qp"]` → 退回 `sequential_clamp_aggregator`（即使 proxsuite 不在也不報錯）。
+- 有 QP metadata 但 `proxsuite` 不可用 → **raise `RuntimeError`**，不 silent fallback（使用者明確選了 QP aggregator，solver 缺了就該大聲失敗）。
+- QP solve 失敗（solver 回 None）→ 退回 sequential，確保機器人仍拿到安全 clamp。
+- 多 boundary 合併：position box 取最嚴（upper 取 min、lower 取 max）、velocity 同理、workspace CBF rows 疊起來一起進 QP；`slack_weight` 取 max。
+
+**`cbf_alpha` → `cbf_gamma`**（在 `workspace` callback）：
+- 新名 `cbf_gamma`，語義為**直接的離散 CBF 衰減率 γ ∈ [0,1]**（不再 ×dt）。aggregator 呼叫既有 `qp_solver.workspace_cbf_constraints(..., cbf_alpha=γ, dt=1.0)` 讓 helper 直接用 γ，不複製 solver 底層。
+- 舊名 `cbf_alpha` 收到時 `logger.warning` 並當作 `cbf_gamma`。
+- `cbf_gamma` 超出 `[0,1]` → `ValueError`。
+
+復用既有 [`dam/runtime/qp_solver.py`](../dam/runtime/qp_solver.py)（`available` / `solve_box_with_slack` / `workspace_cbf_constraints`），沒搬任何 solver 邏輯回 MotionGuard。
+
+測試：新增 [`tests/unit/test_motion_qp_aggregator.py`](../tests/unit/test_motion_qp_aggregator.py)（7 cases），[`tests/unit/test_qp_solver.py`](../tests/unit/test_qp_solver.py) 兩個 phase 1 skip 的 inline-QP test 改成 `MotionGuard(clamp_aggregator=motion_qp_aggregator)` 的真實 path。
 
 ### 階段 4 — OODGuard 拆 backend
 
@@ -136,7 +155,7 @@ MotionGuard 自己從 `obs.timestamp` 推 `effective_dt` 那段已隨著 MotionG
 
 ## 未解決 / 後續再議
 
-- **L1 多個 CLAMP 結果該怎麼預設融合？** 目前傾向 sequential，但 sequential 對 QP-friendly 約束會錯失 fusion 機會。短期：sequential；長期：MotionGuard 提供「QP aggregator」作為使用者可選的進階 aggregator。
+- ~~**L1 多個 CLAMP 結果該怎麼預設融合？**~~ 已定案：預設仍是 sequential；想要 joint fusion 的使用者注入 `motion_qp_aggregator`（階段 3 完成）。
 - **OODGuard 的 callback 化怎麼設計？** L0 callback 拿 obs 計算 OOD score 是合理的，但 model 載入 / training 不適合放 callback。可能 OODGuard 維持非 pipeline 路徑，僅 `expected_decisions` 對齊。
 - **遷移期 backward compat**：舊 YAML 還在用 `joint_position_limits` 走舊路徑，需要時間視窗讓使用者改寫。考慮 0.6.0 release note 列 deprecation。
 
@@ -149,6 +168,7 @@ MotionGuard 自己從 `obs.timestamp` 推 `effective_dt` 那段已隨著 MotionG
 | Callback registry | [`dam/registry/callback.py`](../dam/registry/callback.py), [`dam/boundary/callbacks/_registry.py`](../dam/boundary/callbacks/_registry.py) |
 | Injection | [`dam/injection/resolver.py`](../dam/injection/resolver.py), [`dam/injection/static.py`](../dam/injection/static.py), [`dam/injection/pool.py`](../dam/injection/pool.py) |
 | 既有 callback dispatch | [`dam/guard/callbacks.py`](../dam/guard/callbacks.py) |
-| QP / CBF（之後拆出） | [`dam/runtime/qp_solver.py`](../dam/runtime/qp_solver.py) |
+| QP / CBF solver helper | [`dam/runtime/qp_solver.py`](../dam/runtime/qp_solver.py) |
+| Clamp aggregators（可注入） | [`dam/guard/aggregators/`](../dam/guard/aggregators/) |
 | Builtin guards | [`dam/guard/builtin/`](../dam/guard/builtin/) |
 | Boundary callbacks | [`dam/boundary/callbacks/`](../dam/boundary/callbacks/) |

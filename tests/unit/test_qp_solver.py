@@ -61,21 +61,89 @@ def test_slack_softens_infeasible_overlap(proxsuite):
     assert u is not None  # solver didn't crash, slack absorbed the conflict
 
 
-@pytest.mark.skip(
-    reason="MotionGuard's inline QP dispatch was removed in phase 1; QP will return "
-    "as an injectable clamp_aggregator in phase 3. See docs/refactor-guard-pipeline.md."
-)
-def test_motion_guard_dispatches_to_qp_when_param_set(proxsuite):
-    pass
+def _motion_container(callback, params):
+    """Minimal active-container stub exposing get_active_node().constraint."""
+    from dataclasses import dataclass
+    from typing import Any
+
+    @dataclass
+    class _Constraint:
+        callback: str | None
+        params: dict[str, Any]
+
+    @dataclass
+    class _Node:
+        node_id: str
+        constraint: _Constraint | None
+
+    class _Container:
+        def __init__(self, name, node):
+            self.name = name
+            self._node = node
+
+        def get_active_node(self):
+            return self._node
+
+    return _Container(callback, _Node(f"{callback}/0", _Constraint(callback, params)))
 
 
-@pytest.mark.skip(
-    reason="MotionGuard's inline box-clamp path was removed in phase 1; the pipeline "
-    "now drives box-clamp via the joint_position_limits callback (see "
-    "test_runtime_injection.test_guard_runtime_param_injection)."
-)
-def test_motion_guard_falls_back_to_box_clamp_when_no_qp_param(proxsuite):
-    pass
+def test_motion_guard_with_qp_aggregator_clamps_into_box(proxsuite):
+    """Phase 3: QP is re-introduced as an injectable clamp_aggregator. The L1
+    callbacks attach QP metadata; MotionGuard(clamp_aggregator=motion_qp_aggregator)
+    drives the joint QP and the final GuardResult is a CLAMP."""
+    from dam.boundary.callbacks._registry import register_all
+    from dam.guard.aggregators.motion_qp import METADATA_KEY, motion_qp_aggregator
+    from dam.guard.builtin.motion import MotionGuard
+    from dam.guard.layer import GuardLayer
+    from dam.types.action import ActionProposal
+    from dam.types.observation import Observation
+    from dam.types.result import GuardDecision
+
+    register_all()
+    MotionGuard._guard_layer = GuardLayer.L1
+
+    container = _motion_container(
+        "joint_position_limits",
+        {"upper": [1.0] * 6, "lower": [-1.0] * 6},
+    )
+    obs = Observation(timestamp=0.0, joint_positions=np.zeros(6))
+    # Proposal blows past the +1.0 / -1.0 box on two joints.
+    action = ActionProposal(target_joint_positions=np.array([2.0, -2.0, 0.0, 0.0, 0.0, 0.0]))
+
+    guard = MotionGuard(clamp_aggregator=motion_qp_aggregator)
+    result = guard.check(obs, action, active_containers=[container], dt=0.02)
+
+    assert result.decision == GuardDecision.CLAMP
+    assert result.clamped_action is not None
+    u = result.clamped_action.target_joint_positions
+    assert u[0] <= 1.01 and u[1] >= -1.01
+    # The QP path is observable: the callback's QP metadata surfaces on the result.
+    assert METADATA_KEY in result.metadata["joint_position_limits"]
+
+
+def test_motion_guard_default_aggregator_does_not_need_qp(proxsuite):
+    """Without the QP aggregator, MotionGuard still box-clamps via the default
+    sequential strategy — QP metadata is simply ignored."""
+    from dam.boundary.callbacks._registry import register_all
+    from dam.guard.builtin.motion import MotionGuard
+    from dam.guard.layer import GuardLayer
+    from dam.types.action import ActionProposal
+    from dam.types.observation import Observation
+    from dam.types.result import GuardDecision
+
+    register_all()
+    MotionGuard._guard_layer = GuardLayer.L1
+
+    container = _motion_container(
+        "joint_position_limits",
+        {"upper": [1.0] * 6, "lower": [-1.0] * 6},
+    )
+    obs = Observation(timestamp=0.0, joint_positions=np.zeros(6))
+    action = ActionProposal(target_joint_positions=np.array([2.0, 0.0, 0.0, 0.0, 0.0, 0.0]))
+
+    result = MotionGuard().check(obs, action, active_containers=[container], dt=0.02)
+    assert result.decision == GuardDecision.CLAMP
+    assert result.clamped_action.target_joint_positions[0] <= 1.01
 
 
 def test_qp_solver_param_inlined_in_any_l1_boundary(proxsuite):

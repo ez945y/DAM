@@ -8,6 +8,7 @@ from dam.decorators import guard as guard_decorator
 from dam.fallback.builtin import EmergencyStop, HoldPosition
 from dam.fallback.chain import build_escalation_chain
 from dam.fallback.registry import FallbackRegistry
+from dam.guard.builtin.execution import ExecutionGuard
 from dam.guard.builtin.motion import MotionGuard
 from dam.runtime.guard_runtime import GuardRuntime
 from dam.testing.mocks import MockPolicyAdapter, MockSinkAdapter, MockSourceAdapter
@@ -17,13 +18,23 @@ from dam.types.risk import CycleResult
 
 
 def make_runtime(upper=2.0, lower=-2.0) -> GuardRuntime:
-    KG = guard_decorator("L2")(MotionGuard)
+    from dam.boundary.callbacks._registry import register_all
+
+    register_all()
+    KG = guard_decorator("L1")(MotionGuard)
     g = KG()
     reg = FallbackRegistry()
     reg.register(EmergencyStop())
     reg.register(HoldPosition())
     build_escalation_chain(reg)
-    node = BoundaryNode("n0", BoundaryConstraint(), fallback="hold_position")
+    node = BoundaryNode(
+        "n0",
+        BoundaryConstraint(
+            callback="joint_position_limits",
+            params={"upper": np.full(6, upper), "lower": np.full(6, lower)},
+        ),
+        fallback="hold_position",
+    )
     g.set_name("main")
     container = SingleNodeContainer(node)
     runtime = GuardRuntime(
@@ -31,10 +42,7 @@ def make_runtime(upper=2.0, lower=-2.0) -> GuardRuntime:
         boundary_containers={"main": container},
         fallback_registry=reg,
         task_config={"task": ["main"]},
-        config_pool={
-            "upper": np.full(6, upper),
-            "lower": np.full(6, lower),
-        },
+        config_pool={},
     )
     return runtime
 
@@ -82,14 +90,14 @@ def test_clamp_joint_position_limits():
 
 def test_reject_returns_none():
     make_runtime()
-    # Workspace bounds rejection
+    # L2 workspace bounds still REJECT. L1 workspace now CLAMPs/halt.
     node = BoundaryNode(
         "n0",
         BoundaryConstraint(params={"bounds": [[0, 0.5], [0, 0.5], [0, 0.5]]}),
         fallback="emergency_stop",
     )
     container = SingleNodeContainer(node)
-    KG = guard_decorator("L2")(MotionGuard)
+    KG = guard_decorator("L2")(ExecutionGuard)
     g = KG()
     reg = FallbackRegistry()
     reg.register(EmergencyStop())
@@ -100,8 +108,6 @@ def test_reject_returns_none():
         fallback_registry=reg,
         task_config={"task": ["main"]},
         config_pool={
-            "upper": np.full(6, 5.0),
-            "lower": np.full(6, -5.0),
             "bounds": np.array([[0, 0.5], [0, 0.5], [0, 0.5]]),
         },
     )

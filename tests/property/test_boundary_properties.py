@@ -32,17 +32,17 @@ def test_list_container_snapshot_restore_consistency(n_advances: int):
 @settings(max_examples=100)
 def test_motion_clamp_always_within_limits(joint_value: float):
     """Any joint value, after CLAMP, must be within [-1, 1]."""
+    from dam.boundary.callbacks._registry import register_all
+    from dam.boundary.single import SingleNodeContainer
     from dam.decorators import guard as guard_decorator
     from dam.guard.builtin.motion import MotionGuard
-    from dam.injection.static import precompute_injection
     from dam.types.action import ActionProposal
     from dam.types.observation import Observation
     from dam.types.result import GuardDecision
 
-    KG = guard_decorator("L2")(MotionGuard)
+    register_all()
+    KG = guard_decorator("L1")(MotionGuard)
     g = KG()
-    config_pool = {"upper": np.ones(6), "lower": -np.ones(6)}
-    precompute_injection(g, config_pool)
     obs = Observation(
         timestamp=0.0,
         joint_positions=np.zeros(6),
@@ -50,7 +50,16 @@ def test_motion_clamp_always_within_limits(joint_value: float):
         end_effector_pose=np.zeros(7),
     )
     action = ActionProposal(target_joint_positions=np.full(6, joint_value))
-    result = g.check(obs=obs, action=action, upper=np.ones(6), lower=-np.ones(6))
+    container = SingleNodeContainer(
+        BoundaryNode(
+            "limits",
+            BoundaryConstraint(
+                callback="joint_position_limits",
+                params={"upper": np.ones(6), "lower": -np.ones(6)},
+            ),
+        )
+    )
+    result = g.check(obs=obs, action=action, active_containers=[container], dt=0.02)
     if result.decision == GuardDecision.CLAMP:
         assert result.clamped_action is not None
         assert np.all(result.clamped_action.target_joint_positions >= -1.0 - 1e-9)

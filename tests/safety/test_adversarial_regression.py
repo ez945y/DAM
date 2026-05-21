@@ -19,6 +19,7 @@ from dam.boundary.callbacks import (
 )
 from dam.guard.aggregator import aggregate_decisions
 from dam.guard.layer import GuardLayer
+from dam.types.action import ActionProposal
 from dam.types.observation import Observation
 from dam.types.result import GuardDecision, GuardResult
 
@@ -35,10 +36,19 @@ def _obs(*, jp=None, jv=None, ee=None) -> Observation:
 
 
 def _is_pass(result) -> bool:
-    """A callback 'passes' when it returns True (or (True, …))."""
+    """A callback 'passes' when it returns True, (True, …), or CallbackResult PASS."""
+    if hasattr(result, "decision"):
+        return result.decision == GuardDecision.PASS
     if isinstance(result, tuple):
         return bool(result[0])
     return result is True
+
+
+def _action(*, pos=None, vel=None) -> ActionProposal:
+    return ActionProposal(
+        target_joint_positions=np.zeros(6) if pos is None else np.asarray(pos, dtype=float),
+        target_joint_velocities=None if vel is None else np.asarray(vel, dtype=float),
+    )
 
 
 class _FakeDynamics:
@@ -60,13 +70,25 @@ class _FakeDynamics:
 class TestNonFiniteInjection:
     @pytest.mark.parametrize("bad", NON_FINITE)
     def test_joint_position_limits(self, bad):
-        obs = _obs(jp=[bad, 0, 0, 0, 0, 0])
-        assert not _is_pass(joint_position_limits(obs=obs, upper=np.ones(6), lower=-np.ones(6)))
+        assert not _is_pass(
+            joint_position_limits(
+                action=_action(pos=[bad, 0, 0, 0, 0, 0]),
+                upper=np.ones(6),
+                lower=-np.ones(6),
+            )
+        )
 
     @pytest.mark.parametrize("bad", NON_FINITE)
     def test_joint_velocity_limit(self, bad):
-        obs = _obs(jv=[bad, 0, 0, 0, 0, 0])
-        assert not _is_pass(joint_velocity_limit(obs=obs, max_velocities=[1.0] * 6))
+        obs = _obs(jp=[0, 0, 0, 0, 0, 0])
+        assert not _is_pass(
+            joint_velocity_limit(
+                obs=obs,
+                action=_action(pos=[0, 0, 0, 0, 0, 0], vel=[bad, 0, 0, 0, 0, 0]),
+                dt=0.02,
+                max_velocities=[1.0] * 6,
+            )
+        )
 
     @pytest.mark.parametrize("bad", NON_FINITE)
     def test_keep_out_zone(self, bad):
@@ -93,16 +115,33 @@ class TestBoundarySkimming:
     EPS = 1e-9
 
     def test_just_outside_upper_blocked(self):
-        obs = _obs(jp=[1.0 + self.EPS, 0, 0, 0, 0, 0])
-        assert not _is_pass(joint_position_limits(obs=obs, upper=np.ones(6), lower=-np.ones(6)))
+        assert not _is_pass(
+            joint_position_limits(
+                action=_action(pos=[1.0 + self.EPS, 0, 0, 0, 0, 0]),
+                upper=np.ones(6),
+                lower=-np.ones(6),
+            )
+        )
 
     def test_just_inside_upper_passes(self):
-        obs = _obs(jp=[1.0 - self.EPS, 0, 0, 0, 0, 0])
-        assert _is_pass(joint_position_limits(obs=obs, upper=np.ones(6), lower=-np.ones(6)))
+        assert _is_pass(
+            joint_position_limits(
+                action=_action(pos=[1.0 - self.EPS, 0, 0, 0, 0, 0]),
+                upper=np.ones(6),
+                lower=-np.ones(6),
+            )
+        )
 
     def test_velocity_just_over_blocked(self):
-        obs = _obs(jv=[1.0 + 1e-6, 0, 0, 0, 0, 0])
-        assert not _is_pass(joint_velocity_limit(obs=obs, max_velocities=[1.0] * 6))
+        obs = _obs(jp=[0, 0, 0, 0, 0, 0])
+        assert not _is_pass(
+            joint_velocity_limit(
+                obs=obs,
+                action=_action(pos=[0, 0, 0, 0, 0, 0], vel=[1.0 + 1e-6, 0, 0, 0, 0, 0]),
+                dt=0.02,
+                max_velocities=[1.0] * 6,
+            )
+        )
 
 
 # ── T3 / T4: aggregator dominance & fail-to-reject ────────────────────────────
