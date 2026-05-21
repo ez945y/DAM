@@ -32,6 +32,23 @@ class RuntimeFactory:
         return StackfileConfig(**raw)
 
     @staticmethod
+    def _resolve_urdf_path(config: StackfileConfig, preset: Any) -> str | None:
+        """Stackfile override wins; else fall back to the preset's bundled
+        URDF (resolved relative to the repo root) so the workspace CBF
+        callback works without the user wiring URDFs explicitly."""
+        from pathlib import Path
+
+        if config.hardware is not None and config.hardware.urdf_path:
+            return config.hardware.urdf_path
+        relpath = getattr(preset, "default_urdf_relpath", None)
+        if not relpath:
+            return None
+        # factory.py lives at dam/runtime/factory.py; parents[2] is the repo
+        # root where the assets/ directory sits.
+        candidate = Path(__file__).resolve().parents[2] / relpath
+        return str(candidate) if candidate.exists() else None
+
+    @staticmethod
     def build_from_stackfile(path: str, *, ros2_node: Any = None) -> BaseRunner:
         """Build a Runner from the given stackfile path.
 
@@ -143,7 +160,7 @@ class RuntimeFactory:
             robot,
             joint_names=builder.joint_names,
             degrees_mode=builder.preset.degrees_mode,
-            urdf_path=config.hardware.urdf_path,
+            urdf_path=RuntimeFactory._resolve_urdf_path(config, builder.preset),
         )
 
         supported = adapter.supported_channels()

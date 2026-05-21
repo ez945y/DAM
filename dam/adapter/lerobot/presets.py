@@ -37,6 +37,11 @@ class RobotPreset:
     joints: list[JointSpec]
     control_hz: float = 50.0
     degrees_mode: bool = True  # True → robot HW uses degrees; convert to/from rad
+    # Path (relative to the repository root) to the URDF shipped with the
+    # preset. When the stackfile leaves ``hardware.urdf_path`` empty the
+    # factory falls back to this so pinocchio FK and the workspace CBF
+    # callback work out of the box. None for presets without a bundled URDF.
+    default_urdf_relpath: str | None = None
 
     @property
     def joint_names(self) -> list[str]:
@@ -62,6 +67,7 @@ _d = math.radians  # shorthand: degrees → radians
 SO101_FOLLOWER = RobotPreset(
     name="so101_follower",
     degrees_mode=True,
+    default_urdf_relpath="assets/so101_new_calib.urdf",
     joints=[
         JointSpec("shoulder_pan", _d(-110), _d(110), max_vel_rad_s=_d(180)),
         JointSpec("shoulder_lift", _d(-100), _d(100), max_vel_rad_s=_d(180)),

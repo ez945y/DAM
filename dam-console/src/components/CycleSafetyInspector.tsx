@@ -165,9 +165,12 @@ function normalizeGuardMetadata(guard: InspectorGuardResult): Record<string, unk
   const metadata = guard.metadata ?? {}
   const name = guard.name.toLowerCase()
   if (name.includes('host_health')) {
-    return metadata.host_health && typeof metadata.host_health === 'object'
-      ? { host_health: metadata.host_health }
-      : metadata
+    // Unwrap the redundant outer `host_health` namespace — the card header
+    // already says host_health; rendering "host_health > {...}" wastes a
+    // level of nesting.
+    const inner = metadata.host_health
+    if (inner && typeof inner === 'object') return inner as Record<string, unknown>
+    return metadata
   }
   return Object.fromEntries(Object.entries(metadata).filter(([key]) => key !== 'host_health'))
 }
