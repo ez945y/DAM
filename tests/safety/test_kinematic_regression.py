@@ -64,6 +64,40 @@ def test_joint_positions_within_limits_passes(KG):
         action=make_action([0.1] * 6),
     )
     assert_passes(result)
+    # PASS path must surface the configured box + the target so the
+    # cycle inspector can render headroom on a healthy boundary.
+    meta = result.metadata.get("joint_position_limits", {})
+    assert meta.get("upper") and meta.get("lower") and meta.get("target")
+
+
+def test_velocity_within_limits_pass_surfaces_telemetry(KG):
+    g = KG()
+    result = _motion_result(
+        g,
+        "joint_velocity_limit",
+        {"max_velocities": [1.5] * 6},
+        obs=make_obs(),
+        action=make_action(vel=[0.5, 0.0, 0.0, 0.0, 0.0, 0.0]),
+    )
+    assert_passes(result)
+    meta = result.metadata.get("joint_velocity_limit", {})
+    assert meta.get("max_velocity") and meta.get("current_velocity")
+    assert 0 < meta["scale_ratio"] <= 1.0
+
+
+def test_workspace_within_bounds_pass_surfaces_telemetry(KG):
+    g = KG()
+    obs = make_obs(ee=[0.25, 0.25, 0.25, 0.0, 0.0, 0.0, 1.0])
+    result = _motion_result(
+        g,
+        "workspace",
+        {"bounds": np.array([[0.0, 0.5], [0.0, 0.5], [0.0, 1.0]])},
+        obs=obs,
+        action=make_action([0.1] * 6),
+    )
+    assert_passes(result)
+    meta = result.metadata.get("workspace", {})
+    assert meta.get("bounds") and meta.get("ee_pos")
 
 
 def test_joint_position_overrun_clamped(KG):

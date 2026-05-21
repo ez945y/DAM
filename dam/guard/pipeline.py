@@ -339,7 +339,16 @@ def aggregate(
             metadata=_merge_metadata(clamps, all_results=results),
         )
 
-    return GuardResult.success(guard_name=guard_name, layer=guard_layer)
+    # All callbacks passed — still surface per-boundary metadata so the
+    # cycle inspector can render PASS callbacks with their constraint /
+    # measured-value telemetry. Without this the fan-out for PASS would be
+    # an empty card.
+    return GuardResult(
+        decision=GuardDecision.PASS,
+        guard_name=guard_name,
+        layer=guard_layer,
+        metadata=_merge_metadata(results, all_results=results),
+    )
 
 
 # Reserved metadata key — execution engine reads this to produce a distinct

@@ -101,7 +101,17 @@ def joint_velocity_limit(
     ratio = np.abs(velocities) / (np.abs(v_max_1d) + 1e-12)
     max_ratio = float(np.max(ratio)) if ratio.size else 0.0
     if max_ratio <= 1.0:
-        return CallbackResult.ok(bname)
+        # PASS-path telemetry: surface the limit, current velocity, and the
+        # headroom ratio so the cycle inspector shows how close we are even
+        # when nothing fires.
+        return CallbackResult.ok(
+            bname,
+            metadata={
+                "max_velocity": v_max_1d.tolist(),
+                "current_velocity": velocities.tolist(),
+                "scale_ratio": max_ratio,
+            },
+        )
 
     clamped_v = velocities / max_ratio
     # Rebuild positions from the limited velocities so the downstream adapter
@@ -174,7 +184,17 @@ def joint_position_limits(
     clipped[:n] = np.clip(target[:n], lo[:n], up[:n])
 
     if np.array_equal(clipped, target):
-        return CallbackResult.ok(bname)
+        # PASS-path telemetry: surface the configured box + the target so
+        # the cycle inspector shows headroom (how close target is to the
+        # box edges) without polluting the QP metadata namespace.
+        return CallbackResult.ok(
+            bname,
+            metadata={
+                "upper": up[:n].tolist(),
+                "lower": lo[:n].tolist(),
+                "target": target[:n].tolist(),
+            },
+        )
 
     diff_mask = ~np.isclose(clipped, target)
     idx = int(np.argmax(diff_mask))
@@ -240,11 +260,21 @@ def workspace(
         obs, kinematics_resolver=kinematics_resolver, dynamics=dynamics
     )
     if ee_pos is None or obs.joint_positions is None:
-        return CallbackResult.ok(bname, "EE pose unavailable; skip workspace check")
+        return CallbackResult.ok(
+            bname,
+            "EE pose unavailable; skip workspace check",
+            metadata={"bounds": np.asarray(bounds, dtype=np.float64).tolist()},
+        )
 
     b = np.asarray(bounds, dtype=np.float64)
     if np.all((ee_pos >= b[:, 0]) & (ee_pos <= b[:, 1])):
-        return CallbackResult.ok(bname)
+        return CallbackResult.ok(
+            bname,
+            metadata={
+                "bounds": b.tolist(),
+                "ee_pos": ee_pos.tolist(),
+            },
+        )
 
     halt = ValidatedAction(
         target_joint_positions=np.asarray(obs.joint_positions, dtype=np.float64).copy(),
