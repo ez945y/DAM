@@ -95,6 +95,11 @@ class GuardRuntime:
         self._default_fallback = default_fallback
         self._stages: list[Any] | None = None
         self._frame_hub = frame_hub
+        # Real camera shapes populated by the runner during verify(); reused
+        # by start_task to warm up policy / guard PyTorch graphs at the actual
+        # capture resolution. Empty until verify() runs.
+        self._camera_shapes: dict[str, tuple[int, int]] = {}
+        self._policy_warmed: bool = False
 
         # ── Rust bus components (fall back to Python when dam_rs not compiled) ──
         # RiskController: windowed reject/clamp counter → RiskLevel
@@ -218,6 +223,29 @@ class GuardRuntime:
     def register_sink(self, sink: Any) -> None:
         self._sink = sink
 
+    def preflight(self, camera_shapes: dict[str, tuple[int, int]] | None = None) -> None:
+        """One-shot warmup invoked by the runner after source verification.
+
+        Caches the real camera shapes and runs the policy's preflight at those
+        shapes so PyTorch compiles per-resolution kernels before the first
+        cycle. Guard preflight stays in ``start_task`` because the active set
+        can change per task; it reads the cached shapes from here.
+        """
+        self._camera_shapes = dict(camera_shapes or {})
+        if self._policy is not None and not self._policy_warmed:
+            try:
+                self._policy.preflight(camera_shapes=self._camera_shapes)
+                self._policy_warmed = True
+            except Exception as exc:
+                logger.error("GuardRuntime: policy preflight failed: %s", exc)
+
+        # Eagerly import psutil so the first cycle doesn't pay the module
+        # import cost. The cache itself is refreshed in start_task() because
+        # its TTL (1s) is shorter than the gap from verify() to the first
+        # cycle on a real boot.
+        with contextlib.suppress(Exception):
+            import psutil  # type: ignore[import-untyped]  # noqa: F401
+
     def start_task(self, name: str) -> None:
         if name not in self._task_config:
             raise KeyError(f"Task '{name}' not found. Available: {list(self._task_config.keys())}")
@@ -271,6 +299,8 @@ class GuardRuntime:
                         node = self._boundary_containers[pair_bname].get_active_node()
                         if node and node.constraint:
                             kwargs.update(node.constraint.params)
+                    if self._camera_shapes:
+                        kwargs["camera_shapes"] = self._camera_shapes
                     guard_kind = getattr(g, "_guard_kind", g.get_name())
                     logger.debug(
                         "GuardRuntime: preflight '%s' for boundary '%s'", guard_kind, pair_bname
@@ -283,6 +313,17 @@ class GuardRuntime:
                         pair_bname,
                         exc,
                     )
+
+        # Prime host_health cache as the very last preflight step so the
+        # 1s TTL is fresh when the control loop fires its first cycle —
+        # otherwise the host_health_limit callback pays ~90ms for psutil
+        # virtual_memory() + nvidia-smi subprocess on the first call.
+        try:
+            from dam.boundary.callbacks.hardware import collect_host_health
+
+            collect_host_health()
+        except Exception as exc:
+            logger.debug("GuardRuntime: host_health prewarm skipped: %s", exc)
 
     def _build_stages_for_task(self, active_bnames: list[str]) -> list[Any]:
         """Build Stage DAG from active boundaries using singleton guard instances.

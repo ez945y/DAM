@@ -85,6 +85,7 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
         self._prev_velocities: np.ndarray | None = None
         self._prev_ee_pose: np.ndarray | None = None
         self._prev_images: dict[str, np.ndarray] = {}
+        self._verified_camera_shapes: dict[str, tuple[int, int]] = {}
         self._prev_time: float | None = None
 
         # Sink state
@@ -215,17 +216,25 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
         """
         errors: list[str] = []
 
-        # 1. Camera check
+        # 1. Camera check — also caches the real (H, W) of each camera so
+        # downstream policy/guard preflight can warm up PyTorch graphs at
+        # the actual capture resolution.
         cameras: dict = {}
         if hasattr(self._robot, "cameras") and self._robot.cameras:
             cameras = self._robot.cameras
+        verified_shapes: dict[str, tuple[int, int]] = {}
         for cam_name, cam in cameras.items():
             try:
                 frame = cam.read() if hasattr(cam, "read") else cam.async_read()
                 if frame is None:
                     errors.append(f"camera '{cam_name}': read() returned None — check USB / index")
+                else:
+                    arr = np.asarray(frame)
+                    if arr.ndim >= 2:
+                        verified_shapes[cam_name] = (int(arr.shape[0]), int(arr.shape[1]))
             except Exception as exc:
                 errors.append(f"camera '{cam_name}': {exc}")
+        self._verified_camera_shapes = verified_shapes
 
         # 2. Motor check
         try:
@@ -250,6 +259,10 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
 
     def is_healthy(self) -> bool:
         return self._connected and self._robot is not None
+
+    @property
+    def camera_shapes(self) -> dict[str, tuple[int, int]]:
+        return dict(self._verified_camera_shapes)
 
     def supported_channels(self) -> set[str]:
         return set(self._register_map)

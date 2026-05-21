@@ -65,6 +65,16 @@ class SensorAdapter(ABC):
         """
         raise NotImplementedError(f"{type(self).__name__} does not support observation channels")
 
+    @property
+    def camera_shapes(self) -> dict[str, tuple[int, int]]:
+        """Return ``{camera_name: (height, width)}`` for cameras this source provides.
+
+        Populated after ``verify()`` has read a real frame. Empty when the
+        adapter has no cameras or before verify. The runtime uses this to
+        warm up downstream PyTorch models at the actual capture resolution.
+        """
+        return {}
+
 
 class PolicyAdapter(ABC):
     """Wraps any policy model behind a single predict() contract.
@@ -93,6 +103,17 @@ class PolicyAdapter(ABC):
     def reset(self) -> None:
         """Reset any internal recurrent state (called on task start)."""
         ...
+
+    def preflight(self, camera_shapes: dict[str, tuple[int, int]] | None = None) -> None:  # noqa: B027
+        """Eagerly warm up the policy at the real capture resolution.
+
+        ``camera_shapes`` maps camera name → ``(height, width)`` from the
+        source adapters' first verified frames. Implementations should build
+        a dummy Observation with those exact shapes and run one forward pass
+        so PyTorch can compile its per-shape kernels before the control loop
+        starts. Default is a no-op for policies that don't need warmup.
+        """
+        pass
 
 
 class ActionAdapter(ABC):

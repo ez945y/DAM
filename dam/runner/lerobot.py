@@ -134,13 +134,5 @@ class LeRobotRunner(RuntimeLoopRunner):
             if hasattr(src, "connect"):
                 src.connect()
 
-    def verify(self) -> None:
-        for src in self._runtime._sources.values():
-            if hasattr(src, "verify"):
-                src.verify()
-        for src in self._auxiliary_sources.values():
-            if hasattr(src, "verify"):
-                src.verify()
-
     def step(self) -> CycleResult:
         return super().step()

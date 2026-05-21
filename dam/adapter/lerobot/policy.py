@@ -79,6 +79,47 @@ class LeRobotPolicyAdapter(PolicyAdapter):
         if hasattr(self._policy, "reset"):
             self._policy.reset()
 
+    def preflight(self, camera_shapes: dict[str, tuple[int, int]] | None = None) -> None:
+        """One dummy predict() at the real camera resolution to compile the
+        PyTorch graph + run cuDNN's first-pass kernel benchmark for that
+        shape, so the first real control cycle skips the ~400ms compile.
+
+        We intentionally do *not* call ``self.reset()`` afterwards: empirically
+        that wipes some lazily-initialised state and the next predict re-pays
+        the full compile cost. The cost of leaving the warmup chunk in place
+        is that the first N cycles of the next task may pop dummy actions
+        from the action queue (N = policy chunk size). That's acceptable
+        because L1 motion guards clamp output velocities regardless of
+        what the policy produces."""
+        import time
+
+        dummy_images: dict[str, np.ndarray] = {}
+        if camera_shapes:
+            for cam, (h, w) in camera_shapes.items():
+                dummy_images[cam] = np.zeros((h, w, 3), dtype=np.uint8)
+        elif not self._is_jit:
+            logger.info("LeRobotPolicyAdapter: skipping preflight (no camera shapes available)")
+            return
+
+        dummy_obs = Observation(
+            timestamp=time.monotonic(),
+            joint_positions=np.zeros(
+                len(self._joint_names) if self._joint_names else 6, dtype=np.float32
+            ),
+            images=dummy_images or None,
+        )
+        t0 = time.perf_counter()
+        try:
+            self.predict(dummy_obs)
+        except Exception as exc:
+            logger.warning("LeRobotPolicyAdapter: preflight predict failed: %s", exc)
+            return
+        logger.info(
+            "LeRobotPolicyAdapter: preflight warmup done in %.1f ms (shapes=%s)",
+            (time.perf_counter() - t0) * 1000.0,
+            camera_shapes or {},
+        )
+
     # ── Official lerobot API ───────────────────────────────────────────────
 
     def _predict_lerobot(self, obs: Observation) -> ActionProposal:

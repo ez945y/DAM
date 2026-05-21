@@ -65,6 +65,7 @@ class OpenCVSourceAdapter(SensorAdapter):
         self._last_error_log_t = 0.0
         self._consecutive_failures = 0
         self._fatal_error: str | None = None
+        self._verified_shape: tuple[int, int] | None = None
 
     def set_frame_hub(self, frame_hub: CameraFrameHub) -> None:
         self._frame_hub = frame_hub
@@ -113,12 +114,19 @@ class OpenCVSourceAdapter(SensorAdapter):
                 f"OpenCVSourceAdapter: Camera '{self._name}' failed preflight read check."
             )
 
+        self._verified_shape = (int(frame.shape[0]), int(frame.shape[1]))
         logger.info(
             "OpenCVSourceAdapter: Camera '%s' verify OK (%dx%d)",
             self._name,
             frame.shape[1],
             frame.shape[0],
         )
+
+    @property
+    def camera_shapes(self) -> dict[str, tuple[int, int]]:
+        if self._verified_shape is None:
+            return {}
+        return {self._name: self._verified_shape}
 
     def read(self) -> Observation:
         """Return the latest captured frame without blocking the control loop."""

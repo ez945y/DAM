@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
-import pytest
 
 from dam.boundary.callbacks.ood import (
     _key,
@@ -122,27 +121,32 @@ def test_ood_guard_runs_l0_callback_pipeline() -> None:
     assert result.decision == GuardDecision.REJECT
 
 
-def test_ood_guard_falls_back_to_default_without_l0_callback() -> None:
-    # No active containers → guard's own model-driven detector (Welford warm-up).
+def test_ood_guard_synthesizes_default_container_without_l0_callback() -> None:
+    """No active containers → check() synthesizes a default SingleNodeContainer
+    wired to the callback matching the guard's backend kind (memory_bank →
+    ood_memory_bank, which falls back to welford warm-up when untrained)."""
     g = OODGuard()
     for _ in range(30):
         assert g.check(obs=_obs([0.01] * 6)).decision == GuardDecision.PASS
     assert g.check(obs=_obs([100.0] * 6)).decision == GuardDecision.REJECT
 
 
-def test_ood_guard_default_path_does_not_lazy_load(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ood_guard_default_path_handles_missing_model_files() -> None:
+    """The synthesized default container falls back to welford warm-up when
+    the configured model/bank files don't exist on disk — no crash, no
+    spurious REJECT, and no in-line lazy load on the hot path."""
     g = OODGuard()
-
-    def fail_lazy_load(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("check() must not lazy-load OOD artifacts")
-
-    monkeypatch.setattr(g, "_maybe_load", fail_lazy_load)
     result = g.check(
         obs=_obs([0.01] * 6),
         ood_model_path="/tmp/missing-model.pt",
         bank_path="/tmp/missing-bank.npz",
     )
     assert result.decision == GuardDecision.PASS
+    # Welford under the *path-keyed* fallback inside the memory_bank callback.
+    assert any(
+        backend.diagnostics().get("welford_samples", 0) >= 1
+        for backend in g._ood_context._backends.values()
+    )
 
 
 def test_ood_guard_pipeline_respects_temporal_smoothing() -> None:

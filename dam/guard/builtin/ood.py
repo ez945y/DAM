@@ -747,7 +747,6 @@ class OODGuard(Guard):
         self._ood_context = OODContext(self._extractor)
         self._bank = MemoryBank()
         self._flow: RealNVPFlow | None = None
-        self._welford = _WelfordStats()
         self._model_path: str | None = None
         self._bank_path: str | None = None
         self._device: str = "cpu"
@@ -815,6 +814,30 @@ class OODGuard(Guard):
         else:
             self._bank.train(vectors)
 
+        # Install the freshly-trained bank/flow into the shared context under
+        # the default container's key so callback-path check() sees the trained
+        # backend without needing a save/load roundtrip.
+        self._install_trained_backend_into_context()
+
+    def _install_trained_backend_into_context(self) -> None:
+        from dam.boundary.callbacks.ood import _key
+        from dam.guard.ood_backend import MemoryBankBackend, RealNVPFlowBackend
+
+        callback_name = self._CALLBACK_BY_KIND.get(self._kind, "ood_welford")
+        if self._kind is OODBackendKind.MEMORY_BANK and self._bank.is_trained:
+            key = _key(callback_name, "", "", "memory_bank")
+            self._ood_context._backends[key] = MemoryBankBackend(bank=self._bank)
+        elif (
+            self._kind is OODBackendKind.NORMALIZING_FLOW
+            and self._flow is not None
+            and self._flow.is_fitted
+        ):
+            key = _key(callback_name, "", "", "normalizing_flow")
+            backend = RealNVPFlowBackend(flow=self._flow)
+            backend.mean_train_nll = self._mean_train_nll
+            backend.std_train_nll = self._std_train_nll
+            self._ood_context._backends[key] = backend
+
     def save(self, model_path: str, bank_path: str) -> None:
         """Persist extractor weights and memory bank vectors."""
         self._extractor.save(model_path)
@@ -853,35 +876,117 @@ class OODGuard(Guard):
                 )
         elif Path(bank_path).exists():
             self._bank.load(bank_path)
+        self._install_trained_backend_into_context()
 
     # ── check() ──────────────────────────────────────────────────────────────
+
+    _CALLBACK_BY_KIND: dict[OODBackendKind, str] = {
+        OODBackendKind.NORMALIZING_FLOW: "ood_normalizing_flow",
+        OODBackendKind.MEMORY_BANK: "ood_memory_bank",
+        OODBackendKind.WELFORD: "ood_welford",
+    }
+
+    def _ensure_callbacks_registered(self) -> None:
+        """Lazy-register OOD callbacks so users who instantiate OODGuard
+        directly (tests, scripts) don't need to know about register_all().
+        Idempotent — register_all() suppresses ValueError on re-register."""
+        if getattr(self, "_callbacks_registered", False):
+            return
+        from dam.boundary.builtin_callbacks import register_all
+
+        register_all()
+        self._callbacks_registered = True
+
+    def _build_default_container(
+        self,
+        *,
+        nn_threshold: float,
+        nll_sigma: float,
+        nll_threshold: float,
+        ood_model_path: str | None,
+        bank_path: str | None,
+        device: str,
+    ) -> Any:
+        """Synthesize a SingleNodeContainer wired to the callback matching
+        ``self._kind``. Used when no stackfile-provided container is active
+        so ``check()`` always runs the single callback pipeline."""
+        from dam.boundary.constraint import BoundaryConstraint
+        from dam.boundary.node import BoundaryNode
+        from dam.boundary.single import SingleNodeContainer
+
+        callback_name = self._CALLBACK_BY_KIND.get(self._kind, "ood_welford")
+        params: dict[str, Any] = {
+            "nn_threshold": nn_threshold,
+            "nll_sigma": nll_sigma,
+            "nll_threshold": nll_threshold,
+            "device": device,
+        }
+        if ood_model_path:
+            params["ood_model_path"] = ood_model_path
+        if bank_path:
+            params["bank_path"] = bank_path
+        node = BoundaryNode(
+            node_id=f"ood_default/{callback_name}",
+            constraint=BoundaryConstraint(callback=callback_name, params=params),
+        )
+        return SingleNodeContainer(node)
 
     def preflight(
         self,
         ood_model_path: str | None = None,
         bank_path: str | None = None,
         device: str = "cpu",
+        camera_shapes: dict[str, tuple[int, int]] | None = None,
         **kwargs: Any,
     ) -> None:
-        """Eagerly load model/bank during preflight to avoid lazy-loading delays during check()."""
-        # obs is not available during preflight, so we use dummy data for architecture detection.
-        # FeatureExtractor.load now uses checkpoint keys so it is robust to obs shape.
+        """Load model/bank and run one warmup check through the callback
+        pipeline so the PyTorch extractor and backend layers compile their
+        kernels at the real camera resolution before the first control
+        cycle. Runs the same code path as the hot path."""
+        import time
+
         import numpy as np
 
-        from dam.types.observation import Observation
+        if not (ood_model_path and Path(ood_model_path).exists()):
+            return
 
-        if ood_model_path and Path(ood_model_path).exists():
-            import time
+        self._ensure_callbacks_registered()
 
-            dummy_obs = Observation(
-                timestamp=time.monotonic(),
-                joint_positions=np.zeros(6),  # Default 6-axis guess
-                images={},
+        images: dict[str, np.ndarray] = {}
+        if camera_shapes:
+            for cam, (h, w) in camera_shapes.items():
+                images[cam] = np.zeros((h, w, 3), dtype=np.uint8)
+
+        dummy_obs = Observation(
+            timestamp=time.monotonic(),
+            joint_positions=np.zeros(6),
+            images=images or None,
+        )
+        container = self._build_default_container(
+            nn_threshold=2.0,
+            nll_sigma=3.0,
+            nll_threshold=5.0,
+            ood_model_path=ood_model_path,
+            bank_path=bank_path,
+            device=device,
+        )
+        t0 = time.perf_counter()
+        try:
+            run_and_aggregate(
+                containers=[container],
+                runtime_pool={"obs": dummy_obs, "ood_context": self._ood_context},
+                expected_layer="L0",
+                guard_name=self.get_name(),
+                guard_layer=self.get_layer(),
             )
-            try:
-                self._maybe_load(ood_model_path, bank_path, dummy_obs, device=device)
-            except Exception as e:
-                logger.error("OODGuard: preflight load failed: %s", e)
+        except Exception as exc:
+            logger.error("OODGuard: preflight warmup failed: %s", exc)
+            return
+        logger.info(
+            "OODGuard: preflight warmup done in %.1f ms (shapes=%s)",
+            (time.perf_counter() - t0) * 1000.0,
+            camera_shapes or {},
+        )
 
     def check(
         self,
@@ -898,65 +1003,30 @@ class OODGuard(Guard):
         layer = self.get_layer()
         name = self.get_name()
 
-        # New path: a stackfile may select the OOD algorithm via an L0
-        # @boundary_callback (ood_welford / ood_memory_bank / ood_normalizing_flow).
-        # When one is wired, drive the shared pipeline like every other guard;
-        # the callbacks read their state from this guard's shared OODContext.
-        if active_containers:
-            results, final = run_and_aggregate(
-                containers=active_containers,
-                runtime_pool={"obs": obs, "ood_context": self._ood_context},
-                expected_layer="L0",
-                guard_name=name,
-                guard_layer=layer,
-            )
-            if results:
-                return self._apply_temporal_smoothing(final, temporal_smoothing_frames, name, layer)
-
-        # Compat path: no L0 callback wired — run the guard's own detector
-        # (model-driven), dispatched by kind rather than scattered strings.
-        return self._apply_temporal_smoothing(
-            self._default_check(
-                obs,
-                name,
-                layer,
+        # Single execution path: stackfile-provided containers when present,
+        # otherwise a synthesized one wired to the callback matching
+        # ``self._kind``. Either way the L0 callback pipeline does the work.
+        containers = active_containers or [
+            self._build_default_container(
                 nn_threshold=nn_threshold,
                 nll_sigma=nll_sigma,
                 nll_threshold=nll_threshold,
-            ),
-            temporal_smoothing_frames,
-            name,
-            layer,
+                ood_model_path=ood_model_path,
+                bank_path=bank_path,
+                device=device,
+            )
+        ]
+        if not active_containers:
+            self._ensure_callbacks_registered()
+
+        _, final = run_and_aggregate(
+            containers=containers,
+            runtime_pool={"obs": obs, "ood_context": self._ood_context},
+            expected_layer="L0",
+            guard_name=name,
+            guard_layer=layer,
         )
-
-    def _default_check(
-        self,
-        obs: Observation,
-        name: str,
-        layer: Any,
-        *,
-        nn_threshold: float,
-        nll_sigma: float,
-        nll_threshold: float,
-    ) -> GuardResult:
-        """Model-driven detection used when no L0 callback is wired.
-
-        Detector priority (unchanged): fitted flow → trained bank → Welford.
-        """
-        if (
-            self._kind is OODBackendKind.NORMALIZING_FLOW
-            and self._flow is not None
-            and self._flow.is_fitted
-        ):
-            # threshold = mean_train_nll + σ·std (falls back to direct cutoff).
-            if self._mean_train_nll is not None and self._std_train_nll is not None:
-                effective_threshold = self._mean_train_nll + nll_sigma * self._std_train_nll
-            else:
-                effective_threshold = nll_threshold
-            return self._check_flow(obs, effective_threshold, name, layer)
-        if self._bank.is_trained:
-            return self._check_memory_bank(obs, nn_threshold, name, layer)
-        return self._check_welford(obs, name, layer)
+        return self._apply_temporal_smoothing(final, temporal_smoothing_frames, name, layer)
 
     def _apply_temporal_smoothing(
         self,
@@ -1000,126 +1070,20 @@ class OODGuard(Guard):
             metadata=metadata,
         )
 
-    def _maybe_load(
-        self,
-        model_path: str | None,
-        bank_path: str | None,
-        obs: Observation,
-        device: str = "cpu",
-    ) -> None:
-        changed = False
-        if model_path and (model_path != self._model_path or device != self._device):
-            changed = self._load_model(model_path, obs, device)
-
-        if bank_path and bank_path != self._bank_path and Path(bank_path).exists():
-            self._bank.load(bank_path)
-            self._bank_path = bank_path
-            changed = True
-
-        if changed:
-            logger.info("OODGuard: reloaded (model=%s, bank=%s)", model_path, bank_path)
-
-    def _load_model(self, model_path: str, obs: Observation, device: str) -> bool:
-        if not Path(model_path).exists():
-            return False
-
-        joint_vec = obs.joint_positions
-        has_images = obs.images is not None and len(obs.images) > 0
-        self._extractor.load(model_path, joint_vec.shape[0], has_images, device=device)
-
-        # Also load the flow checkpoint (and restore training stats) if present.
-        flow_path = model_path.replace(".pt", _FLOW_SUFFIX)
-        if self._kind is OODBackendKind.NORMALIZING_FLOW and Path(flow_path).exists():
-            if self._flow is None:
-                self._flow = RealNVPFlow(device=device)
-            mean_nll, std_nll = self._flow.load(flow_path, device=device)
-            if mean_nll is not None:
-                self._mean_train_nll = mean_nll
-                self._std_train_nll = std_nll
-
-        self._model_path = model_path
-        self._device = device
-        return True
-
-    # ── Individual backend checks ─────────────────────────────────────────────
-
-    def _check_memory_bank(
-        self,
-        obs: Observation,
-        threshold: float,
-        name: str,
-        layer: Any,
-    ) -> GuardResult:
-        try:
-            z = self._extractor.extract(obs)
-            dist = self._bank.nearest_distance(z)
-            if dist > threshold:
-                return GuardResult.reject(
-                    reason=f"OOD nn_distance={dist:.4f} > threshold={threshold:.4f}",
-                    guard_name=name,
-                    layer=layer,
-                )
-            return GuardResult.success(guard_name=name, layer=layer)
-        except Exception as e:
-            return GuardResult.fault(e, "guard_code", name, layer)
-
-    def _check_flow(
-        self,
-        obs: Observation,
-        nll_threshold: float,
-        name: str,
-        layer: Any,
-    ) -> GuardResult:
-        """Check using Normalizing Flow -log p(z)."""
-        try:
-            z = self._extractor.extract(obs)
-            assert self._flow is not None
-            nll = self._flow.neg_log_prob(z)
-            if nll > nll_threshold:
-                return GuardResult.reject(
-                    reason=f"OOD nll={nll:.4f} > threshold={nll_threshold:.4f}",
-                    guard_name=name,
-                    layer=layer,
-                )
-            return GuardResult.success(guard_name=name, layer=layer)
-        except Exception as e:
-            return GuardResult.fault(e, "guard_code", name, layer)
-
-    def _check_welford(
-        self,
-        obs: Observation,
-        name: str,
-        layer: Any,
-    ) -> GuardResult:
-        """Welford online z-score fallback (warm-up of 30 samples)."""
-        try:
-            # Source array driven: no explicit velocities/features
-            features = obs.joint_positions.astype(np.float64)
-
-            if self._welford.n < _WARMUP_SAMPLES:
-                self._welford.update(features)
-                return GuardResult.success(guard_name=name, layer=layer)
-
-            max_z = self._welford.z_score_max(features)
-            z_threshold = 5.0
-
-            if max_z > z_threshold:
-                return GuardResult.reject(
-                    reason=f"OOD z-score={max_z:.2f} > threshold={z_threshold:.2f} (Welford)",
-                    guard_name=name,
-                    layer=layer,
-                )
-            self._welford.update(features)
-            return GuardResult.success(guard_name=name, layer=layer)
-        except Exception as e:
-            return GuardResult.fault(e, "guard_code", name, layer)
-
     # ── Diagnostics ──────────────────────────────────────────────────────────
 
     def diagnostics(self) -> dict[str, Any]:
-        # Reports the guard's own (default-path) detectors, keeping the historical
-        # key set stable for the console UI / tests.  The L0 callback path keeps
-        # its own per-backend stats in ``self._ood_context.diagnostics()``.
+        # Training-side state (bank/flow stats from train()/save()) plus the
+        # live welford count from the shared callback context. The per-backend
+        # stats per (callback, model_path, bank_path) key live in
+        # ``self._ood_context.diagnostics()`` for richer introspection.
+        ctx_diag = (
+            self._ood_context.diagnostics() if hasattr(self._ood_context, "diagnostics") else {}
+        )
+        welford_samples = 0
+        for backend_diag in ctx_diag.values():
+            if isinstance(backend_diag, dict) and "welford_samples" in backend_diag:
+                welford_samples = max(welford_samples, int(backend_diag["welford_samples"]))
         return {
             "backend": self._backend_name,
             "bank_trained": self._bank.is_trained,
@@ -1129,5 +1093,5 @@ class OODGuard(Guard):
             "mean_train_nll": self._mean_train_nll,
             "std_train_nll": self._std_train_nll,
             "torch_available": self._extractor._torch_available,
-            "welford_samples": self._welford.n,
+            "welford_samples": welford_samples,
         }

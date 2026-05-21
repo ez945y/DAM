@@ -155,6 +155,30 @@ class RuntimeLoopRunner(BaseRunner):
         if hasattr(self._runtime, "_shutdown_complete"):
             self._runtime._shutdown_complete = False
 
+    def verify(self) -> None:
+        """Verify every source/aux source, collect real camera resolutions, then
+        warm up the runtime (policy + guards) at those shapes so PyTorch
+        compiles its per-shape kernels before the first control cycle."""
+        for src in self._runtime._sources.values():
+            if hasattr(src, "verify"):
+                src.verify()
+        for src in self._auxiliary_sources.values():
+            if hasattr(src, "verify"):
+                src.verify()
+
+        camera_shapes: dict[str, tuple[int, int]] = {}
+        for src in self._runtime._sources.values():
+            shapes = getattr(src, "camera_shapes", None)
+            if shapes:
+                camera_shapes.update(shapes)
+        for src in self._auxiliary_sources.values():
+            shapes = getattr(src, "camera_shapes", None)
+            if shapes:
+                camera_shapes.update(shapes)
+
+        if hasattr(self._runtime, "preflight"):
+            self._runtime.preflight(camera_shapes=camera_shapes)
+
     def clear_fault(self) -> None:
         """Allow RuntimeControlService to acknowledge a fault after reconnect/verify."""
         with self._lock:
@@ -440,15 +464,6 @@ class SimulationRunner(RuntimeLoopRunner):
         for src in self._auxiliary_sources.values():
             if hasattr(src, "connect"):
                 src.connect()
-
-    def verify(self) -> None:
-        # Verify all sources
-        for src in self._runtime._sources.values():
-            if hasattr(src, "verify"):
-                src.verify()
-        for src in self._auxiliary_sources.values():
-            if hasattr(src, "verify"):
-                src.verify()
 
     def shutdown(self) -> None:
         super().shutdown()
