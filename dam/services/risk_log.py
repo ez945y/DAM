@@ -37,7 +37,13 @@ class RiskEvent(msgspec.Struct):
     failure_tuple: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to a JSON-safe dict for API responses."""
+        """Convert to a JSON-safe dict for API responses.
+
+        Uses ``msgspec.to_builtins`` (fast native walk) plus our enc_hook so
+        numpy scalars/arrays, pathlib Paths, and enums sitting in
+        ``guard_results[*].metadata`` survive the conversion instead of
+        raising at ``json.dumps`` time.
+        """
         return msgspec.to_builtins(self, enc_hook=msgspec_enc_hook)
 
 

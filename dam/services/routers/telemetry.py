@@ -8,19 +8,23 @@ import msgspec
 if TYPE_CHECKING:
     from dam.services.telemetry import TelemetryService
 
-from fastapi import APIRouter, HTTPException, Query, Response, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 
-from dam.services.serialization import msgspec_enc_hook
+from dam.services.serialization import MsgspecJSONResponse, msgspec_enc_hook
 
 _SVC_UNAVAILABLE = "Telemetry service not available"
+
+
+def _encode(event: Any) -> str:
+    """Encode a dict/list/Struct as a JSON string for WebSocket send_text."""
+    return msgspec.json.encode(event, enc_hook=msgspec_enc_hook).decode("utf-8")
 
 
 async def _send_event(websocket: WebSocket, event: Any) -> bool:
     """Serialise and send one event. Returns False if the connection broke."""
     try:
         if isinstance(event, dict | list):
-            json_bytes = msgspec.json.encode(event, enc_hook=msgspec_enc_hook)
-            await websocket.send_text(json_bytes.decode("utf-8"))
+            await websocket.send_text(_encode(event))
         elif isinstance(event, bytes):
             await websocket.send_bytes(event)
         else:
@@ -37,8 +41,7 @@ async def _stream_telemetry(telemetry: TelemetryService, websocket: WebSocket) -
         if isinstance(ev, dict) and ev.get("type") == "cycle":
             continue
         try:
-            json_bytes = msgspec.json.encode(ev, enc_hook=msgspec_enc_hook)
-            await websocket.send_text(json_bytes.decode("utf-8"))
+            await websocket.send_text(_encode(ev))
         except Exception:  # noqa: BLE001 — client disconnected during history replay; stop replaying
             break
     try:
@@ -64,14 +67,12 @@ def create_telemetry_router(telemetry: TelemetryService | None) -> APIRouter:
     @router.get(
         "/api/telemetry/history",
         responses={503: {"description": _SVC_UNAVAILABLE}},
+        response_class=MsgspecJSONResponse,
     )
     async def telemetry_history(n: Annotated[int, Query(ge=1, le=1000)] = 50) -> Any:
         if telemetry is None:
             raise HTTPException(503, _SVC_UNAVAILABLE)
-        events = telemetry.get_history(n)
-        payload = {"events": events, "total": telemetry.total_pushed}
-        json_bytes = msgspec.json.encode(payload, enc_hook=msgspec_enc_hook)
-        return Response(content=json_bytes, media_type="application/json")
+        return {"events": telemetry.get_history(n), "total": telemetry.total_pushed}
 
     @router.websocket("/ws/telemetry")
     async def ws_telemetry(websocket: WebSocket) -> None:

@@ -56,39 +56,17 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import msgspec
 import numpy as np
 
 from dam.logging.cycle_record import CycleRecord
+from dam.services.serialization import msgspec_enc_hook
 from dam.types.result import GuardDecision
 
 if TYPE_CHECKING:
     from dam.bus import ObservationBus
 
 logger = logging.getLogger(__name__)
-
-
-# ── JSON Encoder ─────────────────────────────────────────────────────────────
-class _DAMEncoder(json.JSONEncoder):
-    """Robust JSON encoder for DAM cycle records.
-
-    Handles types that the standard encoder misses:
-    - bytes/bytearray -> list[int] (for MCAP image data)
-    - np.ndarray      -> list (for any stray arrays)
-    Delegates to msgspec_enc_hook for centralized resolution of complex types.
-    """
-
-    def default(self, obj: Any) -> Any:
-        if isinstance(obj, bytes | bytearray):
-            return list(obj)
-        try:
-            from dam.services.serialization import msgspec_enc_hook
-
-            return msgspec_enc_hook(obj)
-        except Exception:
-            if isinstance(obj, np.ndarray):
-                return obj.tolist()
-            return super().default(obj)
-
 
 # ── Rust McapWriter (required) ─────────────────────────────────────────────────
 # Uses background thread for all serialization and I/O.
@@ -143,14 +121,7 @@ _SENTINEL: object = object()
 
 
 def _json(obj: dict[str, Any]) -> bytes:
-    try:
-        import msgspec
-
-        from dam.services.serialization import msgspec_enc_hook
-
-        return msgspec.json.encode(obj, enc_hook=msgspec_enc_hook)
-    except Exception:
-        return json.dumps(obj, separators=(",", ":"), cls=_DAMEncoder).encode()
+    return msgspec.json.encode(obj, enc_hook=msgspec_enc_hook)
 
 
 def _record_to_dict(
@@ -668,7 +639,7 @@ class LoopbackWriter:
         if writer is not None:
             try:
                 record_dict = _record_to_dict(rec, images)
-                writer.write_cycle(json.dumps(record_dict, cls=_DAMEncoder))
+                writer.write_cycle(_json(record_dict).decode("utf-8"))
             except Exception as exc:
                 if "queue full" in str(exc).lower():
                     logger.debug(

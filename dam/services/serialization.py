@@ -1,69 +1,69 @@
 """Centralized serialization utilities for boundaries (API responses, WebSockets).
 
-Provides a registry-pattern encoder hook for msgspec to dynamically resolve
-non-standard types like NumPy arrays/scalars, pathlib Paths, and enums.
+Provides a dict-dispatched encoder hook for ``msgspec`` covering the
+non-standard types that show up in guard metadata: NumPy arrays/scalars,
+filesystem paths, enums, and raw bytes. Unknown types raise ``TypeError``
+so accidental object leaks surface during development instead of being
+silently stringified into telemetry / MCAP records.
 """
 
 from __future__ import annotations
 
-import dataclasses
 import enum
 import pathlib
+from collections.abc import Callable
 from typing import Any
 
-import msgspec
 import numpy as np
+from fastapi import Response
+from msgspec import json as msgspec_json
+
+# Exact-type dispatch first (O(1)); falls back to a small subclass scan.
+# msgspec already handles dataclasses, msgspec.Struct, and standard
+# containers natively, so we only register the types it can't.
+_EXACT: dict[type, Callable[[Any], Any]] = {
+    bytes: list,
+    bytearray: list,
+}
+
+# Order matters here only for subclass coverage; each entry must be a base
+# class whose subclasses share a single conversion rule.
+_SUBCLASS: tuple[tuple[type, Callable[[Any], Any]], ...] = (
+    (np.ndarray, lambda obj: obj.tolist()),
+    (np.integer, int),
+    (np.floating, float),
+    (np.bool_, bool),
+    (pathlib.PurePath, str),
+    (enum.Enum, lambda obj: obj.name),
+)
 
 
-class EncoderRegistry:
-    """A registry mapping unsupported types to their custom JSON serialization logic."""
+def msgspec_enc_hook(obj: Any) -> Any:
+    """``msgspec`` encoder hook: convert non-native types to JSON primitives.
 
-    def __init__(self) -> None:
-        self._registry: list[tuple[type, Any]] = []
-
-    def register(self, type_or_base: type, converter: Any) -> None:
-        """Register a serializer callback for a type or any of its subclasses."""
-        self._registry.append((type_or_base, converter))
-
-    def enc_hook(self, obj: Any) -> Any:
-        """Msgspec custom encoding hook.
-
-        Maps unregistered classes or numpy types to standard JSON-serializable primitives.
-        """
-        for type_or_base, converter in self._registry:
-            if isinstance(obj, type_or_base):
-                return converter(obj)
-
-        # Check if the object is a dataclass instance (e.g. MotionQPConstraint)
-        if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
-            return dataclasses.asdict(obj)
-
-        # Check if the object has a custom to_dict method (like custom dataclasses or models)
-        if hasattr(obj, "to_dict") and callable(obj.to_dict):
-            return obj.to_dict()
-
-        # Fallback to string representation to avoid hard serialization failures
-        return str(obj)
+    Raises ``TypeError`` for unknown types so a stray object in guard
+    metadata surfaces as a loud failure during development rather than a
+    silent ``str(obj)`` blob in production MCAP/telemetry records.
+    """
+    converter = _EXACT.get(type(obj))
+    if converter is not None:
+        return converter(obj)
+    for base, sub_converter in _SUBCLASS:
+        if isinstance(obj, base):
+            return sub_converter(obj)
+    raise TypeError(f"Cannot serialize object of type {type(obj).__name__!r}")
 
 
-# Initialize global boundary encoder registry
-registry = EncoderRegistry()
+class MsgspecJSONResponse(Response):
+    """FastAPI response that encodes via ``msgspec`` with our enc_hook.
 
-# 1. NumPy Types (highly frequent in guard metadata / telemetry)
-registry.register(np.ndarray, lambda obj: obj.tolist())
-registry.register(np.integer, lambda obj: int(obj))
-registry.register(np.floating, lambda obj: float(obj))
-registry.register(np.bool_, lambda obj: bool(obj))
+    Routes that return raw dicts/lists containing numpy / Path / Enum can
+    declare ``response_class=MsgspecJSONResponse`` instead of hand-rolling
+    ``Response(content=msgspec.json.encode(...), media_type=...)`` at every
+    endpoint.
+    """
 
-# 2. Filesystem Paths (frequent in MCAP sessions / stackconfigs)
-registry.register(pathlib.PurePath, lambda obj: str(obj))
+    media_type = "application/json"
 
-# 3. Custom / Standard Enums
-registry.register(enum.Enum, lambda obj: obj.name if hasattr(obj, "name") else str(obj))
-
-# 4. Raw Bytes / Bytearray (historically converted to integer list for MCAP telemetry)
-registry.register(bytes, lambda obj: list(obj))
-registry.register(bytearray, lambda obj: list(obj))
-
-# Export the unified hook for msgspec json.encode or to_builtins
-msgspec_enc_hook = registry.enc_hook
+    def render(self, content: Any) -> bytes:
+        return msgspec_json.encode(content, enc_hook=msgspec_enc_hook)

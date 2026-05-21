@@ -380,8 +380,8 @@ class TestRiskLogService:
         assert d["cycle_id"] == 7
         assert "timestamp" in d
 
-    def test_event_to_dict_and_export_json_handle_numpy_metadata(self):
-        svc = RiskLogService()
+    @staticmethod
+    def _record_with_numpy_metadata(svc: RiskLogService) -> None:
         result = _make_cycle_result(8, clamped=True, risk=RiskLevel.ELEVATED)
         result.guard_results = [
             GuardResult(
@@ -399,14 +399,20 @@ class TestRiskLogService:
         ]
         svc.record(result, perf={"layers": {"L1": np.float64(1.25)}})
 
+    def test_event_to_dict_converts_numpy_metadata(self):
+        svc = RiskLogService()
+        self._record_with_numpy_metadata(svc)
+
         ev = svc.query()[0]
         d = ev.to_dict()
-        json.dumps(d)
-        assert d["guard_results"][0]["metadata"]["joint_position_limits"]["upper"] == [
-            1.0,
-            2.0,
-        ]
+        json.dumps(d)  # would raise if any numpy type leaked through
+        assert d["guard_results"][0]["metadata"]["joint_position_limits"]["upper"] == [1.0, 2.0]
         assert d["guard_results"][0]["metadata"]["joint_position_limits"]["scale"] == 0.5
+
+    def test_export_json_converts_numpy_perf_values(self):
+        svc = RiskLogService()
+        self._record_with_numpy_metadata(svc)
+
         exported = json.loads(svc.export_json())
         assert exported[0]["perf"]["layers"]["L1"] == 1.25
 
