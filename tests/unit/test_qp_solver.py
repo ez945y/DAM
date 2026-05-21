@@ -200,6 +200,19 @@ def test_qp_solver_param_inlined_in_any_l1_boundary(proxsuite):
     # dt auto-injected from safety.control_frequency_hz
     assert pool["dt"] == pytest.approx(1.0 / 30.0)
 
+    from dam.boundary.callbacks import register_all as register_callbacks
+    from dam.guard.aggregators.motion_qp import motion_qp_aggregator
+    from dam.guard.builtin import register_all as register_guards
+    from dam.registry.callback import get_global_registry as get_callback_registry
+    from dam.registry.guard import get_guard_registry
+
+    register_callbacks()
+    register_guards()
+    guards_by_kind, _boundary_to_kind, _containers = GuardRuntime._build_all_boundaries(
+        config, get_callback_registry(), get_guard_registry()
+    )
+    assert guards_by_kind["motion"]._clamp_aggregator is motion_qp_aggregator
+
 
 def test_workspace_cbf_keeps_action_inside_box(proxsuite):
     """CBF constraints from a Jacobian + bounds prevent the action from

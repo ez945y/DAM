@@ -70,6 +70,20 @@ boundaries:
         fallback: emergency_stop
         params:
           max_velocities: [1.5000, 1.5000, 1.5000, 1.5000, 1.5000, 1.5000]
+          qp_solver: proxsuite
+          slack_weight: 100000000
+  workspace:
+    layer: L1
+    type: single
+    nodes:
+      - callback: workspace
+        timeout_sec: 1
+        fallback: emergency_stop
+        params:
+          bounds: [[-0.4000, 0.4000], [-0.4000, 0.4000], [0.0200, 0.6000]]
+          cbf_gamma: 1.0
+          qp_solver: proxsuite
+          slack_weight: 100000000
   hardware_watchdog:
     layer: L3
     type: single
@@ -84,7 +98,7 @@ boundaries:
 tasks:
   soarm101:
     description: "QP-protected motion"
-    boundaries: [joint_position_limits, joint_velocity_limit, hardware_watchdog]
+    boundaries: [workspace, joint_position_limits, joint_velocity_limit, hardware_watchdog]
 
 loopback:
   backend: mcap

@@ -126,11 +126,11 @@ const SO101_HEALTH_CHANNELS = ['current', 'temperature', 'voltage']
 
 const DEFAULT_BOUNDARIES: BoundaryDef[] = [
   {
-    name: 'ood_detector', layer: 'L0', type: 'single',
-    nodes: [{ node_id: 'default', params: { temporal_smoothing_frames: 3 }, callback: 'ood_detector', fallback: 'emergency_stop', timeout_sec: 1 }]
+    name: 'ood_welford', layer: 'L0', type: 'single',
+    nodes: [{ node_id: 'default', params: { temporal_smoothing_frames: 3 }, callback: 'ood_welford', fallback: 'emergency_stop', timeout_sec: 1 }]
   },
   {
-    name: 'bounds', layer: 'L1', type: 'single',
+    name: 'workspace', layer: 'L1', type: 'single',
     nodes: [{ node_id: 'default', params: { bounds: [[-0.4, 0.4], [-0.4, 0.4], [0.02, 0.6]] }, callback: 'workspace', fallback: 'emergency_stop', timeout_sec: 1 }]
   },
   {
@@ -173,13 +173,12 @@ const DEFAULT_FALLBACKS: FallbackDef[] = [
   { name: 'hold_position', type: 'hold_position', params: {}, escalates_to: 'emergency_stop' },
 ]
 
-// Helper: add `qp_solver` + `slack_weight` to ANY L1 motion boundary.
-// MotionGuard reads `qp_solver` from the merged config pool and fuses
-// all L1 constraints (position, velocity, workspace bounds) into one
-// ProxSuite QP solve.  Each boundary stays decoupled in definition —
-// the guard handles fusion automatically with a per-cycle cache.
+// Helper: opt L1 motion boundaries into the ProxSuite QP fusion strategy.
+// The runtime sees `qp_solver: proxsuite`, wires MotionGuard to the QP
+// aggregator, and the callbacks pass solver-specific details through
+// metadata. Each boundary stays decoupled in definition.
 function withQpSolver(boundaries: BoundaryDef[]): BoundaryDef[] {
-  const L1_MOTION = new Set(['joint_position_limits', 'joint_velocity_limit', 'bounds'])
+  const L1_MOTION = new Set(['joint_position_limits', 'joint_velocity_limit', 'workspace'])
   return boundaries.map(b =>
     !L1_MOTION.has(b.name) ? b : {
       ...b,
@@ -221,7 +220,7 @@ export const TEMPLATES: TemplatePreset[] = [
       observation_channels: SO101_HEALTH_CHANNELS,
       policy: { type: 'act', pretrained_path: 'MikeChenYZ/act-soarm-fmb-v2', device: 'mps' },
       joints: SO101_JOINTS, controlFrequencyHz: 30, enforcement_mode: 'enforce',
-      tasks: [{ id: 'soarm101', name: 'soarm101', description: 'Default task', boundaries: ['bounds', 'joint_position_limits', 'joint_velocity_limit', 'hardware_watchdog', 'host_health'] }],
+      tasks: [{ id: 'soarm101', name: 'soarm101', description: 'Default task', boundaries: ['workspace', 'joint_position_limits', 'joint_velocity_limit', 'hardware_watchdog', 'host_health'] }],
       boundaries: DEFAULT_BOUNDARIES,
       loopback: {
         backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10, pre_event_sec: 10,
@@ -241,8 +240,8 @@ export const TEMPLATES: TemplatePreset[] = [
       policy: { type: 'act', pretrained_path: 'MikeChenYZ/act-soarm-fmb-v2', device: 'mps' },
       joints: SO101_JOINTS, controlFrequencyHz: 30, enforcement_mode: 'enforce',
       tasks: [{ id: 'soarm101', name: 'soarm101', description: 'QP-protected motion',
-        boundaries: ['bounds', 'joint_position_limits', 'joint_velocity_limit', 'hardware_watchdog', 'host_health'] }],
-      boundaries: withQpSolver(DEFAULT_BOUNDARIES.filter(b => b.name !== 'ood_detector')),
+        boundaries: ['workspace', 'joint_position_limits', 'joint_velocity_limit', 'hardware_watchdog', 'host_health'] }],
+      boundaries: withQpSolver(DEFAULT_BOUNDARIES.filter(b => b.name !== 'ood_welford')),
       loopback: {
         backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10, pre_event_sec: 10,
         rotate_mb: 500, rotate_minutes: 60, max_queue_depth: 64, capture_images_on_clamp: true,

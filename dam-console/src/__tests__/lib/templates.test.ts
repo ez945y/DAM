@@ -77,6 +77,7 @@ describe('defaultConfig', () => {
     expect(cfg.adapter).toBe('simulation')
     expect(cfg.enforcement_mode).toBe('monitor')
     expect(cfg.tasks[0].boundaries).toHaveLength(6)
+    expect(cfg.tasks[0].boundaries).toContain('ood_welford')
     expect(cfg.tasks[0].boundaries).toContain('hardware_watchdog')
     expect(cfg.tasks[0].boundaries).toContain('host_health')
   })
@@ -179,6 +180,7 @@ describe('generateYaml', () => {
   it('includes workspace bounds in boundaries', () => {
     const cfg = defaultConfig('so101_act')
     const yaml = generateYaml(cfg)
+    expect(yaml).toContain('workspace:')
     expect(yaml).toContain('bounds:')
     expect(yaml).toContain('hardware_watchdog:')
   })
@@ -187,6 +189,15 @@ describe('generateYaml', () => {
     const cfg = defaultConfig('quick_start')
     const yaml = generateYaml(cfg)
     expect(yaml).toContain('bounds:')
+  })
+
+  it('QP template opts L1 motion callbacks into the stackfile QP strategy', () => {
+    const cfg = defaultConfig('so101_act_qp')
+    const yaml = generateYaml(cfg)
+    expect(yaml).toContain('workspace:')
+    expect(yaml).toContain('qp_solver: proxsuite')
+    expect(yaml).toContain('slack_weight: 100000000')
+    expect(yaml).not.toContain('ood_detector')
   })
 
   it('cameras use index_or_path key in generated YAML', () => {
@@ -262,6 +273,9 @@ describe('generateYaml', () => {
   it('includes OOD temporal smoothing in the default Stackfile', () => {
     const cfg = defaultConfig('so101_act')
     const yaml = generateYaml(cfg)
+    expect(yaml).toContain('ood_welford:')
+    expect(yaml).toContain('callback: ood_welford')
+    expect(yaml).not.toContain('callback: ood_detector')
     expect(yaml).toContain('temporal_smoothing_frames: 3')
   })
 
@@ -273,19 +287,19 @@ describe('generateYaml', () => {
   })
 
 
-  it('ood_detector boundary node params appear in boundaries when set', () => {
+  it('OOD callback boundary node params appear in boundaries when set', () => {
     const cfg = defaultConfig('so101_act')
     // Simulate OODTrainer selecting a model (boundary node is added via guard page)
     cfg.boundaries = [
       ...cfg.boundaries,
       {
-        name: 'ood_detector',
+        name: 'ood_memory_bank',
         layer: 'L0',
         type: 'single',
         nodes: [{
           node_id: 'default',
-          callback: 'ood_detector',
-          params: { ood_model_path: '/models/ood.pt', nn_threshold: 0.4, backend: 'memory_bank' },
+          callback: 'ood_memory_bank',
+          params: { ood_model_path: '/models/ood.pt', nn_threshold: 0.4, bank_path: '/models/ood_bank.npz' },
           fallback: 'emergency_stop',
           timeout_sec: null,
         }],
@@ -293,9 +307,10 @@ describe('generateYaml', () => {
     ]
     const yaml = generateYaml(cfg)
     // OOD params appear in boundaries, NOT in guards section
-    expect(yaml).toContain('ood_detector')
+    expect(yaml).toContain('ood_memory_bank')
     expect(yaml).toContain('/models/ood.pt')
     expect(yaml).toContain('nn_threshold')
+    expect(yaml).not.toContain('backend: memory_bank')
     // Verify it is in the boundaries block (before tasks block)
     const guardsEnd = yaml.indexOf('\nboundaries:')
     const oodParamPos = yaml.indexOf('ood_model_path')

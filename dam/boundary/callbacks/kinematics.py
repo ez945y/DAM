@@ -57,6 +57,7 @@ def joint_velocity_limit(
     action: ActionProposal,
     dt: float,
     max_velocities: list[float] | float | None = None,
+    slack_weight: float = 1e6,
     use_degrees: bool = False,
 ) -> CallbackResult:
     """Scale action velocities (or implied velocities) so |v_i| ≤ max_i.
@@ -126,7 +127,12 @@ def joint_velocity_limit(
     )
     # Advertise the per-joint velocity limit (plus the state needed to express
     # it as a position bound) for an optional QP aggregator.
-    qp_meta = MotionQPConstraint(max_velocity=v_max_1d.copy(), q=cur_pos[:n].copy(), dt=float(dt))
+    qp_meta = MotionQPConstraint(
+        max_velocity=v_max_1d.copy(),
+        q=cur_pos[:n].copy(),
+        dt=float(dt),
+        slack_weight=float(slack_weight),
+    )
     return CallbackResult.clamp(bname, clamped, reason=reason, metadata={"motion_qp": qp_meta})
 
 
@@ -140,6 +146,7 @@ def joint_position_limits(
     action: ActionProposal,
     upper: list[float] | None = None,
     lower: list[float] | None = None,
+    slack_weight: float = 1e6,
     use_degrees: bool = False,
 ) -> CallbackResult:
     """Clip ``action.target_joint_positions`` element-wise into [lower, upper].
@@ -181,7 +188,9 @@ def joint_position_limits(
     )
     # Advertise the joint-position box for an optional QP aggregator (limits in
     # radians, already unit-normalised above).
-    qp_meta = MotionQPConstraint(upper=up[:n].copy(), lower=lo[:n].copy())
+    qp_meta = MotionQPConstraint(
+        upper=up[:n].copy(), lower=lo[:n].copy(), slack_weight=float(slack_weight)
+    )
     return CallbackResult.clamp(bname, clamped, reason=reason, metadata={"motion_qp": qp_meta})
 
 
@@ -197,6 +206,7 @@ def workspace(
     bounds: list[list[float]] | None = None,
     cbf_gamma: float = 1.0,
     cbf_alpha: float | None = None,
+    slack_weight: float = 1e6,
     kinematics_resolver: KinematicsResolver | None = None,
     dynamics: Any | None = None,
 ) -> CallbackResult:
@@ -254,6 +264,7 @@ def workspace(
         ee_pos=ee_pos.copy(),
         q=np.asarray(obs.joint_positions, dtype=np.float64).copy(),
         J_linear=J_linear,
+        slack_weight=float(slack_weight),
     )
     return CallbackResult.clamp(
         bname,

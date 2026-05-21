@@ -50,7 +50,13 @@ function makeNode(): ConstraintNodeDef {
 }
 
 function makeBoundary(layerStr = 'L1'): BoundaryDef {
-  return { name: 'ood_detector', layer: layerStr, type: 'single', nodes: [makeNode()] }
+  const defaults: Record<string, string> = {
+    L0: 'ood_welford',
+    L1: 'workspace',
+    L2: 'task_joint_speed_limit',
+    L3: 'hardware_watchdog',
+  }
+  return { name: defaults[layerStr] ?? 'workspace', layer: layerStr, type: 'single', nodes: [makeNode()] }
 }
 
 // ── Shared input class ────────────────────────────────────────────────────────
@@ -114,7 +120,7 @@ function NodeForm({
   const bounds = node.params?.bounds as [[number,number],[number,number],[number,number]] | null
   const joint_position_limits = (node.params?.upper && node.params?.lower) ? { upper: node.params.upper as number[], lower: node.params.lower as number[] } : null
   const hasBounds = !!bounds
-  const isOod = node.callback === 'ood_detector'
+  const isOod = !!node.callback?.startsWith('ood_')
 
   const updateBound = (axis: 0 | 1 | 2, side: 0 | 1, val: number) => {
     if (!bounds) return
@@ -832,17 +838,22 @@ function migrateConfig(parsed: any) {
   if (parsed.boundaries) {
     parsed.boundaries = parsed.boundaries.map((b: any) => ({
       ...b,
-      name: (b.name === 'bounds' || b.name === 'motion' || b.name === 'stability') ? 'motion' : b.name,
       nodes: b.nodes?.map(migrateNode) || []
     }))
   }
   if (parsed.tasks) {
     parsed.tasks = parsed.tasks.map((t: any) => ({
       ...t,
-      boundaries: t.boundaries?.map((bn: string) => (bn === 'bounds' || bn === 'motion' || bn === 'stability') ? 'motion' : bn) || []
+      boundaries: t.boundaries || []
     }))
   }
   return parsed
+}
+
+function oodCallbackForBackend(backend?: string): string {
+  if (backend === 'normalizing_flow') return 'ood_normalizing_flow'
+  if (backend === 'memory_bank') return 'ood_memory_bank'
+  return 'ood_welford'
 }
 
 export default function GuardPage() {
@@ -858,38 +869,38 @@ export default function GuardPage() {
   const [guardsEnabled, setGuardsEnabled] = useState<Record<string, boolean>>({})
 
 
-  // OOD model path is derived from the L0 ood_detector boundary node (not a separate state).
-  // Sync helper: find or create the L0 ood_detector boundary node and update its params.
-  // Also ensures every task includes 'ood_detector' in its boundaries list.
+  // OOD model path is derived from the L0 OOD boundary node (not separate state).
+  // The callback name selects the algorithm, matching the stackfile contract.
   const syncOodToBoundary = useCallback((path: string, meta?: { backend?: string; bank_path?: string }) => {
-    const OOD_BOUNDARY_NAME = 'ood_detector'
+    const callback = oodCallbackForBackend(meta?.backend)
+    const OOD_BOUNDARY_NAME = callback
     setBoundaries(prev => {
-      const idx = prev.findIndex(b => b.nodes[0]?.callback === 'ood_detector')
+      const idx = prev.findIndex(b => b.layer === 'L0' && b.nodes[0]?.callback?.startsWith('ood_'))
       if (idx >= 0) {
         const next = [...prev]
         const node = { ...next[idx].nodes[0] }
         node.params = {
           ...node.params,
           ood_model_path: path,
-          ...(meta?.backend ? { backend: meta.backend } : {}),
           ...(meta?.bank_path ? { bank_path: meta.bank_path } : {}),
         }
-        next[idx] = { ...next[idx], nodes: [node] }
+        node.callback = callback
+        delete node.params.backend
+        next[idx] = { ...next[idx], name: OOD_BOUNDARY_NAME, nodes: [node] }
         return next
       }
-      // No ood_detector boundary yet — create one at L0
+      // No L0 OOD boundary yet — create one with the selected callback.
       return [{
         name: OOD_BOUNDARY_NAME,
         layer: 'L0',
         type: 'single' as const,
         nodes: [{
           node_id: 'default',
-          callback: 'ood_detector',
+          callback,
           params: {
             ood_model_path: path,
             nn_threshold: 2,
             nll_threshold: 5,
-            backend: meta?.backend ?? 'memory_bank',
             ...(meta?.bank_path ? { bank_path: meta.bank_path } : {}),
           },
           fallback: 'emergency_stop',
@@ -897,12 +908,10 @@ export default function GuardPage() {
         }],
       }, ...prev]
     })
-    // Ensure every task references ood_detector in its boundaries list
+    // Ensure every task references the selected OOD boundary in its boundaries list.
     setTasks(prev => prev.map(t => ({
       ...t,
-      boundaries: t.boundaries.includes(OOD_BOUNDARY_NAME)
-        ? t.boundaries
-        : [OOD_BOUNDARY_NAME, ...t.boundaries],
+      boundaries: [OOD_BOUNDARY_NAME, ...t.boundaries.filter(name => !name.startsWith('ood_'))],
     })))
   }, [setBoundaries, setTasks])
 
@@ -951,18 +960,17 @@ export default function GuardPage() {
       if (raw) {
         const migrated = migrateConfig(JSON.parse(raw))
         if (migrated.tasks?.length > 0) setTasks(migrated.tasks)
-        else setTasks([{ id: crypto.randomUUID(), name: 'default', description: '', boundaries: ['bounds'] }])
+        else setTasks([{ id: crypto.randomUUID(), name: 'default', description: '', boundaries: ['workspace'] }])
 
         if (migrated.boundaries?.length > 0) setBoundaries(migrated.boundaries)
         else setBoundaries([
           {
-            name: 'bounds',
+            name: 'workspace',
             layer: 'L1',
             type: 'single',
             nodes: [{
               node_id: 'default',
               params: {
-                max_speed: 0.8,
                 bounds: [[-0.4, 0.4], [-0.4, 0.4], [0.02, 0.6]],
               },
               callback: 'workspace',
@@ -975,16 +983,15 @@ export default function GuardPage() {
         if (migrated.guardsEnabled) setGuardsEnabled(migrated.guardsEnabled)
       } else {
         // Init defaults if nothing in localStorage
-        setTasks([{ id: crypto.randomUUID(), name: 'default', description: '', boundaries: ['bounds'] }])
+        setTasks([{ id: crypto.randomUUID(), name: 'default', description: '', boundaries: ['workspace'] }])
         setBoundaries([
           {
-            name: 'bounds',
+            name: 'workspace',
             layer: 'L1',
             type: 'single',
             nodes: [{
               node_id: 'default',
               params: {
-                max_speed: 0.8,
                 bounds: [[-0.4, 0.4], [-0.4, 0.4], [0.02, 0.6]],
               },
               callback: 'workspace',
@@ -995,7 +1002,7 @@ export default function GuardPage() {
         ])
       }
     } catch {
-      setTasks([{ id: crypto.randomUUID(), name: 'default', description: '', boundaries: ['bounds'] }])
+      setTasks([{ id: crypto.randomUUID(), name: 'default', description: '', boundaries: ['workspace'] }])
     }
   }, [])
 

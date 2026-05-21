@@ -36,16 +36,16 @@ guards:
   - L3: hardware
 
 boundaries:
-  ood_detector:
+  ood_welford:
     layer: L0
     type: single
     nodes:
-      - callback: ood_detector
+      - callback: ood_welford
         timeout_sec: 1
         fallback: emergency_stop
         params:
           temporal_smoothing_frames: 3
-  bounds:
+  workspace:
     layer: L1
     type: single
     nodes:
@@ -98,7 +98,7 @@ boundaries:
 tasks:
   demo:
     description: "Full demo"
-    boundaries: [ood_detector, bounds, joint_position_limits, joint_velocity_limit, hardware_watchdog, host_health]
+    boundaries: [ood_welford, workspace, joint_position_limits, joint_velocity_limit, hardware_watchdog, host_health]
 
 loopback:
   backend: mcap

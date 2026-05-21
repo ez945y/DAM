@@ -1107,7 +1107,38 @@ class GuardRuntime:
                 nodes.append(cls._build_boundary_node(ncfg, guard_kind, config))
             boundary_containers[bname] = cls._make_container(bcfg, nodes)
 
+        cls._configure_stackfile_guard_instances(config, guards_by_kind)
         return guards_by_kind, boundary_to_kind, boundary_containers
+
+    @classmethod
+    def _configure_stackfile_guard_instances(
+        cls,
+        config: StackfileConfig,
+        guards_by_kind: dict[str, Any],
+    ) -> None:
+        """Apply stackfile-selected guard strategies after all boundaries are known."""
+        motion_guard = guards_by_kind.get("motion")
+        if motion_guard is None:
+            return
+
+        qp_values: list[str] = []
+        for bcfg in config.boundaries.values():
+            if getattr(bcfg, "layer", None) != "L1":
+                continue
+            for ncfg in bcfg.nodes:
+                qp_solver = ncfg.params.get("qp_solver")
+                if qp_solver is not None:
+                    qp_values.append(str(qp_solver).lower())
+
+        if not qp_values:
+            return
+        unsupported = sorted({v for v in qp_values if v != "proxsuite"})
+        if unsupported:
+            raise ValueError(f"Unsupported L1 qp_solver value(s): {unsupported}")
+
+        from dam.guard.aggregators.motion_qp import motion_qp_aggregator
+
+        motion_guard._clamp_aggregator = motion_qp_aggregator
 
     @classmethod
     def _resolve_cb_layer(cls, ncfg: Any, layer_str: str, cb_reg: Any) -> str:
