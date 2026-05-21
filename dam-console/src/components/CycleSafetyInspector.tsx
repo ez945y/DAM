@@ -53,31 +53,49 @@ function fmtNumber(value: number): string {
   return value.toFixed(Math.abs(value) < 10 ? 3 : 1)
 }
 
+function isNonEmpty(v: unknown): boolean {
+  if (v == null) return false
+  if (Array.isArray(v) && v.length === 0) return false
+  if (typeof v === 'object' && !Array.isArray(v) && Object.keys(v as object).length === 0) return false
+  return true
+}
+
 function JsonValue({ value }: { value: unknown }) {
-  if (value == null) return <span className="text-dam-muted/60">null</span>
+  // null / empty are filtered out by the caller; render nothing as a safety
+  // net so a stray null doesn't add a useless "null" line.
+  if (!isNonEmpty(value)) return null
   if (typeof value === 'number') return <span className="font-mono text-dam-text">{fmtNumber(value)}</span>
   if (typeof value === 'boolean') return <span className="font-mono text-dam-blue">{String(value)}</span>
   if (typeof value === 'string') return <span className="font-mono text-dam-text/90 break-all">{value}</span>
   if (Array.isArray(value)) {
     const sample = value.slice(0, 8).map(v => typeof v === 'number' ? fmtNumber(v) : String(v)).join(', ')
-    return <span className="font-mono text-dam-text/80 break-all">[{sample}{value.length > 8 ? ', ...' : ''}]</span>
+    return <span className="font-mono text-dam-text/80 break-all">[{sample}{value.length > 8 ? ', …' : ''}]</span>
   }
   if (typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>)
-    // Stacked layout: each pair on its own row with the key as a small
-    // label above the value. The previous two-column grid used a fixed
-    // 120px key column that didn't shrink and caused the value column to
-    // overflow into the key on narrow inspector widths, making the text
-    // look glued together.
+    // Filter null / empty entries — guard callbacks that share a common
+    // dataclass (e.g. MotionQPConstraint) leave irrelevant fields at None,
+    // and rendering "field: null" for each of them is pure noise.
+    const entries = Object.entries(value as Record<string, unknown>).filter(([, v]) => isNonEmpty(v))
+    if (entries.length === 0) return null
     return (
-      <div className="space-y-1.5 min-w-0">
-        {entries.slice(0, 16).map(([k, v]) => (
-          <div key={k} className="min-w-0">
-            <div className="text-[10px] text-dam-muted/80 font-mono break-all" title={k}>{k}</div>
-            <div className="pl-2 border-l border-dam-border/40 min-w-0 break-all"><JsonValue value={v} /></div>
-          </div>
-        ))}
-        {entries.length > 16 && <p className="text-[10px] text-dam-muted/60">+ {entries.length - 16} more fields</p>}
+      <div className="space-y-0.5 min-w-0">
+        {entries.slice(0, 16).map(([k, v]) => {
+          const nested = typeof v === 'object' && v !== null && !Array.isArray(v)
+          return nested ? (
+            <div key={k} className="min-w-0">
+              <div className="text-[10px] text-dam-muted/80 font-mono" title={k}>{k}</div>
+              <div className="pl-2 mt-0.5 min-w-0"><JsonValue value={v} /></div>
+            </div>
+          ) : (
+            // Inline "key: value" — wraps naturally, no fixed column width
+            // and no extra indent line so the layout stays flat.
+            <div key={k} className="min-w-0 flex flex-wrap items-baseline gap-x-2">
+              <span className="text-[10px] text-dam-muted/80 font-mono shrink-0" title={k}>{k}</span>
+              <span className="min-w-0 break-all"><JsonValue value={v} /></span>
+            </div>
+          )
+        })}
+        {entries.length > 16 && <p className="text-[10px] text-dam-muted/60">+ {entries.length - 16} more</p>}
       </div>
     )
   }
@@ -181,7 +199,7 @@ function GuardCard({ guard }: { guard: InspectorGuardResult }) {
           {guard.reason && <p className="max-w-full text-[11px] text-dam-muted leading-relaxed whitespace-pre-wrap break-all">{guard.reason}</p>}
           <HardwareTable metadata={metadata} />
           {Object.keys(extraMetadata).length > 0 && (
-            <div className="min-w-0 rounded border border-dam-border/40 bg-dam-surface-1 p-2 overflow-x-auto">
+            <div className="min-w-0">
               <JsonValue value={extraMetadata} />
             </div>
           )}

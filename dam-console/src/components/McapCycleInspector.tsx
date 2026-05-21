@@ -97,8 +97,15 @@ function isNumberArray(value: unknown): value is number[] {
   return Array.isArray(value) && value.every((v) => typeof v === 'number')
 }
 
+function jsonTreeIsNonEmpty(v: unknown): boolean {
+  if (v == null) return false
+  if (Array.isArray(v) && v.length === 0) return false
+  if (typeof v === 'object' && !Array.isArray(v) && Object.keys(v as object).length === 0) return false
+  return true
+}
+
 function JsonTree({ value, depth = 0 }: { value: unknown; depth?: number }) {
-  if (value == null) return <span className="text-dam-muted/60">null</span>
+  if (!jsonTreeIsNonEmpty(value)) return null
   if (typeof value === 'number') return <span className="font-mono text-dam-text">{value.toFixed(Math.abs(value) < 10 ? 4 : 2)}</span>
   if (typeof value === 'boolean') return <span className="font-mono text-dam-blue">{String(value)}</span>
   if (typeof value === 'string') return <span className="font-mono text-dam-text/90 break-all">{value}</span>
@@ -107,28 +114,35 @@ function JsonTree({ value, depth = 0 }: { value: unknown; depth?: number }) {
       return <Sparkline values={value} label={`array[${value.length}]`} />
     }
     return (
-      <div className="space-y-1">
+      <div className="space-y-1 min-w-0">
         {value.map((item, idx) => (
-          <div key={idx} className="flex gap-2">
-            <span className="font-mono text-[10px] text-dam-muted">[{idx}]</span>
-            <JsonTree value={item} depth={depth + 1} />
+          <div key={idx} className="flex flex-wrap items-baseline gap-2 min-w-0">
+            <span className="font-mono text-[10px] text-dam-muted shrink-0">[{idx}]</span>
+            <span className="min-w-0 break-all"><JsonTree value={item} depth={depth + 1} /></span>
           </div>
         ))}
       </div>
     )
   }
   if (typeof value === 'object') {
-    // Stacked key/value rows — narrow widths (live status sidebar) were
-    // overflowing the fixed 130px key column into the value, gluing the
-    // two together visually.
+    const entries = Object.entries(value as Record<string, unknown>).filter(([, v]) => jsonTreeIsNonEmpty(v))
+    if (entries.length === 0) return null
     return (
-      <div className={`space-y-1.5 min-w-0 ${depth > 0 ? 'pl-2 border-l border-dam-border/40' : ''}`}>
-        {Object.entries(value as Record<string, unknown>).map(([key, val]) => (
-          <div key={key} className="min-w-0">
-            <div className="text-[10px] text-dam-muted/80 font-mono break-all" title={key}>{key}</div>
-            <div className="min-w-0 break-all"><JsonTree value={val} depth={depth + 1} /></div>
-          </div>
-        ))}
+      <div className="space-y-0.5 min-w-0">
+        {entries.map(([key, val]) => {
+          const nested = typeof val === 'object' && val !== null && !Array.isArray(val)
+          return nested ? (
+            <div key={key} className="min-w-0">
+              <div className="text-[10px] text-dam-muted/80 font-mono" title={key}>{key}</div>
+              <div className="pl-2 mt-0.5 min-w-0"><JsonTree value={val} depth={depth + 1} /></div>
+            </div>
+          ) : (
+            <div key={key} className="min-w-0 flex flex-wrap items-baseline gap-x-2">
+              <span className="font-mono text-[10px] text-dam-muted shrink-0" title={key}>{key}</span>
+              <span className="min-w-0 break-all"><JsonTree value={val} depth={depth + 1} /></span>
+            </div>
+          )
+        })}
       </div>
     )
   }
