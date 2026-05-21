@@ -228,7 +228,28 @@ MotionGuard 自己從 `obs.timestamp` 推 `effective_dt` 那段已隨著 MotionG
 
 </details>
 
-### 階段 6 — OODGuard 拆 backend
+### 階段 6 ✅ — OODGuard 拆 backend + L0 callback pipeline
+
+`OODGuard` class 名稱保留，但演算法 dispatch 從散落字串改成 backend protocol + enum，並新增 L0 callback path 讓 stackfile 跟其他層一致地選 OOD 演算法。
+
+已完成：
+- **Backend 抽象** [`dam/guard/ood_backend.py`](../dam/guard/ood_backend.py)：`OODBackendKind` enum（含 alias + unknown→`ValueError`）、`OODBackend` Protocol、三個 adapter（`WelfordBackend`/`MemoryBankBackend`/`RealNVPFlowBackend`，延遲 import detector 避免循環）、`make_backend`。
+- **Context** [`dam/guard/ood_context.py`](../dam/guard/ood_context.py)：持有共享 FeatureExtractor + backend cache，`features`/`raw_features`/`get_backend`/`load_backend`（per-`(key,path)` 載入一次，避免每 cycle disk IO）。
+- **L0 callbacks** [`dam/boundary/callbacks/ood.py`](../dam/boundary/callbacks/ood.py)：`ood_welford` / `ood_memory_bank` / `ood_normalizing_flow`，回 `CallbackResult`，metadata 帶 `score`/`threshold`/`backend`；主 backend 未 ready 時退回 Welford warmup（重現舊 auto-fallback）。
+- **OODGuard 變雙路徑** [`dam/guard/builtin/ood.py`](../dam/guard/builtin/ood.py)：有 active L0 callback → 走 `run_and_aggregate` pipeline（像 MotionGuard），用 guard 共享的 `OODContext`；無 callback → `_default_check` 跑 guard 自帶 detector（model-driven），dispatch 改用 `self._kind`（`OODBackendKind`）取代散落字串。temporal smoothing 仍在 guard 層套用（跨 frame state）。
+- **相容**：保留 raw detector 屬性（`_extractor`/`_bank`/`_flow`/`_welford`/`_mean_train_nll`/`_backend_name`）—— 多個測試直接存取；`diagnostics()` keys 不變；`train`/`save`/`load` 不變。
+- **Runtime**：[`guard_runtime.py`](../dam/runtime/guard_runtime.py) `_register_guard_if_new` 不再把 L0 OOD callback 名稱丟掉（現在 L0 boundary 也保留 callback 名稱，pipeline 才找得到）。`active_containers` 經 `RUNTIME_POOL_KEYS` 自動注入（與 MotionGuard 對稱）。
+- **Hot path load**：`OODGuard.check()` 不再呼叫 `_maybe_load`；artifact loading 只留在 `prepare()` / `load()`，以及 callback path 的 `OODContext.load_backend` one-time cache。default path 仍保留舊 detector 行為，但只使用已 train/load 好的 state，沒有每 cycle disk IO。
+- **`CallbackResult.ok`/`violate`** 加 optional `metadata`（純加法）。
+- **相容 shim**：[`builtin_callbacks.py`](../dam/boundary/builtin_callbacks.py) re-export 新 L0 callbacks，舊 import path 與 catalog 一致。
+- **測試**：新增 [`test_ood_backend.py`](../tests/unit/test_ood_backend.py)、[`test_ood_callbacks.py`](../tests/unit/test_ood_callbacks.py)；既有 OOD 測試全綠（含 default-path 相容），並鎖定 `check()` 不做 lazy load。
+
+**取捨/偏離原計劃**：
+- raw detector **沒有**搬進 backend，也沒從 `OODGuard` 拔掉 —— 既有測試直接 import/存取 `MemoryBank`/`RealNVPFlow`/`_WelfordStats` 與 guard 私有屬性，為「不回歸」保留。backend adapter 是包一層，pipeline path 用它，default path 仍直接用 raw detector。
+- `_maybe_load` 已離開 `check()` hot path；舊式 no-callback default path 若需要 artifact，呼叫端需先走 `prepare()` 或 `load()`。callback path 則由 `OODContext.load_backend` 以 `(key,path)` cache 確保只載入一次；更完整的 runtime preflight hook 可留到下一輪，但 hot path 不再每 cycle load。
+- 舊 `ood_detector` callback 保留（相容直接呼叫；不會遞迴，因為它內部呼叫 `OODGuard.check` 時不傳 `active_containers`，走 default path）。
+
+<details><summary>原始實作計劃（保留備查）</summary>
 
 > 建議放在 Phase 4/5 後。理由：OOD 涉及 model state、training、load/save、diagnostics，風險比 ExecutionGuard cleanup 高。先把 guard registration 與 callback dispatch 邊界收乾淨，再切 ML backend 會比較不混。
 
@@ -273,6 +294,8 @@ MotionGuard 自己從 `obs.timestamp` 推 `effective_dt` 那段已隨著 MotionG
 - `OODGuard` 對外 class name、decision semantics、diagnostics key 盡量維持相容。
 - model load/save/training lifecycle 有明確測試。
 
+</details>
+
 ## 不在這份 refactor 內
 
 - 不換 pydantic（stdlib dataclass 夠）
@@ -283,7 +306,7 @@ MotionGuard 自己從 `obs.timestamp` 推 `effective_dt` 那段已隨著 MotionG
 ## 未解決 / 後續再議
 
 - ~~**L1 多個 CLAMP 結果該怎麼預設融合？**~~ 已定案：預設仍是 sequential；想要 joint fusion 的使用者注入 `motion_qp_aggregator`（階段 3 完成）。
-- **OODGuard 要不要 callback 化？** 目前傾向不要強推。L0 callback 拿 obs 計算 OOD score 是合理的，但 model 載入 / training 不適合放 callback；Phase 6 先拆 backend、保留 OODGuard model-driven 路徑。
+- ~~**OODGuard 要不要 callback 化？**~~ 已定案：stackfile 對外用 L0 callback 選演算法；`OODGuard` 保留 class name 與 legacy no-callback detector path 作相容層。
 - **遷移期 backward compat**：舊 YAML 還在用 `joint_position_limits` 走舊路徑，需要時間視窗讓使用者改寫。考慮 0.6.0 release note 列 deprecation。
 
 ## 檔案相關性快查
@@ -297,5 +320,7 @@ MotionGuard 自己從 `obs.timestamp` 推 `effective_dt` 那段已隨著 MotionG
 | 既有 callback dispatch | [`dam/guard/callbacks.py`](../dam/guard/callbacks.py) |
 | QP / CBF solver helper | [`dam/runtime/qp_solver.py`](../dam/runtime/qp_solver.py) |
 | Clamp aggregators（可注入） | [`dam/guard/aggregators/`](../dam/guard/aggregators/) |
+| OOD backend / context | [`dam/guard/ood_backend.py`](../dam/guard/ood_backend.py), [`dam/guard/ood_context.py`](../dam/guard/ood_context.py) |
+| OOD L0 callbacks | [`dam/boundary/callbacks/ood.py`](../dam/boundary/callbacks/ood.py) |
 | Builtin guards | [`dam/guard/builtin/`](../dam/guard/builtin/) |
 | Boundary callbacks | [`dam/boundary/callbacks/`](../dam/boundary/callbacks/) |

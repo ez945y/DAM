@@ -60,12 +60,32 @@ class CallbackResult:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def ok(cls, boundary_name: str, reason: str = "") -> CallbackResult:
-        return cls(decision=GuardDecision.PASS, boundary_name=boundary_name, reason=reason)
+    def ok(
+        cls,
+        boundary_name: str,
+        reason: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> CallbackResult:
+        return cls(
+            decision=GuardDecision.PASS,
+            boundary_name=boundary_name,
+            reason=reason,
+            metadata=metadata or {},
+        )
 
     @classmethod
-    def violate(cls, boundary_name: str, reason: str) -> CallbackResult:
-        return cls(decision=GuardDecision.REJECT, boundary_name=boundary_name, reason=reason)
+    def violate(
+        cls,
+        boundary_name: str,
+        reason: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> CallbackResult:
+        return cls(
+            decision=GuardDecision.REJECT,
+            boundary_name=boundary_name,
+            reason=reason,
+            metadata=metadata or {},
+        )
 
     @classmethod
     def clamp(

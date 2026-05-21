@@ -106,11 +106,14 @@ class RuntimeFactory:
     def _build_lerobot(config: StackfileConfig) -> BaseRunner:
         from dam.adapter.lerobot.builder import LeRobotBuilder
         from dam.adapter.lerobot.policy import LeRobotPolicyAdapter
-        from dam.camera.frame_hub import CameraFrameHub
         from dam.runner.lerobot import LeRobotRunner
         from dam.runtime.guard_runtime import GuardRuntime
 
         assert config.hardware is not None
+        RuntimeFactory._validate_opencv_source_fields(config)
+
+        from dam.camera.frame_hub import CameraFrameHub
+
         hz = config.safety.control_frequency_hz if config.safety else 30.0
         frame_hub = CameraFrameHub(
             window_sec=config.loopback.window_sec if config.loopback else 10.0
@@ -180,16 +183,6 @@ class RuntimeFactory:
                     continue  # observation channel, handled above
                 if type_str in ("opencv", "camera", "usb"):
                     extra = src_cfg.model_extra or {}
-                    nested_params = extra.get("params")
-                    if isinstance(nested_params, dict) and any(
-                        key in nested_params
-                        for key in ("index", "index_or_path", "width", "height", "fps", "jpeg_fps")
-                    ):
-                        raise ValueError(
-                            f"OpenCV source '{name}' must declare camera fields at the source "
-                            "top level (for example index_or_path, width, height, fps), not "
-                            "under params."
-                        )
                     from dam.adapter.opencv.source import OpenCVSourceAdapter
 
                     idx: int | str = (
@@ -220,6 +213,25 @@ class RuntimeFactory:
             frame_hub=frame_hub,
             auxiliary_sources=auxiliary_sources,
         )
+
+    @staticmethod
+    def _validate_opencv_source_fields(config: StackfileConfig) -> None:
+        """Reject common camera fields under params before importing camera backends."""
+        if config.hardware is None or not config.hardware.sources:
+            return
+        camera_fields = {"index", "index_or_path", "width", "height", "fps", "jpeg_fps"}
+        for name, src_cfg in config.hardware.sources.items():
+            type_str = str(src_cfg.type).lower()
+            if type_str not in ("opencv", "camera", "usb"):
+                continue
+            extra = src_cfg.model_extra or {}
+            nested_params = extra.get("params")
+            if isinstance(nested_params, dict) and camera_fields.intersection(nested_params):
+                raise ValueError(
+                    f"OpenCV source '{name}' must declare camera fields at the source "
+                    "top level (for example index_or_path, width, height, fps), not "
+                    "under params."
+                )
 
     @staticmethod
     def _build_ros2(config: StackfileConfig, *, ros2_node: Any = None) -> BaseRunner:

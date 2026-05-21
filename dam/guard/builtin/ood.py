@@ -66,6 +66,9 @@ import numpy as np
 
 import dam
 from dam.guard.base import Guard
+from dam.guard.ood_backend import OODBackendKind
+from dam.guard.ood_context import OODContext
+from dam.guard.pipeline import run_and_aggregate
 from dam.types.observation import Observation
 from dam.types.result import GuardDecision, GuardResult
 
@@ -736,7 +739,12 @@ class OODGuard(Guard):
 
     def __init__(self, backend: str = "memory_bank") -> None:
         self._backend_name = backend
+        self._kind = OODBackendKind.from_value(backend)
         self._extractor = FeatureExtractor()
+        # Shared context drives the L0 *callback* path (stackfile-selected
+        # detector); it reuses this guard's extractor so the embeddings the
+        # callbacks score are consistent with what this guard would produce.
+        self._ood_context = OODContext(self._extractor)
         self._bank = MemoryBank()
         self._flow: RealNVPFlow | None = None
         self._welford = _WelfordStats()
@@ -785,7 +793,7 @@ class OODGuard(Guard):
             return
         vectors = np.stack(zs, axis=0)
 
-        if self._backend_name == "normalizing_flow":
+        if self._kind is OODBackendKind.NORMALIZING_FLOW:
             try:
                 if self._flow is None:
                     self._flow = RealNVPFlow(dim=vectors.shape[1], device=self._device)
@@ -802,6 +810,7 @@ class OODGuard(Guard):
             except ImportError as e:
                 logger.warning("RealNVP requires torch. Falling back to MemoryBank. (%s)", e)
                 self._backend_name = "memory_bank"
+                self._kind = OODBackendKind.MEMORY_BANK
                 self._bank.train(vectors)
         else:
             self._bank.train(vectors)
@@ -809,7 +818,7 @@ class OODGuard(Guard):
     def save(self, model_path: str, bank_path: str) -> None:
         """Persist extractor weights and memory bank vectors."""
         self._extractor.save(model_path)
-        if self._backend_name == "normalizing_flow" and self._flow is not None:
+        if self._kind is OODBackendKind.NORMALIZING_FLOW and self._flow is not None:
             self._flow.save(
                 model_path.replace(".pt", _FLOW_SUFFIX),
                 mean_train_nll=self._mean_train_nll,
@@ -830,7 +839,7 @@ class OODGuard(Guard):
         self._device = device
         self._extractor.load(model_path, joint_dim, has_images, device=device)
         flow_path = model_path.replace(".pt", _FLOW_SUFFIX)
-        if self._backend_name == "normalizing_flow" and Path(flow_path).exists():
+        if self._kind is OODBackendKind.NORMALIZING_FLOW and Path(flow_path).exists():
             if self._flow is None:
                 self._flow = RealNVPFlow(device=device)
             mean_nll, std_nll = self._flow.load(flow_path, device=device)
@@ -877,6 +886,7 @@ class OODGuard(Guard):
     def check(
         self,
         obs: Observation,
+        active_containers: list[Any] | None = None,
         nn_threshold: float = 2.0,
         nll_sigma: float = 3.0,
         nll_threshold: float = 5.0,
@@ -888,42 +898,65 @@ class OODGuard(Guard):
         layer = self.get_layer()
         name = self.get_name()
 
-        # Lazy-load model / bank if paths provided and changed
-        try:
-            self._maybe_load(ood_model_path, bank_path, obs, device=device)
-        except Exception as e:
-            logger.error("OODGuard: load failed: %s", e)
+        # New path: a stackfile may select the OOD algorithm via an L0
+        # @boundary_callback (ood_welford / ood_memory_bank / ood_normalizing_flow).
+        # When one is wired, drive the shared pipeline like every other guard;
+        # the callbacks read their state from this guard's shared OODContext.
+        if active_containers:
+            results, final = run_and_aggregate(
+                containers=active_containers,
+                runtime_pool={"obs": obs, "ood_context": self._ood_context},
+                expected_layer="L0",
+                guard_name=name,
+                guard_layer=layer,
+            )
+            if results:
+                return self._apply_temporal_smoothing(final, temporal_smoothing_frames, name, layer)
 
-        if (
-            self._backend_name == "normalizing_flow"
-            and self._flow is not None
-            and self._flow.is_fitted
-        ):
-            # Compute threshold from training distribution stats + runtime sigma.
-            # Falls back to the direct nll_threshold when no training stats exist.
-            if self._mean_train_nll is not None and self._std_train_nll is not None:
-                effective_threshold = self._mean_train_nll + nll_sigma * self._std_train_nll
-            else:
-                effective_threshold = nll_threshold
-            return self._apply_temporal_smoothing(
-                self._check_flow(obs, effective_threshold, name, layer),
-                temporal_smoothing_frames,
-                name,
-                layer,
-            )
-        if self._bank.is_trained:
-            return self._apply_temporal_smoothing(
-                self._check_memory_bank(obs, nn_threshold, name, layer),
-                temporal_smoothing_frames,
-                name,
-                layer,
-            )
+        # Compat path: no L0 callback wired — run the guard's own detector
+        # (model-driven), dispatched by kind rather than scattered strings.
         return self._apply_temporal_smoothing(
-            self._check_welford(obs, name, layer),
+            self._default_check(
+                obs,
+                name,
+                layer,
+                nn_threshold=nn_threshold,
+                nll_sigma=nll_sigma,
+                nll_threshold=nll_threshold,
+            ),
             temporal_smoothing_frames,
             name,
             layer,
         )
+
+    def _default_check(
+        self,
+        obs: Observation,
+        name: str,
+        layer: Any,
+        *,
+        nn_threshold: float,
+        nll_sigma: float,
+        nll_threshold: float,
+    ) -> GuardResult:
+        """Model-driven detection used when no L0 callback is wired.
+
+        Detector priority (unchanged): fitted flow → trained bank → Welford.
+        """
+        if (
+            self._kind is OODBackendKind.NORMALIZING_FLOW
+            and self._flow is not None
+            and self._flow.is_fitted
+        ):
+            # threshold = mean_train_nll + σ·std (falls back to direct cutoff).
+            if self._mean_train_nll is not None and self._std_train_nll is not None:
+                effective_threshold = self._mean_train_nll + nll_sigma * self._std_train_nll
+            else:
+                effective_threshold = nll_threshold
+            return self._check_flow(obs, effective_threshold, name, layer)
+        if self._bank.is_trained:
+            return self._check_memory_bank(obs, nn_threshold, name, layer)
+        return self._check_welford(obs, name, layer)
 
     def _apply_temporal_smoothing(
         self,
@@ -996,7 +1029,7 @@ class OODGuard(Guard):
 
         # Also load the flow checkpoint (and restore training stats) if present.
         flow_path = model_path.replace(".pt", _FLOW_SUFFIX)
-        if self._backend_name == "normalizing_flow" and Path(flow_path).exists():
+        if self._kind is OODBackendKind.NORMALIZING_FLOW and Path(flow_path).exists():
             if self._flow is None:
                 self._flow = RealNVPFlow(device=device)
             mean_nll, std_nll = self._flow.load(flow_path, device=device)
@@ -1084,6 +1117,9 @@ class OODGuard(Guard):
     # ── Diagnostics ──────────────────────────────────────────────────────────
 
     def diagnostics(self) -> dict[str, Any]:
+        # Reports the guard's own (default-path) detectors, keeping the historical
+        # key set stable for the console UI / tests.  The L0 callback path keeps
+        # its own per-backend stats in ``self._ood_context.diagnostics()``.
         return {
             "backend": self._backend_name,
             "bank_trained": self._bank.is_trained,

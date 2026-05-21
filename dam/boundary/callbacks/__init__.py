@@ -46,6 +46,11 @@ from dam.boundary.callbacks.kinematics import (
     orientation_limit,
     workspace,
 )
+from dam.boundary.callbacks.ood import (
+    ood_memory_bank,
+    ood_normalizing_flow,
+    ood_welford,
+)
 from dam.boundary.callbacks.perception import ood_detector
 
 __all__ = [
@@ -67,6 +72,9 @@ __all__ = [
     "joint_velocity_limit",
     "keep_out_zone",
     "ood_detector",
+    "ood_memory_bank",
+    "ood_normalizing_flow",
+    "ood_welford",
     "orientation_limit",
     "register_all",
     "semantic_state",
