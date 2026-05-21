@@ -303,7 +303,7 @@ def aggregate(
             layer=guard_layer,
             reason=reason,
             fault_source=first.fault_source or "guard_code",
-            metadata=_merge_metadata(faults),
+            metadata=_merge_metadata(faults, all_results=results),
         )
 
     rejects = [r for r in results if r.decision == GuardDecision.REJECT]
@@ -314,7 +314,7 @@ def aggregate(
             guard_name=guard_name,
             layer=guard_layer,
             reason=reason,
-            metadata=_merge_metadata(rejects),
+            metadata=_merge_metadata(rejects, all_results=results),
         )
 
     clamps = [r for r in results if r.decision == GuardDecision.CLAMP]
@@ -336,18 +336,38 @@ def aggregate(
             layer=guard_layer,
             reason=reason,
             clamped_action=fused,
-            metadata=_merge_metadata(clamps),
+            metadata=_merge_metadata(clamps, all_results=results),
         )
 
     return GuardResult.success(guard_name=guard_name, layer=guard_layer)
 
 
-def _merge_metadata(results: list[CallbackResult]) -> dict[str, Any]:
-    """Flatten per-boundary metadata under each boundary's name."""
+# Reserved metadata key — execution engine reads this to produce a distinct
+# GuardResult per boundary instead of replicating the aggregated one.
+PER_BOUNDARY_KEY = "_per_boundary"
+
+
+def _merge_metadata(
+    results: list[CallbackResult],
+    *,
+    all_results: list[CallbackResult] | None = None,
+) -> dict[str, Any]:
+    """Flatten per-boundary metadata under each boundary's name and stash
+    PER_BOUNDARY_KEY covering *every* callback (not just the winning
+    decision), so the engine's fan-out can give each boundary its actual
+    decision and metadata — PASS boundaries included."""
     out: dict[str, Any] = {}
     for r in results:
         if r.metadata:
             out[r.boundary_name] = r.metadata
+    per_boundary: dict[str, dict[str, Any]] = {}
+    for r in all_results if all_results is not None else results:
+        per_boundary[r.boundary_name] = {
+            "decision": r.decision.name,
+            "reason": r.reason,
+            "metadata": dict(r.metadata) if r.metadata else {},
+        }
+    out[PER_BOUNDARY_KEY] = per_boundary
     return out
 
 

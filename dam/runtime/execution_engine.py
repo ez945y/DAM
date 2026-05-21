@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from dam.fallback.base import FallbackContext
 from dam.guard.aggregator import aggregate_decisions
+from dam.guard.pipeline import PER_BOUNDARY_KEY
 from dam.types.action import ValidatedAction
 from dam.types.enforcement import EnforcementMode
 from dam.types.result import GuardDecision, GuardResult
@@ -33,6 +34,57 @@ if TYPE_CHECKING:
     from dam.types.observation import Observation
 
 logger = logging.getLogger(__name__)
+
+
+def _fan_out_per_boundary(result: GuardResult, boundary_names: list[str]) -> list[GuardResult]:
+    """Produce one GuardResult per boundary in the group.
+
+    Pipeline-driven guards (MotionGuard, ExecutionGuard, OODGuard) run their
+    callbacks across all active boundaries and return a single aggregated
+    GuardResult. When multiple boundaries share that guard instance, the
+    cycle inspector wants to see each boundary's *own* decision/reason/
+    metadata, not N copies of the aggregated text.
+
+    The aggregator stashes per-callback info under
+    ``metadata[PER_BOUNDARY_KEY]``; this helper materialises one
+    GuardResult per boundary using that entry. The fused ``clamped_action``
+    stays on every CLAMP result (it represents the joint QP solve, identical
+    across boundaries; ``aggregate_decisions.merge_restrictive`` is
+    idempotent on equal actions).
+    """
+    metadata = result.metadata or {}
+    per_boundary = metadata.get(PER_BOUNDARY_KEY) if isinstance(metadata, dict) else None
+    if not isinstance(per_boundary, dict) or not per_boundary:
+        return [dataclasses.replace(result, guard_name=bn) for bn in boundary_names]
+
+    out: list[GuardResult] = []
+    for bn in boundary_names:
+        info = per_boundary.get(bn)
+        if not isinstance(info, dict):
+            out.append(dataclasses.replace(result, guard_name=bn))
+            continue
+        decision_name = info.get("decision", result.decision.name)
+        try:
+            decision = GuardDecision[decision_name]
+        except KeyError:
+            decision = result.decision
+        boundary_meta = info.get("metadata") or {}
+        if not isinstance(boundary_meta, dict):
+            boundary_meta = {}
+        out.append(
+            dataclasses.replace(
+                result,
+                guard_name=bn,
+                decision=decision,
+                reason=str(info.get("reason") or ""),
+                metadata=boundary_meta,
+                # Only attach the fused clamped_action on CLAMP boundaries; a
+                # PASS boundary in the group shouldn't appear to carry a
+                # corrective action.
+                clamped_action=result.clamped_action if decision == GuardDecision.CLAMP else None,
+            )
+        )
+    return out
 
 
 @dataclasses.dataclass
@@ -415,9 +467,7 @@ class ExecutionEngine:
                 except Exception as exc:
                     result = GuardResult.fault(exc, "guard_code", primary, g.get_layer())
                     logger.error("Stage '%s' guard '%s' raised: %s", stage.name, primary, exc)
-                # Fan out to all boundary names in the group
-                for bn in bnames:
-                    results.append(dataclasses.replace(result, guard_name=bn))
+                results.extend(_fan_out_per_boundary(result, bnames))
             return results
 
         # Legacy flat-guard path
@@ -517,8 +567,7 @@ class ExecutionEngine:
                         reason=f"Stage '{stage.name}' guard did not complete",
                         fault_source="timeout",
                     )
-                for bn in bnames:
-                    results.append(dataclasses.replace(r, guard_name=bn))
+                results.extend(_fan_out_per_boundary(r, bnames))
         else:
             for r in raw_results:
                 if r is not None:

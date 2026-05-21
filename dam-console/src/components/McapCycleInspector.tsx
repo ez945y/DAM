@@ -118,12 +118,15 @@ function JsonTree({ value, depth = 0 }: { value: unknown; depth?: number }) {
     )
   }
   if (typeof value === 'object') {
+    // Stacked key/value rows — narrow widths (live status sidebar) were
+    // overflowing the fixed 130px key column into the value, gluing the
+    // two together visually.
     return (
-      <div className={`space-y-1 ${depth > 0 ? 'pl-2 border-l border-dam-border/40' : ''}`}>
+      <div className={`space-y-1.5 min-w-0 ${depth > 0 ? 'pl-2 border-l border-dam-border/40' : ''}`}>
         {Object.entries(value as Record<string, unknown>).map(([key, val]) => (
-          <div key={key} className="grid grid-cols-[130px_1fr] gap-2 items-start">
-            <span className="text-[10px] text-dam-muted font-mono truncate" title={key}>{key}</span>
-            <JsonTree value={val} depth={depth + 1} />
+          <div key={key} className="min-w-0">
+            <div className="text-[10px] text-dam-muted/80 font-mono break-all" title={key}>{key}</div>
+            <div className="min-w-0 break-all"><JsonTree value={val} depth={depth + 1} /></div>
           </div>
         ))}
       </div>

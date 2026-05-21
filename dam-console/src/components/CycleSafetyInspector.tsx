@@ -1,5 +1,5 @@
 'use client'
-import React, { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Activity, AlertTriangle, ChevronDown, ChevronRight, Cpu, Shield } from 'lucide-react'
 import type { FailureType } from '@/lib/types'
 
@@ -57,22 +57,27 @@ function JsonValue({ value }: { value: unknown }) {
   if (value == null) return <span className="text-dam-muted/60">null</span>
   if (typeof value === 'number') return <span className="font-mono text-dam-text">{fmtNumber(value)}</span>
   if (typeof value === 'boolean') return <span className="font-mono text-dam-blue">{String(value)}</span>
-  if (typeof value === 'string') return <span className="font-mono text-dam-text/90 break-words">{value}</span>
+  if (typeof value === 'string') return <span className="font-mono text-dam-text/90 break-all">{value}</span>
   if (Array.isArray(value)) {
     const sample = value.slice(0, 8).map(v => typeof v === 'number' ? fmtNumber(v) : String(v)).join(', ')
-    return <span className="font-mono text-dam-text/80">[{sample}{value.length > 8 ? ', ...' : ''}]</span>
+    return <span className="font-mono text-dam-text/80 break-all">[{sample}{value.length > 8 ? ', ...' : ''}]</span>
   }
   if (typeof value === 'object') {
     const entries = Object.entries(value as Record<string, unknown>)
+    // Stacked layout: each pair on its own row with the key as a small
+    // label above the value. The previous two-column grid used a fixed
+    // 120px key column that didn't shrink and caused the value column to
+    // overflow into the key on narrow inspector widths, making the text
+    // look glued together.
     return (
-      <div className="grid grid-cols-[120px_1fr] gap-x-3 gap-y-1">
+      <div className="space-y-1.5 min-w-0">
         {entries.slice(0, 16).map(([k, v]) => (
-          <React.Fragment key={k}>
-            <span className="text-[10px] text-dam-muted font-mono truncate" title={k}>{k}</span>
-            <JsonValue value={v} />
-          </React.Fragment>
+          <div key={k} className="min-w-0">
+            <div className="text-[10px] text-dam-muted/80 font-mono break-all" title={k}>{k}</div>
+            <div className="pl-2 border-l border-dam-border/40 min-w-0 break-all"><JsonValue value={v} /></div>
+          </div>
         ))}
-        {entries.length > 16 && <span className="col-span-2 text-[10px] text-dam-muted/60">+ {entries.length - 16} more fields</span>}
+        {entries.length > 16 && <p className="text-[10px] text-dam-muted/60">+ {entries.length - 16} more fields</p>}
       </div>
     )
   }
@@ -157,19 +162,26 @@ function GuardCard({ guard }: { guard: InspectorGuardResult }) {
 
   return (
     <div className={`rounded border overflow-hidden ${guard.decision === 'PASS' ? 'border-dam-border/40 bg-dam-surface-2' : 'border-red-500/20 bg-red-500/5'}`}>
-      <button type="button" onClick={() => setOpen(v => !v)} className="w-full flex items-center gap-2 px-2 py-1.5 text-left">
-        {open ? <ChevronDown size={12} className="text-dam-muted" /> : <ChevronRight size={12} className="text-dam-muted" />}
-        <span className="w-8 text-[10px] font-mono text-dam-muted">{guard.layer}</span>
-        <span className="flex-1 min-w-0 truncate font-mono text-[11px] font-bold text-dam-text">{guard.name}</span>
-        {guard.latency_ms != null && <span className="font-mono text-[10px] text-dam-muted">{guard.latency_ms.toFixed(1)}ms</span>}
-        <span className={`px-1.5 py-0.5 rounded border text-[9px] font-bold ${DECISION_STYLE[guard.decision] ?? 'text-dam-muted border-dam-border'}`}>{guard.decision}</span>
+      {/* Header wraps to 2 rows on narrow widths so name + boundary tag aren't
+          truncated to a single character. Layer + decision sit on row 1; name
+          + latency sit on row 2 when the header has < ~280px of width. */}
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="w-full text-left flex flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1.5"
+      >
+        {open ? <ChevronDown size={12} className="text-dam-muted shrink-0" /> : <ChevronRight size={12} className="text-dam-muted shrink-0" />}
+        <span className="w-7 text-[10px] font-mono text-dam-muted shrink-0">{guard.layer}</span>
+        <span className="flex-1 min-w-[6rem] font-mono text-[11px] font-bold text-dam-text break-all">{guard.name}</span>
+        {guard.latency_ms != null && <span className="font-mono text-[10px] text-dam-muted shrink-0">{guard.latency_ms.toFixed(1)}ms</span>}
+        <span className={`shrink-0 px-1.5 py-0.5 rounded border text-[9px] font-bold ${DECISION_STYLE[guard.decision] ?? 'text-dam-muted border-dam-border'}`}>{guard.decision}</span>
       </button>
       {open && (
-        <div className="border-t border-dam-border/40 px-3 py-2 space-y-2">
+        <div className="border-t border-dam-border/40 px-3 py-2 space-y-2 min-w-0">
           {guard.reason && <p className="max-w-full text-[11px] text-dam-muted leading-relaxed whitespace-pre-wrap break-all">{guard.reason}</p>}
           <HardwareTable metadata={metadata} />
           {Object.keys(extraMetadata).length > 0 && (
-            <div className="min-w-0 rounded border border-dam-border/40 bg-dam-surface-1 p-2 overflow-hidden">
+            <div className="min-w-0 rounded border border-dam-border/40 bg-dam-surface-1 p-2 overflow-x-auto">
               <JsonValue value={extraMetadata} />
             </div>
           )}
