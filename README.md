@@ -22,19 +22,16 @@ https://github.com/user-attachments/assets/a10711ea-a419-4aee-ba06-de1e2d437d49
 This design enables strong safety boundaries while keeping the learning/policy layer fully detachable and upgradable.
 
 ### Features
++ **Graduated L0→L3 Pipeline**: Validates OOD, motion feasibility, task logic, and hardware health with graceful fallback escalation instead of hard crashes.
++ **L1 Motion Boundary (CBF)**: Solves joint, velocity, and workspace constraints in one ProxSuite QP for minimally disruptive safe actions.
++ **MCAP Loopback Ring Buffer**: Saves ±30s of frames, observations, and safety events around failures into MCAP using Rust async workers.
++ **Cycle Inspector**: Audits each control loop with per-guard latency, boundary decisions, and observation/action diffs in-browser.
++ **Rust Data Plane**: Moves serialization, MCAP writing, and messaging out of the Python GIL for deterministic performance.
++ **Strict Adapter Isolation**: Sensor, Policy, and Action ABCs enable swapping LeRobot, ROS 2, or OpenCV without touching guard logic.
+7. **Stackfile-Driven Config**: Robots, policies, and safety boundaries are fully YAML-defined and CI-validated via `dam validate`.
 
-- **4-Layer Guard Stack**: Progressive defense from perception (L0) → hardware (L3)
-- **Rust Data Plane**: Deterministic, real-time-safe execution outside the Python GIL
-- **Stackfile-Driven**: Swap hardware, policies, or safety rules via YAML. Zero Python code for simple tasks.
-- **Hot-Reload Boundaries**: Update safety constraints without stopping the robot
-- **Fail-to-Reject**: Any guard timeout, crash, or exception → immediate rejection
-- **MCAP Loopback Buffer**: Capture ±30s of context around safety events for analysis
-- **Host Health Boundary**: L3 `host_health` guard treats computer CPU/GPU/temperature/memory breaches as hardware-risk events
-- **Native Experiments**: Built-in RQ1–RQ5 evaluation runners via console, `dam experiment` CLI, or HTTP API
-- **Built-in Adapters**: LeRobot (SO-ARM101) and ROS 2 support
+**Disclaimer**: DAM is experimental research software and not certified for safety-critical or production environments.
 
-**Important Disclaimer**:
-DAM is currently **research and experimental-grade software**. It is **not certified** for safety-critical or production use in human-collaborative or high-risk environments. Use at your own risk. We are actively working toward formal verification, worst-case timing analysis, and compliance-oriented documentation.
 
 ---
 
@@ -62,13 +59,13 @@ make run
 The `dam` CLI is available after `make setup`:
 
 ```bash
-dam validate examples/stackfiles/*.yaml   # schema-check Stackfiles (CI gate)
-dam callbacks                             # list built-in boundary callbacks
-dam run <stack> --cycles 200              # headless control loop
-dam replay <session>.mcap                 # summarise a recorded session
-dam doctor                                # check environment / dependencies
-dam inspect <stack>                       # print the resolved Stackfile graph
-dam help [command]
+.venv/bin/dam doctor                                # check environment / dependencies
+.venv/bin/dam callbacks                             # list built-in boundary callbacks
+.venv/bin/dam inspect <stack>                       # print the resolved Stackfile graph
+.venv/bin/dam validate examples/stackfiles/*.yaml   # schema-check Stackfiles (CI gate)
+.venv/bin/dam run <stack> --cycles 200              # headless control loop
+.venv/bin/dam replay <session>.mcap                 # summarise a recorded session
+.venv/bin/dam help [command]
 ```
 
 After starting, open **http://localhost:3000** in your browser and select a configuration template:
@@ -81,50 +78,23 @@ After starting, open **http://localhost:3000** in your browser and select a conf
 
 ### Configuration
 
-DAM acts as a transparent safety layer:
+System Architecture
+<img src="docs/diagrams/diagram1_system_architecture.png" alt="System Architecture" width="600" />
 
-```
-Policy / Controller
-        │
-        ▼
-Proposed Action  ──────▶  [ Guard Stack L0–L3 ]  ──────▶  Validated Action
-        ▲                       │      │      │                  │
-        │                       │      │      │                  ▼
-Observations & State  ─────────┘      │      └──────────▶  Fallback (Hold / Retreat / E-Stop)
-                                       │
-                                       ▼
-                                 Decision: Pass / Clamp / Reject
-```
+Workflow
+<img src="docs/diagrams/diagram2_runtime_workflow.png" alt="Runtime Workflow" width="600" />
+
 
 **Guard Layers**
 
-| Layer | Name                    | Responsibility                                      | Status      |
-|-------|-------------------------|-----------------------------------------------------|-------------|
-| L0    | OOD Detection           | Out-of-distribution observation detection           | Available   |
-| L1    | Physical Kinematics     | Joint limits, workspace, velocity & dynamics        | Available   |
-| L2    | Task Execution          | Mission progress and boundary enforcement           | Available   |
-| L3    | Hardware Monitoring     | Temperature, current, heartbeat, following error    | Available   |
+| Layer | Name                    | Responsibility                                      |
+|-------|-------------------------|-----------------------------------------------------|
+| L0    | OOD Detection           | Out-of-distribution observation detection           |
+| L1    | Physical Kinematics     | Joint limits, workspace, velocity                   |
+| L2    | Task Execution          | Mission progress and boundary enforcement           |
+| L3    | Hardware Monitoring     | Temperature, current, voltage, heartbeat            |
 
 The final decision is the **most restrictive** outcome from all active layers.
-
----
-
-### Roadmap
-
-**v0.4.0 (Current focus)**
-- Runner-owned runtime lifecycle and control loop
-- Image hub backed live preview and MCAP camera attachments
-- ROS2 runner recheck and node preservation
-
-**v0.5.0**
-- More built-in boundary types
-- Domain-specific bundles (manipulation, mobile manipulation, etc.)
-- Extensive adversarial testing suite
-
-**Longer term**
-- Formal verification of critical safety paths
-- Support for additional robot platforms
-- Certification preparation artifacts
 
 ---
 
