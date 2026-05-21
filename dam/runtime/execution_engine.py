@@ -404,7 +404,14 @@ class ExecutionEngine:
                         for bn in bnames:
                             results.append(self._run_one_guard(g, bn, runtime_pool))
                         continue
-                    result = self._run_one_guard(g, primary, runtime_pool)
+                    # Pipeline-driven guards (MotionGuard/ExecutionGuard) need
+                    # to see *all* active containers for their layer at once so
+                    # their clamp aggregator can fuse contributions across
+                    # boundaries.  Pass ``boundary_name=None`` to skip the
+                    # per-boundary active_containers narrowing in
+                    # _run_one_guard; the result is still fanned out below for
+                    # per-boundary metric reporting.
+                    result = self._run_one_guard(g, None, runtime_pool)
                 except Exception as exc:
                     result = GuardResult.fault(exc, "guard_code", primary, g.get_layer())
                     logger.error("Stage '%s' guard '%s' raised: %s", stage.name, primary, exc)

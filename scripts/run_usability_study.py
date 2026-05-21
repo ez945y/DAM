@@ -18,8 +18,11 @@ from __future__ import annotations
 
 import argparse
 import csv
+import sys
 import time
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np
 
@@ -34,13 +37,6 @@ _JOINT_LOWER[-1] = 0.0
 _MAX_VEL = np.full(_N_JOINTS, 1.5)
 _WORKSPACE_BOUNDS = [[-0.40, 0.40], [-0.40, 0.40], [0.02, 0.60]]
 
-_MOTION_KWARGS = dict(
-    upper=_JOINT_UPPER.tolist(),
-    lower=_JOINT_LOWER.tolist(),
-    max_velocity=_MAX_VEL.tolist(),
-    bounds=_WORKSPACE_BOUNDS,
-)
-
 # Each scenario perturbs a benign nominal frame within safe limits.
 SCENARIOS = (
     "standard",
@@ -51,19 +47,17 @@ SCENARIOS = (
 )
 
 
-def _make_guards() -> dict[str, object]:
-    import dam
-    from dam.guard.builtin.execution import ExecutionGuard
-    from dam.guard.builtin.motion import MotionGuard
-    from dam.guard.builtin.ood import OODGuard
+def _build_study_runtime():
+    """Build the same L0/L1/L2 safety stack the study uses, via the production
+    stackfile path. Boundary params (joint limits, velocity caps, workspace)
+    come from the YAML — never from Python kwargs."""
+    import sys
 
-    ood = dam.guard("L0")(OODGuard)(backend="welford")
-    ood._guard_name = "ood"
-    motion = dam.guard("L1")(MotionGuard)()
-    motion._guard_name = "motion"
-    execution = dam.guard("L2")(ExecutionGuard)()
-    execution._guard_name = "execution"
-    return {"ood": ood, "motion": motion, "execution": execution}
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from scripts._bench_stackfiles import build_runtime
+
+    rt, _ = build_runtime(ood=True, motion=True, execution=True)
+    return rt
 
 
 def _benign_obs(scenario: str, rng: np.random.Generator) -> Observation:
@@ -102,31 +96,23 @@ def _intercepted(result: object) -> bool:
 
 
 def run_scenario(name: str, trials: int, rng: np.random.Generator) -> dict:
-    guards = _make_guards()
-    # Warm up the online OOD estimator on nominal frames so it has a baseline
-    # distribution before we measure benign-frame false triggers.
+    rt = _build_study_runtime()
+    # Warm up the welford OOD baseline so a fresh estimator doesn't flag
+    # the early benign frames it has never seen before.
     for _ in range(max(60, trials)):
-        guards["ood"].check(obs=_benign_obs("standard", rng))  # type: ignore[union-attr]
+        o = _benign_obs("standard", rng)
+        rt.validate(o, ActionProposal(target_joint_positions=o.joint_positions), "warmup")
 
     false_triggers = 0
     successes = 0
-    for _ in range(trials):
+    for cid in range(trials):
         obs = _benign_obs(name, rng)
         action = ActionProposal(
             target_joint_positions=obs.joint_positions,
             target_joint_velocities=obs.joint_velocities,
         )
-        tripped = (
-            _intercepted(guards["ood"].check(obs=obs))  # type: ignore[union-attr]
-            or _intercepted(
-                guards["motion"].check(obs=obs, action=action, **_MOTION_KWARGS)  # type: ignore[union-attr]
-            )
-            or _intercepted(
-                guards["execution"].check(  # type: ignore[union-attr]
-                    obs=obs, active_containers=[], node_start_times={}
-                )
-            )
-        )
+        _v, results, _fb = rt.validate(obs, action, f"study-{cid}")
+        tripped = any(_intercepted(r) for r in results)
         if tripped:
             false_triggers += 1
         else:

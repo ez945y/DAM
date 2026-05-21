@@ -39,6 +39,8 @@ def _jmap(readings: dict[str, float]) -> dict[str, float]:
 class HardwareGuard(Guard):
     """L3 hardware safety guard: watchdog (heartbeat) + health telemetry.
 
+    Decision contract: PASS / FAULT, plus CLAMP for thermal throttle paths.
+
     Injection keys
     --------------
     obs : Observation
@@ -58,6 +60,8 @@ class HardwareGuard(Guard):
         is known faulty — its readings still appear in the telemetry
         summary, but won't trigger a FAULT.
     """
+
+    expected_decisions = frozenset({GuardDecision.PASS, GuardDecision.CLAMP, GuardDecision.FAULT})
 
     def check(
         self,

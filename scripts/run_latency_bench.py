@@ -34,28 +34,32 @@ import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np
 
-from dam.guard.builtin.execution import ExecutionGuard
-from dam.guard.builtin.hardware import HardwareGuard
-from dam.guard.builtin.motion import MotionGuard
-
 # ── DAM imports ──────────────────────────────────────────────────────────────
-from dam.guard.builtin.ood import OODGuard
 from dam.types.action import ActionProposal
 from dam.types.observation import Observation
+from scripts._bench_stackfiles import (
+    JOINT_LOWER as _JOINT_LOWER,
+)
+from scripts._bench_stackfiles import (
+    JOINT_UPPER as _JOINT_UPPER,
+)
+from scripts._bench_stackfiles import (
+    MAX_VEL as _MAX_VEL,
+)
+from scripts._bench_stackfiles import (
+    N_JOINTS as _N_JOINTS,
+)
+from scripts._bench_stackfiles import (
+    build_runtime as _build_runtime,
+)
 
 # ── Synthetic data helpers ────────────────────────────────────────────────────
-
-_N_JOINTS = 6
-_JOINT_UPPER = np.array([1.8243, 1.7691, 1.6026, 1.8067, 3.0741, 1.7453])
-_JOINT_LOWER = -_JOINT_UPPER.copy()
-_JOINT_LOWER[-1] = 0.0
-_MAX_VEL = np.full(_N_JOINTS, 1.5)
-_WORKSPACE_BOUNDS = [[-0.40, 0.40], [-0.40, 0.40], [0.02, 0.60]]
 
 
 def _make_nominal_obs(rng: np.random.Generator) -> Observation:
@@ -78,49 +82,19 @@ def _make_nominal_action(obs: Observation) -> ActionProposal:
     )
 
 
-# ── Guard instances ───────────────────────────────────────────────────────────
+# ── Runtime construction ─────────────────────────────────────────────────────
+# Each benchmark config drives a `GuardRuntime` built from a real stackfile —
+# the same path production uses.  Boundary params come from the stackfile;
+# nothing is hand-rolled in this script.
 
 
-def _make_ood() -> OODGuard:
-    import dam
-
-    cls = dam.guard("L0")(OODGuard)
-    g = cls(backend="welford")  # no model needed; Welford warms up online
-    g._guard_name = "ood"
-    return g
-
-
-def _make_motion() -> MotionGuard:
-    import dam
-
-    cls = dam.guard("L1")(MotionGuard)
-    g = cls()
-    g._guard_name = "motion"
-    return g
-
-
-_MOTION_KWARGS = dict(
-    upper=_JOINT_UPPER.tolist(),
-    lower=_JOINT_LOWER.tolist(),
-    max_velocity=_MAX_VEL.tolist(),
-    bounds=_WORKSPACE_BOUNDS,
-)
-
-
-def _make_execution() -> ExecutionGuard:
-    import dam
-
-    cls = dam.guard("L2")(ExecutionGuard)
-    g = cls()
-    g._guard_name = "execution"
-    return g
-
-
-def _make_hardware() -> HardwareGuard:
-    # HardwareGuard already has @dam.guard(layer="L3") — no extra decoration needed.
-    g = HardwareGuard()
-    g._guard_name = "hardware"
-    return g
+def _build_runtime_for(guard_names: list[str]):
+    return _build_runtime(
+        ood="ood" in guard_names,
+        motion="motion" in guard_names,
+        execution="execution" in guard_names,
+        hardware="hardware" in guard_names,
+    )[0]
 
 
 # ── Benchmark runner ──────────────────────────────────────────────────────────
@@ -140,14 +114,14 @@ def run_config(
     rng: np.random.Generator,
     budget_ms: float | None = None,
 ) -> dict:
-    guards = _build_guards(guard_names)
+    runtime = _build_runtime_for(guard_names) if guard_names else None
     latencies_ms: list[float] = []
 
-    for _ in range(frames):
+    for i in range(frames):
         obs = _make_nominal_obs(rng)
         action = _make_nominal_action(obs)
         now = time.monotonic()
-        latencies_ms.append(_measure_guards_ms(guards, obs, action, now))
+        latencies_ms.append(_measure_runtime_ms(runtime, obs, action, i, now))
 
     return _latency_stats(label, frames, latencies_ms, budget_ms)
 
@@ -161,8 +135,11 @@ def run_frequency(
     pace_seconds: float = 0.0,
     progress: Callable[[int, int], None] | None = None,
 ) -> list[dict]:
-    guard_sets = [(label, _build_guards(guard_names)) for label, guard_names in _CONFIGS]
-    latencies: dict[str, list[float]] = {label: [] for label, _ in guard_sets}
+    runtime_sets = [
+        (label, _build_runtime_for(guard_names) if guard_names else None)
+        for label, guard_names in _CONFIGS
+    ]
+    latencies: dict[str, list[float]] = {label: [] for label, _ in runtime_sets}
     visual_step_ms = (pace_seconds * 1000.0 / frames) if pace_seconds > 0 else 0.0
     progress_every = max(1, frames // 10)
 
@@ -171,8 +148,8 @@ def run_frequency(
         obs = _make_nominal_obs(rng)
         action = _make_nominal_action(obs)
         now = time.monotonic()
-        for label, guards in guard_sets:
-            latencies[label].append(_measure_guards_ms(guards, obs, action, now))
+        for label, runtime in runtime_sets:
+            latencies[label].append(_measure_runtime_ms(runtime, obs, action, idx, now))
         if realtime:
             elapsed_ms = (time.perf_counter() - cycle_t0) * 1000.0
             sleep_ms = budget_ms - elapsed_ms
@@ -186,43 +163,23 @@ def run_frequency(
         if progress and ((idx + 1) % progress_every == 0 or idx + 1 == frames):
             progress(idx + 1, frames)
 
-    return [_latency_stats(label, frames, latencies[label], budget_ms) for label, _ in guard_sets]
+    return [_latency_stats(label, frames, latencies[label], budget_ms) for label, _ in runtime_sets]
 
 
-def _build_guards(guard_names: list[str]) -> dict[str, object]:
-    # Build only the requested guard instances.
-    guards: dict[str, object] = {}
-    if "ood" in guard_names:
-        guards["ood"] = _make_ood()
-    if "motion" in guard_names:
-        guards["motion"] = _make_motion()
-    if "execution" in guard_names:
-        guards["execution"] = _make_execution()
-    if "hardware" in guard_names:
-        guards["hardware"] = _make_hardware()
-    return guards
-
-
-def _measure_guards_ms(
-    guards: dict[str, object],
+def _measure_runtime_ms(
+    runtime: Any,
     obs: Observation,
     action: ActionProposal,
+    cycle_id: int,
     now: float,
 ) -> float:
+    """Time one ``runtime.validate(...)`` call — the production hot path."""
+    if runtime is None:
+        # "No Safety" config: still pay observation+action construction overhead
+        # (already done by caller) but skip guard work entirely.
+        return 0.0
     t0 = time.perf_counter()
-
-    if "ood" in guards:
-        guards["ood"].check(obs=obs)  # type: ignore[union-attr]
-
-    if "motion" in guards:
-        guards["motion"].check(obs=obs, action=action, **_MOTION_KWARGS)  # type: ignore[union-attr]
-
-    if "execution" in guards:
-        guards["execution"].check(obs=obs, active_containers=[], node_start_times={})  # type: ignore[union-attr]
-
-    if "hardware" in guards:
-        guards["hardware"].check(obs=obs, now=now)  # type: ignore[union-attr]
-
+    runtime.validate(obs, action, f"bench-{cycle_id}", now=now)
     return (time.perf_counter() - t0) * 1000.0
 
 

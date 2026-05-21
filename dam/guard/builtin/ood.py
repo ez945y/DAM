@@ -730,6 +730,8 @@ class OODGuard(Guard):
     temporal_smoothing_frames int 1       — consecutive OOD frames required before REJECT
     """
 
+    expected_decisions = frozenset({GuardDecision.PASS, GuardDecision.REJECT, GuardDecision.FAULT})
+
     def __init__(self, backend: str = "memory_bank") -> None:
         self._backend_name = backend
         self._extractor = FeatureExtractor()

@@ -14,12 +14,15 @@ from dam.boundary.builtin_callbacks import (
     check_velocity_smooth,
     get_catalog,
     joint_position_limits,
+    joint_velocity_limit,
     keep_out_zone,
     orientation_limit,
     register_all,
 )
 from dam.registry.callback import CallbackRegistry
+from dam.types.action import ActionProposal
 from dam.types.observation import Observation
+from dam.types.result import GuardDecision
 
 
 def _obs(
@@ -39,41 +42,73 @@ def _obs(
     )
 
 
-# ── joint_position_limits ───────────────────────────────────────────────────────────
+def _action(positions, velocities=None) -> ActionProposal:
+    return ActionProposal(
+        target_joint_positions=np.array(positions, dtype=np.float64),
+        target_joint_velocities=np.array(velocities, dtype=np.float64)
+        if velocities is not None
+        else None,
+    )
+
+
+# ── joint_position_limits (action-CLAMP) ──────────────────────────────────────
 
 
 class TestJointLimits:
     def test_within_limits_pass(self):
-        obs = _obs(positions=[0.0] * 6)
-        assert (
-            joint_position_limits(
-                obs=obs,
-                upper=np.ones(6),
-                lower=-np.ones(6),
-            )
-            is True
+        result = joint_position_limits(
+            action=_action([0.0] * 6),
+            upper=np.ones(6),
+            lower=-np.ones(6),
         )
+        assert result.decision == GuardDecision.PASS
 
-    def test_exceeds_upper_fail(self):
-        obs = _obs(positions=[2.0, 0, 0, 0, 0, 0])
-        assert (
-            joint_position_limits(
-                obs=obs,
-                upper=np.ones(6),
-                lower=-np.ones(6),
-            )
-            is False
+    def test_exceeds_upper_clamps_down(self):
+        result = joint_position_limits(
+            action=_action([2.0, 0, 0, 0, 0, 0]),
+            upper=np.ones(6),
+            lower=-np.ones(6),
         )
+        assert result.decision == GuardDecision.CLAMP
+        assert result.clamped_action is not None
+        assert result.clamped_action.target_joint_positions[0] == 1.0
 
-    def test_exceeds_lower_fail(self):
-        obs = _obs(positions=[-2.0, 0, 0, 0, 0, 0])
-        assert (
-            joint_position_limits(
-                obs=obs,
-                upper=np.ones(6),
-                lower=-np.ones(6),
-            )
-            is False
+    def test_exceeds_lower_clamps_up(self):
+        result = joint_position_limits(
+            action=_action([-2.0, 0, 0, 0, 0, 0]),
+            upper=np.ones(6),
+            lower=-np.ones(6),
+        )
+        assert result.decision == GuardDecision.CLAMP
+        assert result.clamped_action.target_joint_positions[0] == -1.0
+
+
+# ── joint_velocity_limit (action-CLAMP) ───────────────────────────────────────
+
+
+class TestJointVelocityLimit:
+    def test_within_limit_pass(self):
+        # Action wants positions [0.1] * 6 from obs [0,...,0] at dt=0.1 → v=1.0
+        result = joint_velocity_limit(
+            obs=_obs(positions=[0.0] * 6),
+            action=_action([0.1] * 6),
+            dt=0.1,
+            max_velocities=[2.0] * 6,
+        )
+        assert result.decision == GuardDecision.PASS
+
+    def test_exceeds_limit_scales_down(self):
+        # Action wants positions [1.0]*6 from obs [0,...,0] at dt=0.1 → v=10.0,
+        # limit 2.0/s → scale ratio 5×, expect clamped positions = 0.2
+        result = joint_velocity_limit(
+            obs=_obs(positions=[0.0] * 6),
+            action=_action([1.0] * 6),
+            dt=0.1,
+            max_velocities=[2.0] * 6,
+        )
+        assert result.decision == GuardDecision.CLAMP
+        np.testing.assert_allclose(
+            result.clamped_action.target_joint_positions, [0.2] * 6, atol=1e-9
         )
 
 

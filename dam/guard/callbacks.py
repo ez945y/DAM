@@ -1,12 +1,19 @@
-"""Shared boundary-callback execution helpers for guards."""
+"""Legacy boundary-callback dispatch shim used by ExecutionGuard / HardwareGuard.
+
+The actual logic lives in :mod:`dam.guard.pipeline` (``run_callbacks`` +
+``aggregate``).  This shim adapts the old ``(saw_callback, GuardResult|None)``
+contract to the new pipeline so the existing guard implementations don't have
+to change at the same time as the pipeline is introduced.
+
+New code (and the L1 MotionGuard refactor) should call the pipeline directly.
+"""
 
 from __future__ import annotations
 
-import dataclasses
-import inspect
 import logging
 from typing import Any
 
+from dam.guard.pipeline import CallbackResult, run_callbacks
 from dam.types.result import GuardDecision, GuardResult
 
 logger = logging.getLogger(__name__)
@@ -22,79 +29,62 @@ def evaluate_boundary_callbacks(
     violation_decision: GuardDecision,
     fault_source: str,
 ) -> tuple[bool, GuardResult | None]:
-    """Run active boundary callbacks with node.params injected.
+    """Backwards-compatible wrapper around the unified pipeline.
 
-    Returns ``(saw_callback, result)``. ``result`` is only set when a callback
-    violates or faults; callers can continue with their native guard logic when
-    no callback is present.
+    Returns ``(saw_callback, result)``. ``result`` is set only when a callback
+    violates / faults / clamps so callers can fall through to native logic when
+    every callback PASSed.  This preserves the historical contract used by
+    ExecutionGuard and HardwareGuard.
     """
-    if not containers:
+    results = run_callbacks(
+        containers=containers,
+        runtime_pool=base_kwargs,
+        expected_layer=expected_layer,
+    )
+    if not results:
         return False, None
 
-    from dam.registry.callback import get_global_registry
-
-    registry = get_global_registry()
-    saw_callback = False
-    for container in containers:
-        node = container.get_active_node()
-        constraint = node.constraint
-        callback_name = constraint.callback if constraint else None
-        if not callback_name:
-            continue
-
-        try:
-            callback = registry.get(callback_name)
-        except KeyError:
-            logger.warning("Boundary callback '%s' is not registered", callback_name)
-            continue
-
-        if expected_layer is not None and getattr(callback, "_cb_layer", None) != expected_layer:
-            continue
-
-        saw_callback = True
-        params = dict(constraint.params or {})
-        callback_kwargs = {**base_kwargs, **params}
-
-        try:
-            raw_result = callback(**_filter_callback_kwargs(callback, callback_kwargs))
-        except Exception as exc:
-            return True, GuardResult.fault(exc, fault_source, guard_name, guard_layer)
-
-        ok, reason, callback_result = _normalise_callback_result(raw_result)
-        if ok:
-            continue
-        if callback_result is not None:
-            return True, dataclasses.replace(
-                callback_result,
+    # Decision priority mirrors aggregate(): FAULT → REJECT/violation → CLAMP →
+    # PASS.  We surface the *first* non-PASS result to preserve legacy
+    # behaviour (callers expected early-exit on first failure).
+    for r in results:
+        if r.decision == GuardDecision.FAULT:
+            return True, GuardResult(
+                decision=GuardDecision.FAULT,
                 guard_name=guard_name,
                 layer=guard_layer,
+                reason=r.reason,
+                fault_source=r.fault_source or fault_source,
+                metadata=dict(r.metadata),
             )
-        if not reason:
-            detail = ", ".join(f"{k}={v}" for k, v in params.items())
-            suffix = f" ({detail})" if detail else ""
-            reason = f"callback '{callback_name}' returned False at node '{node.node_id}'{suffix}"
-        return True, GuardResult(
-            decision=violation_decision,
-            guard_name=guard_name,
-            layer=guard_layer,
-            reason=reason,
-            fault_source=fault_source if violation_decision == GuardDecision.FAULT else None,
-        )
 
-    return saw_callback, None
+    for r in results:
+        if r.decision == GuardDecision.REJECT:
+            # The legacy caller chooses whether REJECT semantics map to
+            # GuardDecision.REJECT or GuardDecision.FAULT (Hardware does the
+            # latter); honour that via ``violation_decision``.
+            return True, GuardResult(
+                decision=violation_decision,
+                guard_name=guard_name,
+                layer=guard_layer,
+                reason=r.reason,
+                fault_source=fault_source if violation_decision == GuardDecision.FAULT else None,
+                metadata=dict(r.metadata),
+            )
+
+    for r in results:
+        if r.decision == GuardDecision.CLAMP:
+            return True, GuardResult(
+                decision=GuardDecision.CLAMP,
+                guard_name=guard_name,
+                layer=guard_layer,
+                reason=r.reason,
+                clamped_action=r.clamped_action,
+                metadata=dict(r.metadata),
+            )
+
+    return True, None
 
 
-def _filter_callback_kwargs(callback: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
-    sig = inspect.signature(callback)
-    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
-        return kwargs
-    return {k: v for k, v in kwargs.items() if k in sig.parameters}
-
-
-def _normalise_callback_result(result: Any) -> tuple[bool, str, GuardResult | None]:
-    if isinstance(result, GuardResult):
-        return result.decision == GuardDecision.PASS, result.reason, result
-    if isinstance(result, tuple) and len(result) == 2:
-        ok, reason = result
-        return bool(ok), str(reason or ""), None
-    return bool(result), "", None
+# Re-export for convenience so callers don't have to import from two places.
+__all__ = ["CallbackResult", "evaluate_boundary_callbacks", "run_callbacks"]

@@ -3,6 +3,16 @@
 Geometric / kinematic invariants enforced every cycle, independent of task
 state: joint and workspace limits, plus the human-collaborative constraints
 (Cartesian speed, keep-out volumes, payload orientation, base geofence).
+
+Action-clamp policy
+-------------------
+L1 boundary callbacks that have a well-defined corrective action (joint
+limits, velocity limits, workspace box) return ``CallbackResult.clamp(...)``
+with the corrected ``ValidatedAction``. They do not REJECT — the inner pipeline
+prefers correcting the policy's proposal to halting the robot mid-trajectory.
+Callbacks for which no clean clamp exists (Cartesian speed limit, keep-out
+zones, orientation, geofence) keep returning ``bool`` and surface as REJECT
+through the legacy shim.
 """
 
 from __future__ import annotations
@@ -13,97 +23,198 @@ import numpy as np
 
 from dam.boundary.callbacks._helpers import (
     _all_finite,
-    _get_ee_pose,
     _point_in_polygon,
     _read_channel,
     _resolve_ee_rotation,
     _resolve_ee_translation,
 )
 from dam.boundary.callbacks._registry import boundary_callback
+from dam.guard.pipeline import CallbackResult
 from dam.kinematics.resolver import KinematicsResolver
+from dam.types.action import ActionProposal, ValidatedAction
 from dam.types.observation import Observation
+
+
+def _to_array(x: Any, *, name: str) -> np.ndarray:
+    arr = np.asarray(x, dtype=np.float64)
+    if not _all_finite(arr):
+        raise ValueError(f"non-finite values in {name}")
+    return arr
 
 
 @boundary_callback(
     name="joint_velocity_limit",
     layer="L1",
-    description="Joint speed safety check (Radians or Degrees).",
+    description="Clamps the action's joint velocities to ±max_velocities (radians or degrees).",
 )
 def joint_velocity_limit(
     *,
     obs: Observation,
-    max_velocities: list[float] = None,
+    action: ActionProposal,
+    dt: float,
+    max_velocities: list[float] | float | None = None,
     use_degrees: bool = False,
-) -> bool:
-    """Return False if any joint velocity exceeds limits."""
+) -> CallbackResult:
+    """Scale action velocities (or implied velocities) so |v_i| ≤ max_i.
+
+    Operates on the *proposed* action: derives velocities from
+    ``(target_positions − obs_positions) / dt`` when the action does not
+    carry velocities, scales by the worst-offender ratio, then rebuilds the
+    target positions from the limited velocities so policy and adapter stay
+    consistent.  Reads ``dt`` from the pool (auto-injected by GuardRuntime).
+    """
+    bname = "joint_velocity_limit"
     if max_velocities is None:
         max_velocities = [1.5, 1.5, 1.5, 1.5, 1.5, 1.5]
-    if obs.joint_velocities is None or max_velocities is None:
-        return True
-    if not _all_finite(obs.joint_velocities):
-        return False  # fail-safe: NaN/Inf injection is a violation, not a pass
-    v_max = np.array(max_velocities)
+    if obs.joint_positions is None:
+        return CallbackResult.ok(bname, "no joint state to act on")
+
+    v_max = _to_array(max_velocities, name="max_velocities")
     if use_degrees:
         v_max = np.radians(v_max)
-    vel = np.abs(obs.joint_velocities)
-    if v_max.ndim == 0:
-        if np.any(vel > v_max):
-            return False
+
+    target_pos = np.asarray(action.target_joint_positions, dtype=np.float64)
+    cur_pos = np.asarray(obs.joint_positions, dtype=np.float64)
+    n = min(target_pos.shape[0], cur_pos.shape[0])
+
+    if action.target_joint_velocities is not None:
+        velocities = np.asarray(action.target_joint_velocities, dtype=np.float64)[:n]
+        derived = False
     else:
-        v_max_1d = np.atleast_1d(v_max)
-        n = min(len(vel), len(v_max_1d))
-        if np.any(vel[:n] > v_max_1d[:n]):
-            return False
-    return True
+        velocities = (target_pos[:n] - cur_pos[:n]) / max(float(dt), 1e-6)
+        derived = True
+
+    v_max_1d = np.atleast_1d(v_max)
+    if v_max_1d.shape[0] == 1:
+        v_max_1d = np.full(n, v_max_1d[0])
+    v_max_1d = v_max_1d[:n]
+
+    ratio = np.abs(velocities) / (np.abs(v_max_1d) + 1e-12)
+    max_ratio = float(np.max(ratio)) if ratio.size else 0.0
+    if max_ratio <= 1.0:
+        return CallbackResult.ok(bname)
+
+    clamped_v = velocities / max_ratio
+    # Rebuild positions from the limited velocities so the downstream adapter
+    # receives a consistent target (positions implied by the rate the joints
+    # are actually allowed to move at this cycle).
+    if derived:
+        new_pos = target_pos.copy()
+        new_pos[:n] = cur_pos[:n] + clamped_v * float(dt)
+    else:
+        new_pos = target_pos.copy()
+
+    worst = int(np.argmax(ratio))
+    clamped = ValidatedAction(
+        target_joint_positions=new_pos,
+        target_joint_velocities=clamped_v if action.target_joint_velocities is not None else None,
+        was_clamped=True,
+        original_proposal=action,
+        timestamp=action.timestamp,
+    )
+    reason = (
+        f"velocity scale ratio={max_ratio:.2f} "
+        f"(worst: J{worst + 1} {abs(float(velocities[worst])):.3f}>{float(v_max_1d[worst]):.3f})"
+    )
+    return CallbackResult.clamp(bname, clamped, reason=reason)
 
 
 @boundary_callback(
     name="joint_position_limits",
     layer="L1",
-    description="Joint position safety check (Radians or Degrees).",
+    description="Clamps the action's joint positions into [lower, upper] (radians or degrees).",
 )
 def joint_position_limits(
     *,
-    obs: Observation,
-    upper: list[float] = None,
-    lower: list[float] = None,
+    action: ActionProposal,
+    upper: list[float] | None = None,
+    lower: list[float] | None = None,
     use_degrees: bool = False,
-) -> bool:
-    """Return False if any joint position violates limits."""
+) -> CallbackResult:
+    """Clip ``action.target_joint_positions`` element-wise into [lower, upper].
+
+    Default limits (in radians) match the historical defaults: a 6-DoF
+    SO100/SO101-style arm.  Override via the boundary's static params.
+    """
+    bname = "joint_position_limits"
     if lower is None:
         lower = [-1.82, -1.77, -1.6, -1.81, -3.07, 0.0]
     if upper is None:
         upper = [1.82, 1.77, 1.6, 1.81, 3.07, 1.75]
-    if obs.joint_positions is None or upper is None or lower is None:
-        return True
-    if not _all_finite(obs.joint_positions):
-        return False  # fail-safe: NaN/Inf injection is a violation, not a pass
-    pos, up, lo = obs.joint_positions, np.array(upper), np.array(lower)
+
+    lo = _to_array(lower, name="lower")
+    up = _to_array(upper, name="upper")
     if use_degrees:
-        up, lo = np.radians(up), np.radians(lo)
-    return not (np.any(pos > up) or np.any(pos < lo))
+        lo = np.radians(lo)
+        up = np.radians(up)
+
+    target = np.asarray(action.target_joint_positions, dtype=np.float64)
+    n = min(target.shape[0], lo.shape[0], up.shape[0])
+    clipped = target.copy()
+    clipped[:n] = np.clip(target[:n], lo[:n], up[:n])
+
+    if np.array_equal(clipped, target):
+        return CallbackResult.ok(bname)
+
+    diff_mask = ~np.isclose(clipped, target)
+    idx = int(np.argmax(diff_mask))
+    reason = f"position clamp J{idx + 1}: {float(target[idx]):.3f}->{float(clipped[idx]):.3f}"
+    clamped = ValidatedAction(
+        target_joint_positions=clipped,
+        target_joint_velocities=action.target_joint_velocities,
+        was_clamped=True,
+        original_proposal=action,
+        timestamp=action.timestamp,
+    )
+    return CallbackResult.clamp(bname, clamped, reason=reason)
 
 
 @boundary_callback(
     name="workspace",
     layer="L1",
-    description="Workspace box bounds [x,y,z] min/max in metres.",
+    description="Halts motion when the end-effector is outside the workspace box.",
 )
 def workspace(
     *,
     obs: Observation,
-    bounds: list[list[float]] = None,
+    action: ActionProposal,
+    bounds: list[list[float]] | None = None,
     kinematics_resolver: KinematicsResolver | None = None,
-) -> bool:
-    """Check if end-effector is within workspace box bounds."""
+    dynamics: Any | None = None,
+) -> CallbackResult:
+    """When the current EE is outside ``bounds``, freeze the action.
+
+    Without IK the framework cannot rewrite a joint target so the EE re-enters
+    the box; the safe default is to clamp the proposal back to the current
+    joint state — a brake.  Users wanting smooth EE-constrained motion should
+    inject a QP/CBF aggregator that consumes a workspace constraint from
+    callback metadata instead.
+    """
+    bname = "workspace"
     if bounds is None:
         bounds = [[-0.4, 0.4], [-0.4, 0.4], [0.02, 0.6]]
-    ee_pose = _get_ee_pose(obs, kinematics_resolver=kinematics_resolver)
-    if ee_pose is None:
-        return True
-    ee_pos = ee_pose[:3]
-    b = np.array(bounds)
-    return np.all((ee_pos >= b[:, 0]) & (ee_pos <= b[:, 1]))
+
+    ee_pos = _resolve_ee_translation(
+        obs, kinematics_resolver=kinematics_resolver, dynamics=dynamics
+    )
+    if ee_pos is None or obs.joint_positions is None:
+        return CallbackResult.ok(bname, "EE pose unavailable; skip workspace check")
+
+    b = np.asarray(bounds, dtype=np.float64)
+    if np.all((ee_pos >= b[:, 0]) & (ee_pos <= b[:, 1])):
+        return CallbackResult.ok(bname)
+
+    halt = ValidatedAction(
+        target_joint_positions=np.asarray(obs.joint_positions, dtype=np.float64).copy(),
+        target_joint_velocities=None,
+        was_clamped=True,
+        original_proposal=action,
+        timestamp=action.timestamp,
+    )
+    reason = f"EE {ee_pos.tolist()} outside workspace {bounds}; halting"
+    return CallbackResult.clamp(
+        bname, halt, reason=reason, metadata={"workspace_bounds": bounds, "ee_pos": ee_pos.tolist()}
+    )
 
 
 @boundary_callback(

@@ -25,9 +25,12 @@ from __future__ import annotations
 import argparse
 import csv
 import re
+import sys
 import time
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np
 
@@ -42,17 +45,14 @@ _JOINT_LOWER[-1] = 0.0
 _MAX_VEL = np.full(_N_JOINTS, 1.5)
 _WORKSPACE_BOUNDS = [[-0.40, 0.40], [-0.40, 0.40], [0.02, 0.60]]
 _T_TIMEOUT = 2.0
-_MOTION_KWARGS = dict(
-    upper=_JOINT_UPPER.tolist(),
-    lower=_JOINT_LOWER.tolist(),
-    max_velocity=_MAX_VEL.tolist(),
-    bounds=_WORKSPACE_BOUNDS,
-)
 _LAYER_RE = re.compile(r"^L\d$")
 _VALID_TYPES = {"ood_only", "guard_triggered", "hardware_triggered"}
 
 
 def _obs(channels: dict[str, list[float]], **kw: Any) -> Observation:
+    md: dict[str, Any] = {"channels": sorted(channels)}
+    if "hardware_status" in kw:
+        md["hardware_status"] = kw.pop("hardware_status")
     return Observation(
         timestamp=time.monotonic(),
         joint_positions=kw.get("joint_positions", np.zeros(_N_JOINTS)),
@@ -60,7 +60,7 @@ def _obs(channels: dict[str, list[float]], **kw: Any) -> Observation:
         end_effector_pose=kw.get(
             "ee_pose", np.array([0.0, 0.0, 0.30, 0, 0, 0, 1], dtype=np.float64)
         ),
-        metadata={"channels": sorted(channels)},
+        metadata=md,
     )
 
 
@@ -84,42 +84,70 @@ def _record(cycle_id: int, obs: Observation, guard_results: list[Any]) -> dict[s
 
 
 def _violating_records(rng: np.random.Generator, trials: int) -> list[dict[str, Any]]:
-    import dam
-    from dam.boundary.callbacks.hardware import host_health_limit
-    from dam.boundary.constraint import BoundaryConstraint
-    from dam.boundary.node import BoundaryNode
-    from dam.boundary.single import SingleNodeContainer
-    from dam.guard.builtin.execution import ExecutionGuard
-    from dam.guard.builtin.motion import MotionGuard
-    from dam.guard.builtin.ood import OODGuard
+    """Drive every failure scenario through a real ``GuardRuntime.validate(...)``
+    cycle, so the records this script harvests reflect what the production
+    runtime would actually log.
+    """
+    import sys
 
-    motion = dam.guard("L1")(MotionGuard)()
-    motion._guard_name = "motion"
-    execution = dam.guard("L2")(ExecutionGuard)()
-    execution._guard_name = "execution"
-    ood = dam.guard("L0")(OODGuard)(backend="welford")
-    ood._guard_name = "ood"
-    for _ in range(80):  # warm up the online OOD baseline on nominal frames
-        ood.check(obs=_obs({"joint": [0.0]}, joint_positions=rng.uniform(-0.2, 0.2, _N_JOINTS)))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from scripts._bench_stackfiles import build_runtime
 
-    node = BoundaryNode(
-        node_id="rq5_timeout",
-        constraint=BoundaryConstraint(params={}),
-        fallback="emergency_stop",
-        timeout_sec=_T_TIMEOUT,
+    rt, _ = build_runtime(
+        ood=True,
+        motion=True,
+        execution=True,
+        hardware=True,
+        extra_boundaries={
+            "rq5_timeout": {
+                "layer": "L2",
+                "type": "single",
+                "nodes": [
+                    {
+                        "node_id": "rq5_timeout",
+                        "callback": "semantic_state",
+                        "fallback": "emergency_stop",
+                        "timeout_sec": _T_TIMEOUT,
+                        "params": {},
+                    }
+                ],
+            },
+            "host_health": {
+                "layer": "L3",
+                "type": "single",
+                "nodes": [
+                    {
+                        "node_id": "n0",
+                        "callback": "host_health_limit",
+                        "fallback": "emergency_stop",
+                        "params": {"max_cpu_percent": 90.0, "max_memory_percent": 90.0},
+                    }
+                ],
+            },
+        },
     )
-    container = SingleNodeContainer(node=node)
+
+    # Warm-up the welford OOD baseline.
+    for _ in range(80):
+        o = _obs({"joint": [0.0]}, joint_positions=rng.uniform(-0.2, 0.2, _N_JOINTS))
+        rt.validate(o, ActionProposal(target_joint_positions=o.joint_positions), "warmup")
 
     records: list[dict[str, Any]] = []
     cid = 0
+
+    def _run(o: Observation, a: ActionProposal) -> list[Any]:
+        nonlocal cid
+        _v, results, _fb = rt.validate(o, a, f"rq5-{cid}")
+        cid += 1
+        return list(results)
+
     for _ in range(trials):
         # 動作風險: joint position far beyond the upper limit (L1).
         o = _obs({"joint_positions": [0.0]}, joint_positions=_JOINT_UPPER * 1.8)
         a = ActionProposal(target_joint_positions=_JOINT_UPPER * 1.8)
-        r = _record(cid, o, [motion.check(obs=o, action=a, **_MOTION_KWARGS)])
+        r = _record(cid, o, _run(o, a))
         if r:
             records.append(r)
-        cid += 1
 
         # 動作風險: commanded velocity far over the limit (L1).
         o = _obs({"joint_velocities": [0.0]}, joint_velocities=_MAX_VEL * 4.0)
@@ -127,40 +155,37 @@ def _violating_records(rng: np.random.Generator, trials: int) -> list[dict[str, 
             target_joint_positions=np.zeros(_N_JOINTS),
             target_joint_velocities=_MAX_VEL * 4.0,
         )
-        r = _record(cid, o, [motion.check(obs=o, action=a, **_MOTION_KWARGS)])
+        r = _record(cid, o, _run(o, a))
         if r:
             records.append(r)
-        cid += 1
 
-        # 動作風險: node far past its timeout (L2).
+        # 動作風險: node far past its timeout (L2).  Rewind the node start time
+        # so ExecutionGuard sees a node that exceeded its timeout.
+        rt._node_start_times["rq5_timeout"] = time.monotonic() - 3.0 * _T_TIMEOUT
         o = _obs({"timing": [0.0]})
-        res = execution.check(
-            obs=o,
-            active_containers=[container],
-            node_start_times={"rq5_timeout": time.monotonic() - 3.0 * _T_TIMEOUT},
-        )
-        r = _record(cid, o, [res])
+        a = ActionProposal(target_joint_positions=np.zeros(_N_JOINTS))
+        r = _record(cid, o, _run(o, a))
         if r:
             records.append(r)
-        cid += 1
 
-        # 硬體風險: host health breach via the real L3 callback.
-        o = _obs({"host_health": [0.0]})
-        res = host_health_limit(
-            host_health={"cpu_percent": 99.7, "memory_percent": 50.0, "temperature_c": 40.0},
+        # 硬體風險: host health breach.  Surface fake host_health via obs
+        # metadata so host_health_limit picks it up.
+        o = _obs(
+            {"host_health": [0.0]},
+            joint_positions=np.zeros(_N_JOINTS),
+            hardware_status={"host_health": {"cpu_percent": 99.7, "memory_percent": 50.0}},
         )
-        r = _record(cid, o, [res])
+        a = ActionProposal(target_joint_positions=np.zeros(_N_JOINTS))
+        r = _record(cid, o, _run(o, a))
         if r:
             records.append(r)
-        cid += 1
 
         # 感知異常: extreme out-of-distribution observation (L0).
         o = _obs({"joint_positions": [0.0]}, joint_positions=np.full(_N_JOINTS, 50.0))
-        res = ood.check(obs=o)
-        r = _record(cid, o, [res])
+        a = ActionProposal(target_joint_positions=np.zeros(_N_JOINTS))
+        r = _record(cid, o, _run(o, a))
         if r:
             records.append(r)
-        cid += 1
 
     return records
 

@@ -23,27 +23,39 @@ from __future__ import annotations
 
 import argparse
 import csv
+import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import numpy as np
 
-from dam.guard.builtin.execution import ExecutionGuard
-
 # ── DAM imports ──────────────────────────────────────────────────────────────
-from dam.guard.builtin.motion import MotionGuard
 from dam.types.action import ActionProposal
 from dam.types.observation import Observation
 from dam.types.result import GuardDecision
+from scripts._bench_stackfiles import (
+    JOINT_LOWER as _JOINT_LOWER,
+)
+from scripts._bench_stackfiles import (
+    JOINT_UPPER as _JOINT_UPPER,
+)
+from scripts._bench_stackfiles import (
+    MAX_VEL as _MAX_VEL,
+)
+from scripts._bench_stackfiles import (
+    N_JOINTS as _N_JOINTS,
+)
+from scripts._bench_stackfiles import (
+    WORKSPACE_BOUNDS as _WORKSPACE_BOUNDS,
+)
+from scripts._bench_stackfiles import (
+    build_runtime as _build_runtime,
+)
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-_N_JOINTS = 6
-_JOINT_UPPER = np.array([1.8243, 1.7691, 1.6026, 1.8067, 3.0741, 1.7453])
-_JOINT_LOWER = -_JOINT_UPPER.copy()
-_JOINT_LOWER[-1] = 0.0
-_MAX_VEL = np.full(_N_JOINTS, 1.5)
-_WORKSPACE_BOUNDS = [[-0.40, 0.40], [-0.40, 0.40], [0.02, 0.60]]
 _EE_SAFE = np.array([0.0, 0.0, 0.30])  # end-effector safely inside workspace
 _T_TIMEOUT = 2.0  # reference task node timeout (seconds)
 
@@ -73,30 +85,27 @@ def _is_intercepted(result) -> bool:
 
 
 # ── L1 guards (MotionGuard) ──────────────────────────────────────────────────
+# Every scan runs through GuardRuntime.validate(...) on a stackfile-defined
+# safety stack; boundary params come from the YAML, never from Python kwargs.
 
 
-def _build_motion_guard() -> MotionGuard:
-    import dam
-
-    # Apply @dam.guard decorator so get_layer() works without a full runtime.
-    cls = dam.guard("L1")(MotionGuard)
-    g = cls()
-    g._guard_name = "motion_scan"
-    return g
+_motion_runtime = None
+_motion_runtime_cycle = 0
 
 
-_MOTION_KWARGS = dict(
-    upper=_JOINT_UPPER.tolist(),
-    lower=_JOINT_LOWER.tolist(),
-    max_velocity=_MAX_VEL.tolist(),
-    bounds=_WORKSPACE_BOUNDS,
-)
+def _l1_intercepted(obs, action) -> bool:
+    """Run MotionGuard via the production validate() path."""
+    global _motion_runtime, _motion_runtime_cycle
+    if _motion_runtime is None:
+        _motion_runtime, _ = _build_runtime(motion=True)
+    _motion_runtime_cycle += 1
+    _v, results, _fb = _motion_runtime.validate(obs, action, f"scan-{_motion_runtime_cycle}")
+    return any(_is_intercepted(r) for r in results)
 
 
 def scan_l1_joint_offset(trials: int) -> list[dict]:
     """L1-A: Gaussian noise σ on joint positions."""
     sigmas = np.linspace(0.05, 0.50, 10)
-    guard = _build_motion_guard()
     rows = []
     rng = np.random.default_rng(42)
 
@@ -107,8 +116,7 @@ def scan_l1_joint_offset(trials: int) -> list[dict]:
             perturbed = base + rng.normal(0, sigma, _N_JOINTS)
             obs = _make_obs(joint_positions=perturbed)
             action = ActionProposal(target_joint_positions=perturbed)
-            result = guard.check(obs=obs, action=action, **_MOTION_KWARGS)
-            if _is_intercepted(result):
+            if _l1_intercepted(obs, action):
                 intercepted += 1
         rows.append(
             {
@@ -127,7 +135,6 @@ def scan_l1_joint_offset(trials: int) -> list[dict]:
 def scan_l1_velocity_scale(trials: int) -> list[dict]:
     """L1-B: velocity magnitude scaled by factor k."""
     ks = np.linspace(1.2, 3.0, 10)
-    guard = _build_motion_guard()
     rows = []
 
     # Nominal velocity: ~80 % of limit so that k ≥ 1.25 reliably triggers clamping.
@@ -147,8 +154,7 @@ def scan_l1_velocity_scale(trials: int) -> list[dict]:
                 target_joint_positions=_nominal_action(),
                 target_joint_velocities=scaled_vel,
             )
-            result = guard.check(obs=obs, action=action, **_MOTION_KWARGS)
-            if _is_intercepted(result):
+            if _l1_intercepted(obs, action):
                 intercepted += 1
         rows.append(
             {
@@ -173,28 +179,50 @@ def scan_l2_collision_distance(trials: int) -> list[dict]:
     A tight prohibited zone is defined at x_max = 0.30 m.  The scan sweeps
     the ee clearance d from +5 cm (safely inside) down through 0 to −5 cm
     (outside, definitely intercepted), producing a boundary-crossing curve.
-
-    Positive d  → ee is d metres inside the boundary  → PASS
-    Negative d  → ee is |d| metres outside the boundary → REJECT/CLAMP
     """
-    # d > 0: inside zone; d < 0: outside zone
-    d_values_cm = np.linspace(5, -5, 10)  # +5 cm … -5 cm
-    prohibited_x_max = 0.30  # m (prohibited zone boundary, tighter than workspace)
+    d_values_cm = np.linspace(5, -5, 10)
+    prohibited_x_max = 0.30
     bounds = [[-0.40, prohibited_x_max], [-0.40, 0.40], [0.02, 0.60]]
     rows = []
 
-    from dam.boundary.builtin_callbacks import workspace as workspace_cb
+    # Build a motion-only runtime that overrides workspace bounds to the
+    # tighter prohibited zone — same stackfile path production uses.
+    runtime, _ = _build_runtime(
+        motion=True,
+        motion_param_overrides={"workspace": {"bounds": bounds}},
+    )
+    # Drop the other L1 boundaries so they don't interfere with the
+    # workspace-only measurement.  Achieved by passing only `workspace` in
+    # tasks.default.boundaries — rebuild via extra_boundaries override.
+    runtime, _ = _build_runtime(
+        extra_boundaries={
+            "workspace": {
+                "layer": "L1",
+                "type": "single",
+                "nodes": [
+                    {
+                        "node_id": "n0",
+                        "callback": "workspace",
+                        "fallback": "emergency_stop",
+                        "params": {"bounds": bounds},
+                    }
+                ],
+            }
+        },
+    )
 
+    cid = 0
     for d_cm in d_values_cm:
         intercepted = 0
         d_m = d_cm / 100.0
-        # Place ee at (x_max - d, 0, 0.30):  d>0 → inside, d<0 → outside
         ee_x = prohibited_x_max - d_m
         for _ in range(trials):
             ee_pose = np.array([ee_x, 0.0, 0.30, 0, 0, 0, 1], dtype=np.float64)
             obs = _make_obs(joint_positions=_nominal_action(), ee_pose=ee_pose)
-            passed = workspace_cb(obs=obs, bounds=bounds)
-            if not passed:
+            action = ActionProposal(target_joint_positions=_nominal_action())
+            _v, results, _fb = runtime.validate(obs, action, f"l2a-{cid}")
+            cid += 1
+            if any(_is_intercepted(r) for r in results):
                 intercepted += 1
         rows.append(
             {
@@ -213,45 +241,47 @@ def scan_l2_collision_distance(trials: int) -> list[dict]:
 def scan_l2_timeout(trials: int) -> list[dict]:
     """L2-B: Node execution time relative to T_timeout.
 
-    Injects a fake node that has been active for ratio × T_timeout seconds and
-    checks whether ExecutionGuard's timeout constraint fires.
+    Injects a fake L2 node with ``timeout_sec=_T_TIMEOUT`` and rewinds its
+    activation timestamp so ExecutionGuard sees a node that's been active for
+    ratio × T_timeout seconds.
     """
     ratios = np.linspace(0.5, 2.0, 10)
     rows = []
 
-    import dam
-    from dam.boundary.constraint import BoundaryConstraint
-    from dam.boundary.node import BoundaryNode
-    from dam.boundary.single import SingleNodeContainer
-
-    guard_cls = dam.guard("L2")(ExecutionGuard)
-    guard = guard_cls()
-    guard._guard_name = "execution_scan"
-
     node_id = "timeout_test_node"
-    constraint = BoundaryConstraint(params={})
-    # timeout_sec lives on BoundaryNode, not in constraint.params.
-    node = BoundaryNode(
-        node_id=node_id,
-        constraint=constraint,
-        fallback="emergency_stop",
-        timeout_sec=_T_TIMEOUT,
+    boundary_name = "timeout_test"
+    runtime, _ = _build_runtime(
+        extra_boundaries={
+            boundary_name: {
+                "layer": "L2",
+                "type": "single",
+                "nodes": [
+                    {
+                        "node_id": node_id,
+                        "callback": "semantic_state",  # any L2 callback; we only test timeout
+                        "fallback": "emergency_stop",
+                        "timeout_sec": _T_TIMEOUT,
+                        "params": {},
+                    }
+                ],
+            }
+        },
     )
-    container = SingleNodeContainer(node=node)
 
+    cid = 0
     for ratio in ratios:
         intercepted = 0
         active_duration = ratio * _T_TIMEOUT
         for _ in range(trials):
             fake_start = time.monotonic() - active_duration
-            node_start_times = {node_id: fake_start}
+            # ExecutionGuard reads node_start_times from runtime state; reach in
+            # and rewind so the synthetic ratio takes effect.
+            runtime._node_start_times[node_id] = fake_start
             obs = _make_obs()
-            result = guard.check(
-                obs=obs,
-                active_containers=[container],
-                node_start_times=node_start_times,
-            )
-            if _is_intercepted(result):
+            action = ActionProposal(target_joint_positions=_nominal_action())
+            _v, results, _fb = runtime.validate(obs, action, f"l2b-{cid}")
+            cid += 1
+            if any(_is_intercepted(r) for r in results):
                 intercepted += 1
         rows.append(
             {

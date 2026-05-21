@@ -35,6 +35,8 @@ class ExecutionGuard(Guard):
         node_start_times: Dict[str, float] (runtime)
     """
 
+    expected_decisions = frozenset({GuardDecision.PASS, GuardDecision.REJECT, GuardDecision.FAULT})
+
     def __init__(self) -> None:
         # Cache for parameter processing (e.g. degrees to radians)
         self._cache_map: dict[

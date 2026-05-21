@@ -61,71 +61,21 @@ def test_slack_softens_infeasible_overlap(proxsuite):
     assert u is not None  # solver didn't crash, slack absorbed the conflict
 
 
+@pytest.mark.skip(
+    reason="MotionGuard's inline QP dispatch was removed in phase 1; QP will return "
+    "as an injectable clamp_aggregator in phase 3. See docs/refactor-guard-pipeline.md."
+)
 def test_motion_guard_dispatches_to_qp_when_param_set(proxsuite):
-    """`qp_solver="proxsuite"` in kwargs → MotionGuard runs QP."""
-    from dam.decorators import guard as guard_decorator
-    from dam.guard.builtin.motion import MotionGuard
-    from dam.types.action import ActionProposal
-    from dam.types.observation import Observation
-    from dam.types.result import GuardDecision
-
-    DecoratedMotion = guard_decorator("L1")(MotionGuard)
-    guard = DecoratedMotion()
-
-    n = 3
-    obs = Observation(
-        timestamp=0.0,
-        joint_positions=np.zeros(n),
-        joint_velocities=np.zeros(n),
-    )
-    # Proposed action violates upper bound
-    action = ActionProposal(target_joint_positions=np.array([2.0, 0.0, 0.0]))
-
-    upper = np.array([1.0] * n)
-    lower = np.array([-1.0] * n)
-
-    result = guard.check(
-        obs,
-        action,
-        upper=upper,
-        lower=lower,
-        qp_solver="proxsuite",
-        slack_weight=1e8,
-    )
-    assert result.decision == GuardDecision.CLAMP
-    assert "QP clamp" in (result.reason or "")
-    clamped = result.clamped_action.target_joint_positions
-    assert clamped[0] <= 1.01  # respects upper
-    # The two unconstrained axes shouldn't have moved
-    assert abs(clamped[1]) < 1e-3
-    assert abs(clamped[2]) < 1e-3
+    pass
 
 
+@pytest.mark.skip(
+    reason="MotionGuard's inline box-clamp path was removed in phase 1; the pipeline "
+    "now drives box-clamp via the joint_position_limits callback (see "
+    "test_runtime_injection.test_guard_runtime_param_injection)."
+)
 def test_motion_guard_falls_back_to_box_clamp_when_no_qp_param(proxsuite):
-    """Without `qp_solver`, MotionGuard uses the original box-clamp path."""
-    from dam.decorators import guard as guard_decorator
-    from dam.guard.builtin.motion import MotionGuard
-    from dam.types.action import ActionProposal
-    from dam.types.observation import Observation
-    from dam.types.result import GuardDecision
-
-    DecoratedMotion = guard_decorator("L1")(MotionGuard)
-    guard = DecoratedMotion()
-
-    n = 3
-    obs = Observation(
-        timestamp=0.0,
-        joint_positions=np.zeros(n),
-        joint_velocities=np.zeros(n),
-    )
-    action = ActionProposal(target_joint_positions=np.array([2.0, 0.0, 0.0]))
-    upper = np.array([1.0] * n)
-    lower = np.array([-1.0] * n)
-
-    result = guard.check(obs, action, upper=upper, lower=lower)
-    assert result.decision == GuardDecision.CLAMP
-    # box-clamp path doesn't mention proxsuite
-    assert "proxsuite" not in (result.reason or "")
+    pass
 
 
 def test_qp_solver_param_inlined_in_any_l1_boundary(proxsuite):
@@ -180,7 +130,7 @@ def test_qp_solver_param_inlined_in_any_l1_boundary(proxsuite):
     assert pool["slack_weight"] == 1.0e8
     assert pool["upper"] == [1.0] * 6
     # dt auto-injected from safety.control_frequency_hz
-    assert pool["dt"] == pytest.approx(0.02)
+    assert pool["dt"] == pytest.approx(1.0 / 30.0)
 
 
 def test_workspace_cbf_keeps_action_inside_box(proxsuite):
