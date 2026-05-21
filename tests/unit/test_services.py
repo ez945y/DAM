@@ -47,7 +47,7 @@ def _make_cycle_result(
 # ── McapSessionService ─────────────────────────────────────────────────────────
 
 
-def test_mcap_archive_session_moves_file_to_trash(tmp_path):
+def test_mcap_archive_session_deletes_file(tmp_path):
     path = tmp_path / "session_demo.mcap"
     path.write_bytes(b"0" * 128)
     svc = McapSessionService(str(tmp_path))
@@ -55,8 +55,7 @@ def test_mcap_archive_session_moves_file_to_trash(tmp_path):
         result = svc.archive_session(path.name)
         assert result is not None
         assert not path.exists()
-        archived = tmp_path / "_trash" / result["archived_filename"]
-        assert archived.exists()
+        assert not (tmp_path / "_trash").exists()
         assert svc.list_sessions() == []
     finally:
         svc.close()

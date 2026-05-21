@@ -1213,20 +1213,20 @@ class McapSessionService:
             return None
         try:
             self._close_pooled_readers_for(path)
-            target = self._archive_target_for(path)
-            path.replace(target)
+            if path.exists():
+                path.unlink()
             self._drop_session_index(filename)
             return {
                 "filename": filename,
-                "archived_filename": target.name,
-                "archived_path": str(target),
+                "archived_filename": filename,
+                "archived_path": "",
             }
         except Exception as e:
-            logger.error("Failed to archive session %s: %s", filename, e)
+            logger.error("Failed to delete session %s: %s", filename, e)
             return None
 
     def delete_session(self, filename: str) -> bool:
-        """Backward-compatible delete API that archives instead of unlinking."""
+        """Deletes the session completely from disk and drops database indexes."""
         try:
             return self.archive_session(filename) is not None
         except Exception as e:

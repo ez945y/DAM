@@ -294,6 +294,7 @@ function McapViewerContent() {
     new Set(),
   );
   const [archiving, setArchiving] = useState(false);
+  const [sessionsToArchive, setSessionsToArchive] = useState<string[] | null>(null);
   const [initialLoading, setInitialLoading] = useState(
     !!searchParams.get("cycle_id") && !searchParams.get("filename"),
   );
@@ -454,10 +455,16 @@ function McapViewerContent() {
     [loadSessions, router, selectedFilename],
   );
 
-  const archiveSelectedSessions = useCallback(async () => {
+  const archiveSelectedSessions = useCallback(() => {
     const filenames = [...selectedForArchive];
     if (filenames.length === 0) return;
-    if (!confirm(`Move ${filenames.length} selected MCAP session(s) to _trash?`)) return;
+    setSessionsToArchive(filenames);
+  }, [selectedForArchive]);
+
+  const executeArchive = useCallback(async () => {
+    if (!sessionsToArchive || sessionsToArchive.length === 0) return;
+    const filenames = sessionsToArchive;
+    setSessionsToArchive(null);
 
     setArchiving(true);
     setError(null);
@@ -472,7 +479,7 @@ function McapViewerContent() {
     } finally {
       setArchiving(false);
     }
-  }, [handleArchived, selectedForArchive]);
+  }, [handleArchived, sessionsToArchive]);
 
   useEffect(() => {
     loadSessions({ showSpinner: true });
@@ -855,6 +862,52 @@ function McapViewerContent() {
           >
             ✕
           </button>
+        </div>
+      )}
+
+      {sessionsToArchive && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            aria-label="Close"
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
+            onClick={() => setSessionsToArchive(null)}
+          />
+          <div className="relative bg-dam-surface border border-dam-border rounded-2xl w-full max-w-md shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-2.5 p-4 border-b border-dam-border bg-dam-surface-2/50">
+              <AlertTriangle size={18} className="text-red-500 shrink-0" />
+              <h3 className="text-sm font-bold text-dam-text uppercase tracking-widest">Delete Session</h3>
+            </div>
+
+            <div className="p-5 text-xs text-dam-muted space-y-2 leading-relaxed">
+              <p>
+                Are you sure you want to permanently delete{' '}
+                <span className="font-mono text-dam-text font-bold bg-dam-surface-3 px-1.5 py-0.5 rounded border border-dam-border">
+                  {sessionsToArchive.length === 1 ? sessionsToArchive[0] : `${sessionsToArchive.length} sessions`}
+                </span>?
+              </p>
+              <p className="opacity-80">
+                This action is permanent and cannot be undone. All recorded cycle metrics and video frames will be deleted from disk.
+              </p>
+            </div>
+
+            <div className="p-4 border-t border-dam-border bg-dam-surface-2/30 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setSessionsToArchive(null)}
+                className="px-4 py-2 bg-dam-surface-2 hover:bg-dam-surface-3 border border-dam-border text-dam-text text-xs font-bold rounded-lg transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={executeArchive}
+                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-lg transition-colors shadow-lg shadow-red-600/10 flex items-center gap-1.5 cursor-pointer"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

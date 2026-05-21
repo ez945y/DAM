@@ -21,6 +21,7 @@ export function McapSessionList({
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [archiving, setArchiving] = useState(false)
+  const [sessionToArchive, setSessionToArchive] = useState<string[] | null>(null)
 
   useEffect(() => {
     loadSessions()
@@ -61,8 +62,13 @@ export function McapSessionList({
 
   async function archiveSessions(filenames: string[]) {
     if (filenames.length === 0) return
-    const label = filenames.length === 1 ? filenames[0] : `${filenames.length} sessions`
-    if (!confirm(`Move ${label} to the MCAP _trash folder?`)) return
+    setSessionToArchive(filenames)
+  }
+
+  async function executeArchive() {
+    if (!sessionToArchive || sessionToArchive.length === 0) return
+    const filenames = sessionToArchive
+    setSessionToArchive(null)
 
     try {
       setArchiving(true)
@@ -283,6 +289,52 @@ export function McapSessionList({
           </button>
         )
       })}
+
+      {sessionToArchive && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            aria-label="Close"
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
+            onClick={() => setSessionToArchive(null)}
+          />
+          <div className="relative bg-dam-surface border border-dam-border rounded-2xl w-full max-w-md shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-2.5 p-4 border-b border-dam-border bg-dam-surface-2/50">
+              <AlertTriangle size={18} className="text-red-500 shrink-0" />
+              <h3 className="text-sm font-bold text-dam-text uppercase tracking-widest">Delete Session</h3>
+            </div>
+
+            <div className="p-5 text-xs text-dam-muted space-y-2 leading-relaxed">
+              <p>
+                Are you sure you want to permanently delete{' '}
+                <span className="font-mono text-dam-text font-bold bg-dam-surface-3 px-1.5 py-0.5 rounded border border-dam-border">
+                  {sessionToArchive.length === 1 ? sessionToArchive[0] : `${sessionToArchive.length} sessions`}
+                </span>?
+              </p>
+              <p className="opacity-80">
+                This action is permanent and cannot be undone. All recorded cycle metrics and video frames will be deleted from disk.
+              </p>
+            </div>
+
+            <div className="p-4 border-t border-dam-border bg-dam-surface-2/30 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setSessionToArchive(null)}
+                className="px-4 py-2 bg-dam-surface-2 hover:bg-dam-surface-3 border border-dam-border text-dam-text text-xs font-bold rounded-lg transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={executeArchive}
+                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-lg transition-colors shadow-lg shadow-red-600/10 flex items-center gap-1.5 cursor-pointer"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
