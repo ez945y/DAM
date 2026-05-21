@@ -11,6 +11,7 @@ from typing import Any
 import msgspec
 
 from dam.runtime.failure_classify import classify_failure, select_failure_results
+from dam.services.serialization import msgspec_enc_hook
 
 
 class RiskEvent(msgspec.Struct):
@@ -36,8 +37,8 @@ class RiskEvent(msgspec.Struct):
     failure_tuple: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dict blazingly fast using msgspec."""
-        return msgspec.to_builtins(self)
+        """Convert to a JSON-safe dict for API responses."""
+        return msgspec.to_builtins(self, enc_hook=msgspec_enc_hook)
 
 
 class RiskLogService:
@@ -195,7 +196,7 @@ class RiskLogService:
         if events is None:
             with self._lock:
                 events = list(self._events)
-        return msgspec.json.encode(events)
+        return msgspec.json.encode(events, enc_hook=msgspec_enc_hook)
 
     def export_csv(self, events: list[RiskEvent] | None = None) -> str:
         """Return CSV string (no guard_results column; flat fields only)."""

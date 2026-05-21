@@ -5,8 +5,11 @@ from typing import TYPE_CHECKING, Annotated, Any
 if TYPE_CHECKING:
     from dam.services.risk_log import RiskLogService
 
+import msgspec
 from fastapi import APIRouter, HTTPException, Path, Query
 from fastapi.responses import PlainTextResponse, Response
+
+from dam.services.serialization import msgspec_enc_hook
 
 _SVC_UNAVAILABLE = "Risk log service not available"
 
@@ -40,12 +43,16 @@ def create_risk_log_router(risk_log: RiskLogService | None) -> APIRouter:
             failure_type=failure_type,
             limit=limit,
         )
-        return {"events": [e.to_dict() for e in events], "count": len(events)}
+        payload = {"events": events, "count": len(events)}
+        json_bytes = msgspec.json.encode(payload, enc_hook=msgspec_enc_hook)
+        return Response(content=json_bytes, media_type="application/json")
 
     @router.get("/stats", responses={503: {"description": _SVC_UNAVAILABLE}})
     async def risk_log_stats() -> Any:
         svc = _require_risk_log(risk_log)
-        return svc.stats()
+        payload = svc.stats()
+        json_bytes = msgspec.json.encode(payload, enc_hook=msgspec_enc_hook)
+        return Response(content=json_bytes, media_type="application/json")
 
     @router.post("/clear", responses={503: {"description": _SVC_UNAVAILABLE}})
     async def risk_log_clear() -> Any:
@@ -79,6 +86,7 @@ def create_risk_log_router(risk_log: RiskLogService | None) -> APIRouter:
         ev = svc.get_by_id(event_id)
         if ev is None:
             raise HTTPException(404, f"Event {event_id} not found")
-        return ev.to_dict()
+        json_bytes = msgspec.json.encode(ev, enc_hook=msgspec_enc_hook)
+        return Response(content=json_bytes, media_type="application/json")
 
     return router

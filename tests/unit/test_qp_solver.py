@@ -146,6 +146,34 @@ def test_motion_guard_default_aggregator_does_not_need_qp(proxsuite):
     assert result.clamped_action.target_joint_positions[0] <= 1.01
 
 
+def test_qp_requested_but_proxsuite_missing_fails_at_build(monkeypatch):
+    """A stackfile asking for qp_solver='proxsuite' without the backend installed
+    must fail at build time — NOT silently run and then emergency-stop on cycle 0
+    when motion_qp_aggregator first hits QP metadata in the hot path."""
+    from dataclasses import dataclass
+
+    from dam.guard.builtin.motion import MotionGuard
+    from dam.runtime import qp_solver
+    from dam.runtime.guard_runtime import GuardRuntime
+
+    monkeypatch.setattr(qp_solver, "available", lambda: False)
+
+    @dataclass
+    class _N:
+        params: dict
+
+    @dataclass
+    class _B:
+        layer: str
+        nodes: list
+
+    class _Cfg:
+        boundaries = {"jp": _B("L1", [_N({"qp_solver": "proxsuite"})])}
+
+    with pytest.raises(RuntimeError, match="proxsuite"):
+        GuardRuntime._configure_stackfile_guard_instances(_Cfg(), {"motion": MotionGuard()})
+
+
 def test_qp_solver_param_inlined_in_any_l1_boundary(proxsuite):
     """``qp_solver`` is just another pool param.  Inlining it alongside
     ``upper`` / ``lower`` on an existing L1 boundary is enough to flip

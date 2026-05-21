@@ -25,10 +25,12 @@ die()     { echo -e "${RED}[setup] ✗${NC} $*" >&2; exit 1; }
 # ── Argument parsing ───────────────────────────────────────────────────────────
 RUST_ONLY=false
 WITH_LEROBOT=false
+WITH_ROS=false
 for arg in "$@"; do
     case "$arg" in
         --rust-only)  RUST_ONLY=true ;;
         --lerobot)    WITH_LEROBOT=true ;;
+        --ros)        WITH_ROS=true ;;
         *) die "Unknown argument: $arg" ;;
     esac
 done
@@ -83,7 +85,12 @@ need_cmd cargo "Install: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.
 # ── Python virtual environment ─────────────────────────────────────────────────
 if ! $RUST_ONLY; then
     info "Syncing Python environment (uv)…"
-    EXTRAS="--extra dev --extra services --extra torch"
+    # Common base for BOTH the lerobot and ROS2 configurations.  torch is
+    # always required (policies / OOD feature extractor), and 'safety' pulls in
+    # proxsuite — the QP/CBF solver L1 boundaries use when a stackfile sets
+    # qp_solver: proxsuite.  Without proxsuite those configs fail at startup, so
+    # it belongs in the default setup, not as an opt-in.
+    EXTRAS="--extra dev --extra services --extra torch --extra safety"
     if $WITH_LEROBOT; then
         EXTRAS="$EXTRAS --extra lerobot"
         info "  including lerobot extras (hardware support + cv2)"
@@ -93,6 +100,15 @@ if ! $RUST_ONLY; then
         WITH_LEROBOT=true
         EXTRAS="$EXTRAS --extra lerobot"
         info "  lerobot detected in existing venv — preserving hardware extras"
+    fi
+    if $WITH_ROS; then
+        EXTRAS="$EXTRAS --extra ros2"
+        info "  including ros2 extras (transforms3d; install the ROS2 distro separately via apt)"
+    elif [[ -f .venv/bin/python ]] && .venv/bin/python -c "import transforms3d" 2>/dev/null; then
+        # Preserve ros2 extras if they were previously installed.
+        WITH_ROS=true
+        EXTRAS="$EXTRAS --extra ros2"
+        info "  ros2 deps detected in existing venv — preserving ROS2 support"
     fi
     # Sync environment
     # shellcheck disable=SC2086

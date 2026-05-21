@@ -50,7 +50,7 @@ def create_test_cycle(
         result = GuardResult(
             decision=decision,
             guard_name=f"guard_{i}",
-            layer=GuardLayer(i % 5),
+            layer=GuardLayer(i % 4),
             reason="test" if has_violation else "pass",
             fault_source=None,
         )
@@ -62,6 +62,7 @@ def create_test_cycle(
         triggered_at=time.time(),
         active_task="test_task",
         active_boundaries=("boundary_0", "boundary_1"),
+        active_cameras=(),
         obs_timestamp=time.time(),
         obs_joint_positions=[0.1] * 7,
         obs_channels={

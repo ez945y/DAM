@@ -1136,6 +1136,21 @@ class GuardRuntime:
         if unsupported:
             raise ValueError(f"Unsupported L1 qp_solver value(s): {unsupported}")
 
+        # Fail fast at build time if QP fusion was requested but the solver is
+        # missing.  Otherwise the missing backend only surfaces when
+        # motion_qp_aggregator first sees QP metadata at runtime — which would
+        # raise inside a guard's hot path and escalate to an emergency stop on
+        # the very first cycle.  A misconfiguration should stop startup, not the
+        # robot mid-motion.
+        from dam.runtime import qp_solver as _qp_solver
+
+        if not _qp_solver.available():
+            raise RuntimeError(
+                "An L1 boundary requested qp_solver='proxsuite' but the proxsuite "
+                "backend is not importable. Install it (pip install proxsuite) or "
+                "remove the qp_solver param to use the default box-clamp fusion."
+            )
+
         from dam.guard.aggregators.motion_qp import motion_qp_aggregator
 
         motion_guard._clamp_aggregator = motion_qp_aggregator

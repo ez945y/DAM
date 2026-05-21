@@ -65,33 +65,6 @@ _HARDWARE_UI_SKIP_KEYS = {
 }
 
 
-def _json_safe(value: Any) -> Any:
-    """Coerce arbitrary guard metadata into JSON-serialisable primitives.
-
-    The telemetry WebSocket frame is encoded with stdlib ``json.dumps``; a
-    single non-serialisable value (e.g. a numpy scalar from a motor adapter)
-    would raise and tear down the whole stream. This makes any hardware
-    metadata safe to attach without that risk.
-    """
-    if value is None or isinstance(value, str | bool | int | float):
-        return value
-    if isinstance(value, dict):
-        return {str(k): _json_safe(v) for k, v in value.items()}
-    if isinstance(value, list | tuple | set):
-        return [_json_safe(v) for v in value]
-    if hasattr(value, "tolist"):  # numpy array or scalar
-        try:
-            return _json_safe(value.tolist())
-        except Exception:
-            return str(value)
-    if hasattr(value, "item"):  # other numpy-like scalar
-        try:
-            return value.item()
-        except Exception:
-            return str(value)
-    return str(value)
-
-
 def _layer_int(layer: Any) -> int | None:
     if hasattr(layer, "value"):
         try:
@@ -159,19 +132,17 @@ def _serialise_cycle(
             continue
         host_health = meta.get("host_health")
         if _looks_like_host_health(host_health):
-            hardware["host_health"] = _json_safe(host_health)
+            hardware["host_health"] = host_health
         if layer_val == 3 or "host_health" in meta:
-            safe_meta = _json_safe(meta)
-            if isinstance(safe_meta, dict):
-                # `host_health` is hoisted for typed host tiles above. Leaving
-                # it in the generic guard payload makes the console render the
-                # same CPU/memory/GPU values twice, especially for HardwareGuard
-                # success metadata that combines host and motor telemetry.
+            if isinstance(meta, dict):
+                # UI skip keys filtering on raw metadata dict
                 safe_meta = {
                     k: v
-                    for k, v in safe_meta.items()
+                    for k, v in meta.items()
                     if k != "host_health" and k not in _HARDWARE_UI_SKIP_KEYS
                 }
+            else:
+                safe_meta = meta
             if safe_meta:
                 name = _hardware_guard_name(str(gr.guard_name), safe_meta)
                 if name != "host_health":

@@ -13,7 +13,7 @@
 #   make ci-import         ← build Rust + import
 #   make ci-stackfile     ← validate stackfile
 #
-.PHONY: setup setup-lerobot dev run docs test test-py test-rs test-ui lint build-rs clean help dam validate ci-lint ci-syntax ci-import ci-stackfile _kill_port
+.PHONY: setup setup-lerobot ros dev run docs test test-py test-rs test-ui lint build-rs clean help dam validate ci-lint ci-syntax ci-import ci-stackfile _kill_port
 
 # Ensure scripts are executable before every target that uses them
 _chmod:
@@ -28,6 +28,9 @@ setup: _chmod   ## First-time setup: venv + Rust + npm + pre-commit hooks
 
 setup-lerobot: _chmod   ## Setup with lerobot hardware support (SO-ARM101 + cameras)
 	@bash scripts/setup.sh --lerobot
+
+ros: _chmod   ## Setup with ROS2 support (transforms3d; install the ROS2 distro separately)
+	@bash scripts/setup.sh --ros
 
 build-rs: _chmod   ## Rebuild Rust extension only (dam_rs via maturin)
 	@bash scripts/setup.sh --rust-only

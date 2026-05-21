@@ -74,14 +74,20 @@ class _DAMEncoder(json.JSONEncoder):
     Handles types that the standard encoder misses:
     - bytes/bytearray -> list[int] (for MCAP image data)
     - np.ndarray      -> list (for any stray arrays)
+    Delegates to msgspec_enc_hook for centralized resolution of complex types.
     """
 
     def default(self, obj: Any) -> Any:
         if isinstance(obj, bytes | bytearray):
             return list(obj)
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-        return super().default(obj)
+        try:
+            from dam.services.serialization import msgspec_enc_hook
+
+            return msgspec_enc_hook(obj)
+        except Exception:
+            if isinstance(obj, np.ndarray):
+                return obj.tolist()
+            return super().default(obj)
 
 
 # ── Rust McapWriter (required) ─────────────────────────────────────────────────
@@ -137,7 +143,14 @@ _SENTINEL: object = object()
 
 
 def _json(obj: dict[str, Any]) -> bytes:
-    return json.dumps(obj, separators=(",", ":")).encode()
+    try:
+        import msgspec
+
+        from dam.services.serialization import msgspec_enc_hook
+
+        return msgspec.json.encode(obj, enc_hook=msgspec_enc_hook)
+    except Exception:
+        return json.dumps(obj, separators=(",", ":"), cls=_DAMEncoder).encode()
 
 
 def _record_to_dict(

@@ -166,12 +166,18 @@ class TestTelemetryService:
 
         d = _serialise_cycle(result)
 
-        json.dumps(d)
-        assert d["hardware"]["host_health"] == {"memory_percent": 44.0}
-        assert d["hardware"]["guards"]["hardware_watchdog"]["currents"] == [0.1, 0.2]
-        assert "host_health" not in d["hardware"]["guards"]["hardware_watchdog"]
-        assert "_latency_ms" not in d["hardware"]["guards"]["hardware_watchdog"]
-        assert "host_health" not in d["hardware"]["guards"]
+        import msgspec
+
+        from dam.services.serialization import msgspec_enc_hook
+
+        serialized = msgspec.json.encode(d, enc_hook=msgspec_enc_hook)
+        parsed = json.loads(serialized)
+
+        assert parsed["hardware"]["host_health"] == {"memory_percent": 44.0}
+        assert parsed["hardware"]["guards"]["hardware_watchdog"]["currents"] == [0.1, 0.2]
+        assert "host_health" not in parsed["hardware"]["guards"]["hardware_watchdog"]
+        assert "_latency_ms" not in parsed["hardware"]["guards"]["hardware_watchdog"]
+        assert "host_health" not in parsed["hardware"]["guards"]
 
     def test_push_raw(self):
         svc = TelemetryService()
@@ -374,6 +380,36 @@ class TestRiskLogService:
         d = ev.to_dict()
         assert d["cycle_id"] == 7
         assert "timestamp" in d
+
+    def test_event_to_dict_and_export_json_handle_numpy_metadata(self):
+        svc = RiskLogService()
+        result = _make_cycle_result(8, clamped=True, risk=RiskLevel.ELEVATED)
+        result.guard_results = [
+            GuardResult(
+                decision=GuardDecision.CLAMP,
+                guard_name="motion",
+                layer=GuardLayer.L1,
+                reason="qp clamp",
+                metadata={
+                    "joint_position_limits": {
+                        "upper": np.array([1.0, 2.0]),
+                        "scale": np.float32(0.5),
+                    }
+                },
+            )
+        ]
+        svc.record(result, perf={"layers": {"L1": np.float64(1.25)}})
+
+        ev = svc.query()[0]
+        d = ev.to_dict()
+        json.dumps(d)
+        assert d["guard_results"][0]["metadata"]["joint_position_limits"]["upper"] == [
+            1.0,
+            2.0,
+        ]
+        assert d["guard_results"][0]["metadata"]["joint_position_limits"]["scale"] == 0.5
+        exported = json.loads(svc.export_json())
+        assert exported[0]["perf"]["layers"]["L1"] == 1.25
 
 
 # ── BoundaryConfigService ──────────────────────────────────────────────────────
