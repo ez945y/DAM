@@ -892,8 +892,15 @@ class McapSessionService:
                                 ) or _guard_result_from_mapping(gr)
                                 if parsed is not None:
                                     detail["guard_results"].append(parsed)
+                        detail["latency"] = {}
+                        if isinstance(latency_stages, dict):
+                            for k, v in latency_stages.items():
+                                detail["latency"][k] = v
+                                detail["latency"][f"{k}_ms"] = v
                         if isinstance(latency_layers, dict):
-                            detail["latency"] = dict(latency_layers)
+                            for k, v in latency_layers.items():
+                                detail["latency"][k] = v
+                                detail["latency"][f"{k}_ms"] = v
                     elif topic == "/dam/obs":
                         detail["observation"] = {
                             "joint_positions": _message_get(d, "joint_positions", []),
