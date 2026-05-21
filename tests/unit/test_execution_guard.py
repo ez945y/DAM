@@ -4,7 +4,6 @@ import pytest
 from dam.boundary.constraint import BoundaryConstraint
 from dam.boundary.node import BoundaryNode
 from dam.boundary.single import SingleNodeContainer
-from dam.decorators import guard as guard_decorator
 from dam.guard.builtin.execution import ExecutionGuard
 from dam.injection.static import precompute_injection
 from dam.types.action import ActionProposal
@@ -14,7 +13,8 @@ from dam.types.result import GuardDecision
 
 @pytest.fixture
 def EG():
-    return guard_decorator("L3")(ExecutionGuard)
+    # ExecutionGuard declares its layer via @dam.guard(layer="L2") on the class.
+    return ExecutionGuard
 
 
 def make_obs(velocities=None, ee=None, force=None):
@@ -48,43 +48,58 @@ def test_no_containers_passes(EG):
     assert result.decision == GuardDecision.PASS
 
 
-def test_max_speed_within_limit_passes(EG):
+def test_task_speed_within_limit_passes(EG):
     from dam.boundary.builtin_callbacks import register_all
 
     register_all()
     g = EG()
     precompute_injection(g, {})
-    container = make_container(callback="check_velocity_smooth", max_jerk_norm=1.0)
-    obs = make_obs(velocities=[0.1] * 6)  # small velocities
+    container = make_container(callback="task_joint_speed_limit", max_speed=10.0)
+    obs = make_obs(velocities=[0.1] * 6)  # norm ≈ 0.245
     result = g.check(obs=obs, active_containers=[container], node_start_times={})
     assert result.decision == GuardDecision.PASS
 
 
-def test_max_speed_exceeded_rejects(EG):
+def test_task_speed_exceeded_rejects(EG):
     from dam.boundary.builtin_callbacks import register_all
 
     register_all()
     g = EG()
     precompute_injection(g, {})
-    container = make_container(callback="check_velocity_smooth", max_jerk_norm=0.1)
-    obs = make_obs(velocities=[5.0, 5.0, 5.0, 5.0, 5.0, 5.0])  # high speed
+    container = make_container(callback="task_joint_speed_limit", max_speed=1.0)
+    obs = make_obs(velocities=[5.0, 5.0, 5.0, 5.0, 5.0, 5.0])  # norm ≈ 12.2 > 1.0
     result = g.check(obs=obs, active_containers=[container], node_start_times={})
     assert result.decision == GuardDecision.REJECT
+    assert "max_speed" in result.reason
 
 
-def test_workspace_breach_rejects(EG):
+def test_task_workspace_bounds_breach_rejects(EG):
     from dam.boundary.builtin_callbacks import register_all
 
     register_all()
     g = EG()
     precompute_injection(g, {})
-    container = make_container(callback="workspace", bounds=[[0, 0.5], [0, 0.5], [0, 0.5]])
-    obs = make_obs(ee=[-1.0, 0.0, 0.2, 0.0, 0.0, 0.0, 1.0])  # outside bounds
+    container = make_container(
+        callback="task_workspace_bounds", bounds=[[0, 0.5], [0, 0.5], [0, 0.5]]
+    )
+    obs = make_obs(ee=[-1.0, 0.0, 0.2, 0.0, 0.0, 0.0, 1.0])  # x=-1.0 outside bounds
     result = g.check(obs=obs, active_containers=[container], node_start_times={})
     assert result.decision == GuardDecision.REJECT
 
 
-def test_force_exceeded_rejects(EG):
+def test_bare_params_without_callback_are_ignored(EG):
+    """ExecutionGuard no longer interprets max_speed / bounds itself — without a
+    callback those params are inert (the guard only dispatches callbacks +
+    timeout). Proves the L1/L2 split: task limits live in callbacks now."""
+    g = EG()
+    precompute_injection(g, {})
+    container = make_container(max_speed=0.001, bounds=[[0, 0.1], [0, 0.1], [0, 0.1]])
+    obs = make_obs(velocities=[5.0] * 6, ee=[-1.0, 0.0, 0.2, 0.0, 0.0, 0.0, 1.0])
+    result = g.check(obs=obs, active_containers=[container], node_start_times={})
+    assert result.decision == GuardDecision.PASS
+
+
+def test_l3_force_callback_is_ignored_by_execution_guard(EG):
     from dam.boundary.builtin_callbacks import register_all
 
     register_all()
@@ -93,7 +108,7 @@ def test_force_exceeded_rejects(EG):
     container = make_container(callback="check_force_torque_safe", max_force_n=5.0)
     obs = make_obs(force=[20.0, 0.0, 0.0, 0.0, 0.0, 0.0])  # 20N > 5N
     result = g.check(obs=obs, active_containers=[container], node_start_times={})
-    assert result.decision == GuardDecision.REJECT
+    assert result.decision == GuardDecision.PASS
 
 
 def test_timeout_rejects(EG):
@@ -119,6 +134,7 @@ def test_callback_with_params_passes(EG):
         val = float(np.max(np.abs(obs.joint_velocities)))
         return val < threshold
 
+    test_cb._cb_layer = "L2"
     reg.register("test_cb", test_cb)
 
     g = EG()

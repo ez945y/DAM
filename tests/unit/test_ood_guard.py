@@ -3,7 +3,6 @@
 import numpy as np
 import pytest
 
-from dam.decorators import guard as guard_decorator
 from dam.guard.builtin.ood import OODGuard
 from dam.injection.static import precompute_injection
 from dam.types.observation import Observation
@@ -21,7 +20,8 @@ def make_obs(positions=None, velocities=None):
 
 @pytest.fixture
 def OG():
-    return guard_decorator("L0")(OODGuard)
+    # OODGuard declares its layer via @dam.guard(layer="L0") on the class.
+    return OODGuard
 
 
 def test_ood_passes_during_warmup(OG):

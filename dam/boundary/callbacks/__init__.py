@@ -23,6 +23,8 @@ from dam.boundary.callbacks._registry import (
 from dam.boundary.callbacks.execution import (
     check_gripper_clear,
     semantic_state,
+    task_joint_speed_limit,
+    task_workspace_bounds,
 )
 from dam.boundary.callbacks.hardware import (
     check_force_torque_safe,
@@ -68,6 +70,8 @@ __all__ = [
     "orientation_limit",
     "register_all",
     "semantic_state",
+    "task_joint_speed_limit",
+    "task_workspace_bounds",
     "temperature_limit",
     "voltage_limit",
     "workspace",

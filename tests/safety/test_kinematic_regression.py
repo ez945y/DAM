@@ -10,7 +10,6 @@ from dam.boundary.callbacks._registry import register_all
 from dam.boundary.constraint import BoundaryConstraint
 from dam.boundary.node import BoundaryNode
 from dam.boundary.single import SingleNodeContainer
-from dam.decorators import guard as guard_decorator
 from dam.guard.builtin.motion import MotionGuard
 from dam.testing.helpers import assert_clamps, inject_and_call
 from dam.testing.safety import SafetyScenario, safety_regression
@@ -22,7 +21,8 @@ from dam.types.result import GuardDecision
 @pytest.fixture
 def KG():
     register_all()
-    return guard_decorator("L1")(MotionGuard)
+    # MotionGuard declares its layer via @dam.guard(layer="L1") on the class.
+    return MotionGuard
 
 
 def make_obs(ee=None) -> Observation:

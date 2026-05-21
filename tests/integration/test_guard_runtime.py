@@ -89,11 +89,17 @@ def test_clamp_joint_position_limits():
 
 
 def test_reject_returns_none():
+    from dam.boundary.builtin_callbacks import register_all
+
+    register_all()
     make_runtime()
-    # L2 workspace bounds still REJECT. L1 workspace now CLAMPs/halt.
+    # L2 task_workspace_bounds REJECTs. L1 workspace now CLAMPs/halt.
     node = BoundaryNode(
         "n0",
-        BoundaryConstraint(params={"bounds": [[0, 0.5], [0, 0.5], [0, 0.5]]}),
+        BoundaryConstraint(
+            callback="task_workspace_bounds",
+            params={"bounds": [[0, 0.5], [0, 0.5], [0, 0.5]]},
+        ),
         fallback="emergency_stop",
     )
     container = SingleNodeContainer(node)

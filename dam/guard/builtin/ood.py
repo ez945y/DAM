@@ -64,6 +64,7 @@ from typing import Any
 
 import numpy as np
 
+import dam
 from dam.guard.base import Guard
 from dam.types.observation import Observation
 from dam.types.result import GuardDecision, GuardResult
@@ -705,6 +706,7 @@ class _WelfordStats:
 # ── OODGuard ──────────────────────────────────────────────────────────────────
 
 
+@dam.guard(layer="L0")
 class OODGuard(Guard):
     """L0 gate: rejects observations that appear out-of-distribution.
 

@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import dam
 from dam.guard.base import Guard
 from dam.guard.pipeline import ClampAggregator, run_and_aggregate, sequential_clamp_aggregator
 from dam.types.action import ActionProposal
@@ -27,6 +28,7 @@ from dam.types.result import GuardDecision, GuardResult
 logger = logging.getLogger(__name__)
 
 
+@dam.guard(layer="L1")
 class MotionGuard(Guard):
     """L1 motion safety guard. Pipeline-driven; constraint logic lives in
     @boundary_callback functions registered for layer "L1".

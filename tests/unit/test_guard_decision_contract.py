@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dam.guard.base import Guard
 from dam.guard.builtin import ExecutionGuard, HardwareGuard, MotionGuard, OODGuard
+from dam.guard.layer import GuardLayer
 from dam.types.result import GuardDecision
 
 PASS = GuardDecision.PASS
@@ -51,3 +52,19 @@ def test_each_guard_overrides_expected_decisions() -> None:
         assert "expected_decisions" in cls.__dict__, (
             f"{cls.__name__} must declare its own expected_decisions"
         )
+
+
+def test_builtin_guards_declare_canonical_layer_on_class() -> None:
+    # Phase 5: each builtin guard carries its canonical layer via the
+    # @dam.guard(layer=...) class decorator — importing the class is enough,
+    # no manual decoration needed in tests or call sites.
+    expected = {
+        OODGuard: GuardLayer.L0,
+        MotionGuard: GuardLayer.L1,
+        ExecutionGuard: GuardLayer.L2,
+        HardwareGuard: GuardLayer.L3,
+    }
+    for cls, layer in expected.items():
+        assert cls._guard_layer == layer, cls.__name__
+        # The decorator also primes the injection slots used at startup.
+        assert hasattr(cls, "_cached_param_names"), cls.__name__

@@ -76,9 +76,9 @@ aggregate(results, *, action_in, guard_name, layer) -> GuardResult
     └── 全 PASS             → GuardResult.success
 ```
 
-四個 guard 都跑同一個 pipeline。差別只在：
-- 各 guard 可注入自己的 aggregator（MotionGuard 之後可以接 QP aggregator）
-- OODGuard 帶 ML state，遷移要等到階段 4
+四個 guard 都盡量往同一個 callback/pipeline contract 靠攏。差別只在：
+- 各 guard 可注入自己的 aggregator（MotionGuard 已有 opt-in QP aggregator）
+- OODGuard 帶 ML state，先保留 model-driven guard；後續拆 backend，但不強迫 callback 化
 
 ## 階段進度
 
@@ -132,19 +132,146 @@ MotionGuard 自己從 `obs.timestamp` 推 `effective_dt` 那段已隨著 MotionG
 
 復用既有 [`dam/runtime/qp_solver.py`](../dam/runtime/qp_solver.py)（`available` / `solve_box_with_slack` / `workspace_cbf_constraints`），沒搬任何 solver 邏輯回 MotionGuard。
 
-測試：新增 [`tests/unit/test_motion_qp_aggregator.py`](../tests/unit/test_motion_qp_aggregator.py)（7 cases），[`tests/unit/test_qp_solver.py`](../tests/unit/test_qp_solver.py) 兩個 phase 1 skip 的 inline-QP test 改成 `MotionGuard(clamp_aggregator=motion_qp_aggregator)` 的真實 path。
+測試：新增 [`tests/unit/test_motion_qp_aggregator.py`](../tests/unit/test_motion_qp_aggregator.py)（7 cases 起，含 fallback / QP / CBF / proxsuite missing / alias validation），[`tests/unit/test_qp_solver.py`](../tests/unit/test_qp_solver.py) 兩個 phase 1 skip 的 inline-QP test 改成 `MotionGuard(clamp_aggregator=motion_qp_aggregator)` 的真實 path。`make test` 已全綠（commit `90d7caf`）。
 
-### 階段 4 — OODGuard 拆 backend
+### 階段 4 ✅ — L1/L2 職責切乾淨
 
-`MemoryBank` / `RealNVPFlow` / `Welford` 抽成 `OODBackend` Protocol。backend 字串改 Enum。`_maybe_load` 從 hot path 拔到 preflight。**class 名稱保留 `OODGuard`**。
+`ExecutionGuard` 不再硬寫 L2 constraint 語意，只負責「跑 active L2 callback + timeout」。`max_speed` / `bounds` 改成 L2 callbacks。
 
-### 階段 5 — L1/L2 職責切乾淨
+已完成：
+- 新增兩個 L2 callbacks（[`dam/boundary/callbacks/execution.py`](../dam/boundary/callbacks/execution.py)），都回 `CallbackResult`：
+  - `task_joint_speed_limit`（取代內建 `max_speed`：整支手臂 velocity norm scalar cap，含 `use_degrees` + non-finite 防護）。
+  - `task_workspace_bounds`（取代內建 `bounds`：EE 位置離開 box 即 REJECT，對比 L1 `workspace` 的 halt-clamp）。
+- [`dam/guard/builtin/execution.py`](../dam/guard/builtin/execution.py) 移除 `max_speed` / `bounds` 內建檢查、`_cache_map`、`__init__`、`numpy` import；docstring 砍掉從未實作的 `max_force_n`。只剩 callback dispatch + timeout watchdog（timeout 是 node lifecycle，不是 stateless callback，故留在 guard）。
+- Review 補強：`ExecutionGuard` dispatch 時固定 `expected_layer="L2"`，避免 L1/L3 callback 被錯掛進 L2 guard；對應測試鎖定 L3 force callback 在 ExecutionGuard 中會被忽略，應交給 HardwareGuard。
+- 在 [`__init__`](../dam/boundary/callbacks/__init__.py) 與相容 shim [`builtin_callbacks.py`](../dam/boundary/builtin_callbacks.py) re-export 新 callback。
+- `guard_runtime.py` 的 node-level `max_speed` 相容 shim 與 `merge_policy` 的 `take_min` 保留（`max_speed` 仍是合法 callback param）。
+- 測試：[`test_execution_guard.py`](../tests/unit/test_execution_guard.py)（含「裸 params 無 callback → 被忽略」證明切乾淨）、[`test_execution_regression.py`](../tests/safety/test_execution_regression.py)、[`test_monitor_mode.py`](../tests/integration/test_monitor_mode.py)、[`test_guard_runtime.py`](../tests/integration/test_guard_runtime.py) 都改走 L2 callback boundary。
 
-階段 1 之後自然落地：`max_speed` / `bounds` 不再寫死在 ExecutionGuard，要做就寫一個 L2 callback。docstring 中 `max_force_n` 從未實作，刪掉。
+驗證：`make test` 全綠。
 
-### 階段 6 — 註冊一致性
+<details><summary>原始實作計劃（保留備查）</summary>
 
-四個 builtin 都用 `@dam.guard(layer="L*")` 在 class 上聲明（目前只有 HardwareGuard 這樣）。
+目標：`ExecutionGuard` 不再硬寫 L2 constraint 語意，只負責「跑 active L2 callback + timeout」。`max_speed` / `bounds` 這類 task-level 約束要做就寫 L2 callback。
+
+實作計劃：
+
+1. 在 [`dam/boundary/callbacks/`](../dam/boundary/callbacks/) 新增或整理 L2 callbacks：
+   - `task_joint_speed_limit`：取代 ExecutionGuard 內建 `max_speed` 檢查。
+   - `task_workspace_bounds`：取代 ExecutionGuard 內建 `bounds` 檢查。
+   - callback 回 `CallbackResult.violate(...)` 或 legacy `False` 皆可，但建議新 callback 直接回 `CallbackResult`。
+2. 修改 [`dam/guard/builtin/execution.py`](../dam/guard/builtin/execution.py)：
+   - 移除 `max_speed` 檢查。
+   - 移除 `bounds` 檢查。
+   - 移除 `_cache_map`（如果只服務 max_speed degree conversion）。
+   - 刪掉 docstring 中未實作的 `max_force_n`。
+   - 保留 timeout 邏輯，因為 timeout 是 boundary node lifecycle，不是一般 callback constraint。
+3. 更新 stackfile/測試建立 boundary 時的寫法：
+   - 舊 `{params: {max_speed: ...}}` 測試改成 `{callback: task_joint_speed_limit, params: {...}}`。
+   - 舊 `{params: {bounds: ...}}` 測試改成 `{callback: task_workspace_bounds, params: {...}}`。
+4. 測試更新：
+   - [`tests/unit/test_execution_guard.py`](../tests/unit/test_execution_guard.py)：刪掉「ExecutionGuard 自己懂 max_speed/bounds」的期待，改測 callback dispatch 與 timeout。
+   - [`tests/safety/test_execution_regression.py`](../tests/safety/test_execution_regression.py)：改走 L2 callbacks。
+   - [`tests/integration/test_monitor_mode.py`](../tests/integration/test_monitor_mode.py)：REJECT 場景用 L2 callback boundary，確認 monitor/enforce 語義不變。
+5. 驗證：
+   - `pytest tests/unit/test_execution_guard.py tests/safety/test_execution_regression.py tests/integration/test_monitor_mode.py -q`
+   - 最後跑 `make test`。
+
+完成標準：
+- `ExecutionGuard.check()` 裡沒有 `max_speed` / `bounds` / force 這類 hard-coded constraint。
+- 新增 L2 約束只需要新增 callback，不需要改 ExecutionGuard。
+- monitor/enforce 行為維持一致：monitor 記錄 violation 但放行，enforce REJECT 時不送 sink。
+
+</details>
+
+### 階段 5 ✅ — 註冊一致性
+
+四個 builtin 都用 `@dam.guard(layer="L*")` 在 class 上聲明（先前只有 HardwareGuard 這樣）。
+
+已完成：
+- [`OODGuard`](../dam/guard/builtin/ood.py)（L0）、[`MotionGuard`](../dam/guard/builtin/motion.py)（L1）、[`ExecutionGuard`](../dam/guard/builtin/execution.py)（L2）都加上 class decorator（沿用 HardwareGuard 的 `import dam` + `@dam.guard(layer=...)` pattern，無循環 import）。import class 即帶 canonical `_guard_layer` + injection slots。
+- 修正 layer 漂移：先前測試把 `ExecutionGuard` 手動包成 L3，canonical 其實是 **L2**（execution = task 層）。
+- [`builtin/__init__.py`](../dam/guard/builtin/__init__.py) `register_all` 保留顯式 kind→class + layer 字串（kind 映射仍需要；layer 與 class decorator 一致，雙重保險）。
+- 移除「fixture 純為取得 layer 而手動包 decorator」的案例：[`test_ood_guard.py`](../tests/unit/test_ood_guard.py)、[`test_execution_guard.py`](../tests/unit/test_execution_guard.py)、[`test_execution_regression.py`](../tests/safety/test_execution_regression.py)、[`test_kinematic_regression.py`](../tests/safety/test_kinematic_regression.py) 改成直接回傳已 decorated 的 class。
+- 保留手動 decorator 的地方（刻意）：自訂測試 subclass（`BrokenGuard` / `SpyExecutionGuard` / `_SyntheticGuard`）、專測 decorator/injection 的 [`test_injection.py`](../tests/unit/test_injection.py)，以及刻意用非 canonical layer 模擬多層 pipeline 的 [`test_phase2_pipeline.py`](../tests/integration/test_phase2_pipeline.py) / [`test_lerobot_runner.py`](../tests/unit/test_lerobot_runner.py)。
+- 新增 contract test：[`test_guard_decision_contract.py`](../tests/unit/test_guard_decision_contract.py) `test_builtin_guards_declare_canonical_layer_on_class` 鎖定四個 guard 的 class-level layer。
+
+<details><summary>原始實作計劃（保留備查）</summary>
+
+目標：builtin guard 的 layer/name registration 不再靠測試或 runtime 手動 decorator 包一次；import class 時就帶有 canonical layer。
+
+實作計劃：
+
+1. 修改 builtin guard class：
+   - `OODGuard` 用 `@dam.guard(layer="L0")`
+   - `MotionGuard` 用 `@dam.guard(layer="L1")`
+   - `ExecutionGuard` 用 `@dam.guard(layer="L2")`
+   - `HardwareGuard` 確認現況並調整到同一風格
+2. 檢查 [`dam/guard/builtin/__init__.py`](../dam/guard/builtin/__init__.py) 與 [`dam/decorators.py`](../dam/decorators.py)：
+   - 避免重複 decorator 造成 registry duplicate 或 layer 被覆寫。
+   - 保留外部自訂 guard 的 `@dam.guard(...)` backward compat。
+3. 更新測試 helper：
+   - 能直接 `g = MotionGuard()` 的地方就不要 `guard_decorator("L1")(MotionGuard)`。
+   - 仍需要測 decorator 的地方保留小型專門測試。
+4. 新增/更新 contract test：
+   - builtin guard import 後 `get_layer()` / `_guard_layer` 正確。
+   - `expected_decisions` 與 layer contract 一致。
+   - 重複 import / register 不會 duplicate。
+5. 驗證：
+   - `pytest tests/unit/test_guard_decision_contract.py tests/unit/test_api.py tests/unit/test_injection.py -q`
+   - 最後跑 `make test`。
+
+完成標準：
+- 測試與範例不再需要手動把 builtin guard 包 decorator 才能取得 layer。
+- Guard registration 仍支援第三方自訂 guard。
+- Phase 4 的 callback-based ExecutionGuard 不被註冊改動破壞。
+
+</details>
+
+### 階段 6 — OODGuard 拆 backend
+
+> 建議放在 Phase 4/5 後。理由：OOD 涉及 model state、training、load/save、diagnostics，風險比 ExecutionGuard cleanup 高。先把 guard registration 與 callback dispatch 邊界收乾淨，再切 ML backend 會比較不混。
+
+目標：`OODGuard` class 名稱保留，但內部 detector 從 guard 本體拆成 backend。`MemoryBank` / `RealNVPFlow` / `Welford` 抽成 `OODBackend` Protocol；backend 字串改 Enum；`_maybe_load` 從 hot path 拔到 init/preflight。
+
+實作計劃：
+
+1. 新增 backend contract：
+   - 位置建議：`dam/guard/ood_backend.py` 或 `dam/guard/builtin/ood_backend.py`。
+   - 定義 `OODBackend` Protocol，至少包含：
+     - `score(obs_or_features) -> float`
+     - `train(samples/features) -> None`
+     - `diagnostics() -> dict[str, Any]`
+     - `save(path) / load(path)`（若現有 backend 支援）
+   - 定義 `OODBackendKind(Enum)`：`WELFORD`, `MEMORY_BANK`, `NORMALIZING_FLOW`。
+2. 把現有 detector state 包成 backend：
+   - `WelfordBackend`
+   - `MemoryBankBackend`
+   - `RealNVPFlowBackend`
+   - feature extractor 可以先留在 `OODGuard`，也可以包到 backend；第一版建議留在 guard，降低改動。
+3. 修改 [`dam/guard/builtin/ood.py`](../dam/guard/builtin/ood.py)：
+   - `backend` 參數接受 Enum 或字串 alias，字串轉 Enum 並保留相容 warning。
+   - `check()` hot path 不再 `_maybe_load`。
+   - load/model path validation 移到 `__init__` 或 runtime preflight。
+   - `OODGuard` 只做：extract features → backend score → smoothing/consecutive logic → GuardResult。
+4. 更新 training / diagnostics 呼叫：
+   - 現有 `train(...)` 委派到 backend。
+   - `diagnostics()` 聚合 guard-level smoothing state + backend diagnostics。
+5. 測試更新：
+   - [`tests/unit/test_ood_guard.py`](../tests/unit/test_ood_guard.py)
+   - [`tests/unit/test_ood_memory_bank.py`](../tests/unit/test_ood_memory_bank.py)
+   - [`tests/unit/test_ood_normalizing_flow.py`](../tests/unit/test_ood_normalizing_flow.py)
+   - [`tests/safety/test_ood_regression.py`](../tests/safety/test_ood_regression.py)
+   - 新增 backend protocol/enum tests。
+6. 驗證：
+   - `pytest tests/unit/test_ood_guard.py tests/unit/test_ood_memory_bank.py tests/unit/test_ood_normalizing_flow.py tests/safety/test_ood_regression.py -q`
+   - 最後跑 `make test`。
+
+完成標準：
+- `OODGuard.check()` 不做 lazy load。
+- backend 選擇不再散落字串比較。
+- `OODGuard` 對外 class name、decision semantics、diagnostics key 盡量維持相容。
+- model load/save/training lifecycle 有明確測試。
 
 ## 不在這份 refactor 內
 
@@ -156,7 +283,7 @@ MotionGuard 自己從 `obs.timestamp` 推 `effective_dt` 那段已隨著 MotionG
 ## 未解決 / 後續再議
 
 - ~~**L1 多個 CLAMP 結果該怎麼預設融合？**~~ 已定案：預設仍是 sequential；想要 joint fusion 的使用者注入 `motion_qp_aggregator`（階段 3 完成）。
-- **OODGuard 的 callback 化怎麼設計？** L0 callback 拿 obs 計算 OOD score 是合理的，但 model 載入 / training 不適合放 callback。可能 OODGuard 維持非 pipeline 路徑，僅 `expected_decisions` 對齊。
+- **OODGuard 要不要 callback 化？** 目前傾向不要強推。L0 callback 拿 obs 計算 OOD score 是合理的，但 model 載入 / training 不適合放 callback；Phase 6 先拆 backend、保留 OODGuard model-driven 路徑。
 - **遷移期 backward compat**：舊 YAML 還在用 `joint_position_limits` 走舊路徑，需要時間視窗讓使用者改寫。考慮 0.6.0 release note 列 deprecation。
 
 ## 檔案相關性快查

@@ -6,7 +6,6 @@ import pytest
 from dam.boundary.constraint import BoundaryConstraint
 from dam.boundary.node import BoundaryNode
 from dam.boundary.single import SingleNodeContainer
-from dam.decorators import guard as guard_decorator
 from dam.guard.builtin.execution import ExecutionGuard
 from dam.injection.static import precompute_injection
 from dam.types.observation import Observation
@@ -15,7 +14,8 @@ from dam.types.result import GuardDecision
 
 @pytest.fixture
 def EG():
-    return guard_decorator("L3")(ExecutionGuard)
+    # ExecutionGuard declares its layer via @dam.guard(layer="L2") on the class.
+    return ExecutionGuard
 
 
 def make_obs_inside():
@@ -28,12 +28,14 @@ def make_obs_inside():
 
 
 def make_container(max_speed=0.5, bounds=None):
-    params = {}
-    if max_speed is not None:
-        params["max_speed"] = max_speed
+    """Task limits are L2 callbacks now; pick the callback for the param given."""
+    from dam.boundary.builtin_callbacks import register_all
+
+    register_all()
     if bounds is not None:
-        params["bounds"] = bounds
-    c = BoundaryConstraint(params=params)
+        c = BoundaryConstraint(callback="task_workspace_bounds", params={"bounds": bounds})
+    else:
+        c = BoundaryConstraint(callback="task_joint_speed_limit", params={"max_speed": max_speed})
     node = BoundaryNode("n0", c, fallback="hold_position")
     return SingleNodeContainer(node)
 

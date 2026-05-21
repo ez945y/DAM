@@ -49,6 +49,9 @@ def _make_runtime(
     enforcement_mode: str = "monitor",
 ) -> GuardRuntime:
     """Runtime with an ExecutionGuard wired to a workspace that rejects ee_x < 0."""
+    from dam.boundary.builtin_callbacks import register_all
+
+    register_all()
     KG = guard_decorator("L2")(ExecutionGuard)
     g = KG()
     g.set_name("main")
@@ -60,7 +63,10 @@ def _make_runtime(
 
     node = BoundaryNode(
         "n0",
-        BoundaryConstraint(params={"bounds": np.array([[0.0, 0.5], [0.0, 0.5], [0.0, 0.5]])}),
+        BoundaryConstraint(
+            callback="task_workspace_bounds",
+            params={"bounds": np.array([[0.0, 0.5], [0.0, 0.5], [0.0, 0.5]])},
+        ),
         fallback="emergency_stop",
     )
     container = SingleNodeContainer(node)
@@ -170,6 +176,10 @@ def test_monitor_mode_does_not_apply_clamp():
 def test_monitor_mode_does_not_call_violation_hooks():
     """Monitor mode checks and records violations without triggering guard side effects."""
 
+    from dam.boundary.builtin_callbacks import register_all
+
+    register_all()
+
     class SpyExecutionGuard(ExecutionGuard):
         violation_count = 0
 
@@ -188,7 +198,10 @@ def test_monitor_mode_does_not_call_violation_hooks():
 
     node = BoundaryNode(
         "n0",
-        BoundaryConstraint(params={"bounds": np.array([[0.0, 0.5], [0.0, 0.5], [0.0, 0.5]])}),
+        BoundaryConstraint(
+            callback="task_workspace_bounds",
+            params={"bounds": np.array([[0.0, 0.5], [0.0, 0.5], [0.0, 0.5]])},
+        ),
         fallback="emergency_stop",
     )
     container = SingleNodeContainer(node)
