@@ -33,9 +33,13 @@ class RuntimeFactory:
 
     @staticmethod
     def _resolve_urdf_path(config: StackfileConfig, preset: Any) -> str | None:
-        """Stackfile override wins; else fall back to the preset's bundled
-        URDF (resolved relative to the repo root) so the workspace CBF
-        callback works without the user wiring URDFs explicitly."""
+        """Resolve URDF for workspace FK.
+
+        Power-user escape hatch: ``hardware.urdf_path`` in the raw stackfile
+        overrides the preset's URDF. The Console UI doesn't expose this
+        field (URDFs are managed per-preset in the preset manager); it
+        exists for users editing YAML directly. Otherwise we fall back to
+        the preset's bundled URDF, resolved relative to the repo root."""
         from pathlib import Path
 
         if config.hardware is not None and config.hardware.urdf_path:
@@ -75,20 +79,21 @@ class RuntimeFactory:
         _ADAPTER_TYPES = ("motor", "lerobot", "ros2")
         adapter_type = None
         hw_config = config.hardware
-        if hw_config:
-            if hw_config.preset == "simulation":
-                adapter_type = "simulation"
-            elif hw_config.sources:
-                for src in hw_config.sources.values():
-                    t = str(src.type or "").lower()
-                    if t in _ADAPTER_TYPES:
-                        adapter_type = "motor" if t in ("motor", "lerobot") else t
-                        break
+        if hw_config and hw_config.sources:
+            for src in hw_config.sources.values():
+                t = str(src.type or "").lower()
+                if t in _ADAPTER_TYPES:
+                    adapter_type = "motor" if t in ("motor", "lerobot") else t
+                    break
+                if t == "dataset":
+                    adapter_type = "simulation"
+                    break
 
         if not adapter_type:
             raise ValueError(
-                "No valid hardware configuration found. Please specify 'preset: simulation' "
-                "or a peripheral type (e.g., 'type: lerobot') in the stackfile."
+                "No valid hardware configuration found. Please specify a source "
+                "with a recognized type (e.g., 'type: lerobot', 'type: ros2', "
+                "'type: dataset') in the stackfile."
             )
 
         logger.info("Building runtime with adapter type: %s", adapter_type)
@@ -369,7 +374,29 @@ class RuntimeFactory:
             from dam.adapter.lerobot.policy import LeRobotPolicyAdapter
             from dam.config.schema import HardwareConfig
 
-            fake_hw = HardwareConfig(preset="generic_6dof")
+            # Simulation-only policy loading reuses LeRobotBuilder's lerobot
+            # adapter; pick whichever preset the stackfile already names,
+            # falling back to the first registered one if the name is missing
+            # or no longer in the registry (e.g. a stackfile that references
+            # a since-deleted preset).
+            from dam.preset import list_presets
+
+            registered = list_presets()
+            if not registered:
+                logger.warning("No presets registered — skipping policy build")
+                return None
+            preset_name = (
+                config.hardware.preset if config.hardware and config.hardware.preset else None
+            )
+            if preset_name not in registered:
+                if preset_name:
+                    logger.warning(
+                        "Preset '%s' not in registry — falling back to '%s' for policy build",
+                        preset_name,
+                        registered[0],
+                    )
+                preset_name = registered[0]
+            fake_hw = HardwareConfig(preset=preset_name)
             builder = LeRobotBuilder(fake_hw, config.policy)
             policy_res = builder.build_policy()
             if not policy_res:
@@ -425,7 +452,7 @@ class RuntimeFactory:
     def _find_sim_source_cfg(config: StackfileConfig) -> Any:
         if config.hardware and config.hardware.sources:
             for _name, s in config.hardware.sources.items():
-                if str(s.type).lower() in ("dataset", "simulation", "mock"):
+                if str(s.type).lower() == "dataset":
                     return s
         return None
 

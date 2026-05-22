@@ -1,15 +1,16 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { RefreshCw, Check, Plus, Trash2, Usb, FolderOpen, AlertCircle } from 'lucide-react'
+import { RefreshCw, Plus, Trash2, Usb, Settings2 } from 'lucide-react'
 import { TEMPLATES, defaultConfig, generateYaml, parseConfigFromYaml } from '@/lib/templates'
 import type { DamConfig, CameraConfig } from '@/lib/templates'
 import type { EnforcementMode, UsbDeviceInfo } from '@/lib/types'
-import { api, scanUsbDevices } from '@/lib/api'
+import { api, scanUsbDevices, listPresets, type PresetEntry } from '@/lib/api'
 import { useStackfileLibrary } from '@/hooks/useStackfileLibrary'
 import { StackfileLibraryBar } from '@/components/StackfileLibraryBar'
 import { TemplateGallery } from '@/components/TemplateGallery'
 import { AdapterColumn, ADAPTERS, POLICIES } from '@/components/AdapterPicker'
 import { JointLimitsTable } from '@/components/JointLimitsTable'
+import { PresetManager } from '@/components/PresetManager'
 
 import { ActionShell } from '@/components/ActionShell'
 
@@ -39,86 +40,6 @@ function loadSaved(): DamConfig {
     }
   } catch { /* ignore */ }
   return defaultConfig()
-}
-
-type AssetTarget = 'calibration' | 'ood_model'
-
-function AssetUploader({
-  label,
-  hint,
-  target,
-  currentPath,
-  onPathSaved,
-}: {
-  label: string
-  hint: string
-  target: AssetTarget
-  currentPath: string
-  onPathSaved: (path: string) => void
-}) {
-  const ref = useRef<HTMLInputElement>(null)
-  const [uploading, setUploading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [ok, setOk] = useState(false)
-
-  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    e.target.value = ''
-    setUploading(true)
-    setError(null)
-    setOk(false)
-    try {
-      const fd = new FormData()
-      fd.append('file', file)
-      fd.append('target', target)
-      const res = await fetch('/api/system/upload-asset', { method: 'POST', body: fd })
-      const body = await res.json() as { ok: boolean; path?: string; error?: string }
-      if (!body.ok || !body.path) throw new Error(body.error ?? 'Upload failed')
-      onPathSaved(body.path)
-      setOk(true)
-      setTimeout(() => setOk(false), 3000)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setUploading(false)
-    }
-  }
-
-  const inputId = `asset-uploader-${target}`
-  return (
-    <div className="space-y-1">
-      {label && <label htmlFor={inputId} className="text-dam-muted text-xs">{label}</label>}
-      <div className="flex items-center gap-2">
-        <input
-          id={inputId}
-          value={currentPath}
-          onChange={e => onPathSaved(e.target.value)}
-          placeholder="/mnt/dam_data/..."
-          className={`flex-1 ${inputCls} font-mono`}
-        />
-        <button
-          onClick={() => ref.current?.click()}
-          disabled={uploading}
-          className="flex items-center gap-1 px-2.5 py-1.5 bg-dam-surface-3 border border-dam-border text-dam-muted text-xs rounded hover:text-dam-text transition-colors disabled:opacity-50 shrink-0"
-        >
-          {uploading
-            ? <><RefreshCw size={10} className="animate-spin" /> Uploading…</>
-            : ok
-              ? <><Check size={10} className="text-dam-green" /> Saved</>
-              : <><FolderOpen size={10} /> Upload file</>
-          }
-        </button>
-      </div>
-      {error && (
-        <p className="flex items-center gap-1 text-dam-red text-[10px]">
-          <AlertCircle size={10} /> {error}
-        </p>
-      )}
-      <p className="text-dam-muted text-[10px]">{hint}</p>
-      <input ref={ref} type="file" onChange={handleFile} className="hidden" />
-    </div>
-  )
 }
 
 export default function ConfigPage() {
@@ -185,6 +106,18 @@ export default function ConfigPage() {
   const [usbDevices, setUsbDevices] = useState<UsbDeviceInfo[]>([])
   const [usbScanning, setUsbScanning] = useState(false)
   const [_usbScanFailed, setUsbScanFailed] = useState(false)
+  const [presets, setPresets] = useState<PresetEntry[]>([])
+  const [presetManagerOpen, setPresetManagerOpen] = useState(false)
+
+  const refreshPresets = useCallback(async () => {
+    try {
+      setPresets(await listPresets())
+    } catch { /* ignore */ }
+  }, [])
+
+  useEffect(() => {
+    refreshPresets()
+  }, [refreshPresets])
 
   useEffect(() => {
     if (!yamlDirty) {
@@ -392,31 +325,46 @@ export default function ConfigPage() {
       </Section>
 
       <Section title="Hardware">
-        {cfg.adapter !== 'simulation' && (
-          <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-dam-muted text-xs shrink-0">Hardware preset:</span>
-            {['so101_follower', 'generic_6dof', 'custom'].map(preset => (
-              <button
-                key={preset}
-                onClick={() => set('hardware_preset', preset)}
-                className={`px-2.5 py-1 rounded text-xs border transition-all ${
-                  cfg.hardware_preset === preset
-                    ? 'bg-dam-blue-dim border-dam-blue text-dam-blue'
-                    : 'bg-dam-surface-2 border-dam-border text-dam-muted hover:border-dam-blue/40'
-                }`}
-              >
-                {preset}
-              </button>
-            ))}
-          </div>
-        )}
-
         <AdapterColumn
           title="Hardware (Source + Sink)"
           options={ADAPTERS}
           selected={cfg.adapter}
           onSelect={v => handleAdapterChange('adapter', v)}
         />
+
+        {(cfg.adapter === 'lerobot' || cfg.adapter === 'simulation') && (
+          <div className="space-y-2 pt-2 border-t border-dam-border/60">
+            <div className="flex items-center justify-between">
+              <span className="text-dam-muted text-xs">Robot preset:</span>
+              <button
+                onClick={() => setPresetManagerOpen(true)}
+                className="flex items-center gap-1 px-2 py-1 text-[10px] text-dam-muted hover:text-dam-blue transition-colors"
+              >
+                <Settings2 size={10} /> Manage
+              </button>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {presets.length === 0 && (
+                <p className="text-dam-muted text-xs italic">
+                  No presets registered. Click <span className="text-dam-blue">Manage</span> to add one.
+                </p>
+              )}
+              {presets.map(p => (
+                <button
+                  key={p.name}
+                  onClick={() => set('hardware_preset', p.name)}
+                  className={`px-2.5 py-1 rounded text-xs border transition-all ${
+                    cfg.hardware_preset === p.name
+                      ? 'bg-dam-blue-dim border-dam-blue text-dam-blue'
+                      : 'bg-dam-surface-2 border-dam-border text-dam-muted hover:border-dam-blue/40'
+                  }`}
+                >
+                  {p.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {cfg.adapter === 'lerobot' && (
           <div className="space-y-4 pt-2 border-t border-dam-border/60">
@@ -447,7 +395,7 @@ export default function ConfigPage() {
                   id="lerobot-port"
                   value={cfg.lerobot_port}
                   onChange={e => set('lerobot_port', e.target.value)}
-                  placeholder="/dev/tty.usbmodem..."
+                  placeholder="/dev/tty.usbmodem... · /dev/ttyACM0 · COM3"
                   className={`flex-1 ${inputCls}`}
                 />
                 <button
@@ -481,14 +429,13 @@ export default function ConfigPage() {
             </div>
 
             <div className="space-y-1">
-              <p className="text-dam-muted text-xs">Calibration Directory Path</p>
-              <p className="text-dam-muted text-[10px] mb-2">Provide the directory containing LeRobot calibration JSONs.</p>
-              <AssetUploader
-                label=""
-                hint="Tip: You can also paste an absolute local path directly."
-                target="calibration"
-                currentPath={cfg.lerobot_calibration_path}
-                onPathSaved={setCalibrationPath}
+              <label htmlFor="lerobot-calibration-path" className="text-dam-muted text-xs">Calibration Directory Path</label>
+              <input
+                id="lerobot-calibration-path"
+                value={cfg.lerobot_calibration_path}
+                onChange={e => setCalibrationPath(e.target.value)}
+                placeholder={`~/.cache/huggingface/lerobot/calibration/robots/so_follower/${cfg.lerobot_robot_id || '<robot_id>'}.json`}
+                className={`w-full ${inputCls} font-mono`}
               />
             </div>
 
@@ -542,8 +489,7 @@ export default function ConfigPage() {
           <div className="space-y-2 pt-2 border-t border-dam-border/60">
             <p className="text-dam-muted text-[10px] uppercase tracking-widest">Observation Channels</p>
             <p className="text-dam-muted text-[10px]">
-              Peer-source sensors logged alongside joint state. Topic field is optional —
-              leave blank to use the adapter default.
+              Peer-source sensors logged alongside joint state.
             </p>
             {cfg.observation_channels.length > 0 && (
               <div className="space-y-1.5">
@@ -552,7 +498,7 @@ export default function ConfigPage() {
                   // closure-stale references after rename.
                   const currentName = cfg.observation_channels[i]
                   return (
-                  <div key={i} className="grid grid-cols-[8rem_1fr_auto] gap-1.5 items-center">
+                  <div key={i} className={`grid gap-1.5 items-center ${cfg.adapter === 'ros2' ? 'grid-cols-[8rem_1fr_auto]' : 'grid-cols-[1fr_auto]'}`}>
                     <input
                       value={currentName}
                       onChange={e => {
@@ -571,19 +517,21 @@ export default function ConfigPage() {
                       className={inputCls}
                       placeholder="effort"
                     />
-                    <input
-                      value={cfg.channel_topic_overrides?.[currentName] ?? ''}
-                      onChange={e => {
-                        const name = cfg.observation_channels[i]
-                        if (!name) return  // ignore edits to unnamed channels
-                        const overrides = { ...(cfg.channel_topic_overrides ?? {}) }
-                        if (e.target.value) overrides[name] = e.target.value
-                        else delete overrides[name]
-                        set('channel_topic_overrides', overrides)
-                      }}
-                      className={inputCls}
-                      placeholder="/topic/override (optional)"
-                    />
+                    {cfg.adapter === 'ros2' && (
+                      <input
+                        value={cfg.channel_topic_overrides?.[currentName] ?? ''}
+                        onChange={e => {
+                          const name = cfg.observation_channels[i]
+                          if (!name) return
+                          const overrides = { ...(cfg.channel_topic_overrides ?? {}) }
+                          if (e.target.value) overrides[name] = e.target.value
+                          else delete overrides[name]
+                          set('channel_topic_overrides', overrides)
+                        }}
+                        className={inputCls}
+                        placeholder="/topic/override (optional)"
+                      />
+                    )}
                     <button
                       onClick={() => {
                         const name = cfg.observation_channels[i]
@@ -849,23 +797,6 @@ export default function ConfigPage() {
                     <p className="text-dam-muted text-[10px]">Keep images from last N seconds for pre-event capture</p>
                   </div>
 
-                  {/* Pre-event capture duration */}
-                  <div className="space-y-1">
-                    <label htmlFor="loopback-pre-event-sec" className="text-dam-muted text-xs">Pre-event Capture (seconds)</label>
-                    <input
-                      id="loopback-pre-event-sec"
-                      type="number"
-                      min="0"
-                      max="60"
-                      value={cfg.loopback.pre_event_sec ?? 10}
-                      onChange={e => setCfg(prev => ({
-                        ...prev,
-                        loopback: prev.loopback ? { ...prev.loopback, pre_event_sec: Number(e.target.value) } : undefined,
-                      }))}
-                      className={`w-full ${inputCls}`}
-                    />
-                    <p className="text-dam-muted text-[10px]">Capture N seconds before event (0 = capture all cycles)</p>
-                  </div>
                 </div>
 
                 {/* Capture on clamp toggle */}
@@ -896,6 +827,11 @@ export default function ConfigPage() {
           )}
         </div>
       </Section>
+      <PresetManager
+        open={presetManagerOpen}
+        onClose={() => setPresetManagerOpen(false)}
+        onChanged={refreshPresets}
+      />
     </ActionShell>
   )
 }

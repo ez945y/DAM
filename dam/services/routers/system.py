@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import os
 from pathlib import Path as _Path
 from typing import TYPE_CHECKING, Annotated, Any
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from dam.services.runtime_control import RuntimeControlService
@@ -12,6 +15,12 @@ if TYPE_CHECKING:
 import anyio
 from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import PlainTextResponse
+
+from dam.preset import (
+    delete_preset,
+    list_preset_entries,
+    upsert_preset,
+)
 
 
 def _stackfile_path() -> str:
@@ -23,14 +32,29 @@ def _find_usb_devices() -> dict[str, Any]:
     import platform
 
     devices: list[dict[str, Any]] = []
-    is_mac = platform.system() == "Darwin"
-    if is_mac:
-        serial_patterns = ["/dev/cu.usbmodem*", "/dev/cu.usbserial*", "/dev/tty.usbmodem*"]
+
+    # Cross-platform serial enumeration via pyserial.  Returns ListPortInfo with
+    # `.device` = "/dev/tty.usbmodem...", "/dev/ttyACM0", "COM3" etc.
+    try:
+        from serial.tools import list_ports
+    except ImportError:
+        logger.warning(
+            "pyserial not available — USB scan disabled. "
+            "Install with `pip install pyserial` (declared in pyproject.toml)."
+        )
     else:
-        serial_patterns = ["/dev/ttyACM*", "/dev/ttyUSB*"]
-    for pat in serial_patterns:
-        for path in sorted(_glob.glob(pat)):
-            devices.append({"path": path, "type": "serial", "label": path.split("/")[-1]})
+        is_mac = platform.system() == "Darwin"
+        for info in sorted(list_ports.comports(), key=lambda p: p.device):
+            path = info.device
+            # macOS exposes every USB-CDC device twice (/dev/cu.* and /dev/tty.*).
+            # LeRobot/Feetech requires the /dev/tty.* variant — drop the cu dupes.
+            if is_mac and path.startswith("/dev/cu."):
+                continue
+            label = info.description if info.description and info.description != "n/a" else path
+            devices.append({"path": path, "type": "serial", "label": label})
+
+    # Video cameras: Linux exposes /dev/video*.  macOS/Windows enumerate cameras
+    # through other APIs not covered here.
     for path in sorted(_glob.glob("/dev/video*")):
         try:
             idx = int(path.replace("/dev/video", ""))
@@ -108,6 +132,60 @@ def create_system_router(control: RuntimeControlService | None) -> APIRouter:
             raise HTTPException(400, "yaml is required")
         _write_stackfile(_stackfile_path(), yaml_content)
         return {"success": True, "path": _stackfile_path()}
+
+    @router.get("/presets")
+    def system_list_presets() -> Any:
+        """Return all registered robot presets."""
+        return {"presets": list_preset_entries()}
+
+    @router.post(
+        "/presets",
+        responses={
+            400: {"description": "Invalid preset payload"},
+            500: {"description": "Failed to write registry"},
+        },
+    )
+    def system_upsert_preset(body: Annotated[dict[str, Any], Body()]) -> Any:
+        """Create or update a preset by name.
+
+        Pass ``rename_from`` to atomically remove the previous key in the
+        same write — the Console uses this when the user edits a preset's
+        name so we don't leave half-state on partial failure.
+        """
+        name = str(body.get("name", "")).strip()
+        joint_names = body.get("joint_names") or []
+        if not name:
+            raise HTTPException(400, "name is required")
+        if not isinstance(joint_names, list) or not joint_names:
+            raise HTTPException(400, "joint_names must be a non-empty list")
+        try:
+            preset = upsert_preset(
+                name,
+                joint_names=list(joint_names),
+                degrees_mode=bool(body.get("degrees_mode", True)),
+                urdf_path=body.get("urdf_path") or None,
+                control_hz=float(body.get("control_hz", 50.0)),
+                rename_from=body.get("rename_from") or None,
+            )
+        except (ValueError, OSError) as e:
+            raise HTTPException(400, str(e)) from e
+        return {
+            "name": preset.name,
+            "joint_names": preset.joint_names,
+            "degrees_mode": preset.degrees_mode,
+            "urdf_path": preset.default_urdf_relpath,
+            "control_hz": preset.control_hz,
+        }
+
+    @router.delete(
+        "/presets/{name}",
+        responses={404: {"description": "Unknown preset"}},
+    )
+    def system_delete_preset(name: str) -> Any:
+        """Delete a preset by name."""
+        if not delete_preset(name):
+            raise HTTPException(404, f"Unknown preset '{name}'")
+        return {"deleted": name}
 
     @router.post("/restart", responses={500: {"description": "Failed to write stackfile"}})
     async def system_restart(body: Annotated[dict[str, Any], Body()]) -> Any:

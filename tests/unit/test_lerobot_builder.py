@@ -34,14 +34,10 @@ def _hw(preset: str = "so101_follower", sources: dict | None = None) -> Any:
 def _policy(
     pretrained_path: str = "my/hf-repo",
     device: str = "cpu",
-    noise_scheduler_type: str | None = None,
-    num_inference_steps: int | None = None,
 ) -> Any:
     p = SimpleNamespace()
     p.pretrained_path = pretrained_path
     p.device = device
-    p.noise_scheduler_type = noise_scheduler_type
-    p.num_inference_steps = num_inference_steps
     return p
 
 
@@ -162,20 +158,11 @@ class TestBuildCameraConfigs:
 
 
 # ---------------------------------------------------------------------------
-# _cfg_so101 / _cfg_so100 / _cfg_koch  (calibration_dir forwarding)
+# _cfg_so101  (calibration_dir forwarding)
 # ---------------------------------------------------------------------------
 
 
 class TestRobotConfigBuilders:
-    def _patch_robot(self, module_path: str, cls_name: str):
-        """Context manager that patches the lerobot robot config class."""
-        mock_cfg = MagicMock()
-        mock_cfg.__name__ = cls_name
-        return patch(
-            f"dam.adapter.lerobot.builder.LeRobotBuilder.{cls_name.replace('Config', '').lower()}",
-            mock_cfg,
-        )
-
     def _call_so101(self, calibration: Path | None = None) -> dict:
         from dam.adapter.lerobot.builder import LeRobotBuilder
 
@@ -197,48 +184,6 @@ class TestRobotConfigBuilders:
             LeRobotBuilder._cfg_so101("port", "robot_id", {}, calibration)
         return captured_kwargs
 
-    def _call_so100(self, calibration: Path | None = None) -> dict:
-        from dam.adapter.lerobot.builder import LeRobotBuilder
-
-        captured_kwargs: dict = {}
-
-        class FakeCls:
-            def __init__(self, **kw):
-                captured_kwargs.update(kw)
-
-        with patch.dict(
-            sys.modules,
-            {
-                "lerobot": MagicMock(),
-                "lerobot.robots": MagicMock(),
-                "lerobot.robots.so_follower": MagicMock(),
-            },
-        ):
-            sys.modules["lerobot.robots.so_follower"].SO100FollowerConfig = FakeCls
-            LeRobotBuilder._cfg_so100("port", "robot_id", {}, calibration)
-        return captured_kwargs
-
-    def _call_koch(self, calibration: Path | None = None) -> dict:
-        from dam.adapter.lerobot.builder import LeRobotBuilder
-
-        captured_kwargs: dict = {}
-
-        class FakeCls:
-            def __init__(self, **kw):
-                captured_kwargs.update(kw)
-
-        with patch.dict(
-            sys.modules,
-            {
-                "lerobot": MagicMock(),
-                "lerobot.robots": MagicMock(),
-                "lerobot.robots.koch_follower": MagicMock(),
-            },
-        ):
-            sys.modules["lerobot.robots.koch_follower"].KochFollowerConfig = FakeCls
-            LeRobotBuilder._cfg_koch("port", "robot_id", {}, calibration)
-        return captured_kwargs
-
     def test_so101_no_calibration_omits_calibration_dir(self):
         kw = self._call_so101(calibration=None)
         assert "calibration_dir" not in kw
@@ -246,18 +191,6 @@ class TestRobotConfigBuilders:
     def test_so101_with_calibration_sets_calibration_dir(self):
         kw = self._call_so101(calibration=Path("/mnt/dam_data/calibration"))
         assert kw["calibration_dir"] == "/mnt/dam_data/calibration"
-
-    def test_so100_with_calibration_sets_calibration_dir(self):
-        kw = self._call_so100(calibration=Path("/mnt/data/cal"))
-        assert kw["calibration_dir"] == "/mnt/data/cal"
-
-    def test_so100_no_calibration_omits_calibration_dir(self):
-        kw = self._call_so100(calibration=None)
-        assert "calibration_dir" not in kw
-
-    def test_koch_with_calibration_sets_calibration_dir(self):
-        kw = self._call_koch(calibration=Path("/tmp/cal"))
-        assert kw["calibration_dir"] == "/tmp/cal"
 
     def test_so101_base_kwargs_correct(self):
         kw = self._call_so101(calibration=None)
@@ -345,49 +278,6 @@ class TestLoadLerobotPolicy:
         assert mock_cfg.device == "mps"
         assert res_policy == mock_policy
         mock_policy.to.assert_called_with("mps")
-
-    def test_diffusion_policy_overrides_include_scheduler_and_steps(self):
-        p = _policy(
-            pretrained_path="MikeChenYZ/dp-soarm-fmb",
-            device="mps",
-            noise_scheduler_type="DDIM",
-            num_inference_steps=15,
-        )
-        builder = self._builder_with_policy(p)
-        mock_policy = MagicMock()
-        mock_cfg = MagicMock()
-        mock_cfg.noise_scheduler_type = "DDIM"
-        mock_cfg.num_inference_steps = 15
-        mock_cfg.device = "cuda"
-
-        with patch.dict(
-            sys.modules,
-            {
-                "lerobot": MagicMock(),
-                "lerobot.policies.factory": MagicMock(),
-                "lerobot.configs.policies": MagicMock(),
-                "lerobot.datasets.lerobot_dataset": MagicMock(),
-                "lerobot.utils.utils": MagicMock(),
-                "lerobot.processor.rename_processor": MagicMock(),
-            },
-        ):
-            sys.modules[
-                "lerobot.configs.policies"
-            ].PreTrainedConfig.from_pretrained.return_value = mock_cfg
-            sys.modules["lerobot.utils.utils"].get_safe_torch_device.return_value = "mps"
-
-            mock_policy_cls = MagicMock()
-            mock_policy_cls.from_pretrained.return_value = mock_policy
-            sys.modules["lerobot.policies.factory"].get_policy_class.return_value = mock_policy_cls
-
-            res_policy, pre, post = builder._load_lerobot_policy("MikeChenYZ/dp-soarm-fmb")
-
-        assert mock_cfg.device == "mps"
-        assert mock_cfg.noise_scheduler_type == "DDIM"
-        assert mock_cfg.num_inference_steps == 15
-
-        assert mock_cfg.noise_scheduler_type == "DDIM"
-        assert mock_cfg.num_inference_steps == 15
 
 
 # ---------------------------------------------------------------------------

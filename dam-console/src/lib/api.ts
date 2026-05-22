@@ -216,6 +216,43 @@ export const api = {
     }),
 }
 
+// ── Presets ───────────────────────────────────────────────────────────────────
+
+export interface PresetEntry {
+  name: string
+  joint_names: string[]
+  degrees_mode: boolean
+  urdf_path: string | null
+  control_hz: number
+}
+
+export async function listPresets(): Promise<PresetEntry[]> {
+  const data = await apiFetch<{ presets: PresetEntry[] }>('/system/presets')
+  return data.presets ?? []
+}
+
+export async function upsertPreset(
+  entry: PresetEntry,
+  options?: { renameFrom?: string },
+): Promise<PresetEntry> {
+  return apiFetch<PresetEntry>('/system/presets', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: entry.name,
+      joint_names: entry.joint_names,
+      degrees_mode: entry.degrees_mode,
+      urdf_path: entry.urdf_path,
+      control_hz: entry.control_hz,
+      rename_from: options?.renameFrom ?? null,
+    }),
+  })
+}
+
+export async function deletePreset(name: string): Promise<void> {
+  await apiFetch(`/system/presets/${encodeURIComponent(name)}`, { method: 'DELETE' })
+}
+
 // ── USB scan ──────────────────────────────────────────────────────────────────
 
 export async function scanUsbDevices(): Promise<{ devices: UsbDeviceInfo[]; count: number }> {

@@ -1,0 +1,29 @@
+# Robot preset registry — single source of truth for all known robots.
+#
+# Each entry captures the *intrinsic identity* of a robot model only:
+#   - joint_names: ordered list of joint identifiers (lerobot enumeration order)
+#   - degrees_mode: True if hardware speaks degrees natively (so we convert to/from rad)
+#   - urdf_path: path to URDF for forward kinematics (workspace boundary).
+#                Repo-bundled URDFs use paths like "assets/foo.urdf"; user-uploaded
+#                URDFs are stored under ${DAM_DATA_ROOT}/urdf/ with absolute paths.
+#   - control_hz: nominal control loop frequency.
+#
+# Joint angle limits, max velocities and gripper handling live on boundary
+# callbacks in the stackfile — never here. The preset stays decoupled from
+# guard policy.
+#
+# Edit through the Config UI (preset manager) or this file directly. The
+# Console writes back here on create/edit/delete.
+
+presets:
+  so101_follower:
+    joint_names:
+      - shoulder_pan
+      - shoulder_lift
+      - elbow_flex
+      - wrist_flex
+      - wrist_roll
+      - gripper
+    degrees_mode: true
+    urdf_path: assets/so101_new_calib.urdf
+    control_hz: 50.0

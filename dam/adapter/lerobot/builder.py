@@ -7,8 +7,6 @@ entirely from a YAML file without hard-coding robot types in application code.
 Supported robot presets → lerobot classes
 ------------------------------------------
   so101_follower  → So101FollowerConfig  (lerobot.robots.so_follower)
-  so100_follower  → So100FollowerConfig
-  koch_follower   → KochFollowerConfig   (lerobot.robots.koch_follower)
 
 Supported policy types
 ----------------------
@@ -39,9 +37,9 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from dam.adapter.lerobot.presets import RobotPreset, get_preset
 from dam.config.schema import HardwareConfig
 from dam.config.schema import PolicyConfig as DamPolicyConfig
+from dam.preset import RobotPreset, get_preset, list_presets
 
 logger = logging.getLogger(__name__)
 
@@ -74,14 +72,13 @@ class LeRobotBuilder:
         self._cached_robot = None
         self._cached_policy_bundle = None  # (policy, pre, post)
 
-        preset_name = hardware.preset or "generic_6dof"
-        try:
-            self._preset = get_preset(preset_name)
-        except KeyError:
-            logger.warning(
-                "Unknown hardware preset '%s' — falling back to generic_6dof", preset_name
+        preset_name = hardware.preset
+        if not preset_name:
+            raise ValueError(
+                "hardware.preset is not set in the stackfile. Configure one in "
+                "the Config UI (preset manager) before launching."
             )
-            self._preset = get_preset("generic_6dof")
+        self._preset = get_preset(preset_name)
 
     @property
     def joint_names(self) -> list[str]:
@@ -232,14 +229,10 @@ class LeRobotBuilder:
 
         if "so101" in preset_name:
             return self._cfg_so101(port, robot_id, cam_configs, calibration)
-        if "so100" in preset_name:
-            return self._cfg_so100(port, robot_id, cam_configs, calibration)
-        if "koch" in preset_name:
-            return self._cfg_koch(port, robot_id, cam_configs, calibration)
 
         raise ValueError(
             f"No lerobot robot class mapping for preset '{preset_name}'. "
-            "Supported: so101_follower, so100_follower, koch_follower. "
+            "Supported: so101_follower. "
             "Add a mapping in LeRobotBuilder._make_robot_config()."
         )
 
@@ -278,36 +271,6 @@ class LeRobotBuilder:
             kwargs["calibration_dir"] = str(calibration)
             logger.info("So101FollowerConfig: calibration_dir=%s", calibration)
         return SO101FollowerConfig(**kwargs)
-
-    @staticmethod
-    def _cfg_so100(
-        port: str,
-        robot_id: str,
-        cameras: dict,
-        calibration: Path | None = None,
-    ) -> Any:
-        from lerobot.robots.so_follower import SO100FollowerConfig
-
-        kwargs: dict[str, Any] = {"port": port, "id": robot_id, "cameras": cameras}
-        if calibration is not None:
-            kwargs["calibration_dir"] = str(calibration)
-            logger.info("So100FollowerConfig: calibration_dir=%s", calibration)
-        return SO100FollowerConfig(**kwargs)
-
-    @staticmethod
-    def _cfg_koch(
-        port: str,
-        robot_id: str,
-        cameras: dict,
-        calibration: Path | None = None,
-    ) -> Any:
-        from lerobot.robots.koch_follower import KochFollowerConfig
-
-        kwargs: dict[str, Any] = {"port": port, "id": robot_id, "cameras": cameras}
-        if calibration is not None:
-            kwargs["calibration_dir"] = str(calibration)
-            logger.info("KochFollowerConfig: calibration_dir=%s", calibration)
-        return KochFollowerConfig(**kwargs)
 
     # ── Internal: policy loading ──────────────────────────────────────────
 

@@ -29,6 +29,17 @@ from dam.adapter.base import ActionAdapter, SensorAdapter
 from dam.types.action import ValidatedAction
 from dam.types.observation import Observation
 
+# Feetech STS3215 servo extended register map.
+# Stackfile observation-channel name → (bus register name, unit conversion divisor).
+# Divisor of 1 means raw value; 1000 means mA→A; 10 means 0.1V→V.
+STS3215_REGISTER_MAP: dict[str, tuple[str, float]] = {
+    "current": ("Present_Current", 1000.0),
+    "temperature": ("Present_Temperature", 1.0),
+    "load": ("Present_Load", 1.0),
+    "voltage": ("Present_Voltage", 10.0),
+    "velocity": ("Present_Velocity", 1.0),
+}
+
 logger = logging.getLogger(__name__)
 
 _DEFAULT_JOINT_NAMES: list[str] = [
@@ -92,8 +103,6 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
         self._last_action: ValidatedAction | None = None
 
         self._connected = False
-
-        from dam.adapter.lerobot.presets import STS3215_REGISTER_MAP
 
         self._register_map = STS3215_REGISTER_MAP
         self._observation_channels: list[str] = []

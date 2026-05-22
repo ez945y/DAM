@@ -186,7 +186,7 @@ guards:
     motion:
       enabled: true
 hardware:
-  preset: generic_6dof
+  preset: so101_follower
 boundaries:
   workspace:
     layer: L2
