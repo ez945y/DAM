@@ -36,7 +36,6 @@ def test_create_user_preset(client):
         "joint_names": ["j0", "j1"],
         "degrees_mode": False,
         "urdf_path": "/abs/path/foo.urdf",
-        "control_hz": 25.0,
     }
     resp = client.post("/api/system/presets", json=body)
     assert resp.status_code == 200, resp.text
@@ -44,7 +43,6 @@ def test_create_user_preset(client):
     assert data["name"] == "my_arm"
     assert data["joint_names"] == ["j0", "j1"]
     assert data["degrees_mode"] is False
-    assert abs(data["control_hz"] - 25.0) < 1e-9
 
     names = [p["name"] for p in client.get("/api/system/presets").json()["presets"]]
     assert "my_arm" in names

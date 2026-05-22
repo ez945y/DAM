@@ -73,7 +73,6 @@ def test_upsert_then_delete_user_preset(isolated_user_path):
         joint_names=["j0", "j1", "j2"],
         degrees_mode=False,
         urdf_path="/abs/path/custom.urdf",
-        control_hz=42.0,
     )
     assert p.name == "custom_test_arm"
     assert p.joint_names == ["j0", "j1", "j2"]

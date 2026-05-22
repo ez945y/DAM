@@ -20,7 +20,6 @@ A preset captures only what is intrinsic to a robot model:
   - ``urdf_path`` (for FK; relative paths resolved against repo root,
     absolute paths used as-is — user-uploaded URDFs typically land at
     ``${DAM_DATA_ROOT}/urdf/<file>.urdf``)
-  - ``control_hz``
 
 Limits / max velocities / gripper handling live on boundary callbacks in
 the stackfile — never here.
@@ -58,7 +57,6 @@ class RobotPreset:
 
     name: str
     joint_names: list[str] = field(default_factory=list)
-    control_hz: float = 50.0
     degrees_mode: bool = True
     default_urdf_relpath: str | None = None
 
@@ -111,7 +109,6 @@ def _to_preset(name: str, entry: dict[str, Any]) -> RobotPreset:
         joint_names=list(entry.get("joint_names", []) or []),
         degrees_mode=bool(entry.get("degrees_mode", True)),
         default_urdf_relpath=entry.get("urdf_path"),
-        control_hz=float(entry.get("control_hz", 50.0)),
     )
 
 
@@ -144,7 +141,6 @@ def list_preset_entries() -> list[dict[str, Any]]:
             "joint_names": list(entry.get("joint_names", []) or []),
             "degrees_mode": bool(entry.get("degrees_mode", True)),
             "urdf_path": entry.get("urdf_path"),
-            "control_hz": float(entry.get("control_hz", 50.0)),
         }
         for name, entry in sorted(merged.items())
     ]
@@ -156,7 +152,6 @@ def upsert_preset(
     joint_names: list[str],
     degrees_mode: bool,
     urdf_path: str | None,
-    control_hz: float = 50.0,
     rename_from: str | None = None,
 ) -> RobotPreset:
     """Create or update a preset (writes to the user file).
@@ -173,7 +168,6 @@ def upsert_preset(
         "joint_names": [str(j) for j in joint_names],
         "degrees_mode": bool(degrees_mode),
         "urdf_path": urdf_path or None,
-        "control_hz": float(control_hz),
     }
     with _lock:
         user = _load_one(_user_path())

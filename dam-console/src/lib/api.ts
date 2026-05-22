@@ -223,7 +223,6 @@ export interface PresetEntry {
   joint_names: string[]
   degrees_mode: boolean
   urdf_path: string | null
-  control_hz: number
 }
 
 export async function listPresets(): Promise<PresetEntry[]> {
@@ -243,7 +242,6 @@ export async function upsertPreset(
       joint_names: entry.joint_names,
       degrees_mode: entry.degrees_mode,
       urdf_path: entry.urdf_path,
-      control_hz: entry.control_hz,
       rename_from: options?.renameFrom ?? null,
     }),
   })

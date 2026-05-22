@@ -7,7 +7,7 @@ const inputCls =
   'bg-dam-surface-2 border border-dam-border rounded px-2 py-1.5 text-xs font-mono text-dam-text focus:outline-none focus:border-dam-blue/60 transition-colors'
 
 function emptyDraft(): PresetEntry {
-  return { name: '', joint_names: [], degrees_mode: true, urdf_path: null, control_hz: 50.0 }
+  return { name: '', joint_names: [], degrees_mode: true, urdf_path: null }
 }
 
 async function uploadUrdf(file: File): Promise<string> {
@@ -146,7 +146,7 @@ export function PresetManager({
                 <div className="flex-1 min-w-0">
                   <p className="text-dam-text text-xs font-semibold font-mono">{p.name}</p>
                   <p className="text-dam-muted text-[10px] mt-0.5">
-                    {p.joint_names.length} joints · {p.degrees_mode ? 'degrees' : 'radians'} mode · {p.control_hz} Hz
+                    {p.joint_names.length} joints · {p.degrees_mode ? 'degrees' : 'radians'} mode
                   </p>
                   {p.urdf_path && (
                     <p className="text-dam-muted text-[10px] font-mono mt-0.5 truncate">URDF: {p.urdf_path}</p>
@@ -218,7 +218,7 @@ export function PresetManager({
                   placeholder="shoulder_pan, shoulder_lift, ..."
                 />
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="flex items-center">
                 <label className="flex items-center gap-2 text-xs text-dam-text">
                   <input
                     type="checkbox"
@@ -228,17 +228,6 @@ export function PresetManager({
                   />
                   Degrees mode
                 </label>
-                <div className="flex items-center gap-2">
-                  <label className="text-dam-muted text-[10px] uppercase tracking-wider">Control Hz</label>
-                  <input
-                    type="number"
-                    step="1"
-                    min="1"
-                    value={editing.control_hz}
-                    onChange={e => setEditing({ ...editing, control_hz: Number(e.target.value) })}
-                    className={`w-20 ${inputCls}`}
-                  />
-                </div>
               </div>
               <div className="space-y-1">
                 <label className="text-dam-muted text-[10px] uppercase tracking-wider">URDF path</label>

@@ -6,7 +6,6 @@
 #   - urdf_path: path to URDF for forward kinematics (workspace boundary).
 #                Repo-bundled URDFs use paths like "assets/foo.urdf"; user-uploaded
 #                URDFs are stored under ${DAM_DATA_ROOT}/urdf/ with absolute paths.
-#   - control_hz: nominal control loop frequency.
 #
 # Joint angle limits, max velocities and gripper handling live on boundary
 # callbacks in the stackfile — never here. The preset stays decoupled from
@@ -26,4 +25,3 @@ presets:
       - gripper
     degrees_mode: true
     urdf_path: assets/so101_new_calib.urdf
-    control_hz: 50.0
