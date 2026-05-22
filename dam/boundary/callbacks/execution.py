@@ -20,16 +20,6 @@ from dam.types.observation import Observation
 
 
 @boundary_callback(
-    name="semantic_state",
-    layer="L2",
-    description="High-level semantic task state validation (pre/post-condition checks).",
-)
-def semantic_state(*, obs: Observation) -> bool:
-    """Validate task-level semantic invariants."""
-    return True
-
-
-@boundary_callback(
     name="task_joint_speed_limit",
     layer="L2",
     description="Rejects if the joint velocity norm exceeds a task-level max_speed.",

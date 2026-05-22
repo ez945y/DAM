@@ -33,6 +33,8 @@ class BoundaryContainer(ABC):
     No internal locking is required.
     """
 
+    _runtime_boundary_name: str | None = None
+
     @abstractmethod
     def get_active_node(self) -> BoundaryNode:
         """Return the currently active BoundaryNode."""

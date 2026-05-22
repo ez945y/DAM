@@ -22,7 +22,6 @@ from dam.boundary.callbacks._registry import (
 # Importing the layer modules triggers their decorators (registry population).
 from dam.boundary.callbacks.execution import (
     check_gripper_clear,
-    semantic_state,
     task_gripper_command_guard,
     task_joint_speed_limit,
     task_workspace_bounds,
@@ -78,7 +77,6 @@ __all__ = [
     "ood_welford",
     "orientation_limit",
     "register_all",
-    "semantic_state",
     "task_gripper_command_guard",
     "task_joint_speed_limit",
     "task_workspace_bounds",

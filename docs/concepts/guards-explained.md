@@ -314,7 +314,6 @@ boundaries:
 | `task_workspace_bounds` | callback | Reject if end-effector leaves task workspace |
 | `check_gripper_clear` | callback | Reject if gripper is closed when it must be clear |
 | `task_gripper_command_guard` | callback | Clamp open/close commands that do not match the active task node or its zone by suppressing the gripper command |
-| `semantic_state` | callback | Placeholder for task pre/post-condition checks |
 
 ### Evaluation Order
 

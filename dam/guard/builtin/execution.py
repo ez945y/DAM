@@ -79,7 +79,10 @@ class ExecutionGuard(Guard):
 
             # 2. timeout_sec check (Temporal watchdog)
             if node.timeout_sec is not None and node_start_times:
+                boundary_name = getattr(container, "_runtime_boundary_name", None)
                 start_time = node_start_times.get(node.node_id)
+                if start_time is None and isinstance(boundary_name, str):
+                    start_time = node_start_times.get(boundary_name)
                 if start_time is not None:
                     elapsed = time.monotonic() - start_time
                     if elapsed > node.timeout_sec:

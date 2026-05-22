@@ -239,6 +239,20 @@ def test_timeout_rejects(EG):
     assert result.decision == GuardDecision.REJECT
 
 
+def test_timeout_uses_runtime_boundary_name_when_node_id_differs(EG):
+    import time
+
+    g = EG()
+    precompute_injection(g, {})
+    container = make_container(timeout_sec=0.001)
+    container._runtime_boundary_name = "task_phase"
+    node_start_times = {"task_phase": time.monotonic() - 1.0}
+    result = g.check(
+        obs=make_obs(), active_containers=[container], node_start_times=node_start_times
+    )
+    assert result.decision == GuardDecision.REJECT
+
+
 def test_callback_with_params_passes(EG):
     from dam.registry.callback import get_global_registry
 

@@ -41,7 +41,7 @@ guard layer** — the sections below mirror it exactly:
 |---|---|---|
 | `callbacks/perception.py` | L0 | `ood_detector` |
 | `callbacks/kinematics.py` | L1 | joint / workspace / Cartesian / keep-out / orientation / geofence |
-| `callbacks/execution.py` | L2 | `semantic_state`, `check_gripper_clear` |
+| `callbacks/execution.py` | L2 | task speed / task workspace / gripper clear / gripper command guard |
 | `callbacks/hardware.py` | L3 | watchdog, temperature / current / voltage / force |
 
 Adding a `@boundary_callback` function to the matching module is all that is
@@ -205,12 +205,6 @@ boundaries:
 | `place_zone` | `None` | Legacy alias used when `allowed_command` is omitted and the command is `open` |
 | `close_threshold` | `0.25` | `action.gripper_action <= threshold` means close |
 | `open_threshold` | `0.75` | `action.gripper_action >= threshold` means open |
-
-### `semantic_state`
-
-High-level semantic task state validation (placeholder).
-
----
 
 ## L3: Hardware Monitoring
 

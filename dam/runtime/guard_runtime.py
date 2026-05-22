@@ -270,6 +270,7 @@ class GuardRuntime:
         for bname in active_bnames:
             if bname in self._boundary_containers:
                 container = self._boundary_containers[bname]
+                container._runtime_boundary_name = bname
                 self._active_containers.append(container)
                 self._active_container_names.append(bname)
                 self._node_start_times[bname] = now
@@ -394,7 +395,9 @@ class GuardRuntime:
     def advance_container(self, name: str) -> None:
         """Advance a named container to its next node and reset its start time."""
         if name in self._boundary_containers:
-            self._boundary_containers[name].advance()
+            container = self._boundary_containers[name]
+            container._runtime_boundary_name = name
+            container.advance()
             self._node_start_times[name] = time.monotonic()
 
     def pause_task(self) -> None:
