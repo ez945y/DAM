@@ -50,13 +50,7 @@ function makeNode(): ConstraintNodeDef {
 }
 
 function makeBoundary(layerStr = 'L1'): BoundaryDef {
-  const defaults: Record<string, string> = {
-    L0: 'ood_welford',
-    L1: 'workspace',
-    L2: 'task_joint_speed_limit',
-    L3: 'hardware_watchdog',
-  }
-  return { name: defaults[layerStr] ?? 'workspace', layer: layerStr, type: 'single', nodes: [makeNode()] }
+  return { name: '', layer: layerStr, type: 'single', nodes: [makeNode()] }
 }
 
 // ── Shared input class ────────────────────────────────────────────────────────
@@ -75,7 +69,6 @@ function NodeForm({
   callbackCatalog = [],
   callbackGroups = [],
   fallbackCatalog = [],
-  onOodSync,
   allowNodeIdEdit,
   boundaryName,
 }: {
@@ -87,7 +80,6 @@ function NodeForm({
   callbackCatalog?: any[]
   callbackGroups?: { layer: string; callbacks: any[] }[]
   fallbackCatalog?: any[]
-  onOodSync?: (path: string, meta?: any) => void
   allowNodeIdEdit?: boolean
   boundaryName?: string
 }) {
@@ -484,7 +476,6 @@ function BoundaryCard({
   onRemove,
   callbackCatalog = [],
   fallbackCatalog = [],
-  onOodSync,
 }: {
   boundary: BoundaryDef
   isActive?: boolean
@@ -492,7 +483,6 @@ function BoundaryCard({
   onRemove: () => void
   callbackCatalog?: any[]
   fallbackCatalog?: any[]
-  onOodSync?: (path: string, meta?: any) => void
 }) {
   const [open, setOpen] = useState(true) // Default open to show fields
   const [activeIdx, setActiveIdx] = useState(0)
@@ -608,7 +598,6 @@ function BoundaryCard({
               onRemove={() => removeNode(i)}
               callbackCatalog={callbackCatalog}
               fallbackCatalog={fallbackCatalog}
-              onOodSync={onOodSync}
               allowNodeIdEdit={isList}
               boundaryName={boundary.name}
             />
@@ -850,12 +839,6 @@ function migrateConfig(parsed: any) {
   return parsed
 }
 
-function oodCallbackForBackend(backend?: string): string {
-  if (backend === 'normalizing_flow') return 'ood_normalizing_flow'
-  if (backend === 'memory_bank') return 'ood_memory_bank'
-  return 'ood_welford'
-}
-
 export default function GuardPage() {
   const [callbackCatalog, setCallbackCatalog] = useState<any[]>([])
   const [callbackGroups, setCallbackGroups] = useState<{ layer: string; callbacks: any[] }[]>([])
@@ -868,52 +851,6 @@ export default function GuardPage() {
 
   const [guardsEnabled, setGuardsEnabled] = useState<Record<string, boolean>>({})
 
-
-  // OOD model path is derived from the L0 OOD boundary node (not separate state).
-  // The callback name selects the algorithm, matching the stackfile contract.
-  const syncOodToBoundary = useCallback((path: string, meta?: { backend?: string; bank_path?: string }) => {
-    const callback = oodCallbackForBackend(meta?.backend)
-    const OOD_BOUNDARY_NAME = callback
-    setBoundaries(prev => {
-      const idx = prev.findIndex(b => b.layer === 'L0' && b.nodes[0]?.callback?.startsWith('ood_'))
-      if (idx >= 0) {
-        const next = [...prev]
-        const node = { ...next[idx].nodes[0] }
-        node.params = {
-          ...node.params,
-          ood_model_path: path,
-          ...(meta?.bank_path ? { bank_path: meta.bank_path } : {}),
-        }
-        node.callback = callback
-        delete node.params.backend
-        next[idx] = { ...next[idx], name: OOD_BOUNDARY_NAME, nodes: [node] }
-        return next
-      }
-      // No L0 OOD boundary yet — create one with the selected callback.
-      return [{
-        name: OOD_BOUNDARY_NAME,
-        layer: 'L0',
-        type: 'single' as const,
-        nodes: [{
-          node_id: 'default',
-          callback,
-          params: {
-            ood_model_path: path,
-            nn_threshold: 2,
-            nll_threshold: 5,
-            ...(meta?.bank_path ? { bank_path: meta.bank_path } : {}),
-          },
-          fallback: 'emergency_stop',
-          timeout_sec: null,
-        }],
-      }, ...prev]
-    })
-    // Ensure every task references the selected OOD boundary in its boundaries list.
-    setTasks(prev => prev.map(t => ({
-      ...t,
-      boundaries: [OOD_BOUNDARY_NAME, ...t.boundaries.filter(name => !name.startsWith('ood_'))],
-    })))
-  }, [setBoundaries, setTasks])
 
   // Expand/collapse for Boundaries section (per layer)
   const [expandedBoundaryLayers, setExpandedBoundaryLayers] = useState<Record<string, boolean>>({
@@ -1325,7 +1262,6 @@ export default function GuardPage() {
                             onRemove={() => removeBoundary(b.name)}
                             callbackCatalog={callbackCatalog}
                             fallbackCatalog={fallbackCatalog}
-                            onOodSync={syncOodToBoundary}
                           />
                         ))
                       )}

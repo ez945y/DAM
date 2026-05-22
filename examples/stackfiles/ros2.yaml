@@ -11,7 +11,7 @@ version: "1"
 #     `topic:` line overrides the adapter default `/wrench`.
 
 hardware:
-  preset: generic_6dof
+  preset: so101_follower
   sources:
     ros2_source:
       type: ros2
@@ -55,7 +55,6 @@ loopback:
   backend: mcap
   output_dir: ./data/robot/sessions
   window_sec: 10
-  pre_event_sec: 10
   rotate_mb: 500
   rotate_minutes: 60
   max_queue_depth: 64

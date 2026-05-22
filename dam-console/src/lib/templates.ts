@@ -18,7 +18,6 @@ export type LoopbackConfig = {
   backend: 'mcap' | 'pickle'
   output_dir: string
   window_sec: number
-  pre_event_sec?: number
   rotate_mb: number
   rotate_minutes: number
   max_queue_depth: number
@@ -126,10 +125,6 @@ const SO101_HEALTH_CHANNELS = ['current', 'temperature', 'voltage']
 
 const DEFAULT_BOUNDARIES: BoundaryDef[] = [
   {
-    name: 'ood_welford', layer: 'L0', type: 'single',
-    nodes: [{ node_id: 'default', params: { temporal_smoothing_frames: 3 }, callback: 'ood_welford', fallback: 'emergency_stop', timeout_sec: 1 }]
-  },
-  {
     name: 'workspace', layer: 'L1', type: 'single',
     nodes: [{ node_id: 'default', params: { bounds: [[-0.4, 0.4], [-0.4, 0.4], [0.02, 0.6]] }, callback: 'workspace', fallback: 'emergency_stop', timeout_sec: 1 }]
   },
@@ -204,7 +199,7 @@ export const TEMPLATES: TemplatePreset[] = [
       tasks: [{ id: 'demo', name: 'demo', description: 'Full demo', boundaries: DEFAULT_BOUNDARIES.map(b => b.name) }],
       boundaries: DEFAULT_BOUNDARIES,
       loopback: {
-        backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10, pre_event_sec: 10,
+        backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10,
         rotate_mb: 500, rotate_minutes: 60, max_queue_depth: 64, capture_images_on_clamp: true,
       },
     },
@@ -223,7 +218,7 @@ export const TEMPLATES: TemplatePreset[] = [
       tasks: [{ id: 'soarm101', name: 'soarm101', description: 'Default task', boundaries: ['workspace', 'joint_position_limits', 'joint_velocity_limit', 'hardware_watchdog', 'host_health'] }],
       boundaries: DEFAULT_BOUNDARIES,
       loopback: {
-        backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10, pre_event_sec: 10,
+        backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10,
         rotate_mb: 500, rotate_minutes: 60, max_queue_depth: 64, capture_images_on_clamp: true,
       },
     },
@@ -241,9 +236,9 @@ export const TEMPLATES: TemplatePreset[] = [
       joints: SO101_JOINTS, controlFrequencyHz: 30, enforcement_mode: 'enforce',
       tasks: [{ id: 'soarm101', name: 'soarm101', description: 'QP-protected motion',
         boundaries: ['workspace', 'joint_position_limits', 'joint_velocity_limit', 'hardware_watchdog', 'host_health'] }],
-      boundaries: withQpSolver(DEFAULT_BOUNDARIES.filter(b => b.name !== 'ood_welford')),
+      boundaries: withQpSolver(DEFAULT_BOUNDARIES),
       loopback: {
-        backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10, pre_event_sec: 10,
+        backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10,
         rotate_mb: 500, rotate_minutes: 60, max_queue_depth: 64, capture_images_on_clamp: true,
       },
     },
@@ -254,7 +249,7 @@ export const TEMPLATES: TemplatePreset[] = [
     description: 'ROS2 source / sink adapter with observation channels. Works with any ROS2-enabled robot.',
     badge: 'ROS2',
     config: {
-      hardware_preset: 'generic_6dof', adapter: 'ros2',
+      hardware_preset: 'so101_follower', adapter: 'ros2',
       ros2JointTopic: '/joint_states', ros2CmdTopic: '/joint_commands',
       observation_channels: ['effort', 'wrench'],
       policy: { type: 'act', pretrained_path: '', device: 'cpu' },
@@ -262,7 +257,7 @@ export const TEMPLATES: TemplatePreset[] = [
       tasks: [{ id: 'default', name: 'default', description: 'Default task', boundaries: [] }],
       boundaries: [],
       loopback: {
-        backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10, pre_event_sec: 10,
+        backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10,
         rotate_mb: 500, rotate_minutes: 60, max_queue_depth: 64, capture_images_on_clamp: true,
       },
     },
@@ -394,7 +389,7 @@ function guardLines(cfg: DamConfig): string[][] {
 const SCHEMA: YamlSection[] = [
   scalar('version', () => '"1"'), blank,
   block('hardware', [
-    scalar('preset', cfg => cfg.adapter === 'simulation' ? 'simulation' : cfg.hardware_preset),
+    scalar('preset', cfg => cfg.hardware_preset),
     block('sources', [
       block('main', [
         scalar('type', () => 'dataset'),
@@ -452,10 +447,9 @@ const SCHEMA: YamlSection[] = [
   ]),
   blank,
   block('policy', [
-    scalar('type', cfg => cfg.policy.type), scalar('policy_id', cfg => cfg.policy.policy_id ?? null),
-    scalar('pretrained_path', cfg => cfg.policy.pretrained_path), scalar('device', cfg => cfg.policy.device),
-    scalar('noise_scheduler_type', cfg => cfg.policy.noise_scheduler_type ?? null),
-    scalar('num_inference_steps', cfg => cfg.policy.num_inference_steps ?? null),
+    scalar('type', cfg => cfg.policy.type),
+    scalar('pretrained_path', cfg => cfg.policy.pretrained_path),
+    scalar('device', cfg => cfg.policy.device),
   ], cfg => !!cfg.policy.pretrained_path),
   blank,
   block('safety', [
@@ -491,7 +485,6 @@ const SCHEMA: YamlSection[] = [
     scalar('backend', cfg => cfg.loopback!.backend),
     scalar('output_dir', cfg => cfg.loopback!.output_dir),
     scalar('window_sec', cfg => cfg.loopback!.window_sec),
-    scalar('pre_event_sec', cfg => cfg.loopback!.pre_event_sec ?? 10),
     scalar('rotate_mb', cfg => cfg.loopback!.rotate_mb),
     scalar('rotate_minutes', cfg => cfg.loopback!.rotate_minutes),
     scalar('max_queue_depth', cfg => cfg.loopback!.max_queue_depth),
@@ -523,7 +516,7 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
     // `joint_topic:` / `cmd_topic:` — recover those as a fallback.
     result.ros2JointTopic = getVal(/(?:joint_topic|topic):\s*(.*)/)
     result.ros2CmdTopic = getVal(/cmd_topic:\s*(.*)/) ?? ''
-  } else if (/preset:\s*simulation/.test(yaml)) {
+  } else if (yaml.includes('type: dataset')) {
     result.adapter = 'simulation'; result.simulation_dataset_repo_id = getVal(/dataset_repo_id:\s*(.*)/) ?? undefined;
     const ep = getVal(/episode:\s*(\d+)/); if (ep != null) result.simulation_episode = Number(ep);
   }
@@ -531,9 +524,9 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
   const pType = getVal(/policy:\s*\n\s*type:\s*(.*)/)
   if (pType) {
     result.policy = {
-      type: pType, pretrained_path: getVal(/pretrained_path:\s*(.*)/) || '', device: getVal(/device:\s*(.*)/) || 'cpu',
-      policy_id: getVal(/policy_id:\s*(.*)/), noise_scheduler_type: getVal(/noise_scheduler_type:\s*(.*)/),
-      num_inference_steps: getVal(/num_inference_steps:\s*(\d+)/) ? Number(getVal(/num_inference_steps:\s*(\d+)/)) : undefined,
+      type: pType,
+      pretrained_path: getVal(/pretrained_path:\s*(.*)/) || '',
+      device: getVal(/device:\s*(.*)/) || 'cpu',
     }
   }
 
@@ -685,7 +678,7 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
   if (yaml.includes('loopback:')) {
     result.loopback = {
       backend: (getVal(/backend:\s*(.*)/) || 'mcap') as any, output_dir: getVal(/output_dir:\s*(.*)/) || './data/robot/sessions',
-      window_sec: Number(getVal(/window_sec:\s*(\d+\.?\d*)/) || 10), pre_event_sec: Number(getVal(/pre_event_sec:\s*(\d+\.?\d*)/) || 10),
+      window_sec: Number(getVal(/window_sec:\s*(\d+\.?\d*)/) || 10),
       rotate_mb: Number(getVal(/rotate_mb:\s*(\d+\.?\d*)/) || 500), rotate_minutes: Number(getVal(/rotate_minutes:\s*(\d+\.?\d*)/) || 60),
       max_queue_depth: Number(getVal(/max_queue_depth:\s*(\d+)/) || 64), capture_images_on_clamp: getVal(/capture_images_on_clamp:\s*(true|false)/) === 'true',
     }

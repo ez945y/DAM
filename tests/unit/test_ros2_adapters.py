@@ -215,7 +215,7 @@ def test_factory_ros2_path_activates_channels_and_preserves_source_name():
     stack = {
         "version": "1",
         "hardware": {
-            "preset": "generic_6dof",
+            "preset": "so101_follower",
             "sources": {
                 "my_arm": {"type": "ros2", "joint_topic": "/jpos"},
                 # effort needs NO topic — comes straight from JointState
@@ -259,7 +259,7 @@ def test_factory_forwards_ros2_node_to_adapters():
     stack = {
         "version": "1",
         "hardware": {
-            "preset": "generic_6dof",
+            "preset": "so101_follower",
             "joints": {f"joint_{i}": {} for i in range(6)},
             "sources": {"arm": {"type": "ros2", "topic": "/jpos"}},
             "sinks": {"cmd": {"ref": "sources.arm", "topic": "/cmd"}},
@@ -295,7 +295,7 @@ def test_factory_reads_qos_from_stackfile():
     stack = {
         "version": "1",
         "hardware": {
-            "preset": "generic_6dof",
+            "preset": "so101_follower",
             "sources": {
                 "arm": {"type": "ros2", "topic": "/jpos", "qos": "best_effort", "qos_depth": 3}
             },

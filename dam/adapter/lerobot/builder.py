@@ -78,6 +78,21 @@ class LeRobotBuilder:
                 "hardware.preset is not set in the stackfile. Configure one in "
                 "the Config UI (preset manager) before launching."
             )
+        registered = list_presets()
+        if preset_name not in registered:
+            if not registered:
+                raise ValueError(
+                    f"hardware.preset='{preset_name}' but no presets are "
+                    "registered. Add one through the Config UI (preset manager)."
+                )
+            logger.warning(
+                "hardware.preset='%s' is not in the registry — falling back "
+                "to '%s'. Update the stackfile via the Config UI to silence "
+                "this warning.",
+                preset_name,
+                registered[0],
+            )
+            preset_name = registered[0]
         self._preset = get_preset(preset_name)
 
     @property

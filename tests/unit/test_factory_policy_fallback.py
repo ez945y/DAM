@@ -45,6 +45,21 @@ def test_build_policy_falls_back_when_preset_not_in_registry(isolated_user_path,
     assert any("not in registry" in r.message for r in caplog.records)
 
 
+def test_builder_falls_back_when_stackfile_preset_unknown(isolated_user_path, caplog):
+    """LeRobotBuilder must also defend against a stackfile naming a preset
+    that's not in the registry — otherwise the live .dam_stackfile loaded
+    at restart crashes the server.
+    """
+    from dam.adapter.lerobot.builder import LeRobotBuilder
+    from dam.config.schema import HardwareConfig
+
+    hw = HardwareConfig(preset="generic_6dof")  # registry only has so101_follower
+    with caplog.at_level("WARNING"):
+        b = LeRobotBuilder(hw, policy=None)
+    assert b.preset.name == "so101_follower"
+    assert any("not in the registry" in r.message for r in caplog.records)
+
+
 def test_build_policy_returns_none_when_registry_empty(isolated_user_path, monkeypatch, caplog):
     """If the registry is empty, skip the policy build with a warning rather
     than crashing."""

@@ -168,11 +168,7 @@ export interface UsbDeviceInfo {
 export interface PolicyConfig {
   type: 'act' | 'diffusion' | 'smolvla' | 'noop'
   pretrained_path: string
-  policy_id?: string
   device: 'cpu' | 'cuda' | 'mps'
-  // Diffusion-specific inference params
-  noise_scheduler_type?: string   // e.g. 'DDIM'
-  num_inference_steps?: number    // e.g. 15
 }
 
 export interface TaskDef {

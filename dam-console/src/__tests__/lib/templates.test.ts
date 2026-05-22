@@ -76,8 +76,7 @@ describe('defaultConfig', () => {
     const cfg = defaultConfig('quick_start')
     expect(cfg.adapter).toBe('simulation')
     expect(cfg.enforcement_mode).toBe('monitor')
-    expect(cfg.tasks[0].boundaries).toHaveLength(6)
-    expect(cfg.tasks[0].boundaries).toContain('ood_welford')
+    expect(cfg.tasks[0].boundaries).toHaveLength(5)
     expect(cfg.tasks[0].boundaries).toContain('hardware_watchdog')
     expect(cfg.tasks[0].boundaries).toContain('host_health')
   })
@@ -125,11 +124,11 @@ describe('generateYaml', () => {
     expect(yaml).toContain('type: act')
   })
 
-  it('quick_start uses hardware preset: simulation (new unified format)', () => {
+  it('quick_start emits the real hardware preset and dataset source', () => {
     const cfg = defaultConfig('quick_start')
     const yaml = generateYaml(cfg)
     expect(yaml).toContain('hardware:')
-    expect(yaml).toContain('preset: simulation')
+    expect(yaml).toContain('preset: so101_follower')
     expect(yaml).toContain('sources:')
     expect(yaml).toContain('type: dataset')
     expect(yaml).toContain('MikeChenYZ/soarm-fmb-v2')
@@ -270,13 +269,11 @@ describe('generateYaml', () => {
     expect(yaml).toContain('enforcement_mode: enforce')
   })
 
-  it('includes OOD temporal smoothing in the default Stackfile', () => {
+  it('does not include OOD boundary in the default so101_act Stackfile', () => {
     const cfg = defaultConfig('so101_act')
     const yaml = generateYaml(cfg)
-    expect(yaml).toContain('ood_welford:')
-    expect(yaml).toContain('callback: ood_welford')
-    expect(yaml).not.toContain('callback: ood_detector')
-    expect(yaml).toContain('temporal_smoothing_frames: 3')
+    expect(yaml).not.toContain('ood_welford:')
+    expect(yaml).not.toContain('callback: ood_welford')
   })
 
   it('disabled guard appears as enabled: false in guards section', () => {

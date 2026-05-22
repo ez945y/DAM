@@ -1,7 +1,7 @@
 version: "1"
 
 hardware:
-  preset: simulation
+  preset: so101_follower
   sources:
     main:
       type: dataset
@@ -104,7 +104,6 @@ loopback:
   backend: mcap
   output_dir: ./data/robot/sessions
   window_sec: 10
-  pre_event_sec: 10
   rotate_mb: 500
   rotate_minutes: 60
   max_queue_depth: 64

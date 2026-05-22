@@ -157,9 +157,6 @@ class PolicyConfig(BaseModel):
     pretrained_path: str | None = None
     dataset_repo_id: str | None = None
     device: str = "cpu"
-    # Diffusion-specific inference params
-    noise_scheduler_type: str | None = None  # e.g. "DDIM"
-    num_inference_steps: int | None = None  # e.g. 15
 
 
 class SimulationConfig(BaseModel):
@@ -189,7 +186,6 @@ class LoopbackConfig(BaseModel):
     backend: str = "mcap"  # "mcap" | "pickle"
     output_dir: str = "/tmp/dam_loopback"  # session files written here
     window_sec: float = 10.0  # ring-buffer depth for pre-event images
-    pre_event_sec: float = 10.0  # capture N seconds before event (0 = capture all)
     rotate_mb: float = 500.0  # rotate file after this many MB
     rotate_minutes: float = 60.0  # rotate file after this many minutes
     max_queue_depth: int = 256  # drop normal cycles if queue exceeds this

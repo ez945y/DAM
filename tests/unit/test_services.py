@@ -792,7 +792,7 @@ class TestRuntimeControlService:
                 {
                     "version": "1",
                     "hardware": {
-                        "preset": "generic_6dof",
+                        "preset": "so101_follower",
                         "sources": {"arm": {"type": "ros2", "topic": "/joint_states"}},
                         "sinks": {"cmd": {"ref": "sources.arm", "topic": "/cmd"}},
                     },
@@ -837,7 +837,7 @@ class TestRuntimeControlService:
             **{
                 "version": "1",
                 "hardware": {
-                    "preset": "generic_6dof",
+                    "preset": "so101_follower",
                     "sources": {
                         "arm": {"type": "motor"},
                         "top": {"type": "opencv", "params": {"index": 0}},

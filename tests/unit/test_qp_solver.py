@@ -231,7 +231,7 @@ def test_qp_solver_param_inlined_in_any_l1_boundary(proxsuite):
     stack = {
         "version": "1",
         "hardware": {
-            "preset": "generic_6dof",
+            "preset": "so101_follower",
             "joints": {f"j{i}": {} for i in range(6)},
             "sources": {"arm": {"type": "lerobot", "port": "/dev/null"}},
             "sinks": {"cmd": {"ref": "sources.arm"}},
