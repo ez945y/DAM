@@ -155,16 +155,20 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
 
       api.listBoundaries().then(resp => {
         if (resp.boundaries) {
+          // Replace the map wholesale on every (re)connect: a restart kills
+          // the backend process so any cached decision/reason is stale, and
+          // boundaries dropped by a config change must disappear from the UI.
+          const next: Record<string, any> = {}
           for (const b of resp.boundaries) {
-            if (b.nodes?.[0]?.constraint) {
-              gGuardMap[b.name] = {
-                name: b.name,
-                layer: b.layer || 'L1',
-                decision: 'STANDBY',
-                reason: '',
-              }
+            if (!b.nodes?.[0]?.constraint) continue
+            next[b.name] = {
+              name: b.name,
+              layer: b.layer || 'L1',
+              decision: 'STANDBY',
+              reason: '',
             }
           }
+          gGuardMap = next
           gVersion++
           setState(s => ({ ...s, guardMap: { ...gGuardMap } }))
         }

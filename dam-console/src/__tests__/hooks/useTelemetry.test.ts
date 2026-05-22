@@ -1,5 +1,6 @@
 import { renderHook, act } from '@testing-library/react'
 import { useTelemetry, resetGlobalState } from '@/hooks/useTelemetry'
+import { api } from '@/lib/api'
 
 // Mock WebSocket
 class MockWebSocket {
@@ -104,6 +105,47 @@ describe('useTelemetry', () => {
     // After 3s timer, should reconnect
     act(() => { jest.advanceTimersByTime(3100) })
     expect(MockWebSocket._instances.length).toBeGreaterThan(1)
+  })
+
+  it('drops stale boundaries from guardMap after reconnect with a smaller list', async () => {
+    // Regression: Apply & Restart used to leave old boundaries (e.g. ood_welford)
+    // visible on the home page because the listBoundaries handler only added
+    // entries — never removed them.  The fix wholesale-replaces gGuardMap on
+    // every onopen.
+    const stub = jest.spyOn(api, 'listBoundaries')
+      // First connection: two boundaries.
+      .mockResolvedValueOnce({
+        boundaries: [
+          { name: 'ood_welford', layer: 'L0', type: 'single', nodes: [{ node_id: 'd', constraint: 'ood' }] } as any,
+          { name: 'workspace',  layer: 'L1', type: 'single', nodes: [{ node_id: 'd', constraint: 'ws'  }] } as any,
+        ],
+      })
+      // Second connection: only workspace remains (ood removed by user).
+      .mockResolvedValueOnce({
+        boundaries: [
+          { name: 'workspace', layer: 'L1', type: 'single', nodes: [{ node_id: 'd', constraint: 'ws' }] } as any,
+        ],
+      })
+    jest.spyOn(api, 'getStatus').mockResolvedValue({ cycle_count: 0 } as any)
+
+    const { result } = renderHook(() => useTelemetry())
+    await act(async () => { jest.runOnlyPendingTimers(); await Promise.resolve() })
+    await act(async () => { await Promise.resolve() })
+
+    expect(Object.keys(result.current.guardMap).sort()).toEqual(['ood_welford', 'workspace'])
+
+    // Simulate a backend restart: socket closes, reconnect fires onopen again,
+    // listBoundaries now returns a shorter list.
+    const ws1 = MockWebSocket._instances[0]
+    act(() => { ws1.onclose?.() })
+    act(() => { jest.advanceTimersByTime(3100) })
+    await act(async () => { jest.runOnlyPendingTimers(); await Promise.resolve() })
+    await act(async () => { await Promise.resolve() })
+
+    expect(Object.keys(result.current.guardMap)).toEqual(['workspace'])
+    expect(result.current.guardMap['ood_welford']).toBeUndefined()
+
+    stub.mockRestore()
   })
 
   it('ignores ping messages', async () => {
