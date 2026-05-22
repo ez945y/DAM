@@ -161,7 +161,7 @@ Each node has a **constraint** that L3 evaluates every cycle.
 | `upper_limits` | list[float] | `[1.57, ...]` | Reject if joint > limit |
 | `lower_limits` | list[float] | `[-1.57, ...]` | Reject if joint < limit |
 | `max_force_n` | float | `50.0` | Reject if force/torque norm > limit (sensor required) |
-| `callback` | list[string] | `[my_check_fn]` | Reject if callback returns `False` |
+| `callback` | string | `my_check_fn` | Reject if callback returns `False` |
 
 ### Example: Full Constraint
 
@@ -171,23 +171,22 @@ boundaries:
     type: single
     nodes:
       - node_id: reach_with_force_limit
-        constraint:
-          max_speed: 0.3                    # Limit joint velocity norm
-          max_velocity: [1.5, 1.5, 1.5, 1.5, 1.5, 0.5]  # Per-joint limits
+        callback: validate_trajectory        # Custom L2 check
+        params:
+          max_speed: 0.3
           bounds: [[-0.35, 0.35], [-0.05, 0.45], [0.01, 0.40]]
-          max_force_n: 50.0                 # Limit contact force
-          callback: [validate_trajectory]   # Custom checks
         fallback: hold_position
         timeout_sec: 20.0
 ```
 
 ### Evaluation Order
 
-L3 evaluates constraints **in this order**. First failure stops evaluation:
+L2 evaluates the active node's callback first, then checks `timeout_sec`.
+Constraint semantics such as speed, workspace, or task phase live inside the
+callback selected by the node.
 
-1. **max_speed** — velocity norm
-2. **bounds** — end-effector position
-3. **max_force_n** — force sensor (if available)
+1. **callback** — registered boundary callback
+2. **timeout_sec** — node active duration
 4. **callback** — user-provided checks
 5. **timeout_sec** — node duration
 
@@ -376,9 +375,9 @@ boundaries:
     type: single
     nodes:
       - node_id: grasp
-        constraint:
+        callback: validate_grasp_target
+        params:
           max_speed: 0.05
-          callback: [validate_grasp_target, force_limited_grasp]
         fallback: hold_position
         timeout_sec: 5.0
 ```
@@ -470,10 +469,10 @@ boundaries:
     type: single
     nodes:
       - node_id: insert
-        constraint:
+        callback: check_insertion_progress
+        params:
           max_force_n: 10.0        # Max 10 N contact force
-          max_speed: 0.01           # Very slow
-          callback: [check_insertion_progress]
+          max_speed: 0.01          # Very slow
         fallback: hold_position
         timeout_sec: 30.0
 ```

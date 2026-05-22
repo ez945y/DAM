@@ -43,9 +43,8 @@ DAM evaluates actions through **4 independent layers**:
 Policy Output
     ↓
 [ L0 OOD ]        ← Is the observation familiar?
-[ L1 Preflight ]  ← Will this work physically?
-[ L2 Motion ]     ← Are joints and workspace safe?
-[ L3 Task ]       ← Does this fit the task?
+[ L1 Motion ]     ← Are joints and workspace safe?
+[ L2 Task ]       ← Does this fit the task?
 [ L3 Hardware ]   ← Is the robot healthy?
     ↓
 DECISION
@@ -77,7 +76,7 @@ Each guard can make three decisions:
 ```
 Policy: "Move joint 1 to 2.0 rad"
 Limit:  "Joint 1 max = 1.57 rad"
-L2 Guard: CLAMP to 1.57 rad, then execute
+L1 Guard: CLAMP to 1.57 rad, then execute
 ```
 
 ---
@@ -88,14 +87,14 @@ Read these two scenarios. What should DAM do?
 
 **Scenario A:**
 - L0 OOD: PASS (observation is normal)
-- L2 Motion: REJECT (exceeds joint limit)
-- L3 Task: (not evaluated)
+- L1 Motion: REJECT (exceeds joint limit)
+- L2 Task: (not evaluated)
 - **Result:** Action is **REJECTED**
 
 **Scenario B:**
 - L0 OOD: PASS
-- L2 Motion: CLAMP (scales velocity down)
-- L3 Task: PASS
+- L1 Motion: CLAMP (scales velocity down)
+- L2 Task: PASS
 - **Result:** Action is **CLAMPED** and executed
 
 **Key insight:** Most restrictive decision wins.
@@ -171,7 +170,7 @@ tasks:
     boundaries: [default]
 ```
 
-This enables L2 motion guard only. No other constraints.
+This enables L1 motion guard only. No other constraints.
 
 ### 2.3 Adding More Guards
 
@@ -226,7 +225,7 @@ boundaries:
 ### Exercise 2.1: Build a Stackfile
 
 Create `tutorial_stackfile.yaml` with:
-1. L2 motion guard with joint limits
+1. L1 motion guard with joint limits
 2. A single boundary with max_speed = 0.2
 3. Fallback: hold_position
 
@@ -562,7 +561,7 @@ Combine everything you learned into one complete project.
 ### Requirements
 
 1. **Stackfile:**
-   - L2 motion guard with realistic limits
+   - L1 motion guard with realistic limits
    - 3-phase list boundary (approach → grasp → lift)
    - Different constraints per phase
    - Fallback strategies

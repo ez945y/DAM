@@ -21,8 +21,8 @@ DAM is designed as a **transparent safety middleware** that intercepts all polic
 ┌─────────────────────────────────────┐
 │  DAM Guard Stack (L0–L3)            │  Multi-layer safety filter
 │  • L0: OOD Detection                │
-│  • L1: Preflight Simulation         │  Decision:
-│  • L2: Motion Safety                │  PASS / CLAMP / REJECT
+│  • L1: Physical Kinematics          │  Decision:
+│  • L2: Task Execution               │  PASS / CLAMP / REJECT
 │  • L3: Hardware Health Monitor      │
 └──────────┬──────────────────────────┘
            │
@@ -97,8 +97,8 @@ Four independent layers evaluate the proposed action in sequence.
 | Layer | Responsibility | Implementation |
 |-------|-----------------|-----------------|
 | **L0** | Detect out-of-distribution observations | Memory bank NN or Welford z-score |
-| **L1** | Shadow physics simulation and prediction | Open-source physics engine (configurable) |
-| **L2** | Joint limits, workspace, velocity & dynamics | Vectorized constraint checking |
+| **L1** | Physical kinematics: joint limits, workspace, velocity & dynamics | Boundary callbacks with clamp/reject aggregation |
+| **L2** | Task execution: phase, semantic, and command compatibility | Active task boundary callbacks |
 | **L3** | Motor status, temperature, watchdogs | Hardware sink health queries |
 
 Each guard is **completely independent**. You can enable/disable any layer in your Stackfile.

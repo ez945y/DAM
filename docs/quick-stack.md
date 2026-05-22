@@ -71,7 +71,7 @@ Top-level keys accepted by a Stackfile:
 | `runtime` | object | no | see below | Control loop settings |
 | `loopback` | object | no | — | MCAP loopback buffer (Phase 2, requires Rust) |
 | `risk_controller` | object | no | — | Windowed risk aggregation (Phase 2, requires Rust) |
-| `simulation` | object | no | — | Physics simulator for L1 Sim Preflight (Phase 4) |
+| `simulation` | object | no | — | Optional simulation/source settings |
 
 ### `safety` section defaults
 
@@ -113,7 +113,7 @@ fallbacks:
 
 ## Guard Builtin Reference
 
-### `guards.builtin.motion` (L2)
+### `guards.builtin.motion` (L1)
 
 Enforces joint position limits, velocity limits, and acceleration limits. Clamps action proposals rather than rejecting them when possible. Rejects when the end-effector is outside workspace bounds.
 
@@ -143,20 +143,20 @@ Out-of-distribution gate. Checks the reconstruction error of the full observatio
 | `params.reconstruction_threshold` | float | `0.05` | Maximum allowed reconstruction error |
 | `params.temporal_smoothing_frames` | int | `3` | Consecutive OOD frames required before rejecting; absorbs lighting, shadow, and brief occlusion false positives |
 
-### `guards.builtin.execution` (L3)
+### `guards.builtin.execution` (L2)
 
-Task-level boundary enforcement. Evaluates the constraints on the currently active boundary node each cycle.
+Task-level boundary enforcement. Dispatches the active boundary node's L2 callback and enforces node timeouts.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enabled` | bool | `true` | Enable/disable this guard |
 
 Checks (in order):
-1. `max_speed` — rejects if joint velocity norm exceeds the limit
-2. `bounds` — rejects if end-effector is outside bounds
-3. `max_force_n` — rejects if force/torque norm exceeds the limit
-4. `callback` — calls each registered Python callback; rejects if any returns `False`
-5. `timeout_sec` — rejects if the node has been active longer than the timeout
+1. `callback` — calls the node's registered L2 boundary callback; rejects on violation
+2. `timeout_sec` — rejects if the node has been active longer than the timeout
+
+Built-in L2 callbacks include `task_joint_speed_limit`, `task_workspace_bounds`,
+`check_gripper_clear`, and `task_gripper_command_guard`.
 
 ---
 

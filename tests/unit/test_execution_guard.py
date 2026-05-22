@@ -33,6 +33,14 @@ def make_action():
     return ActionProposal(target_joint_positions=np.zeros(6))
 
 
+def make_gripper_action(value, segment="move"):
+    return ActionProposal(
+        target_joint_positions=np.zeros(6),
+        gripper_action=value,
+        metadata={"task_segment": segment},
+    )
+
+
 def make_container(callback=None, **params):
     constraint = BoundaryConstraint(callback=callback, params=params)
     node = BoundaryNode(
@@ -85,6 +93,101 @@ def test_task_workspace_bounds_breach_rejects(EG):
     obs = make_obs(ee=[-1.0, 0.0, 0.2, 0.0, 0.0, 0.0, 1.0])  # x=-1.0 outside bounds
     result = g.check(obs=obs, active_containers=[container], node_start_times={})
     assert result.decision == GuardDecision.REJECT
+
+
+def test_task_gripper_close_before_pick_zone_rejects(EG):
+    from dam.boundary.builtin_callbacks import register_all
+
+    register_all()
+    g = EG()
+    precompute_injection(g, {})
+    container = make_container(
+        callback="task_gripper_command_guard",
+        pick_zone=[[0.2, 0.4], [0.2, 0.4], [0.1, 0.3]],
+        place_zone=[[0.6, 0.8], [0.0, 0.2], [0.1, 0.3]],
+    )
+    obs = make_obs(ee=[0.0, 0.0, 0.2, 0.0, 0.0, 0.0, 1.0])
+    result = g.check(
+        obs=obs,
+        action=make_gripper_action(0.0, segment="pick"),
+        active_containers=[container],
+        node_start_times={},
+    )
+    assert result.decision == GuardDecision.REJECT
+    assert "pick zone" in result.reason
+
+
+def test_task_gripper_open_before_place_zone_rejects(EG):
+    from dam.boundary.builtin_callbacks import register_all
+
+    register_all()
+    g = EG()
+    precompute_injection(g, {})
+    container = make_container(
+        callback="task_gripper_command_guard",
+        pick_zone=[[0.2, 0.4], [0.2, 0.4], [0.1, 0.3]],
+        place_zone=[[0.6, 0.8], [0.0, 0.2], [0.1, 0.3]],
+    )
+    obs = make_obs(ee=[0.3, 0.3, 0.2, 0.0, 0.0, 0.0, 1.0])
+    result = g.check(
+        obs=obs,
+        action=make_gripper_action(1.0, segment="place"),
+        active_containers=[container],
+        node_start_times={},
+    )
+    assert result.decision == GuardDecision.REJECT
+    assert "place zone" in result.reason
+
+
+def test_task_gripper_commands_in_move_segment_reject(EG):
+    from dam.boundary.builtin_callbacks import register_all
+
+    register_all()
+    g = EG()
+    precompute_injection(g, {})
+    container = make_container(
+        callback="task_gripper_command_guard",
+        pick_zone=[[0.2, 0.4], [0.2, 0.4], [0.1, 0.3]],
+        place_zone=[[0.6, 0.8], [0.0, 0.2], [0.1, 0.3]],
+    )
+    obs = make_obs(ee=[0.3, 0.3, 0.2, 0.0, 0.0, 0.0, 1.0])
+
+    for gripper_value in [0.0, 1.0]:
+        result = g.check(
+            obs=obs,
+            action=make_gripper_action(gripper_value, segment="move"),
+            active_containers=[container],
+            node_start_times={},
+        )
+        assert result.decision == GuardDecision.REJECT
+        assert "movement segment" in result.reason
+
+
+def test_task_gripper_allows_close_in_pick_zone_and_open_in_place_zone(EG):
+    from dam.boundary.builtin_callbacks import register_all
+
+    register_all()
+    g = EG()
+    precompute_injection(g, {})
+    container = make_container(
+        callback="task_gripper_command_guard",
+        pick_zone=[[0.2, 0.4], [0.2, 0.4], [0.1, 0.3]],
+        place_zone=[[0.6, 0.8], [0.0, 0.2], [0.1, 0.3]],
+    )
+    close_result = g.check(
+        obs=make_obs(ee=[0.3, 0.3, 0.2, 0.0, 0.0, 0.0, 1.0]),
+        action=make_gripper_action(0.0, segment="pick"),
+        active_containers=[container],
+        node_start_times={},
+    )
+    open_result = g.check(
+        obs=make_obs(ee=[0.7, 0.1, 0.2, 0.0, 0.0, 0.0, 1.0]),
+        action=make_gripper_action(1.0, segment="place"),
+        active_containers=[container],
+        node_start_times={},
+    )
+    assert close_result.decision == GuardDecision.PASS
+    assert open_result.decision == GuardDecision.PASS
 
 
 def test_bare_params_without_callback_are_ignored(EG):

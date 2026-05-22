@@ -87,11 +87,11 @@ Evaluates active boundary node constraints each cycle.
 
 **Checks (in order):**
 
-1. `max_speed` — joint velocity norm vs node constraint
-2. `bounds` — end-effector vs node constraint
-3. `max_force_n` — force/torque norm vs constraint
-4. `callback` — registered callbacks (see [Boundary Callbacks](boundary-callbacks.md))
-5. `timeout_sec` — node active duration vs configured timeout
+1. `callback` — registered L2 callback (see [Boundary Callbacks](boundary-callbacks.md))
+2. `timeout_sec` — node active duration vs configured timeout
+
+Built-in L2 callbacks cover task speed, task workspace bounds, gripper
+clearance, and task-phase gripper command validation.
 
 ---
 

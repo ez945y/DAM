@@ -75,9 +75,9 @@ Policy Output (proposed action)
     ↓
 [ L0 — OOD Detection ]       ← Is this observation familiar?
     ↓
-[ L1 — Preflight Sim ]       ← Will this action work physically?
+[ L1 — Physical Kinematics ] ← Are joint limits and motion constraints safe?
     ↓
-[ L2 — Motion Safety ]       ← Are joint limits and dynamics safe?
+[ L2 — Task Execution ]      ← Does this command fit the current task phase?
     ↓
 [ L3 — Hardware Monitor ]    ← Is the hardware healthy?
     ↓

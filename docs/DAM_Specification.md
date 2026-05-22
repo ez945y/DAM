@@ -73,7 +73,7 @@ Reference for all DAM-specific terms, categorized by architectural role and sort
 | **NodeBus** | Rust-side pub/sub router for intra-process guard-to-guard messaging. |
 | **InjectionPool** | Merged dict of Runtime Pool (obs, cycle_id, etc.) and Config Pool (static params) used to populate guard arguments. |
 | **PolicyAdapter** | User class wrapping a policy model. Public interface: `predict(obs) → ActionProposal`. |
-| **SimulatorAdapter** | User class wrapping a physics simulator for L1 Sim Preflight. |
+| **SimulatorAdapter** | User class wrapping a physics simulator for optional simulation lookahead. |
 | **Source/Sink Adapter** | Classes that ingest raw sensor data or deliver validated actions to hardware (ROS2, CAN, etc.). |
 | **Lookahead** | Mechanism used by L1 to evaluate a proposed action in simulation one cycle ahead on a shadow thread. |
 | **MCAP** | Binary log format used for ObservationBus persistence and violation context capture. |
@@ -110,7 +110,7 @@ No Python file required. Run with `dam run --stack stackfile.yaml --task <name>`
 | **Custom constraint checks** | Python function + `@dam.callback` | Your Python file |
 | **Custom fallback strategies** | Python class + `@dam.fallback` | Your Python file |
 
-Reference callbacks from boundary nodes via `callback: [fn_name]`.
+Reference callbacks from boundary nodes via `callback: fn_name`.
 
 **Tier 3 — Advanced (YAML + custom adapters / guards)**
 
@@ -249,7 +249,7 @@ DAM's modules are organized into two distinct responsibilities: **Core Guard Log
 | **Configuration** | YAML (Stackfile) | Guard params, boundary definitions, task mappings, node graphs |
 | **Callback System** | Python Callables + `inspect` | Auto-injected boundary check functions, transition conditions |
 | **Middleware** | ROS 2 (optional) | Sensor topics, action servers — declared as Sources/Sinks in Stackfile |
-| **Simulation** | Isaac Sim, Gazebo | L1 Sim Preflight lookahead via SimulatorAdapter (optional, late-phase) |
+| **Simulation** | Isaac Sim, Gazebo | Optional simulation lookahead via SimulatorAdapter (late-phase) |
 | **OOD Detection** | Autoencoder (PyTorch) | Reconstruction error–based anomaly detection |
 | **Policy Inference** | PyTorch / ONNX | LeRobot ACT, Diffusion Policy, VLA, RL agents — wrapped via PolicyAdapter |
 | **API (REST)** | FastAPI / Flask | Boundary CRUD, runtime control, risk logs |
@@ -493,7 +493,7 @@ predict(obs: Observation) → ActionProposal
 
 It receives the canonical `Observation` (already converted from raw platform data by the Sources) and knows nothing about simulation or guards. All platform-specific conversion is internal to the adapter.
 
-The **L1 Sim Preflight Guard** is the only component that jointly references both `PolicyAdapter` and `SimulatorAdapter`. It uses the standard `predict()` interface to run a multi-step lookahead in simulation — the Policy Adapter is unaware it is being called inside a simulation loop. This keeps the Policy Adapter single-purpose and swappable without affecting L1's logic.
+The optional simulation lookahead component is the only component that jointly references both `PolicyAdapter` and `SimulatorAdapter`. It uses the standard `predict()` interface to run a multi-step lookahead in simulation — the Policy Adapter is unaware it is being called inside a simulation loop. This keeps the Policy Adapter single-purpose and swappable without affecting L1's logic.
 
 ```
 L1 lookahead:

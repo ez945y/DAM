@@ -81,8 +81,8 @@ Colour mapping:
 | Guards | Emerald | `validate()` — all guard checks combined |
 | Sink | Blue | `sink.apply()` — action dispatch |
 | L0 | Violet | OOD Detection guards |
-| L1 | Green | Preflight Simulation guards |
-| L2 | Emerald | Motion Safety guards |
+| L1 | Green | Physical kinematics / motion guards |
+| L2 | Emerald | Task execution guards |
 | L3 | Light-green | Hardware Monitoring guards |
 
 ### Config `/config`

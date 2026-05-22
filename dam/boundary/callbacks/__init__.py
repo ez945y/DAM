@@ -23,6 +23,7 @@ from dam.boundary.callbacks._registry import (
 from dam.boundary.callbacks.execution import (
     check_gripper_clear,
     semantic_state,
+    task_gripper_command_guard,
     task_joint_speed_limit,
     task_workspace_bounds,
 )
@@ -78,6 +79,7 @@ __all__ = [
     "orientation_limit",
     "register_all",
     "semantic_state",
+    "task_gripper_command_guard",
     "task_joint_speed_limit",
     "task_workspace_bounds",
     "temperature_limit",

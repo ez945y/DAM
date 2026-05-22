@@ -76,7 +76,7 @@ Closes #42
 
 **Examples:**
 ```
-feat(guard): L2 motion guard with joint limit clamping
+feat(guard): L1 motion guard with joint limit clamping
 fix(boundary): handle empty node list in advance()
 test(guard): add regression for velocity clamping
 ```

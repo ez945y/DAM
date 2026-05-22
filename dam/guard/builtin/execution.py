@@ -21,6 +21,7 @@ from typing import Any
 import dam
 from dam.guard.base import Guard
 from dam.guard.callbacks import evaluate_boundary_callbacks
+from dam.types.action import ActionProposal
 from dam.types.observation import Observation
 from dam.types.result import GuardDecision, GuardResult
 
@@ -46,6 +47,7 @@ class ExecutionGuard(Guard):
     def check(
         self,
         obs: Observation,
+        action: ActionProposal | None = None,
         active_containers: list[Any] | None = None,
         node_start_times: dict[str, float] | None = None,
     ) -> GuardResult:
@@ -63,7 +65,7 @@ class ExecutionGuard(Guard):
             if constraint.callback:
                 _, callback_res = evaluate_boundary_callbacks(
                     containers=[container],
-                    base_kwargs={"obs": obs},
+                    base_kwargs={"obs": obs, "action": action},
                     expected_layer="L2",
                     guard_name=name,
                     guard_layer=layer,

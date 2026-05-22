@@ -128,14 +128,14 @@ Runtime update of boundary constraints and guard parameters from a modified Stac
 ## J
 
 **Joint Limits**
-Hardware constraints on joint positions. Typically defined as `upper_limits` and `lower_limits` arrays (radians). Enforced by L2 guard via clamping.
+Hardware constraints on joint positions. Typically defined as `upper_limits` and `lower_limits` arrays (radians). Enforced by L1 guard via clamping.
 
 ---
 
 ## K
 
 **Kinematic Constraints**
-Robot motion constraints based on geometry: joint limits, workspace bounds, velocity/acceleration limits. Enforced by L2 motion guard.
+Robot motion constraints based on geometry: joint limits, workspace bounds, velocity/acceleration limits. Enforced by L1 motion guard.
 
 ---
 
@@ -143,9 +143,7 @@ Robot motion constraints based on geometry: joint limits, workspace bounds, velo
 
 **L0 Guard** (See **OOD Detection**)
 
-**L1 Guard** (See **Preflight Simulation**)
-
-**L2 Guard** (See **Motion Safety**)
+**L1 Guard** (See **Motion Safety**)
 
 **L2 Guard** (See **Task Execution**)
 
@@ -169,7 +167,7 @@ A standardized record format for robotics data. DAM uses MCAP for the loopback b
 **Memory Bank**
 A precomputed nearest-neighbor data structure used by L0 OOD detection. Built during training; stores reference feature vectors from normal operations.
 
-**Motion Guard** (See **L2 Guard**)
+**Motion Guard** (See **L1 Guard**)
 
 ---
 
@@ -204,8 +202,8 @@ The ML model (PyTorch, Diffusion Policy, ACT, etc.) that proposes actions given 
 **Policy Adapter**
 Software interface wrapping the policy. Implements `step(obs) → action` method.
 
-**Preflight Simulation** (L1)
-Guard layer that simulates actions before execution using a physics engine. Predicts whether action will succeed physically. Currently experimental (Phase 2).
+**Simulation Lookahead**
+Future optional checker that may simulate actions before execution using a physics engine. Not part of the current built-in L0-L3 runtime stack.
 
 ---
 
@@ -281,7 +279,7 @@ Maximum time a boundary node can be active. If exceeded, L3 rejects all actions,
 ## V
 
 **Velocity Limits**
-Constraints on joint rotation speed (rad/s). Enforced by L2 guard via proportional scaling of all joints.
+Constraints on joint rotation speed (rad/s). Enforced by L1 guard via proportional scaling of all joints.
 
 ---
 

@@ -218,7 +218,7 @@ docker compose run dev bash -c "ruff format dam/ tests/ && ruff check dam/ && my
 [1G] InjectionPool + Resolver ────┼──→ [1H] GuardRuntime (sequential)
                                    │     │
                                    │     ▼
-                                   ├──→ [1I] MotionGuard (L2)
+                                   ├──→ [1I] MotionGuard (L1)
                                    │     │
                                    │     ▼
                                    └──→ [1J] Stackfile Parser
@@ -962,7 +962,7 @@ dam/
 | **Phase 1** | 4–6 週 | 無 | 純 Python 安全引擎 + MotionGuard + 測試套件 |
 | **Phase 2** | 4–6 週 | Phase 1 退出標準通過 | LeRobot 硬體驗證 + Rust bus + L0/L3 + MCAP |
 | **Phase 3** | 3–4 週 | Phase 2 退出標準通過 | ROS2 支援 + Stage DAG + Hot Reload + L3 |
-| **Phase 4** | 2–3 週 | Phase 3 退出標準通過 | L1 SimPreflight + Isaac Sim/Gazebo |
+| **Phase 4** | 2–3 週 | Phase 3 退出標準通過 | Optional simulation lookahead + Isaac Sim/Gazebo |
 | **Phase 5** | 3–4 週 | Phase 2 穩定 | Dashboard + API + 追蹤器 |
 
 總計約 16–23 週（4–6 個月），具體取決於團隊規模與硬體到位時間。Phase 5 可與 Phase 3/4 並行開發。

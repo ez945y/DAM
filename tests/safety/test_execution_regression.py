@@ -8,6 +8,7 @@ from dam.boundary.node import BoundaryNode
 from dam.boundary.single import SingleNodeContainer
 from dam.guard.builtin.execution import ExecutionGuard
 from dam.injection.static import precompute_injection
+from dam.types.action import ActionProposal
 from dam.types.observation import Observation
 from dam.types.result import GuardDecision
 
@@ -80,3 +81,53 @@ def test_workspace_violation_always_rejected(EG):
         )
         result = g2.check(obs=obs, active_containers=[container], node_start_times={})
         assert result.decision == GuardDecision.REJECT, f"pos={pos} should be REJECT"
+
+
+def test_40_task_section_gripper_injections_rejected(EG):
+    """Requirement coverage: task-section anomalous data injection.
+
+    Blocks close before the planned pick zone, open before the planned place
+    zone, and repeated open/close commands during movement segments.
+    """
+    from dam.boundary.builtin_callbacks import register_all
+
+    register_all()
+    constraint = BoundaryConstraint(
+        callback="task_gripper_command_guard",
+        params={
+            "pick_zone": [[0.2, 0.4], [0.2, 0.4], [0.1, 0.3]],
+            "place_zone": [[0.6, 0.8], [0.0, 0.2], [0.1, 0.3]],
+        },
+    )
+    container = SingleNodeContainer(BoundaryNode("n0", constraint, fallback="hold_position"))
+
+    events = []
+    for _i in range(14):
+        events.append(("pick", 0.0, [0.0, 0.0, 0.2]))
+    for _i in range(13):
+        events.append(("place", 1.0, [0.3, 0.3, 0.2]))
+    for i in range(13):
+        events.append(("move", 0.0 if i % 2 == 0 else 1.0, [0.3, 0.3, 0.2]))
+    assert len(events) == 40
+
+    for idx, (segment, gripper, pos) in enumerate(events):
+        g = EG()
+        precompute_injection(g, {})
+        obs = Observation(
+            timestamp=float(idx),
+            joint_positions=np.zeros(6),
+            joint_velocities=np.zeros(6),
+            end_effector_pose=np.array(pos + [0.0, 0.0, 0.0, 1.0]),
+        )
+        action = ActionProposal(
+            target_joint_positions=np.zeros(6),
+            gripper_action=gripper,
+            metadata={"task_segment": segment},
+        )
+        result = g.check(
+            obs=obs,
+            action=action,
+            active_containers=[container],
+            node_start_times={},
+        )
+        assert result.decision == GuardDecision.REJECT, f"event {idx} should be REJECT"

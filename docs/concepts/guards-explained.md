@@ -11,9 +11,9 @@ Observation
     ↓
 [ L0 — OOD Detection ]       ← Is this state familiar?
     ↓ (if passes)
-[ L1 — Preflight Sim ]       ← Will this action work physically?
+[ L1 — Physical Kinematics ] ← Are joint limits and motion constraints safe?
     ↓ (if passes)
-[ L2 — Motion Safety ]       ← Are joint limits and dynamics safe?
+[ L2 — Task Execution ]      ← Does this command fit the current task phase?
     ↓ (if passes)
 [ L3 — Hardware Monitor ]    ← Is the hardware healthy?
     ↓
@@ -100,15 +100,15 @@ guards:
 
 ---
 
-## Layer 1: Preflight Simulation (L1)
+## Optional Simulation Lookahead (Future)
 
 **Responsibility:** Simulate action before execution to verify it will work.
 
-**Status:** In development (Phase 2). Currently experimental.
+**Status:** Not part of the current built-in L0-L3 runtime stack.
 
 ### The Idea
 
-Before commanding hardware, DAM can run a quick physics simulation:
+Before commanding hardware, a future DAM extension may run a quick physics simulation:
 1. Copy current state to simulator
 2. Apply proposed action
 3. Simulate forward 100–500ms
@@ -147,7 +147,7 @@ guards:
 
 ---
 
-## Layer 2: Motion Safety (L2)
+## Layer 1: Motion Safety (L1)
 
 **Responsibility:** Enforce joint limits, velocity bounds, and workspace constraints.
 
@@ -268,16 +268,16 @@ guards:
 | Velocity bounded | ✅ Guaranteed |
 | Acceleration bounded | ✅ Guaranteed |
 | Workspace enforced | ✅ Guaranteed |
-| Collision-free | ❌ NO (use L1 preflight sim) |
+| Collision-free | ❌ NO (requires a dedicated simulation/collision checker) |
 | Real-time safe | ✅ Yes (< 1 ms) |
 
 ---
 
-## Layer 3: Task Execution (L2)
+## Layer 2: Task Execution (L2)
 
 **Responsibility:** Enforce task-specific boundaries and constraints.
 
-Boundaries define the **safety envelope** for a task phase. L3 checks if the proposed action respects the active boundary.
+Boundaries define the **safety envelope** for a task phase. L2 checks if the proposed action respects the active boundary.
 
 ### Example Boundary
 
@@ -287,11 +287,9 @@ boundaries:
     type: list
     nodes:
       - node_id: reach
-        constraint:
-          max_speed: 0.3
+        callback: task_workspace_bounds
+        params:
           bounds: [[-0.35, 0.35], [-0.05, 0.45], [0.01, 0.40]]
-          max_force_n: null
-          callback: [validate_reach_target]
         fallback: hold_position
         timeout_sec: 15.0
 ```
@@ -300,21 +298,16 @@ boundaries:
 
 | Constraint | Type | Behavior |
 |-----------|------|----------|
-| `max_speed` | float | Reject if joint velocity norm > limit |
-| `bounds` | `[[x_min, x_max], [y_min, y_max], [z_min, z_max]]` | Reject if end-effector outside bounds |
-| `max_force_n` | float | Reject if force/torque norm > limit (requires sensor) |
-| `callback` | list[string] | Reject if any registered callback returns `False` |
-| `upper_limits` | list[float] | Reject if joint exceeds limit |
-| `lower_limits` | list[float] | Reject if joint below limit |
-| `max_velocity` | list[float] | Reject if per-joint velocity exceeds |
+| `task_joint_speed_limit` | callback | Reject if joint velocity norm exceeds task limit |
+| `task_workspace_bounds` | callback | Reject if end-effector leaves task workspace |
+| `check_gripper_clear` | callback | Reject if gripper is closed when it must be clear |
+| `task_gripper_command_guard` | callback | Reject open/close commands in the wrong task segment or zone |
+| `semantic_state` | callback | Placeholder for task pre/post-condition checks |
 
 ### Evaluation Order
 
-1. **max_speed** — velocity norm check
-2. **bounds** — end-effector position check
-3. **max_force_n** — force/torque sensor check (if available)
-4. **callback** — user-provided Python functions
-5. **timeout_sec** — node active time check
+1. **callback** — active node's registered L2 boundary callback
+2. **timeout_sec** — node active time check
 
 If any check fails, evaluation stops and decision is REJECT.
 
@@ -335,8 +328,7 @@ boundaries:
   reach:
     nodes:
       - node_id: reach
-        constraint:
-          callback: [validate_reach_target]
+        callback: validate_reach_target
 ```
 
 ### Guarantees
@@ -345,7 +337,7 @@ boundaries:
 |--------|--------|
 | Boundary constraints enforced | ✅ Yes |
 | Timeouts prevent indefinite phases | ✅ Yes |
-| Force limits enforced | ✅ Yes (if sensor available) |
+| Task gripper command compatibility | ✅ Yes, with `task_gripper_command_guard` |
 | Callback correctness | ⚠️ User's responsibility |
 
 ---
@@ -460,8 +452,8 @@ guards:
 | Guard | Typical Latency | Complexity | GPU Required |
 |-------|-----------------|-----------|--------------|
 | L0 OOD | 0.1–1.0 ms | High (NN lookup) | Optional (FeatureExtractor) |
-| L1 Preflight | 5–50 ms | Very high (simulation) | Optional |
-| L2 Motion | < 1 ms | Low (algebraic checks) | No |
+| L1 Motion | < 1 ms | Low (algebraic checks) | No |
+| L2 Task Execution | < 1 ms | Low–medium (task callbacks) | No |
 | L3 Hardware | < 0.5 ms | Low (sensor queries) | No |
 
 **Total typical per-cycle latency:** 1–5 ms at 50 Hz control frequency.

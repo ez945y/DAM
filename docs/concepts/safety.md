@@ -59,32 +59,11 @@ guards:
 
 ---
 
-### Layer 1: Preflight Simulation (Experimental)
-
-**What it guards against:** Actions that violate physics constraints.
-
-Before executing a proposed action, DAM simulates it in a shadow physics model to predict whether it will succeed.
-
-**How it works:**
-- Copy current state to a simulator
-- Apply proposed action
-- Run simulator forward for 100–500ms
-- Check if end-effector reaches target, collides, or violates constraints
-- Reject if simulation predicts failure
-
-**Does NOT guarantee:**
-- Sim-to-real fidelity (friction, dynamics uncertainties still exist)
-- Real-time execution on slow hardware (simulation takes time)
-
-**Status:** Currently in development. When available, it provides strong guarantees for grasp and reach tasks.
-
----
-
-### Layer 2: Motion Safety (L2)
+### Layer 1: Motion Safety / Physical Kinematics (L1)
 
 **What it guards against:** Joint violations, workspace violations, velocity/acceleration overruns.
 
-L2 is the most mature layer. It enforces hard kinematic and dynamic constraints.
+L1 is the most mature layer. It enforces hard kinematic and dynamic constraints.
 
 **Constraints:**
 1. **Joint position limits** — clamps if joint exceeds `[lower_limit, upper_limit]`
@@ -115,22 +94,22 @@ guards:
 - ✅ Joint limits are **never** violated
 - ✅ Velocity and acceleration are bounded
 - ✅ End-effector stays within workspace
-- ❌ Does NOT guarantee collision-free motion (use Preflight Sim for that)
+- ❌ Does NOT guarantee collision-free motion without an additional simulation/collision checker
 
 ---
 
-### Layer 3: Task Execution (L2)
+### Layer 2: Task Execution (L2)
 
 **What it guards against:** Actions that violate task-level constraints.
 
-Boundaries define the safety envelope for a task. L3 enforces them.
+Boundaries define the safety envelope for a task. L2 enforces them.
 
 **Checks (in order):**
-1. **Max speed** — rejects if joint velocity norm exceeds limit
-2. **Bounds** — rejects if end-effector leaves defined bounds
-3. **Max force** — rejects if force/torque sensor reading exceeds limit
-4. **Callbacks** — executes user-registered Python callbacks; rejects if any return `False`
-5. **Timeout** — rejects if boundary node has been active > `timeout_sec`
+1. **Callback** — executes the active node's registered L2 boundary callback
+2. **Timeout** — rejects if boundary node has been active > `timeout_sec`
+
+Built-in L2 callbacks include task speed, task workspace, gripper clearance,
+and task-phase gripper command validation.
 
 **Example:**
 ```yaml
@@ -139,10 +118,9 @@ boundaries:
     type: list
     nodes:
       - node_id: reach
-        constraint:
-          max_speed: 0.3
+        callback: task_workspace_bounds
+        params:
           bounds: [[-0.35, 0.35], [-0.05, 0.45], [0.01, 0.40]]
-          callback: [validate_reach_target]
         fallback: hold_position
         timeout_sec: 15.0
 ```
@@ -246,7 +224,7 @@ DAM **intercepts and validates actions**, but it does not guarantee the policy i
 ```python
 # Policy: "always move to [10, 10, 10] meters"
 # This is physically impossible, but policy doesn't know that.
-# L2 guard will reject it.  ✓
+# L1 guard will reject it.  ✓
 
 # Policy: "move to [1, 1, 1], but only if you see a red object"
 # If the policy hallucinates red, action is still proposed to DAM.
@@ -254,12 +232,10 @@ DAM **intercepts and validates actions**, but it does not guarantee the policy i
 ```
 
 ### 2. Collision Avoidance
-DAM does **not** inherently prevent collisions. L1 (Preflight Sim) helps, but:
-- Not perfect (sim-to-real gap)
-- Not always enabled (tier-1 deployments may skip it)
-- Requires accurate collision geometry
+DAM does **not** inherently prevent collisions. Add a dedicated simulation or
+collision-checking boundary when collision guarantees are required:
 
-Use **task boundaries** (L3) to constrain reachable workspace as a proxy for collision safety.
+Use **task boundaries** (L2) to constrain reachable workspace as a proxy for collision safety.
 
 ### 3. Human Safety in Collaborative Tasks
 DAM is **not certified** for human-robot collaboration. It cannot:

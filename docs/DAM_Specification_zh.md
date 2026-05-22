@@ -110,7 +110,7 @@ DAM 用戶分為三個層次，各層次累加——進階層包含所有基礎�
 | **自定義約束檢查** | Python 函數 + `@dam.callback` | 您的 Python 檔案 |
 | **自定義回退策略** | Python 類 + `@dam.fallback` | 您的 Python 檔案 |
 
-在邊界節點的 `callback: [fn_name]` 中引用回調。
+在邊界節點的 `callback: fn_name` 中引用回調。
 
 **第三層 — 進階用戶（YAML + 自定義 Adapter / Guard）**
 
