@@ -163,21 +163,46 @@ Reject if `obs.metadata["gripper_pos"]` < `min_gripper_opening_m`.
 
 ### `task_gripper_command_guard`
 
-Clamp gripper commands that are incompatible with the current task segment:
-closing before entering the configured `pick_zone`, opening before entering
-the configured `place_zone`, or any explicit open/close command during movement
-segments. The clamp preserves the arm target and suppresses the injected
-gripper command by setting `gripper_action` to `None`. The segment is read from
-the boundary param `task_segment`, then `action.metadata["task_segment"]`, then
-`obs.metadata["task_segment"]`.
+Clamp gripper commands that are incompatible with the active task node. The
+container/list defines only the phase order; each node defines its own gripper
+rule in `params`. The clamp preserves the arm target and suppresses the injected
+gripper command by setting `gripper_action` to `None`.
+
+Default pick-and-place stacks use a left-to-right sequence: a 15 cm cube on the
+left for `close`, a transfer node that allows no gripper command, and a 15 cm
+cube on the right for `open`. The default cube centers are 20 cm apart along X.
+
+```yaml
+boundaries:
+  task_gripper_sequence:
+    layer: L2
+    type: list
+    nodes:
+      - node_id: pick_left
+        callback: task_gripper_command_guard
+        fallback: hold_position
+        params:
+          allowed_command: close
+          zone: [[-0.175, -0.025], [-0.075, 0.075], [0.075, 0.225]]
+      - node_id: transfer_left_to_right
+        callback: task_gripper_command_guard
+        fallback: hold_position
+        params:
+          allowed_command: none
+      - node_id: place_right
+        callback: task_gripper_command_guard
+        fallback: hold_position
+        params:
+          allowed_command: open
+          zone: [[0.025, 0.175], [-0.075, 0.075], [0.075, 0.225]]
+```
 
 | Param | Default | Description |
 |---|---|---|
-| `pick_zone` | `None` | Axis-aligned box `[[xmin,xmax],[ymin,ymax],[zmin,zmax]]` where close is allowed |
-| `place_zone` | `None` | Axis-aligned box where open is allowed |
-| `close_segments` | `["pick", "grasp", "pre_grasp"]` | Task segments where close may be valid |
-| `open_segments` | `["place", "release"]` | Task segments where open may be valid |
-| `move_segments` | `["move", "transfer", "approach", "retreat"]` | Segments where open/close commands are suppressed |
+| `allowed_command` | inferred from action | `close`, `open`, or `none` for the active node |
+| `zone` | `None` | Axis-aligned box `[[xmin,xmax],[ymin,ymax],[zmin,zmax]]` where the allowed command may run |
+| `pick_zone` | `None` | Legacy alias used when `allowed_command` is omitted and the command is `close` |
+| `place_zone` | `None` | Legacy alias used when `allowed_command` is omitted and the command is `open` |
 | `close_threshold` | `0.25` | `action.gripper_action <= threshold` means close |
 | `open_threshold` | `0.75` | `action.gripper_action >= threshold` means open |
 

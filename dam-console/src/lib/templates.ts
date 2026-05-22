@@ -123,6 +123,9 @@ const SO101_CAMERAS: CameraConfig[] = [
 
 const SO101_HEALTH_CHANNELS = ['current', 'temperature', 'voltage']
 
+const LEFT_PICK_ZONE = [[-0.175, -0.025], [-0.075, 0.075], [0.075, 0.225]]
+const RIGHT_PLACE_ZONE = [[0.025, 0.175], [-0.075, 0.075], [0.075, 0.225]]
+
 const DEFAULT_BOUNDARIES: BoundaryDef[] = [
   {
     name: 'workspace', layer: 'L1', type: 'single',
@@ -135,6 +138,14 @@ const DEFAULT_BOUNDARIES: BoundaryDef[] = [
   {
     name: 'joint_velocity_limit', layer: 'L1', type: 'single',
     nodes: [{ node_id: 'default', params: { max_velocities: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5] }, callback: 'joint_velocity_limit', fallback: 'emergency_stop', timeout_sec: 1 }]
+  },
+  {
+    name: 'task_gripper_sequence', layer: 'L2', type: 'list',
+    nodes: [
+      { node_id: 'pick_left', params: { allowed_command: 'close', zone: LEFT_PICK_ZONE }, callback: 'task_gripper_command_guard', fallback: 'hold_position', timeout_sec: null },
+      { node_id: 'transfer_left_to_right', params: { allowed_command: 'none' }, callback: 'task_gripper_command_guard', fallback: 'hold_position', timeout_sec: null },
+      { node_id: 'place_right', params: { allowed_command: 'open', zone: RIGHT_PLACE_ZONE }, callback: 'task_gripper_command_guard', fallback: 'hold_position', timeout_sec: null },
+    ],
   },
   {
     name: 'hardware_watchdog', layer: 'L3', type: 'single',
@@ -215,7 +226,7 @@ export const TEMPLATES: TemplatePreset[] = [
       observation_channels: SO101_HEALTH_CHANNELS,
       policy: { type: 'act', pretrained_path: 'MikeChenYZ/act-soarm-fmb-v2', device: 'mps' },
       joints: SO101_JOINTS, controlFrequencyHz: 30, enforcement_mode: 'enforce',
-      tasks: [{ id: 'soarm101', name: 'soarm101', description: 'Default task', boundaries: ['workspace', 'joint_position_limits', 'joint_velocity_limit', 'hardware_watchdog', 'host_health'] }],
+      tasks: [{ id: 'soarm101', name: 'soarm101', description: 'Default task', boundaries: ['workspace', 'joint_position_limits', 'joint_velocity_limit', 'task_gripper_sequence', 'hardware_watchdog', 'host_health'] }],
       boundaries: DEFAULT_BOUNDARIES,
       loopback: {
         backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10,
@@ -235,7 +246,7 @@ export const TEMPLATES: TemplatePreset[] = [
       policy: { type: 'act', pretrained_path: 'MikeChenYZ/act-soarm-fmb-v2', device: 'mps' },
       joints: SO101_JOINTS, controlFrequencyHz: 30, enforcement_mode: 'enforce',
       tasks: [{ id: 'soarm101', name: 'soarm101', description: 'QP-protected motion',
-        boundaries: ['workspace', 'joint_position_limits', 'joint_velocity_limit', 'hardware_watchdog', 'host_health'] }],
+        boundaries: ['workspace', 'joint_position_limits', 'joint_velocity_limit', 'task_gripper_sequence', 'hardware_watchdog', 'host_health'] }],
       boundaries: withQpSolver(DEFAULT_BOUNDARIES),
       loopback: {
         backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10,

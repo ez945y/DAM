@@ -284,14 +284,26 @@ Boundaries define the **safety envelope** for a task phase. L2 checks if the pro
 ```yaml
 boundaries:
   pick_and_place:
+    layer: L2
     type: list
     nodes:
-      - node_id: reach
-        callback: task_workspace_bounds
+      - node_id: pick_left
+        callback: task_gripper_command_guard
         params:
-          bounds: [[-0.35, 0.35], [-0.05, 0.45], [0.01, 0.40]]
+          allowed_command: close
+          zone: [[-0.175, -0.025], [-0.075, 0.075], [0.075, 0.225]]
         fallback: hold_position
-        timeout_sec: 15.0
+      - node_id: transfer_left_to_right
+        callback: task_gripper_command_guard
+        params:
+          allowed_command: none
+        fallback: hold_position
+      - node_id: place_right
+        callback: task_gripper_command_guard
+        params:
+          allowed_command: open
+          zone: [[0.025, 0.175], [-0.075, 0.075], [0.075, 0.225]]
+        fallback: hold_position
 ```
 
 ### Constraint Types
@@ -301,7 +313,7 @@ boundaries:
 | `task_joint_speed_limit` | callback | Reject if joint velocity norm exceeds task limit |
 | `task_workspace_bounds` | callback | Reject if end-effector leaves task workspace |
 | `check_gripper_clear` | callback | Reject if gripper is closed when it must be clear |
-| `task_gripper_command_guard` | callback | Clamp open/close commands in the wrong task segment or zone by suppressing the gripper command |
+| `task_gripper_command_guard` | callback | Clamp open/close commands that do not match the active task node or its zone by suppressing the gripper command |
 | `semantic_state` | callback | Placeholder for task pre/post-condition checks |
 
 ### Evaluation Order

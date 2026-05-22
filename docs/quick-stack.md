@@ -157,7 +157,10 @@ Checks (in order):
 
 Built-in L2 callbacks include `task_joint_speed_limit`, `task_workspace_bounds`,
 `check_gripper_clear`, and `task_gripper_command_guard` (clamps incompatible
-gripper commands to no-op).
+gripper commands to no-op). For pick-and-place, the default stack uses a
+left-to-right `task_gripper_sequence` list: close is allowed only in a 15 cm
+left pick cube, transfer allows no open/close command, and open is allowed only
+in a 15 cm right place cube about 20 cm away.
 
 ---
 

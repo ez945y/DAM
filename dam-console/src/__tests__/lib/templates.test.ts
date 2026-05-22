@@ -76,7 +76,8 @@ describe('defaultConfig', () => {
     const cfg = defaultConfig('quick_start')
     expect(cfg.adapter).toBe('simulation')
     expect(cfg.enforcement_mode).toBe('monitor')
-    expect(cfg.tasks[0].boundaries).toHaveLength(5)
+    expect(cfg.tasks[0].boundaries).toHaveLength(6)
+    expect(cfg.tasks[0].boundaries).toContain('task_gripper_sequence')
     expect(cfg.tasks[0].boundaries).toContain('hardware_watchdog')
     expect(cfg.tasks[0].boundaries).toContain('host_health')
   })
@@ -182,6 +183,21 @@ describe('generateYaml', () => {
     expect(yaml).toContain('workspace:')
     expect(yaml).toContain('bounds:')
     expect(yaml).toContain('hardware_watchdog:')
+  })
+
+  it('includes the left-to-right task gripper sequence', () => {
+    const cfg = defaultConfig('so101_act')
+    const yaml = generateYaml(cfg)
+    expect(yaml).toContain('task_gripper_sequence:')
+    expect(yaml).toContain('type: list')
+    expect(yaml).toContain('node_id: pick_left')
+    expect(yaml).toContain('allowed_command: close')
+    expect(yaml).toContain('zone: [[-0.1750, -0.0250], [-0.0750, 0.0750], [0.0750, 0.2250]]')
+    expect(yaml).toContain('node_id: transfer_left_to_right')
+    expect(yaml).toContain('allowed_command: none')
+    expect(yaml).toContain('node_id: place_right')
+    expect(yaml).toContain('allowed_command: open')
+    expect(yaml).toContain('zone: [[0.0250, 0.1750], [-0.0750, 0.0750], [0.0750, 0.2250]]')
   })
 
   it('includes workspace bounds when set (quick_start)', () => {

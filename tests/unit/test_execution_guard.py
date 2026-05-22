@@ -10,6 +10,9 @@ from dam.types.action import ActionProposal
 from dam.types.observation import Observation
 from dam.types.result import GuardDecision
 
+LEFT_PICK_ZONE = [[-0.175, -0.025], [-0.075, 0.075], [0.075, 0.225]]
+RIGHT_PLACE_ZONE = [[0.025, 0.175], [-0.075, 0.075], [0.075, 0.225]]
+
 
 @pytest.fixture
 def EG():
@@ -33,11 +36,10 @@ def make_action():
     return ActionProposal(target_joint_positions=np.zeros(6))
 
 
-def make_gripper_action(value, segment="move"):
+def make_gripper_action(value):
     return ActionProposal(
         target_joint_positions=np.zeros(6),
         gripper_action=value,
-        metadata={"task_segment": segment},
     )
 
 
@@ -103,20 +105,20 @@ def test_task_gripper_close_before_pick_zone_clamps(EG):
     precompute_injection(g, {})
     container = make_container(
         callback="task_gripper_command_guard",
-        pick_zone=[[0.2, 0.4], [0.2, 0.4], [0.1, 0.3]],
-        place_zone=[[0.6, 0.8], [0.0, 0.2], [0.1, 0.3]],
+        allowed_command="close",
+        zone=LEFT_PICK_ZONE,
     )
     obs = make_obs(ee=[0.0, 0.0, 0.2, 0.0, 0.0, 0.0, 1.0])
     result = g.check(
         obs=obs,
-        action=make_gripper_action(0.0, segment="pick"),
+        action=make_gripper_action(0.0),
         active_containers=[container],
         node_start_times={},
     )
     assert result.decision == GuardDecision.CLAMP
     assert result.clamped_action is not None
     assert result.clamped_action.gripper_action is None
-    assert "pick zone" in result.reason
+    assert "allowed zone" in result.reason
 
 
 def test_task_gripper_open_before_place_zone_clamps(EG):
@@ -127,20 +129,20 @@ def test_task_gripper_open_before_place_zone_clamps(EG):
     precompute_injection(g, {})
     container = make_container(
         callback="task_gripper_command_guard",
-        pick_zone=[[0.2, 0.4], [0.2, 0.4], [0.1, 0.3]],
-        place_zone=[[0.6, 0.8], [0.0, 0.2], [0.1, 0.3]],
+        allowed_command="open",
+        zone=RIGHT_PLACE_ZONE,
     )
-    obs = make_obs(ee=[0.3, 0.3, 0.2, 0.0, 0.0, 0.0, 1.0])
+    obs = make_obs(ee=[-0.10, 0.0, 0.15, 0.0, 0.0, 0.0, 1.0])
     result = g.check(
         obs=obs,
-        action=make_gripper_action(1.0, segment="place"),
+        action=make_gripper_action(1.0),
         active_containers=[container],
         node_start_times={},
     )
     assert result.decision == GuardDecision.CLAMP
     assert result.clamped_action is not None
     assert result.clamped_action.gripper_action is None
-    assert "place zone" in result.reason
+    assert "allowed zone" in result.reason
 
 
 def test_task_gripper_commands_in_move_segment_clamp(EG):
@@ -151,22 +153,21 @@ def test_task_gripper_commands_in_move_segment_clamp(EG):
     precompute_injection(g, {})
     container = make_container(
         callback="task_gripper_command_guard",
-        pick_zone=[[0.2, 0.4], [0.2, 0.4], [0.1, 0.3]],
-        place_zone=[[0.6, 0.8], [0.0, 0.2], [0.1, 0.3]],
+        allowed_command="none",
     )
-    obs = make_obs(ee=[0.3, 0.3, 0.2, 0.0, 0.0, 0.0, 1.0])
+    obs = make_obs(ee=[0.0, 0.0, 0.15, 0.0, 0.0, 0.0, 1.0])
 
     for gripper_value in [0.0, 1.0]:
         result = g.check(
             obs=obs,
-            action=make_gripper_action(gripper_value, segment="move"),
+            action=make_gripper_action(gripper_value),
             active_containers=[container],
             node_start_times={},
         )
         assert result.decision == GuardDecision.CLAMP
         assert result.clamped_action is not None
         assert result.clamped_action.gripper_action is None
-        assert "movement segment" in result.reason
+        assert "not allowed" in result.reason
 
 
 def test_task_gripper_allows_close_in_pick_zone_and_open_in_place_zone(EG):
@@ -175,21 +176,26 @@ def test_task_gripper_allows_close_in_pick_zone_and_open_in_place_zone(EG):
     register_all()
     g = EG()
     precompute_injection(g, {})
-    container = make_container(
+    pick_container = make_container(
         callback="task_gripper_command_guard",
-        pick_zone=[[0.2, 0.4], [0.2, 0.4], [0.1, 0.3]],
-        place_zone=[[0.6, 0.8], [0.0, 0.2], [0.1, 0.3]],
+        allowed_command="close",
+        zone=LEFT_PICK_ZONE,
+    )
+    place_container = make_container(
+        callback="task_gripper_command_guard",
+        allowed_command="open",
+        zone=RIGHT_PLACE_ZONE,
     )
     close_result = g.check(
-        obs=make_obs(ee=[0.3, 0.3, 0.2, 0.0, 0.0, 0.0, 1.0]),
-        action=make_gripper_action(0.0, segment="pick"),
-        active_containers=[container],
+        obs=make_obs(ee=[-0.10, 0.0, 0.15, 0.0, 0.0, 0.0, 1.0]),
+        action=make_gripper_action(0.0),
+        active_containers=[pick_container],
         node_start_times={},
     )
     open_result = g.check(
-        obs=make_obs(ee=[0.7, 0.1, 0.2, 0.0, 0.0, 0.0, 1.0]),
-        action=make_gripper_action(1.0, segment="place"),
-        active_containers=[container],
+        obs=make_obs(ee=[0.10, 0.0, 0.15, 0.0, 0.0, 0.0, 1.0]),
+        action=make_gripper_action(1.0),
+        active_containers=[place_container],
         node_start_times={},
     )
     assert close_result.decision == GuardDecision.PASS

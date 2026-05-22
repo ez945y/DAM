@@ -91,8 +91,11 @@ Evaluates active boundary node constraints each cycle.
 2. `timeout_sec` — node active duration vs configured timeout
 
 Built-in L2 callbacks cover task speed, task workspace bounds, gripper
-clearance, and task-phase gripper command validation. Incompatible gripper
-commands are clamped to no-op rather than rejecting the whole action.
+clearance, and active-node gripper command validation. Incompatible gripper
+commands are clamped to no-op rather than rejecting the whole action. The
+default pick-and-place stack uses a left pick cube and right place cube; the
+list container only orders those nodes, while each node keeps its own
+`allowed_command` and `zone` params.
 
 ---
 

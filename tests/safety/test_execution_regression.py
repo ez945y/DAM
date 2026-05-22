@@ -12,6 +12,9 @@ from dam.types.action import ActionProposal
 from dam.types.observation import Observation
 from dam.types.result import GuardDecision
 
+LEFT_PICK_ZONE = [[-0.175, -0.025], [-0.075, 0.075], [0.075, 0.225]]
+RIGHT_PLACE_ZONE = [[0.025, 0.175], [-0.075, 0.075], [0.075, 0.225]]
+
 
 @pytest.fixture
 def EG():
@@ -86,28 +89,52 @@ def test_workspace_violation_always_rejected(EG):
 def test_40_task_section_gripper_injections_clamped(EG):
     """Requirement coverage: task-section anomalous data injection.
 
-    Suppresses close before the planned pick zone, open before the planned place
-    zone, and repeated open/close commands during movement segments.
+    Suppresses close outside the planned left pick zone, open outside the
+    planned right place zone, and repeated open/close commands during transfer.
     """
     from dam.boundary.builtin_callbacks import register_all
 
     register_all()
-    constraint = BoundaryConstraint(
-        callback="task_gripper_command_guard",
-        params={
-            "pick_zone": [[0.2, 0.4], [0.2, 0.4], [0.1, 0.3]],
-            "place_zone": [[0.6, 0.8], [0.0, 0.2], [0.1, 0.3]],
-        },
-    )
-    container = SingleNodeContainer(BoundaryNode("n0", constraint, fallback="hold_position"))
+    containers = {
+        "pick": SingleNodeContainer(
+            BoundaryNode(
+                "pick",
+                BoundaryConstraint(
+                    callback="task_gripper_command_guard",
+                    params={"allowed_command": "close", "zone": LEFT_PICK_ZONE},
+                ),
+                fallback="hold_position",
+            )
+        ),
+        "move": SingleNodeContainer(
+            BoundaryNode(
+                "move",
+                BoundaryConstraint(
+                    callback="task_gripper_command_guard",
+                    params={"allowed_command": "none"},
+                ),
+                fallback="hold_position",
+            )
+        ),
+        "place": SingleNodeContainer(
+            BoundaryNode(
+                "place",
+                BoundaryConstraint(
+                    callback="task_gripper_command_guard",
+                    params={"allowed_command": "open", "zone": RIGHT_PLACE_ZONE},
+                ),
+                fallback="hold_position",
+            )
+        ),
+    }
 
     events = []
     for _i in range(14):
-        events.append(("pick", 0.0, [0.0, 0.0, 0.2]))
+        events.append(("pick", 0.0, [0.10, 0.0, 0.15]))
     for _i in range(13):
-        events.append(("place", 1.0, [0.3, 0.3, 0.2]))
+        events.append(("place", 1.0, [-0.10, 0.0, 0.15]))
     for i in range(13):
-        events.append(("move", 0.0 if i % 2 == 0 else 1.0, [0.3, 0.3, 0.2]))
+        events.append(("move", 0.0 if i % 2 == 0 else 1.0, [0.0, 0.0, 0.15]))
     assert len(events) == 40
 
     for idx, (segment, gripper, pos) in enumerate(events):
@@ -122,12 +149,11 @@ def test_40_task_section_gripper_injections_clamped(EG):
         action = ActionProposal(
             target_joint_positions=np.zeros(6),
             gripper_action=gripper,
-            metadata={"task_segment": segment},
         )
         result = g.check(
             obs=obs,
             action=action,
-            active_containers=[container],
+            active_containers=[containers[segment]],
             node_start_times={},
         )
         assert result.decision == GuardDecision.CLAMP, f"event {idx} should be CLAMP"

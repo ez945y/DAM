@@ -72,6 +72,27 @@ boundaries:
         fallback: emergency_stop
         params:
           max_velocities: [1.5000, 1.5000, 1.5000, 1.5000, 1.5000, 1.5000]
+  task_gripper_sequence:
+    layer: L2
+    type: list
+    nodes:
+      - node_id: pick_left
+        callback: task_gripper_command_guard
+        fallback: hold_position
+        params:
+          allowed_command: close
+          zone: [[-0.175, -0.025], [-0.075, 0.075], [0.075, 0.225]]
+      - node_id: transfer_left_to_right
+        callback: task_gripper_command_guard
+        fallback: hold_position
+        params:
+          allowed_command: none
+      - node_id: place_right
+        callback: task_gripper_command_guard
+        fallback: hold_position
+        params:
+          allowed_command: open
+          zone: [[0.025, 0.175], [-0.075, 0.075], [0.075, 0.225]]
   hardware_watchdog:
     layer: L3
     type: single
@@ -98,7 +119,7 @@ boundaries:
 tasks:
   demo:
     description: "Full demo"
-    boundaries: [ood_welford, workspace, joint_position_limits, joint_velocity_limit, hardware_watchdog, host_health]
+    boundaries: [ood_welford, workspace, joint_position_limits, joint_velocity_limit, task_gripper_sequence, hardware_watchdog, host_health]
 
 loopback:
   backend: mcap
