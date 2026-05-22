@@ -42,7 +42,9 @@ class ExecutionGuard(Guard):
         node_start_times: Dict[str, float] (runtime)
     """
 
-    expected_decisions = frozenset({GuardDecision.PASS, GuardDecision.REJECT, GuardDecision.FAULT})
+    expected_decisions = frozenset(
+        {GuardDecision.PASS, GuardDecision.CLAMP, GuardDecision.REJECT, GuardDecision.FAULT}
+    )
 
     def check(
         self,

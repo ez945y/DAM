@@ -156,7 +156,8 @@ Checks (in order):
 2. `timeout_sec` — rejects if the node has been active longer than the timeout
 
 Built-in L2 callbacks include `task_joint_speed_limit`, `task_workspace_bounds`,
-`check_gripper_clear`, and `task_gripper_command_guard`.
+`check_gripper_clear`, and `task_gripper_command_guard` (clamps incompatible
+gripper commands to no-op).
 
 ---
 

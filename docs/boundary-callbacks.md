@@ -163,11 +163,13 @@ Reject if `obs.metadata["gripper_pos"]` < `min_gripper_opening_m`.
 
 ### `task_gripper_command_guard`
 
-Reject gripper commands that are incompatible with the current task segment:
+Clamp gripper commands that are incompatible with the current task segment:
 closing before entering the configured `pick_zone`, opening before entering
 the configured `place_zone`, or any explicit open/close command during movement
-segments. The segment is read from the boundary param `task_segment`, then
-`action.metadata["task_segment"]`, then `obs.metadata["task_segment"]`.
+segments. The clamp preserves the arm target and suppresses the injected
+gripper command by setting `gripper_action` to `None`. The segment is read from
+the boundary param `task_segment`, then `action.metadata["task_segment"]`, then
+`obs.metadata["task_segment"]`.
 
 | Param | Default | Description |
 |---|---|---|
@@ -175,7 +177,7 @@ segments. The segment is read from the boundary param `task_segment`, then
 | `place_zone` | `None` | Axis-aligned box where open is allowed |
 | `close_segments` | `["pick", "grasp", "pre_grasp"]` | Task segments where close may be valid |
 | `open_segments` | `["place", "release"]` | Task segments where open may be valid |
-| `move_segments` | `["move", "transfer", "approach", "retreat"]` | Segments where open/close commands are rejected |
+| `move_segments` | `["move", "transfer", "approach", "retreat"]` | Segments where open/close commands are suppressed |
 | `close_threshold` | `0.25` | `action.gripper_action <= threshold` means close |
 | `open_threshold` | `0.75` | `action.gripper_action >= threshold` means open |
 

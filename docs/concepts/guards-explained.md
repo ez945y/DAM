@@ -301,7 +301,7 @@ boundaries:
 | `task_joint_speed_limit` | callback | Reject if joint velocity norm exceeds task limit |
 | `task_workspace_bounds` | callback | Reject if end-effector leaves task workspace |
 | `check_gripper_clear` | callback | Reject if gripper is closed when it must be clear |
-| `task_gripper_command_guard` | callback | Reject open/close commands in the wrong task segment or zone |
+| `task_gripper_command_guard` | callback | Clamp open/close commands in the wrong task segment or zone by suppressing the gripper command |
 | `semantic_state` | callback | Placeholder for task pre/post-condition checks |
 
 ### Evaluation Order
@@ -337,7 +337,7 @@ boundaries:
 |--------|--------|
 | Boundary constraints enforced | ✅ Yes |
 | Timeouts prevent indefinite phases | ✅ Yes |
-| Task gripper command compatibility | ✅ Yes, with `task_gripper_command_guard` |
+| Task gripper command compatibility | ✅ Yes, clamps incompatible gripper commands with `task_gripper_command_guard` |
 | Callback correctness | ⚠️ User's responsibility |
 
 ---

@@ -83,10 +83,10 @@ def test_workspace_violation_always_rejected(EG):
         assert result.decision == GuardDecision.REJECT, f"pos={pos} should be REJECT"
 
 
-def test_40_task_section_gripper_injections_rejected(EG):
+def test_40_task_section_gripper_injections_clamped(EG):
     """Requirement coverage: task-section anomalous data injection.
 
-    Blocks close before the planned pick zone, open before the planned place
+    Suppresses close before the planned pick zone, open before the planned place
     zone, and repeated open/close commands during movement segments.
     """
     from dam.boundary.builtin_callbacks import register_all
@@ -130,4 +130,6 @@ def test_40_task_section_gripper_injections_rejected(EG):
             active_containers=[container],
             node_start_times={},
         )
-        assert result.decision == GuardDecision.REJECT, f"event {idx} should be REJECT"
+        assert result.decision == GuardDecision.CLAMP, f"event {idx} should be CLAMP"
+        assert result.clamped_action is not None
+        assert result.clamped_action.gripper_action is None

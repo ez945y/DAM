@@ -95,7 +95,7 @@ def test_task_workspace_bounds_breach_rejects(EG):
     assert result.decision == GuardDecision.REJECT
 
 
-def test_task_gripper_close_before_pick_zone_rejects(EG):
+def test_task_gripper_close_before_pick_zone_clamps(EG):
     from dam.boundary.builtin_callbacks import register_all
 
     register_all()
@@ -113,11 +113,13 @@ def test_task_gripper_close_before_pick_zone_rejects(EG):
         active_containers=[container],
         node_start_times={},
     )
-    assert result.decision == GuardDecision.REJECT
+    assert result.decision == GuardDecision.CLAMP
+    assert result.clamped_action is not None
+    assert result.clamped_action.gripper_action is None
     assert "pick zone" in result.reason
 
 
-def test_task_gripper_open_before_place_zone_rejects(EG):
+def test_task_gripper_open_before_place_zone_clamps(EG):
     from dam.boundary.builtin_callbacks import register_all
 
     register_all()
@@ -135,11 +137,13 @@ def test_task_gripper_open_before_place_zone_rejects(EG):
         active_containers=[container],
         node_start_times={},
     )
-    assert result.decision == GuardDecision.REJECT
+    assert result.decision == GuardDecision.CLAMP
+    assert result.clamped_action is not None
+    assert result.clamped_action.gripper_action is None
     assert "place zone" in result.reason
 
 
-def test_task_gripper_commands_in_move_segment_reject(EG):
+def test_task_gripper_commands_in_move_segment_clamp(EG):
     from dam.boundary.builtin_callbacks import register_all
 
     register_all()
@@ -159,7 +163,9 @@ def test_task_gripper_commands_in_move_segment_reject(EG):
             active_containers=[container],
             node_start_times={},
         )
-        assert result.decision == GuardDecision.REJECT
+        assert result.decision == GuardDecision.CLAMP
+        assert result.clamped_action is not None
+        assert result.clamped_action.gripper_action is None
         assert "movement segment" in result.reason
 
 

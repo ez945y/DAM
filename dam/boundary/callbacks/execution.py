@@ -15,7 +15,7 @@ import numpy as np
 from dam.boundary.callbacks._helpers import _all_finite
 from dam.boundary.callbacks._registry import boundary_callback
 from dam.guard.pipeline import CallbackResult
-from dam.types.action import ActionProposal
+from dam.types.action import ActionProposal, ValidatedAction
 from dam.types.observation import Observation
 
 
@@ -118,6 +118,21 @@ def _in_box(point: np.ndarray, bounds: list[list[float]] | None) -> bool:
     return bool(np.all((point >= b[:, 0]) & (point <= b[:, 1])))
 
 
+def _suppress_gripper(action: ActionProposal) -> ValidatedAction:
+    return ValidatedAction(
+        target_joint_positions=action.target_joint_positions.copy(),
+        target_joint_velocities=(
+            action.target_joint_velocities.copy()
+            if action.target_joint_velocities is not None
+            else None
+        ),
+        timestamp=action.timestamp,
+        gripper_action=None,
+        was_clamped=True,
+        original_proposal=action,
+    )
+
+
 @boundary_callback(
     name="task_gripper_command_guard",
     layer="L2",
@@ -152,11 +167,21 @@ def task_gripper_command_guard(
     if action is None or action.gripper_action is None:
         return CallbackResult.ok(bname)
     if obs.end_effector_pose is None:
-        return CallbackResult.violate(bname, "missing end-effector pose for gripper task gate")
+        return CallbackResult.clamp(
+            bname,
+            _suppress_gripper(action),
+            "missing end-effector pose for gripper task gate; suppressed gripper command",
+            metadata={"gripper_clamped": True, "clamp_mode": "suppress_gripper"},
+        )
 
     gripper = float(action.gripper_action)
     if not np.isfinite(gripper):
-        return CallbackResult.violate(bname, "non-finite gripper action")
+        return CallbackResult.clamp(
+            bname,
+            _suppress_gripper(action),
+            "non-finite gripper action; suppressed gripper command",
+            metadata={"gripper_clamped": True, "clamp_mode": "suppress_gripper"},
+        )
 
     close_segments = [s.lower() for s in (close_segments or ["pick", "grasp", "pre_grasp"])]
     open_segments = [s.lower() for s in (open_segments or ["place", "release"])]
@@ -169,7 +194,12 @@ def task_gripper_command_guard(
     )
     ee_pos = np.asarray(obs.end_effector_pose[:3], dtype=np.float64)
     if not _all_finite(ee_pos):
-        return CallbackResult.violate(bname, "non-finite end-effector position")
+        return CallbackResult.clamp(
+            bname,
+            _suppress_gripper(action),
+            "non-finite end-effector position; suppressed gripper command",
+            metadata={"gripper_clamped": True, "clamp_mode": "suppress_gripper"},
+        )
 
     command: str | None = None
     if gripper <= close_threshold:
@@ -180,28 +210,73 @@ def task_gripper_command_guard(
         return CallbackResult.ok(bname)
 
     if segment in move_segments:
-        return CallbackResult.violate(
-            bname, f"gripper {command} command is not allowed during movement segment '{segment}'"
+        return CallbackResult.clamp(
+            bname,
+            _suppress_gripper(action),
+            f"gripper {command} command is not allowed during movement segment '{segment}'; "
+            "suppressed gripper command",
+            metadata={
+                "task_segment": segment,
+                "gripper_command": command,
+                "gripper_clamped": True,
+                "clamp_mode": "suppress_gripper",
+            },
         )
 
     if command == "close":
         if segment not in close_segments:
-            return CallbackResult.violate(
-                bname, f"gripper close command outside close segment: {segment or 'unknown'}"
+            return CallbackResult.clamp(
+                bname,
+                _suppress_gripper(action),
+                f"gripper close command outside close segment: {segment or 'unknown'}; "
+                "suppressed gripper command",
+                metadata={
+                    "task_segment": segment,
+                    "gripper_command": command,
+                    "gripper_clamped": True,
+                    "clamp_mode": "suppress_gripper",
+                },
             )
         if not _in_box(ee_pos, pick_zone):
-            return CallbackResult.violate(
-                bname, f"gripper close before entering pick zone: ee={ee_pos.tolist()}"
+            return CallbackResult.clamp(
+                bname,
+                _suppress_gripper(action),
+                f"gripper close before entering pick zone: ee={ee_pos.tolist()}; "
+                "suppressed gripper command",
+                metadata={
+                    "task_segment": segment,
+                    "gripper_command": command,
+                    "gripper_clamped": True,
+                    "clamp_mode": "suppress_gripper",
+                },
             )
 
     if command == "open":
         if segment not in open_segments:
-            return CallbackResult.violate(
-                bname, f"gripper open command outside open segment: {segment or 'unknown'}"
+            return CallbackResult.clamp(
+                bname,
+                _suppress_gripper(action),
+                f"gripper open command outside open segment: {segment or 'unknown'}; "
+                "suppressed gripper command",
+                metadata={
+                    "task_segment": segment,
+                    "gripper_command": command,
+                    "gripper_clamped": True,
+                    "clamp_mode": "suppress_gripper",
+                },
             )
         if not _in_box(ee_pos, place_zone):
-            return CallbackResult.violate(
-                bname, f"gripper open before entering place zone: ee={ee_pos.tolist()}"
+            return CallbackResult.clamp(
+                bname,
+                _suppress_gripper(action),
+                f"gripper open before entering place zone: ee={ee_pos.tolist()}; "
+                "suppressed gripper command",
+                metadata={
+                    "task_segment": segment,
+                    "gripper_command": command,
+                    "gripper_clamped": True,
+                    "clamp_mode": "suppress_gripper",
+                },
             )
 
     return CallbackResult.ok(

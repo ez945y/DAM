@@ -34,7 +34,7 @@ def test_motion_guard_decisions() -> None:
 
 
 def test_execution_guard_decisions() -> None:
-    assert ExecutionGuard.expected_decisions == frozenset({PASS, REJECT, FAULT})
+    assert ExecutionGuard.expected_decisions == frozenset({PASS, CLAMP, REJECT, FAULT})
 
 
 def test_hardware_guard_decisions() -> None:
