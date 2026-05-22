@@ -33,8 +33,8 @@ function Metric({
   bar?: boolean
   warnAt?: number
 }) {
-  if (value == null) return null
-  const warn = warnAt != null && value >= warnAt
+  const displayValue = value == null ? '—' : value.toFixed(1)
+  const warn = warnAt != null && value != null && value >= warnAt
   return (
     <div className="bg-dam-surface-2 border border-dam-border rounded-lg px-3 py-2.5 space-y-1.5 min-w-0">
       <div className="flex items-center gap-1.5">
@@ -42,10 +42,10 @@ function Metric({
         <span className="text-[10px] text-dam-muted uppercase tracking-wider">{label}</span>
       </div>
       <div className={`metric-value text-base font-mono ${warn ? 'text-amber-400' : 'text-dam-text'}`}>
-        {value.toFixed(1)}
+        {displayValue}
         <span className="text-[10px] text-dam-muted ml-1">{unit}</span>
       </div>
-      {bar && <Bar value={Math.max(0, Math.min(100, value))} warn={warn} />}
+      {bar && <Bar value={value == null ? 0 : Math.max(0, Math.min(100, value))} warn={warn} />}
     </div>
   )
 }
@@ -274,28 +274,19 @@ export function HardwarePanel({
   const guardNames = Object.keys(guards)
   const hasData = !!hh || guardNames.length > 0
 
-  if (!hasData) {
-    return (
-      <div className="flex flex-col items-center justify-center h-44 rounded-xl border border-dashed border-dam-border/40 bg-dam-surface-1/50 text-dam-muted/60 gap-1.5">
-        <Cpu size={18} className="opacity-20" />
-        <span className="text-[10px] tracking-widest uppercase">
-          {taskLive ? 'No hardware telemetry' : 'Hardware idle'}
-        </span>
-        <span className="text-[9px] text-dam-muted/40">
-          add an L3 guard (host_health / hardware_watchdog) to the active task
-        </span>
-      </div>
-    )
-  }
-
   return (
-    <div className={`space-y-3 transition-opacity ${taskLive ? '' : 'opacity-60'}`}>
+    <div className={`space-y-3 transition-opacity ${hasData && taskLive ? '' : 'opacity-60'}`}>
       {!taskLive && (
         <div className="text-[9px] uppercase tracking-widest text-dam-muted/60">
-          Stopped — last seen
+          {hasData ? 'Stopped — last seen' : 'Hardware idle'}
         </div>
       )}
-      {hh && <HostHealthTiles hh={hh} />}
+      {taskLive && !hasData && (
+        <div className="text-[9px] uppercase tracking-widest text-dam-muted/60">
+          No hardware telemetry
+        </div>
+      )}
+      <HostHealthTiles hh={hh ?? {}} />
       {guardNames.map((name) => (
         <div key={name} className="bg-dam-surface-1 border border-dam-border/50 rounded-lg p-3">
           <div className="flex items-center gap-1.5 mb-2">
@@ -305,6 +296,15 @@ export function HardwarePanel({
           <MetaTree value={guards[name]} />
         </div>
       ))}
+      {guardNames.length === 0 && (
+        <div className="bg-dam-surface-1 border border-dam-border/50 rounded-lg p-3">
+          <div className="flex items-center gap-1.5 mb-2">
+            <HardDrive size={12} className="text-dam-muted" />
+            <span className="text-[10px] text-dam-muted uppercase tracking-wider">hardware_watchdog</span>
+          </div>
+          <HardwareReadingsTable temperatures={{ J1: null }} currents={{ J1: null }} voltages={{ J1: null }} />
+        </div>
+      )}
     </div>
   )
 }

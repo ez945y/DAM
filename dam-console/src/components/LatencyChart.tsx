@@ -4,7 +4,6 @@ import {
   XAxis, YAxis, Tooltip,
   ResponsiveContainer, ReferenceLine, CartesianGrid,
 } from 'recharts'
-import { BarChart2 } from 'lucide-react'
 import type { PerfSnapshot } from '@/lib/types'
 
 // ── Colour palette ────────────────────────────────────────────────────────
@@ -18,6 +17,14 @@ const STAGE_LABELS: Record<string, string> = {
   source: 'Source', policy: 'Policy', guards: 'Guards', sink: 'Sink',
 }
 const STAGE_ORDER = ['source', 'policy', 'guards', 'sink'] as const
+
+const EMPTY_PERF: PerfSnapshot = {
+  stages: { source: 0, policy: 0, guards: 0, sink: 0, total: 0 },
+  layers: { L1: 0, L3: 0 },
+  guards: {},
+  deadline_ms: 0,
+  slack_ms: 0,
+}
 
 // Mirrors dam.guard.layer.GuardLayer
 const LAYER_META: Record<string, { label: string; color: string }> = {
@@ -120,12 +127,15 @@ function RollingHistoryChart({
   data,
   cycleIds,
   onCycleClick,
+  empty = false,
 }: {
   data: number[]
   cycleIds?: number[]
   onCycleClick?: (cycleId: number) => void
+  empty?: boolean
 }) {
-  const chartData = data.map((v, i) => ({ i, ms: Number.parseFloat(v.toFixed(2)) }))
+  const visibleData = data.length > 0 ? data : [0, 0, 0, 0, 0, 0]
+  const chartData = visibleData.map((v, i) => ({ i, ms: Number.parseFloat(v.toFixed(2)) }))
   const avg  = data.length ? data.reduce((a, b) => a + b, 0) / data.length : 0
   const max  = data.length ? Math.max(...data) : 0
   const last = data.at(-1) ?? 0
@@ -140,7 +150,7 @@ function RollingHistoryChart({
 
   return (
     <div className="space-y-1.5">
-      <div style={{ height: 82 }} className={`relative ${onCycleClick ? 'cursor-pointer' : ''}`}>
+      <div style={{ height: 82 }} className={`relative ${onCycleClick && !empty ? 'cursor-pointer' : ''}`}>
         <div className="pointer-events-none absolute left-1 top-1 z-10 flex items-center gap-1 rounded border border-dam-border/50 bg-dam-surface-2/90 px-1.5 py-0.5 shadow-sm">
           {[
             { label: 'Last', value: last.toFixed(1), accent: false },
@@ -173,27 +183,30 @@ function RollingHistoryChart({
               tick={{ fontSize: 9, fill: '#6B6B6B' }}
               tickLine={false}
               axisLine={{ stroke: '#ffffff10' }}
-              domain={[0, 'auto']}
+              domain={empty ? [0, 120] : [0, 'auto']}
+              ticks={empty ? [60, 120] : undefined}
             />
             <Tooltip content={<HistoryTooltip />} />
             {avg > 0 && (
               <ReferenceLine y={avg} stroke="#3B82F6" strokeDasharray="4 3" strokeWidth={1} strokeOpacity={0.4} />
             )}
-            <Area
-              type="monotone"
-              dataKey="ms"
-              stroke="#3B82F6"
-              strokeWidth={1.5}
-              fill="url(#latGrad)"
-              isAnimationActive={false}
-              dot={false}
-              activeDot={{ r: 3, fill: '#3B82F6', strokeWidth: 0 }}
-            />
+            {!empty && (
+              <Area
+                type="monotone"
+                dataKey="ms"
+                stroke="#3B82F6"
+                strokeWidth={1.5}
+                fill="url(#latGrad)"
+                isAnimationActive={false}
+                dot={false}
+                activeDot={{ r: 3, fill: '#3B82F6', strokeWidth: 0 }}
+              />
+            )}
           </AreaChart>
         </ResponsiveContainer>
       </div>
-      {onCycleClick && data.length > 0 && (
-        <p className="text-[9px] text-dam-muted/50 text-center tracking-wide">
+      {onCycleClick && (
+        <p className={`text-[9px] text-center tracking-wide ${empty ? 'text-dam-muted/30' : 'text-dam-muted/50'}`}>
           Click a point to view in Risk Log
         </p>
       )}
@@ -211,26 +224,20 @@ interface LatencyChartProps {
 }
 
 export function LatencyChart({ data, perf, cycleIds, onCycleClick }: LatencyChartProps) {
+  const hasPerf = perf != null
+  const hasHistory = data.length > 0
+
   return (
-    <div className="space-y-4">
-      {perf
-        ? <LivePipelineBar perf={perf} />
-        : (
-          <div className="flex items-center justify-center h-12 rounded-lg border border-dashed border-dam-border/40 text-[10px] text-dam-muted/50 tracking-wider uppercase">
-            Waiting for pipeline data…
-          </div>
-        )
-      }
+    <div className={`space-y-4 transition-opacity ${hasPerf || hasHistory ? '' : 'opacity-60'}`}>
+      <LivePipelineBar perf={perf ?? EMPTY_PERF} />
 
       <div className="border-t border-dam-border/30 pt-3">
-        {data.length > 0 ? (
-          <RollingHistoryChart data={data} cycleIds={cycleIds} onCycleClick={onCycleClick} />
-        ) : (
-          <div className="flex flex-col items-center justify-center h-28 rounded-xl border border-dashed border-dam-border/40 bg-dam-surface-1/50 text-dam-muted/60">
-            <BarChart2 size={18} className="mb-1.5 opacity-20" />
-            <span className="text-[10px] tracking-widest uppercase">No history available</span>
-          </div>
-        )}
+        <RollingHistoryChart
+          data={data}
+          cycleIds={cycleIds}
+          onCycleClick={onCycleClick}
+          empty={!hasHistory}
+        />
       </div>
     </div>
   )

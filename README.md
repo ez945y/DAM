@@ -78,10 +78,12 @@ After starting, open **http://localhost:3000** in your browser and select a conf
 
 ### Configuration
 
-System Architecture
+#### System Architecture
+
 <img src="docs/diagrams/diagram1_system_architecture.png" alt="System Architecture" width="600" />
 
-Workflow
+#### Workflow
+
 <img src="docs/diagrams/diagram2_runtime_workflow.png" alt="Runtime Workflow" width="600" />
 
 
