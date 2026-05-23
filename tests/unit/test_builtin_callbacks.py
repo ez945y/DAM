@@ -228,6 +228,22 @@ class TestRegisterAll:
         finally:
             rcmod._registry = orig
 
+    def test_catalog_hides_runtime_injected_params(self):
+        by_name = {c["name"]: c for c in get_catalog()}
+
+        workspace_params = by_name["workspace"]["params"]
+        assert "bounds" in workspace_params
+        assert "action" not in workspace_params
+        assert "cbf_alpha" not in workspace_params
+        assert "kinematics_resolver" not in workspace_params
+        assert "dynamics" not in workspace_params
+        assert workspace_params["cbf_gamma"]["description"]
+
+        host_params = by_name["host_health_limit"]["params"]
+        assert "host_health" not in host_params
+        assert host_params["max_cpu_percent"]["default"] == 95.0
+        assert host_params["max_cpu_percent"]["description"]
+
 
 # ── Fake pinocchio-like dynamics context ──────────────────────────────────────
 

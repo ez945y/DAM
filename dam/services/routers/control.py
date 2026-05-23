@@ -56,6 +56,12 @@ def create_control_router(control: RuntimeControlService | None) -> APIRouter:
         reg = get_guard_registry()
         return {"guards": reg.list_all()}
 
+    @router.get("/api/catalog/boundary-templates")
+    async def get_boundary_template_catalog() -> Any:
+        from dam.boundary.templates import get_boundary_templates
+
+        return {"templates": get_boundary_templates()}
+
     @router.get("/api/control/callbacks")
     async def control_callbacks() -> Any:
         from dam.boundary.builtin_callbacks import get_catalog

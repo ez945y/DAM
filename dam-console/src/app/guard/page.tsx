@@ -7,7 +7,7 @@ import {
   Database, Info
 } from 'lucide-react'
 import { ActionShell } from '@/components/ActionShell'
-import type { TaskDef, BoundaryDef, ConstraintNodeDef } from '@/lib/types'
+import type { TaskDef, BoundaryDef, ConstraintNodeDef, BoundaryTemplateDef } from '@/lib/types'
 import { DamConfig, defaultConfig, generateYaml, parseConfigFromYaml } from '@/lib/templates'
 import { OODTrainer } from '@/components/OODTrainer'
 import { useStackfileLibrary } from '@/hooks/useStackfileLibrary'
@@ -30,11 +30,6 @@ const LAYER_COLORS: { [key: string]: string } = {
   L2: 'text-dam-orange border-dam-orange/30 bg-dam-orange/10',
   L3: 'text-dam-red border-dam-red/30 bg-dam-red/10',
 }
-
-const LEFT_PICK_ZONE = [[-0.175, -0.025], [-0.075, 0.075], [0.075, 0.225]]
-const RIGHT_PLACE_ZONE = [[0.025, 0.175], [-0.075, 0.075], [0.075, 0.225]]
-
-
 
 // ── Factory helpers ───────────────────────────────────────────────────────────
 
@@ -69,34 +64,17 @@ function makeBoundary(layerStr = 'L1'): BoundaryDef {
   return { name: '', layer: layerStr, type: 'single', nodes: [makeNode()] }
 }
 
-function makeTaskGripperSequence(existingNames: Set<string>): BoundaryDef {
+function materializeBoundaryTemplate(
+  template: BoundaryTemplateDef,
+  existingNames: Set<string>,
+): BoundaryDef {
   return {
-    name: uniqueBoundaryName('task_gripper_sequence', existingNames),
-    layer: 'L2',
-    type: 'list',
-    nodes: [
-      {
-        node_id: 'pick_left',
-        params: { allowed_command: 'close', zone: LEFT_PICK_ZONE },
-        callback: 'task_gripper_command_guard',
-        fallback: 'hold_position',
-        timeout_sec: null,
-      },
-      {
-        node_id: 'transfer_left_to_right',
-        params: { allowed_command: 'none' },
-        callback: 'task_gripper_command_guard',
-        fallback: 'hold_position',
-        timeout_sec: null,
-      },
-      {
-        node_id: 'place_right',
-        params: { allowed_command: 'open', zone: RIGHT_PLACE_ZONE },
-        callback: 'task_gripper_command_guard',
-        fallback: 'hold_position',
-        timeout_sec: null,
-      },
-    ],
+    ...template.boundary,
+    name: uniqueBoundaryName(template.boundary.name || template.name, existingNames),
+    nodes: template.boundary.nodes.map(node => ({
+      ...node,
+      params: { ...(node.params || {}) },
+    })),
   }
 }
 
@@ -566,12 +544,21 @@ function NodeForm({
           <div key={node.callback} className="space-y-1.5 border-t border-dam-border/40 pt-1.5">
             <p className="text-dam-muted text-[10px] uppercase font-bold tracking-widest">{node.callback} Parameters</p>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {Object.entries(meta.params).map(([pName, pMeta]: [string, any]) => (
+              {Object.entries(meta.params)
+                .filter(([pName]) => !(node.callback === 'workspace' && pName === 'bounds'))
+                .map(([pName, pMeta]: [string, any]) => (
                 <div key={pName} className="space-y-0.5">
-                  <label htmlFor={`node-${index}-param-${pName}`} className="text-dam-muted text-[10px]">{pName}</label>
+                  <label
+                    htmlFor={`node-${index}-param-${pName}`}
+                    className="text-dam-muted text-[10px] cursor-help"
+                    title={pMeta.description || undefined}
+                  >
+                    <span className={pMeta.description ? 'underline decoration-dotted underline-offset-2' : ''}>{pName}</span>
+                  </label>
                   <input
                     id={`node-${index}-param-${pName}`}
                     type="text"
+                    title={pMeta.description || undefined}
                     value={node.params?.[pName] ?? pMeta.default ?? ''}
                     onChange={e => {
                       const val = e.target.value
@@ -605,6 +592,7 @@ function BoundaryCard({
   callbackCatalog = [],
   callbackGroups = [],
   fallbackCatalog = [],
+  boundaryTemplates = [],
   existingBoundaryNames = new Set<string>(),
 }: {
   boundary: BoundaryDef
@@ -614,6 +602,7 @@ function BoundaryCard({
   callbackCatalog?: any[]
   callbackGroups?: { layer: string; callbacks: any[] }[]
   fallbackCatalog?: any[]
+  boundaryTemplates?: BoundaryTemplateDef[]
   existingBoundaryNames?: Set<string>
 }) {
   const [open, setOpen] = useState(true) // Default open to show fields
@@ -633,11 +622,18 @@ function BoundaryCard({
       boundary.nodes.length === 1 &&
       isAutoBoundaryName(boundary.name, boundary.layer)
     ) {
-      onChange(makeTaskGripperSequence(
-        new Set([...existingBoundaryNames].filter(name => name !== boundary.name))
-      ))
-      setActiveIdx(0)
-      return
+      const template = boundaryTemplates.find(t =>
+        t.layer === boundary.layer &&
+        t.boundary.nodes.some(node => node.callback === n.callback)
+      )
+      if (template) {
+        onChange(materializeBoundaryTemplate(
+          template,
+          new Set([...existingBoundaryNames].filter(name => name !== boundary.name))
+        ))
+        setActiveIdx(0)
+        return
+      }
     }
     onChange({ ...boundary, nodes: boundary.nodes.map((nd, idx) => idx === i ? n : nd) })
   }
@@ -1000,6 +996,7 @@ function migrateConfig(parsed: any) {
 export default function GuardPage() {
   const [callbackCatalog, setCallbackCatalog] = useState<any[]>([])
   const [callbackGroups, setCallbackGroups] = useState<{ layer: string; callbacks: any[] }[]>([])
+  const [boundaryTemplates, setBoundaryTemplates] = useState<BoundaryTemplateDef[]>([])
   const [guardCatalog, setGuardCatalog] = useState<GuardDef[]>([])
   const [fallbackCatalog, setFallbackCatalog] = useState<any[]>([])
 
@@ -1108,11 +1105,12 @@ export default function GuardPage() {
 
   const syncCallbacks = useCallback(async () => {
     try {
-      const [cdata, gdata, groupData, fdata] = await Promise.all([
+      const [cdata, gdata, groupData, fdata, templateData] = await Promise.all([
         api.getCallbacks(),
         api.getGuardCatalog(),
         api.getCallbackCatalog(true),
-        api.getFallbacks()
+        api.getFallbacks(),
+        api.getBoundaryTemplates(),
       ])
 
       if (cdata.callbacks) setCallbackCatalog(cdata.callbacks)
@@ -1126,6 +1124,7 @@ export default function GuardPage() {
       }
       if (groupData.groups) setCallbackGroups(groupData.groups)
       if (fdata.fallbacks) setFallbackCatalog(fdata.fallbacks)
+      if (templateData.templates) setBoundaryTemplates(templateData.templates)
 
       if (cdata.callbacks) {
         // Only perform mandatory cleanup and metadata updates, NO AUTO-ADDING
@@ -1327,6 +1326,7 @@ export default function GuardPage() {
           {guardCatalog.map(g => {
             const layerBoundaries = boundaries.filter(b => b.layer === g.layer)
             const layerCallbackCatalog = callbackCatalog.filter(cb => cb.layer === g.layer)
+            const layerBoundaryTemplates = boundaryTemplates.filter(t => t.layer === g.layer)
             const layerCallbackGroups = callbackGroups
               .filter(group => group.layer === g.layer)
               .map(group => ({
@@ -1429,6 +1429,7 @@ export default function GuardPage() {
                             callbackCatalog={layerCallbackCatalog}
                             callbackGroups={layerCallbackGroups}
                             fallbackCatalog={fallbackCatalog}
+                            boundaryTemplates={layerBoundaryTemplates}
                             existingBoundaryNames={existingBoundaryNames}
                           />
                         ))

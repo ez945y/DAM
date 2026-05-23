@@ -27,6 +27,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 
 import type {
   BoundaryConfig,
+  BoundaryTemplateDef,
   ExperimentDef,
   ExperimentResult,
   RiskEvent,
@@ -95,6 +96,8 @@ export const api = {
     apiFetch<{ guards: { kind: string; layer: string; description: string; class_name: string }[] }>(
       '/catalog/guards'
     ),
+  getBoundaryTemplates: () =>
+    apiFetch<{ templates: BoundaryTemplateDef[] }>('/catalog/boundary-templates'),
   getFallbacks: () =>
     apiFetch<{ fallbacks: { name: string; type?: string; params?: Record<string, unknown>; description?: string; escalates_to?: string }[] }>(
       '/control/fallbacks'

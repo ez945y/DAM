@@ -194,6 +194,14 @@ export interface BoundaryDef {
   nodes: ConstraintNodeDef[]
 }
 
+export interface BoundaryTemplateDef {
+  id: string
+  name: string
+  layer: string
+  description?: string
+  boundary: BoundaryDef
+}
+
 export interface RuntimeStatus {
   state: RuntimeState
   backend_state: BackendState
