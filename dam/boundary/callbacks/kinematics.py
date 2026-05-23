@@ -50,6 +50,11 @@ def _to_array(x: Any, *, name: str) -> np.ndarray:
     name="joint_velocity_limit",
     layer="L1",
     description="Clamps the action's joint velocities to ±max_velocities (radians or degrees).",
+    params={
+        "max_velocities": "Per-joint max velocity. Radians/sec by default unless use_degrees is true.",
+        "slack_weight": "QP soft-constraint penalty. Higher values make violating this limit more expensive.",
+        "use_degrees": "Interpret max_velocities as degrees/sec instead of radians/sec.",
+    },
 )
 def joint_velocity_limit(
     *,
@@ -150,6 +155,12 @@ def joint_velocity_limit(
     name="joint_position_limits",
     layer="L1",
     description="Clamps the action's joint positions into [lower, upper] (radians or degrees).",
+    params={
+        "upper": "Per-joint upper position limits. Radians by default unless use_degrees is true.",
+        "lower": "Per-joint lower position limits. Radians by default unless use_degrees is true.",
+        "slack_weight": "QP soft-constraint penalty. Higher values make violating this limit more expensive.",
+        "use_degrees": "Interpret upper/lower as degrees instead of radians.",
+    },
 )
 def joint_position_limits(
     *,
@@ -218,6 +229,11 @@ def joint_position_limits(
     name="workspace",
     layer="L1",
     description="Halts motion when the end-effector is outside the workspace box.",
+    params={
+        "bounds": "Axis-aligned allowed EE box: [[xmin,xmax],[ymin,ymax],[zmin,zmax]] in metres.",
+        "cbf_gamma": "Workspace CBF decay in [0,1]. 1 is a hard one-step bound; lower values brake earlier.",
+        "slack_weight": "QP soft-constraint penalty. Higher values make violating this limit more expensive.",
+    },
 )
 def workspace(
     *,
@@ -326,6 +342,9 @@ def _ee_linear_jacobian(obs: Observation, dynamics: Any | None) -> np.ndarray | 
     name="check_velocity_smooth",
     layer="L1",
     description="Rejects if the joint velocity norm exceeds a jerk threshold.",
+    params={
+        "max_jerk_norm": "Maximum allowed joint velocity norm used as a simple smoothness threshold."
+    },
 )
 def check_velocity_smooth(*, obs: Observation, max_jerk_norm: float = 10.0) -> bool:
     """Return False if the rate of velocity change is too high."""
@@ -339,6 +358,9 @@ def check_velocity_smooth(*, obs: Observation, max_jerk_norm: float = 10.0) -> b
     name="check_joints_not_moving",
     layer="L1",
     description="Rejects if any joint velocity exceeds a near-zero threshold.",
+    params={
+        "max_speed_rad_s": "Maximum absolute joint speed still treated as stationary, in rad/s."
+    },
 )
 def check_joints_not_moving(*, obs: Observation, max_speed_rad_s: float = 0.01) -> bool:
     """Return False if any joint is moving faster than threshold."""
@@ -351,6 +373,11 @@ def check_joints_not_moving(*, obs: Observation, max_speed_rad_s: float = 0.01) 
     name="cartesian_velocity_limit",
     layer="L1",
     description="Caps end-effector Cartesian speed (linear m/s, angular rad/s).",
+    params={
+        "max_linear_speed": "Maximum end-effector linear speed in m/s.",
+        "max_angular_speed": "Maximum end-effector angular speed in rad/s.",
+        "frame": "Optional dynamics frame id/name. Leave empty to use the robot default EE frame.",
+    },
 )
 def cartesian_velocity_limit(
     *,
@@ -396,6 +423,10 @@ def cartesian_velocity_limit(
     name="keep_out_zone",
     layer="L1",
     description="Rejects if the end-effector enters a keep-out box or sphere.",
+    params={
+        "boxes": "Keep-out boxes as a list of [[xmin,xmax],[ymin,ymax],[zmin,zmax]] regions.",
+        "spheres": "Keep-out spheres as a list of [cx,cy,cz,radius] regions in metres.",
+    },
 )
 def keep_out_zone(
     *,
@@ -431,6 +462,11 @@ def keep_out_zone(
     name="orientation_limit",
     layer="L1",
     description="Rejects if end-effector tilt from a reference axis exceeds a limit (deg).",
+    params={
+        "max_tilt_deg": "Maximum allowed tool tilt from the reference axis, in degrees.",
+        "reference_axis": "World-frame axis to align with. Defaults to [0,0,1].",
+        "tool_axis": "Tool-frame axis that should stay aligned. Defaults to [0,0,1].",
+    },
 )
 def orientation_limit(
     *,
@@ -473,6 +509,11 @@ def orientation_limit(
     name="base_geofence",
     layer="L1",
     description="Rejects if the mobile base leaves a geofence box or polygon.",
+    params={
+        "bounds": "Allowed base x/y box: [[xmin,xmax],[ymin,ymax]] in metres.",
+        "polygon": "Allowed base geofence polygon as [[x,y], ...].",
+        "channel": "Observation channel name containing the base pose.",
+    },
 )
 def base_geofence(
     *,

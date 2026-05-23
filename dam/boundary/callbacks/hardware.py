@@ -123,6 +123,9 @@ def collect_host_health(*, ttl_sec: float = 1.0) -> dict[str, Any]:
     name="hardware_watchdog",
     layer="L3",
     description="Safety check for observation staleness.",
+    params={
+        "max_staleness_ms": "Maximum age of the latest observation before hardware_watchdog treats it as stale."
+    },
 )
 def hardware_watchdog(
     *,
@@ -146,6 +149,10 @@ def hardware_watchdog(
     name="temperature_limit",
     layer="L3",
     description="Rejects if any motor temperature exceeds threshold (°C).",
+    params={
+        "max_temperature_c": "Maximum motor temperature in Celsius.",
+        "channel": "Observation channel name to read from obs.channels.",
+    },
 )
 def temperature_limit(
     *,
@@ -168,6 +175,10 @@ def temperature_limit(
     name="current_limit",
     layer="L3",
     description="Rejects if any motor current exceeds threshold (A).",
+    params={
+        "max_current_a": "Maximum absolute motor current in amps.",
+        "channel": "Observation channel name to read from obs.channels.",
+    },
 )
 def current_limit(
     *,
@@ -191,6 +202,11 @@ def current_limit(
     name="voltage_limit",
     layer="L3",
     description="Rejects if supply voltage is outside safe band (V).",
+    params={
+        "min_voltage_v": "Minimum allowed supply voltage.",
+        "max_voltage_v": "Maximum allowed supply voltage.",
+        "channel": "Observation channel name to read from obs.channels.",
+    },
 )
 def voltage_limit(
     *,
@@ -214,6 +230,10 @@ def voltage_limit(
     name="force_limit",
     layer="L3",
     description="Rejects if force magnitude exceeds threshold (N).",
+    params={
+        "max_force_n": "Maximum allowed force magnitude in Newtons.",
+        "channel": "Observation channel name to read from obs.channels.",
+    },
 )
 def force_limit(
     *,
@@ -242,6 +262,10 @@ def force_limit(
     name="check_force_torque_safe",
     layer="L3",
     description="Rejects if force or torque magnitude exceeds thresholds.",
+    params={
+        "max_force_n": "Maximum allowed force magnitude in Newtons.",
+        "max_torque_nm": "Maximum allowed torque magnitude in Newton-metres.",
+    },
 )
 def check_force_torque_safe(
     *, obs: Observation, max_force_n: float = 50.0, max_torque_nm: float = 10.0
@@ -258,6 +282,13 @@ def check_force_torque_safe(
     name="host_health_limit",
     layer="L3",
     description="Faults if host CPU/GPU/memory/temperature crosses configured limits.",
+    params={
+        "max_cpu_percent": "Host CPU usage percentage above which host_health_limit faults.",
+        "max_memory_percent": "Host memory usage percentage above which host_health_limit faults.",
+        "max_temperature_c": "Host temperature threshold in Celsius.",
+        "max_gpu_percent": "GPU usage percentage above which host_health_limit faults.",
+        "max_gpu_temperature_c": "GPU temperature threshold in Celsius above which host_health_limit faults.",
+    },
 )
 def host_health_limit(
     *,

@@ -42,6 +42,7 @@ export interface DamConfig {
   lerobot_robot_id: string
   lerobot_cameras: CameraConfig[]
   lerobot_calibration_path: string
+  lerobot_degrees_mode: boolean
   ros2JointTopic: string
   ros2CmdTopic: string
   policy: PolicyConfig
@@ -122,6 +123,10 @@ const SO101_CAMERAS: CameraConfig[] = [
 ]
 
 const SO101_HEALTH_CHANNELS = ['current', 'temperature', 'voltage']
+const SO101_USE_DEGREES = true
+const SO101_UPPER = SO101_JOINTS.map(j => SO101_USE_DEGREES ? Number((j.upper_rad * 180 / Math.PI).toFixed(4)) : j.upper_rad)
+const SO101_LOWER = SO101_JOINTS.map(j => SO101_USE_DEGREES ? Number((j.lower_rad * 180 / Math.PI).toFixed(4)) : j.lower_rad)
+const SO101_MAX_VELOCITIES = Array(6).fill(SO101_USE_DEGREES ? Number((1.5 * 180 / Math.PI).toFixed(4)) : 1.5)
 
 const LEFT_PICK_ZONE = [[-0.175, -0.025], [-0.075, 0.075], [0.075, 0.225]]
 const RIGHT_PLACE_ZONE = [[0.025, 0.175], [-0.075, 0.075], [0.075, 0.225]]
@@ -133,11 +138,11 @@ const DEFAULT_BOUNDARIES: BoundaryDef[] = [
   },
   {
     name: 'joint_position_limits', layer: 'L1', type: 'single',
-    nodes: [{ node_id: 'default', params: { upper: [1.8243, 1.7691, 1.6026, 1.8067, 3.0741, 1.7453], lower: [-1.8243, -1.7691, -1.6026, -1.8067, -3.0741, 0] }, callback: 'joint_position_limits', fallback: 'emergency_stop', timeout_sec: null }]
+    nodes: [{ node_id: 'default', params: { upper: SO101_UPPER, lower: SO101_LOWER, use_degrees: SO101_USE_DEGREES }, callback: 'joint_position_limits', fallback: 'emergency_stop', timeout_sec: null }]
   },
   {
     name: 'joint_velocity_limit', layer: 'L1', type: 'single',
-    nodes: [{ node_id: 'default', params: { max_velocities: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5] }, callback: 'joint_velocity_limit', fallback: 'emergency_stop', timeout_sec: 1 }]
+    nodes: [{ node_id: 'default', params: { max_velocities: SO101_MAX_VELOCITIES, use_degrees: SO101_USE_DEGREES }, callback: 'joint_velocity_limit', fallback: 'emergency_stop', timeout_sec: 1 }]
   },
   {
     name: 'task_gripper_sequence', layer: 'L2', type: 'list',
@@ -223,6 +228,7 @@ export const TEMPLATES: TemplatePreset[] = [
     config: {
       hardware_preset: 'so101_follower', adapter: 'lerobot', lerobot_port: '/dev/tty.usbmodem5AA90244141',
       lerobot_robot_id: 'my_awesome_follower_arm', lerobot_cameras: SO101_CAMERAS,
+      lerobot_degrees_mode: true,
       observation_channels: SO101_HEALTH_CHANNELS,
       policy: { type: 'act', pretrained_path: 'MikeChenYZ/act-soarm-fmb-v2', device: 'mps' },
       joints: SO101_JOINTS, controlFrequencyHz: 30, enforcement_mode: 'enforce',
@@ -242,6 +248,7 @@ export const TEMPLATES: TemplatePreset[] = [
     config: {
       hardware_preset: 'so101_follower', adapter: 'lerobot', lerobot_port: '/dev/tty.usbmodem5AA90244141',
       lerobot_robot_id: 'my_awesome_follower_arm', lerobot_cameras: SO101_CAMERAS,
+      lerobot_degrees_mode: true,
       observation_channels: SO101_HEALTH_CHANNELS,
       policy: { type: 'act', pretrained_path: 'MikeChenYZ/act-soarm-fmb-v2', device: 'mps' },
       joints: SO101_JOINTS, controlFrequencyHz: 30, enforcement_mode: 'enforce',
@@ -280,7 +287,7 @@ export function defaultConfig(templateId = ''): DamConfig {
   const base: DamConfig = {
     templateId: '', // Always empty for stateless behavior
     hardware_preset: 'custom', adapter: 'simulation', lerobot_port: '', lerobot_robot_id: '',
-    lerobot_cameras: [], lerobot_calibration_path: '', observation_channels: [],
+    lerobot_cameras: [], lerobot_calibration_path: '', lerobot_degrees_mode: true, observation_channels: [],
     ros2JointTopic: '/joint_states', ros2CmdTopic: '/joint_commands',
     policy: { type: 'noop', pretrained_path: '', device: 'cpu' },
     joints: SO101_JOINTS, controlFrequencyHz: 30, enforcement_mode: 'monitor',
@@ -416,6 +423,7 @@ const SCHEMA: YamlSection[] = [
       block(MAIN_SOURCE_NAME.lerobot, [
         scalar('type', () => 'motor'), scalar('port', cfg => cfg.lerobot_port),
         scalar('id', cfg => cfg.lerobot_robot_id), scalar('calibration_path', cfg => cfg.lerobot_calibration_path || null),
+        scalar('degrees_mode', cfg => cfg.lerobot_degrees_mode),
       ], cfg => cfg.adapter === 'lerobot'),
       // Cameras as peer-level opencv sources (flat, uniform with motor/ros2)
       custom((cfg, indent) => {
@@ -533,6 +541,7 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
   if (yaml.includes('type: motor') || yaml.includes('type: lerobot')) {
     result.adapter = 'lerobot'; result.lerobot_port = getVal(/port:\s*(.*)/);
     result.lerobot_robot_id = getVal(/id:\s*(.*)/); result.lerobot_calibration_path = getVal(/calibration_path:\s*(.*)/) || '';
+    result.lerobot_degrees_mode = (getVal(/degrees_mode:\s*(true|false)/) ?? 'true') === 'true'
   } else if (yaml.includes('type: ros2')) {
     result.adapter = 'ros2'
     // New canonical: `topic:` on the source/sink.  Old stackfiles used

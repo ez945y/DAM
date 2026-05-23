@@ -77,6 +77,10 @@ def _welford_verdict(
     name="ood_welford",
     layer="L0",
     description="OOD detection via online Welford z-score (no training data needed).",
+    params={
+        "z_threshold": "Z-score threshold above which the observation is treated as out-of-distribution.",
+        "warmup": "Number of initial observations used to estimate the online normal baseline.",
+    },
 )
 def ood_welford(
     *,
@@ -103,6 +107,13 @@ def ood_welford(
     name="ood_memory_bank",
     layer="L0",
     description="OOD detection via nearest-neighbour distance to a memory bank of normals.",
+    params={
+        "nn_threshold": "Nearest-neighbour distance threshold above which the observation is OOD.",
+        "ood_model_path": "Path to the trained OOD encoder/model artifact.",
+        "bank_path": "Path to the memory bank of normal features.",
+        "device": "Device used by the OOD backend, such as cpu, cuda, or mps.",
+        "warmup": "Number of fallback Welford warm-up observations when the backend is not ready.",
+    },
 )
 def ood_memory_bank(
     *,
@@ -153,6 +164,14 @@ def ood_memory_bank(
     name="ood_normalizing_flow",
     layer="L0",
     description="OOD detection via Real-NVP normalizing-flow negative log-likelihood.",
+    params={
+        "nll_sigma": "Sigma multiplier used when deriving a learned NLL threshold.",
+        "nll_threshold": "Fallback negative log-likelihood threshold.",
+        "ood_model_path": "Path to the trained normalizing-flow model artifact.",
+        "bank_path": "Path to saved OOD calibration data.",
+        "device": "Device used by the OOD backend, such as cpu, cuda, or mps.",
+        "warmup": "Number of fallback Welford warm-up observations when the backend is not ready.",
+    },
 )
 def ood_normalizing_flow(
     *,

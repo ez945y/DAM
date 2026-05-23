@@ -171,10 +171,19 @@ describe('generateYaml', () => {
     expect(yaml).toContain('joint_position_limits:')
     expect(yaml).toContain('upper:')
     expect(yaml).toContain('lower:')
-    // shoulder_pan upper limit
-    expect(yaml).toContain('1.8243')
+    expect(yaml).toContain('use_degrees: true')
+    // shoulder_pan upper limit, emitted in degrees to match the SO-101 preset mode
+    expect(yaml).toContain('104.5247')
     // gripper lower limit is 0
     expect(yaml).toContain('0')
+  })
+
+  it('emits and parses the robot degrees_mode used by the SO-101 template', () => {
+    const cfg = defaultConfig('so101_act')
+    const yaml = generateYaml(cfg)
+    expect(yaml).toContain('degrees_mode: true')
+    const parsed = parseConfigFromYaml(yaml)
+    expect(parsed.lerobot_degrees_mode).toBe(true)
   })
 
   it('includes workspace bounds in boundaries', () => {

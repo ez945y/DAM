@@ -16,6 +16,14 @@ _ood_cache_lock = threading.Lock()
     name="ood_detector",
     layer="L0",
     description="Out-of-distribution boundary callback — wraps OODGuard.",
+    params={
+        "ood_model_path": "Path to the trained OOD model artifact.",
+        "bank_path": "Path to the memory bank or calibration artifact.",
+        "nn_threshold": "Nearest-neighbour distance threshold for memory-bank OOD.",
+        "nll_threshold": "Negative log-likelihood threshold for flow-based OOD.",
+        "backend": "OOD backend to run, e.g. memory_bank.",
+        "temporal_smoothing_frames": "Consecutive OOD frames required before rejecting.",
+    },
 )
 def ood_detector(
     *,

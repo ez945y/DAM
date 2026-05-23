@@ -179,6 +179,10 @@ function NodeForm({
   const joint_position_limits = (node.params?.upper && node.params?.lower) ? { upper: node.params.upper as number[], lower: node.params.lower as number[] } : null
   const hasBounds = !!bounds
   const isOod = !!node.callback?.startsWith('ood_')
+  const callbackParamMeta = callbackCatalog.find(c => c.name === node.callback)?.params ?? {}
+  const paramTitle = (name: string) => callbackParamMeta[name]?.description || undefined
+  const paramLabelCls = (name: string) =>
+    `text-dam-muted cursor-help ${paramTitle(name) ? 'underline decoration-dotted underline-offset-2' : ''}`
 
   const updateBound = (axis: 0 | 1 | 2, side: 0 | 1, val: number) => {
     if (!bounds) return
@@ -294,7 +298,13 @@ function NodeForm({
         <div className="grid grid-cols-3 gap-1.5 text-[10px]">
           {(['X', 'Y', 'Z'] as const).map((axis, axisIdx) => (
             <div key={axis} className="space-y-0.5">
-              <label htmlFor={`node-${index}-bound-${axis}-min`} className="text-dam-muted">{axis} [min, max]</label>
+              <label
+                htmlFor={`node-${index}-bound-${axis}-min`}
+                className={paramLabelCls('bounds')}
+                title={paramTitle('bounds')}
+              >
+                {axis} [min, max]
+              </label>
               <div className="flex gap-1">
                 <input
                   id={`node-${index}-bound-${axis}-min`}
@@ -321,20 +331,33 @@ function NodeForm({
         <div className="space-y-1.5 border-t border-dam-border/40 pt-1.5">
           <div className="flex items-center justify-between">
             <p className="text-dam-muted text-[10px] uppercase font-bold tracking-widest">Joint Position Limits</p>
-            <label className="flex items-center gap-1.5 text-[10px] text-dam-muted cursor-pointer hover:text-dam-blue transition-colors">
+            <label
+              className="flex items-center gap-1.5 text-[10px] text-dam-muted cursor-pointer hover:text-dam-blue transition-colors"
+              title={paramTitle('use_degrees')}
+            >
               <input
                 type="checkbox"
                 checked={!!node.params.use_degrees}
-                onChange={e => onChange({ ...node, params: { ...node.params, use_degrees: e.target.checked } })}
+                onChange={e => {
+                  const nextParams = { ...node.params }
+                  nextParams.use_degrees = e.target.checked
+                  onChange({ ...node, params: nextParams })
+                }}
                 className="w-3 h-3 rounded border-dam-border bg-dam-surface-2 text-dam-blue focus:ring-0 focus:ring-offset-0"
               />
-              {' '}use_degrees
+              <span className={paramTitle('use_degrees') ? 'underline decoration-dotted underline-offset-2' : ''}>use_degrees</span>
             </label>
           </div>
           <div className="grid grid-cols-6 gap-1">
             {joint_position_limits.upper.map((_: number, i: number) => (
               <div key={`joint-pos-${i}`} className="space-y-0.5">
-                <label htmlFor={`node-${index}-upper-${i}`} className="text-dam-muted text-[8px] block">J{i+1} [lo, hi]</label>
+                <label
+                  htmlFor={`node-${index}-upper-${i}`}
+                  className={`text-[8px] block ${paramLabelCls('upper')}`}
+                  title={`${paramTitle('lower') || ''}${paramTitle('lower') && paramTitle('upper') ? '\n' : ''}${paramTitle('upper') || ''}` || undefined}
+                >
+                  J{i+1} [lo, hi]
+                </label>
                 <div className="flex flex-col gap-0.5">
                   <input
                     id={`node-${index}-upper-${i}`}
@@ -370,20 +393,33 @@ function NodeForm({
         <div className="space-y-1.5 border-t border-dam-border/40 pt-1.5">
           <div className="flex items-center justify-between">
             <p className="text-dam-muted text-[10px] uppercase font-bold tracking-widest">Joint Velocity Limits</p>
-            <label className="flex items-center gap-1.5 text-[10px] text-dam-muted cursor-pointer hover:text-dam-blue transition-colors">
+            <label
+              className="flex items-center gap-1.5 text-[10px] text-dam-muted cursor-pointer hover:text-dam-blue transition-colors"
+              title={paramTitle('use_degrees')}
+            >
               <input
                 type="checkbox"
                 checked={!!node.params.use_degrees}
-                onChange={e => onChange({ ...node, params: { ...node.params, use_degrees: e.target.checked } })}
+                onChange={e => {
+                  const nextParams = { ...node.params }
+                  nextParams.use_degrees = e.target.checked
+                  onChange({ ...node, params: nextParams })
+                }}
                 className="w-3 h-3 rounded border-dam-border bg-dam-surface-2 text-dam-blue focus:ring-0 focus:ring-offset-0"
               />
-              {' '}use_degrees
+              <span className={paramTitle('use_degrees') ? 'underline decoration-dotted underline-offset-2' : ''}>use_degrees</span>
             </label>
           </div>
           <div className="grid grid-cols-6 gap-1">
             {(node.params.max_velocities as number[]).map((v, i) => (
               <div key={`joint-vel-${i}`} className="space-y-0.5">
-                <label htmlFor={`node-${index}-maxvel-${i}`} className="text-dam-muted text-[8px] block">J{i+1} Max</label>
+                <label
+                  htmlFor={`node-${index}-maxvel-${i}`}
+                  className={`text-[8px] block ${paramLabelCls('max_velocities')}`}
+                  title={paramTitle('max_velocities')}
+                >
+                  J{i+1} Max
+                </label>
                 <input
                   id={`node-${index}-maxvel-${i}`}
                   type="number"
@@ -407,7 +443,12 @@ function NodeForm({
           <p className="text-dam-muted text-[10px] uppercase font-bold tracking-widest">Gripper Gate</p>
           <div className="grid grid-cols-1 sm:grid-cols-[120px_1fr] gap-2">
             <label className="space-y-0.5">
-              <span className="text-dam-muted text-[10px]">allowed_command</span>
+              <span
+                className={`text-[10px] ${paramLabelCls('allowed_command')}`}
+                title={paramTitle('allowed_command')}
+              >
+                allowed_command
+              </span>
               <select
                 value={inferGripperCommand(node)}
                 onChange={e => {
@@ -425,7 +466,7 @@ function NodeForm({
             </label>
             {inferGripperCommand(node) !== 'none' && (
               <label className="space-y-0.5">
-                <span className="text-dam-muted text-[10px]">zone</span>
+                <span className={`text-[10px] ${paramLabelCls('zone')}`} title={paramTitle('zone')}>zone</span>
                 <input
                   type="text"
                   value={node.params.zone == null ? '' : JSON.stringify(node.params.zone)}
@@ -1149,7 +1190,7 @@ export default function GuardPage() {
                  globalChanged = true
                }
                // Sync specialized callback logic if missing
-               const cb = cdata.callbacks.find((c: any) => c.name === node.callback)
+               const cb = cdata.callbacks.find(c => c.name === node.callback)
                if (cb && !node.params?.[cb.name] && (cb.name === 'joint_position_limits' || cb.name === 'workspace')) {
                  // Skip auto-injecting nested objects here to avoid duplicates
                }

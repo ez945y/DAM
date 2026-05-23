@@ -23,6 +23,10 @@ from dam.types.observation import Observation
     name="task_joint_speed_limit",
     layer="L2",
     description="Rejects if the joint velocity norm exceeds a task-level max_speed.",
+    params={
+        "max_speed": "Maximum whole-arm joint velocity norm for this task section.",
+        "use_degrees": "Interpret max_speed as degrees/sec instead of radians/sec.",
+    },
 )
 def task_joint_speed_limit(
     *,
@@ -54,6 +58,9 @@ def task_joint_speed_limit(
     name="task_workspace_bounds",
     layer="L2",
     description="Rejects if the end-effector position leaves a task workspace box.",
+    params={
+        "bounds": "Task-local allowed EE box: [[xmin,xmax],[ymin,ymax],[zmin,zmax]] in metres."
+    },
 )
 def task_workspace_bounds(
     *,
@@ -84,6 +91,7 @@ def task_workspace_bounds(
     name="check_gripper_clear",
     layer="L2",
     description="Rejects if the gripper appears closed when it should be open.",
+    params={"min_gripper_opening_m": "Minimum gripper opening still considered clear, in metres."},
 )
 def check_gripper_clear(*, obs: Observation, min_gripper_opening_m: float = 0.005) -> bool:
     g_pos = obs.metadata.get("gripper_pos")
@@ -144,6 +152,14 @@ def _suppress_gripper(action: ActionProposal) -> ValidatedAction:
     description=(
         "Clamps gripper open/close commands that are incompatible with the active task node rule."
     ),
+    params={
+        "allowed_command": "Allowed gripper command for this task node: close, open, or none.",
+        "zone": "EE zone where the allowed gripper command may run: [[xmin,xmax],[ymin,ymax],[zmin,zmax]] in metres.",
+        "pick_zone": "Legacy close zone for old stackfiles. Prefer allowed_command + zone.",
+        "place_zone": "Legacy open zone for old stackfiles. Prefer allowed_command + zone.",
+        "close_threshold": "gripper_action <= this value is treated as close.",
+        "open_threshold": "gripper_action >= this value is treated as open.",
+    },
 )
 def task_gripper_command_guard(
     *,

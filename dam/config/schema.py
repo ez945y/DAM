@@ -133,6 +133,9 @@ class HardwareSourceConfig(BaseModel):
     # Absolute or relative path to the calibration directory / file.
     # Supports shared-volume mounts (e.g. /mnt/dam_data/calibration/).
     calibration_path: str | None = None
+    # Native joint-angle unit mode for motor/dataset sources.  When True,
+    # adapters convert external degrees into DAM's internal radians.
+    degrees_mode: bool | None = None
 
 
 class HardwareSinkConfig(BaseModel):

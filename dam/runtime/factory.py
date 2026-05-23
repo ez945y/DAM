@@ -149,6 +149,9 @@ class RuntimeFactory:
                 if str(s.type).lower() in ("motor", "lerobot"):
                     main_name = name
                     break
+        main_source_cfg = (
+            config.hardware.sources.get(main_name) if config.hardware.sources else None
+        )
 
         # Peer-level opencv sources are registered as separate DAM
         # OpenCVSourceAdapter instances (see DISCOVER OTHER SOURCES below).
@@ -164,7 +167,11 @@ class RuntimeFactory:
         adapter = LeRobotAdapter(
             robot,
             joint_names=builder.joint_names,
-            degrees_mode=builder.preset.degrees_mode,
+            degrees_mode=(
+                builder.preset.degrees_mode
+                if main_source_cfg is None or main_source_cfg.degrees_mode is None
+                else main_source_cfg.degrees_mode
+            ),
             urdf_path=RuntimeFactory._resolve_urdf_path(config, builder.preset),
         )
 

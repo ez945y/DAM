@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from dam.boundary.builtin_callbacks import (
     _CALLBACKS,
@@ -82,6 +83,17 @@ class TestJointLimits:
         assert result.decision == GuardDecision.CLAMP
         assert result.clamped_action.target_joint_positions[0] == -1.0
 
+    def test_use_degrees_converts_limits_to_internal_radians(self):
+        result = joint_position_limits(
+            action=_action([2.0, 0, 0, 0, 0, 0]),
+            upper=[90.0] * 6,
+            lower=[-90.0] * 6,
+            use_degrees=True,
+        )
+        assert result.decision == GuardDecision.CLAMP
+        assert result.clamped_action is not None
+        assert result.clamped_action.target_joint_positions[0] == pytest.approx(np.pi / 2)
+
 
 # ── joint_velocity_limit (action-CLAMP) ───────────────────────────────────────
 
@@ -109,6 +121,21 @@ class TestJointVelocityLimit:
         assert result.decision == GuardDecision.CLAMP
         np.testing.assert_allclose(
             result.clamped_action.target_joint_positions, [0.2] * 6, atol=1e-9
+        )
+
+    def test_use_degrees_converts_velocity_limit_to_internal_radians(self):
+        result = joint_velocity_limit(
+            obs=_obs(positions=[0.0] * 6),
+            action=_action([1.0] * 6),
+            dt=0.1,
+            max_velocities=[90.0] * 6,
+            use_degrees=True,
+        )
+        assert result.decision == GuardDecision.CLAMP
+        np.testing.assert_allclose(
+            result.clamped_action.target_joint_positions,
+            [np.pi / 20] * 6,
+            atol=1e-9,
         )
 
 
@@ -243,6 +270,19 @@ class TestRegisterAll:
         assert "host_health" not in host_params
         assert host_params["max_cpu_percent"]["default"] == 95.0
         assert host_params["max_cpu_percent"]["description"]
+
+    def test_catalog_param_descriptions_are_declared_by_callbacks(self):
+        by_name = {c["name"]: c for c in get_catalog()}
+
+        assert "metres" in by_name["task_gripper_command_guard"]["params"]["zone"]["description"]
+        assert (
+            "degrees/sec"
+            in by_name["task_joint_speed_limit"]["params"]["use_degrees"]["description"]
+        )
+        assert (
+            "Consecutive"
+            in by_name["ood_detector"]["params"]["temporal_smoothing_frames"]["description"]
+        )
 
 
 # ── Fake pinocchio-like dynamics context ──────────────────────────────────────
