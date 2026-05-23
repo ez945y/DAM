@@ -180,6 +180,13 @@ class RuntimeFactory:
         if obs_channels:
             adapter.set_observation_channels(obs_channels)
 
+        # Resolve degrees_mode the same way the source adapter does so policy /
+        # source / sink agree on units by construction — not by lucky default.
+        degrees_mode = (
+            builder.preset.degrees_mode
+            if main_source_cfg is None or main_source_cfg.degrees_mode is None
+            else main_source_cfg.degrees_mode
+        )
         policy_res = builder.build_policy()
         policy = None
         if policy_res:
@@ -191,9 +198,14 @@ class RuntimeFactory:
                     postprocessor=post,
                     joint_names=builder.joint_names,
                     device=config.policy.device if config.policy else "cpu",
+                    degrees_mode=degrees_mode,
                 )
             else:
-                policy = LeRobotPolicyAdapter(policy_res, joint_names=builder.joint_names)
+                policy = LeRobotPolicyAdapter(
+                    policy_res,
+                    joint_names=builder.joint_names,
+                    degrees_mode=degrees_mode,
+                )
 
         runtime.register_source(main_name, adapter)
         runtime.register_sink(adapter)

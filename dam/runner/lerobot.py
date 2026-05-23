@@ -100,6 +100,7 @@ class LeRobotRunner(RuntimeLoopRunner):
                 policy_name=policy_name,
                 device=device,
                 joint_names=preset.joint_names,
+                degrees_mode=preset.degrees_mode,
             )
 
         runtime = GuardRuntime.from_stackfile(path)

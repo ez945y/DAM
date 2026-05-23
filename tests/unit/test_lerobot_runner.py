@@ -263,20 +263,14 @@ def test_preflight_passes_with_no_cameras():
     LeRobotAdapter(robot).verify()
 
 
-def test_preflight_raises_when_camera_returns_none():
+def test_preflight_ignores_robot_cameras_attribute():
+    """LeRobotAdapter no longer reads ``robot.cameras`` — cameras live as
+    peer-level OpenCVSourceAdapter instances and verify themselves."""
+    # Even a broken camera attached to the robot must not cause verify to fail.
     robot = RobotWithCameras(
-        cameras={"top": MockCamera(returns_none=True)},
+        cameras={"top": MockCamera(returns_none=True), "wrist": MockCamera(raises="x")},
     )
-    with pytest.raises(RuntimeError, match="camera 'top'"):
-        LeRobotAdapter(robot).verify()
-
-
-def test_preflight_raises_when_camera_throws():
-    robot = RobotWithCameras(
-        cameras={"wrist": MockCamera(raises="USB device not found")},
-    )
-    with pytest.raises(RuntimeError, match="camera 'wrist'"):
-        LeRobotAdapter(robot).verify()
+    LeRobotAdapter(robot).verify()  # motors OK → passes
 
 
 def test_preflight_raises_when_motor_throws():
@@ -289,24 +283,6 @@ def test_preflight_raises_when_motor_returns_none():
     robot = RobotWithCameras(cameras={}, obs_none=True)
     with pytest.raises(RuntimeError, match="motors"):
         LeRobotAdapter(robot).verify()
-
-
-def test_preflight_collects_all_failures():
-    """All failing checks are reported together (not fail-fast)."""
-    robot = RobotWithCameras(
-        cameras={
-            "top": MockCamera(returns_none=True),
-            "wrist": MockCamera(raises="timeout"),
-        },
-        obs_raises="bus error",
-    )
-    with pytest.raises(RuntimeError) as exc_info:
-        LeRobotAdapter(robot).verify()
-    msg = str(exc_info.value)
-    assert "3 issue(s)" in msg
-    assert "top" in msg
-    assert "wrist" in msg
-    assert "motors" in msg
 
 
 def test_preflight_skipped_when_no_robot_ref():

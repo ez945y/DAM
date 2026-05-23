@@ -19,11 +19,13 @@ health channels (current/temperature/voltage) additionally populate
 from __future__ import annotations
 
 import logging
-import math
 import time
 from typing import Any
 
 import numpy as np
+
+_DEG2RAD = float(np.pi / 180.0)
+_RAD2DEG = float(180.0 / np.pi)
 
 from dam.adapter.base import ActionAdapter, SensorAdapter
 from dam.types.action import ValidatedAction
@@ -90,13 +92,23 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
         self._degrees_mode = degrees_mode
         self._obs_hz = obs_hz
 
+        # Vectorised unit-conversion scale, bound once at init.  ALL joints
+        # — including the gripper — share the same deg↔rad conversion: the
+        # gripper servo on so100/so101 reports a degree-like angle, and the
+        # framework's default joint_position_limits encode the gripper as
+        # ``1.75 rad ≈ 100°``.  An earlier "gripper exception" left gripper
+        # raw while limits were converted, which exploded ratios at J6 — that
+        # special-case is gone.  Hot path: positions = raw * _pos_scale.
+        scale_in = _DEG2RAD if degrees_mode else 1.0
+        scale_out = _RAD2DEG if degrees_mode else 1.0
+        self._pos_scale_in = np.full(len(self._joint_names), scale_in, dtype=np.float64)
+        self._pos_scale_out = np.full(len(self._joint_names), scale_out, dtype=np.float64)
+
         # Sensor cache — read()'s exception path returns these so consumers
         # don't see a sudden gap on a transient bus glitch.
         self._prev_positions: np.ndarray | None = None
         self._prev_velocities: np.ndarray | None = None
         self._prev_ee_pose: np.ndarray | None = None
-        self._prev_images: dict[str, np.ndarray] = {}
-        self._verified_camera_shapes: dict[str, tuple[int, int]] = {}
         self._prev_time: float | None = None
 
         # Sink state
@@ -225,27 +237,12 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
         """
         errors: list[str] = []
 
-        # 1. Camera check — also caches the real (H, W) of each camera so
-        # downstream policy/guard preflight can warm up PyTorch graphs at
-        # the actual capture resolution.
-        cameras: dict = {}
-        if hasattr(self._robot, "cameras") and self._robot.cameras:
-            cameras = self._robot.cameras
-        verified_shapes: dict[str, tuple[int, int]] = {}
-        for cam_name, cam in cameras.items():
-            try:
-                frame = cam.read() if hasattr(cam, "read") else cam.async_read()
-                if frame is None:
-                    errors.append(f"camera '{cam_name}': read() returned None — check USB / index")
-                else:
-                    arr = np.asarray(frame)
-                    if arr.ndim >= 2:
-                        verified_shapes[cam_name] = (int(arr.shape[0]), int(arr.shape[1]))
-            except Exception as exc:
-                errors.append(f"camera '{cam_name}': {exc}")
-        self._verified_camera_shapes = verified_shapes
+        # NOTE: cameras are managed as peer-level DAM OpenCVSourceAdapter
+        # instances (registered separately by the factory), NOT through
+        # lerobot's robot.cameras.  Each camera adapter runs its own verify().
+        # The legacy nested-cameras code path was removed.
 
-        # 2. Motor check
+        # Motor check
         try:
             obs = (
                 self._robot.get_observation()
@@ -264,14 +261,16 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
                 "Fix the above before starting the control loop."
             )
 
-        logger.info("Hardware preflight check passed (cameras=%d, motors OK).", len(cameras))
+        logger.info("Hardware preflight check passed (motors OK).")
 
     def is_healthy(self) -> bool:
         return self._connected and self._robot is not None
 
     @property
     def camera_shapes(self) -> dict[str, tuple[int, int]]:
-        return dict(self._verified_camera_shapes)
+        # LeRobotAdapter no longer manages cameras — peer-level
+        # OpenCVSourceAdapter instances expose their own ``camera_shapes``.
+        return {}
 
     def supported_channels(self) -> set[str]:
         return set(self._register_map)
@@ -301,7 +300,7 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
                 else np.zeros(len(self._joint_names), dtype=np.float64),
                 joint_velocities=self._prev_velocities,
                 end_effector_pose=self._prev_ee_pose,
-                images=self._prev_images.copy() if self._prev_images else None,
+                images=None,
                 metadata={
                     "hardware_status": {"error_codes": [-1], "reason": f"Hardware read error: {e}"}
                 },
@@ -316,51 +315,34 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
         """Modern lerobot API: ``{joint.pos: deg, joint.vel: deg/s, …}``."""
         now = time.monotonic()
 
-        # Joint positions (deg → rad except gripper)
-        pos_list: list[float] = []
-        for name in self._joint_names:
-            raw_val = float(raw.get(f"{name}.pos", 0.0))
-            if self._degrees_mode and not self._is_gripper_joint(name):
-                pos_list.append(math.radians(raw_val))
-            else:
-                pos_list.append(raw_val)
-        positions = np.array(pos_list, dtype=np.float64)
+        # Joint positions — vectorised conversion via pre-bound scale array.
+        raw_pos = np.fromiter(
+            (float(raw.get(f"{n}.pos", 0.0)) for n in self._joint_names),
+            dtype=np.float64,
+            count=len(self._joint_names),
+        )
+        positions = raw_pos * self._pos_scale_in
 
-        # Joint velocities
+        # Joint velocities — same scale (deg/s ↔ rad/s is the same ratio).
         has_vel = any(f"{n}.vel" in raw for n in self._joint_names)
         if has_vel:
-            vel_list: list[float] = []
-            for name in self._joint_names:
-                raw_val = float(raw.get(f"{name}.vel", 0.0))
-                if self._degrees_mode and not self._is_gripper_joint(name):
-                    vel_list.append(math.radians(raw_val))
-                else:
-                    vel_list.append(raw_val)
-            velocities: np.ndarray | None = np.array(vel_list, dtype=np.float64)
+            raw_vel = np.fromiter(
+                (float(raw.get(f"{n}.vel", 0.0)) for n in self._joint_names),
+                dtype=np.float64,
+                count=len(self._joint_names),
+            )
+            velocities: np.ndarray | None = raw_vel * self._pos_scale_in
         else:
             velocities = self._estimate_velocity(positions, now)
 
         self._prev_positions = positions.copy()
         self._prev_time = now
 
-        # Cameras — per-cam timed for the throttled log. Fresh frames also
-        # cached so read()'s exception path can fall back gracefully.
+        # Cameras are NOT read here — they are peer-level DAM
+        # OpenCVSourceAdapter instances that publish frames to the shared
+        # CameraFrameHub from their own capture threads.  The runtime merges
+        # those frames into the observation downstream.
         images: dict[str, np.ndarray] | None = None
-        if hasattr(self._robot, "cameras") and self._robot.cameras:
-            images = {}
-            for cam_name, cam in self._robot.cameras.items():
-                t_cam = time.perf_counter()
-                try:
-                    frame = cam.async_read()
-                    if frame is not None:
-                        frame_np = np.asarray(frame).copy()
-                        images[cam_name] = frame_np
-                        self._prev_images[cam_name] = frame_np
-                except Exception as e:
-                    logger.debug("Camera '%s' read error: %s", cam_name, e)
-                self._lat[f"cam[{cam_name}]"] = (time.perf_counter() - t_cam) * 1000.0
-            if not images:
-                images = None
 
         ee_pose = self._compute_ee_pose(positions)
         self._prev_velocities = velocities.copy() if velocities is not None else None
@@ -474,10 +456,6 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
 
         return (channels or None, status or None)
 
-    @staticmethod
-    def _is_gripper_joint(name: str) -> bool:
-        return "gripper" in name.lower()
-
     def _estimate_velocity(self, positions: np.ndarray, now: float) -> np.ndarray:
         if self._prev_positions is not None and self._prev_time is not None:
             dt = max(now - self._prev_time, 1e-9)
@@ -489,14 +467,12 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
         """Convert a validated action to a dictionary of actions."""
         positions = np.asarray(action.target_joint_positions, dtype=np.float64)
         n = min(len(positions), len(self._joint_names))
+        # Vectorised conversion via the inverse scale bound at init.
+        scaled = positions[:n] * self._pos_scale_out[:n]
 
-        action_dict: dict[str, Any] = {}
-        for i in range(n):
-            name = self._joint_names[i]
-            val = float(positions[i])
-            if self._degrees_mode and not self._is_gripper_joint(name):
-                val = math.degrees(val)
-            action_dict[f"{name}.pos"] = val
+        action_dict: dict[str, Any] = {
+            f"{self._joint_names[i]}.pos": float(scaled[i]) for i in range(n)
+        }
 
         if action.gripper_action is not None and "gripper" in self._joint_names:
             action_dict["gripper.pos"] = float(action.gripper_action)

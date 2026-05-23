@@ -211,11 +211,18 @@ class LeRobotBuilder:
         preset_name = self._preset.name
         port = src_cfg.port or "/dev/ttyUSB0"
         robot_id = src_cfg.id or "follower"
-        # Legacy nested cameras from the motor source config.
-        # New flat peer-level opencv sources are handled separately by the
-        # factory as DAM OpenCVSourceAdapter instances — they don't go
-        # through lerobot's strict-resolution OpenCVCameraConfig.
-        cam_configs = self._build_camera_configs(getattr(src_cfg, "cameras", None) or {})
+        # Cameras live as peer-level opencv sources handled by the factory as
+        # DAM OpenCVSourceAdapter instances; lerobot's strict-resolution
+        # OpenCVCameraConfig is bypassed entirely.  The legacy nested-cameras
+        # field is logged as a deprecation and ignored.
+        legacy_cams = getattr(src_cfg, "cameras", None)
+        if legacy_cams:
+            logger.warning(
+                "LeRobotBuilder: nested 'cameras' under the motor source is deprecated and ignored. "
+                "Declare each camera as a peer source with type: opencv instead. (got: %s)",
+                list(legacy_cams) if isinstance(legacy_cams, dict) else legacy_cams,
+            )
+        cam_configs: dict = {}
         # calibration_path is typed in HardwareSourceConfig; extra="allow" covers
         # any future keys.  _resolve_path handles absolute volume-mount paths.
         calibration = _resolve_path(getattr(src_cfg, "calibration_path", None))
@@ -252,27 +259,6 @@ class LeRobotBuilder:
         )
 
     @staticmethod
-    def _build_camera_configs(cameras_raw: dict) -> dict:
-        try:
-            from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
-        except ImportError:
-            return {}
-
-        out = {}
-        for cam_name, cam_cfg in cameras_raw.items():
-            if isinstance(cam_cfg, dict):
-                # Accept both 'index_or_path' (lerobot CLI style) and plain 'index'
-                index_or_path = cam_cfg.get("index_or_path", cam_cfg.get("index", 0))
-                out[cam_name] = OpenCVCameraConfig(
-                    index_or_path=index_or_path,
-                    fps=cam_cfg.get("fps", 30),
-                    width=cam_cfg.get("width"),
-                    height=cam_cfg.get("height"),
-                    color_mode=cam_cfg.get("color_mode", "rgb"),
-                )
-        return out
-
-    @staticmethod
     def _cfg_so101(
         port: str,
         robot_id: str,
@@ -281,6 +267,9 @@ class LeRobotBuilder:
     ) -> Any:
         from lerobot.robots.so_follower import SO101FollowerConfig
 
+        # ``cameras`` is always empty in the modern peer-level design;
+        # forwarded as-is so a future preset that genuinely needs lerobot's
+        # nested cameras can opt in.
         kwargs: dict[str, Any] = {"port": port, "id": robot_id, "cameras": cameras}
         if calibration is not None:
             kwargs["calibration_dir"] = str(calibration)

@@ -77,84 +77,39 @@ class TestResolvePath:
 
 
 # ---------------------------------------------------------------------------
-# _build_camera_configs
+# Legacy nested cameras: deprecation warning + ignored
 # ---------------------------------------------------------------------------
 
 
-class TestBuildCameraConfigs:
-    def _fn(self):
+class TestLegacyNestedCamerasIgnored:
+    def test_nested_cameras_logged_and_ignored(self, caplog):
+        """Nested 'cameras' under the motor source is no longer forwarded to
+        lerobot — peer-level opencv sources are the canonical design.  The
+        legacy key should produce a deprecation warning instead of silently
+        wiring into lerobot's strict OpenCVCameraConfig path."""
+        import logging
+        from unittest.mock import MagicMock
+
         from dam.adapter.lerobot.builder import LeRobotBuilder
 
-        return LeRobotBuilder._build_camera_configs
+        builder = object.__new__(LeRobotBuilder)
+        builder._preset = MagicMock(name="so101_follower")
+        builder._preset.name = "so101_follower"
+        src_cfg = MagicMock()
+        src_cfg.port = "/dev/ttyUSB0"
+        src_cfg.id = "follower"
+        src_cfg.cameras = {"top": {"index": 0}}
+        src_cfg.calibration_path = None
 
-    def test_empty_dict_returns_empty(self):
-        with patch.dict(
-            sys.modules,
-            {
-                "lerobot": MagicMock(),
-                "lerobot.cameras": MagicMock(),
-                "lerobot.cameras.opencv": MagicMock(),
-                "lerobot.cameras.opencv.configuration_opencv": MagicMock(),
-            },
+        with (
+            patch.object(LeRobotBuilder, "_cfg_so101", return_value="cfg") as cfg_so101,
+            caplog.at_level(logging.WARNING, logger="dam.adapter.lerobot.builder"),
         ):
-            fake_cls = MagicMock(side_effect=lambda **kw: kw)
-            sys.modules["lerobot.cameras.opencv.configuration_opencv"].OpenCVCameraConfig = fake_cls
-            result = self._fn()({})
-        assert result == {}
-
-    def test_index_or_path_key_used(self):
-        with patch.dict(
-            sys.modules,
-            {
-                "lerobot": MagicMock(),
-                "lerobot.cameras": MagicMock(),
-                "lerobot.cameras.opencv": MagicMock(),
-                "lerobot.cameras.opencv.configuration_opencv": MagicMock(),
-            },
-        ):
-            captured = {}
-
-            def fake_cfg(**kw):
-                captured.update(kw)
-                return kw
-
-            sys.modules["lerobot.cameras.opencv.configuration_opencv"].OpenCVCameraConfig = fake_cfg
-            self._fn()({"top": {"index_or_path": 2, "width": 640, "height": 480, "fps": 30}})
-        assert captured["index_or_path"] == 2
-
-    def test_legacy_index_key_falls_back(self):
-        with patch.dict(
-            sys.modules,
-            {
-                "lerobot": MagicMock(),
-                "lerobot.cameras": MagicMock(),
-                "lerobot.cameras.opencv": MagicMock(),
-                "lerobot.cameras.opencv.configuration_opencv": MagicMock(),
-            },
-        ):
-            captured = {}
-
-            def fake_cfg(**kw):
-                captured.update(kw)
-                return kw
-
-            sys.modules["lerobot.cameras.opencv.configuration_opencv"].OpenCVCameraConfig = fake_cfg
-            self._fn()({"wrist": {"index": 1, "width": 640, "height": 480, "fps": 30}})
-        # index falls back: cam_cfg.get("index_or_path", cam_cfg.get("index", 0)) == 1
-        assert captured["index_or_path"] == 1
-
-    def test_lerobot_import_error_returns_empty(self):
-        with patch.dict(
-            sys.modules,
-            {
-                "lerobot": None,
-                "lerobot.cameras": None,
-                "lerobot.cameras.opencv": None,
-                "lerobot.cameras.opencv.configuration_opencv": None,
-            },
-        ):
-            result = self._fn()({"top": {"index_or_path": 0}})
-        assert result == {}
+            builder._make_robot_config(src_cfg)
+        # Forwarded as empty dict; nested cameras dropped.
+        _, kwargs = cfg_so101.call_args
+        assert kwargs == {} or cfg_so101.call_args.args[2] == {}
+        assert any("nested 'cameras'" in rec.message for rec in caplog.records)
 
 
 # ---------------------------------------------------------------------------

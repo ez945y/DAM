@@ -28,6 +28,9 @@ from dam.types.observation import Observation
 
 logger = logging.getLogger(__name__)
 
+_DEG2RAD = float(np.pi / 180.0)
+_RAD2DEG = float(180.0 / np.pi)
+
 
 class LeRobotPolicyAdapter(PolicyAdapter):
     def __init__(
@@ -50,13 +53,26 @@ class LeRobotPolicyAdapter(PolicyAdapter):
         self._preprocessor = preprocessor
         self._postprocessor = postprocessor
 
+        # Vectorised unit-conversion scales, bound once at init — same shape
+        # AND same rule as LeRobotAdapter: ALL joints (gripper included) go
+        # through deg↔rad together.  The framework's default position limits
+        # express the gripper at ``1.75 rad ≈ 100°``; any "gripper exception"
+        # used to leave gripper raw while limits were converted, which broke
+        # joint_position_limits / joint_velocity_limit at the gripper index.
+        n = len(self._joint_names) if self._joint_names else 6
+        scale_in = _DEG2RAD if degrees_mode else 1.0
+        scale_out = _RAD2DEG if degrees_mode else 1.0
+        self._pos_scale_in = np.full(n, scale_in, dtype=np.float64)
+        self._pos_scale_out = np.full(n, scale_out, dtype=np.float64)
+
         # Detect API: JIT models have no select_action method
         self._is_jit: bool = not hasattr(policy, "select_action")
         logger.info(
-            "LeRobotPolicyAdapter: name=%s  device=%s  jit=%s",
+            "LeRobotPolicyAdapter: name=%s  device=%s  jit=%s  degrees_mode=%s",
             policy_name,
             device,
             self._is_jit,
+            degrees_mode,
         )
 
     # ── PolicyAdapter ABC ──────────────────────────────────────────────────
@@ -147,13 +163,18 @@ class LeRobotPolicyAdapter(PolicyAdapter):
         return self._convert_action(raw_action, obs.timestamp)
 
     def _build_lerobot_obs(self, obs: Observation) -> dict[str, Any]:
-        """Build a dict of NumPy arrays expected by predict_action."""
-        state = obs.joint_positions.astype(np.float32)
-        if self._degrees_mode:
-            # Convert DAM radians to LeRobot expected degrees
-            state = np.degrees(state)
+        """Build a dict of NumPy arrays expected by predict_action.
 
-        out: dict[str, Any] = {"observation.state": state}
+        DAM stores joint state in radians; lerobot policies were trained on the
+        source's native unit (degrees when ``degrees_mode=True``).  One
+        vectorised multiply by ``_pos_scale_out`` handles the conversion for
+        all joints (gripper included — see ``__init__`` for the rationale).
+        """
+        rad = np.asarray(obs.joint_positions, dtype=np.float64)
+        n = min(rad.shape[0], self._pos_scale_out.shape[0])
+        state = rad.copy()
+        state[:n] = rad[:n] * self._pos_scale_out[:n]
+        out: dict[str, Any] = {"observation.state": state.astype(np.float32)}
         if obs.images:
             for cam_name, img in obs.images.items():
                 # Raw image [H, W, C] uint8
@@ -212,19 +233,16 @@ class LeRobotPolicyAdapter(PolicyAdapter):
 
         arr = arr.flatten()
 
-        # so101/so100: 6 joints, last is gripper
-        joints = arr[:6] if len(arr) >= 6 else arr
+        # so101/so100: 6 joints, last is gripper.  One vectorised multiply
+        # converts deg → rad while leaving the gripper element untouched
+        # (the pre-bound ``_pos_scale_in`` has a 1.0 at the gripper index).
+        joints_raw = arr[:6].astype(np.float64) if len(arr) >= 6 else arr.astype(np.float64)
+        n = min(joints_raw.shape[0], self._pos_scale_in.shape[0])
+        joints = joints_raw.copy()
+        joints[:n] = joints_raw[:n] * self._pos_scale_in[:n]
 
-        if self._degrees_mode:
-            # Convert LeRobot degrees back to DAM radians
-            for i in range(len(joints)):
-                # We convert all joints to radians.
-                # Grippers in degrees (0-100) will be converted (0-1.74 rad).
-                # If a gripper is truly 0-1 normalized, radians(1.0) is 0.017 rad,
-                # which is usually safe but might need special handling if accuracy matters.
-                # For SoArm, they are degrees, so conversion is REQUIRED.
-                joints[i] = np.radians(joints[i])
-
+        # Gripper action stays in its native unit (matches LeRobotAdapter's
+        # rule that gripper is never deg/rad-converted).
         gripper_val = float(arr[-1]) if len(arr) > 6 else (float(arr[5]) if len(arr) == 6 else None)
 
         return ActionProposal(
@@ -234,10 +252,3 @@ class LeRobotPolicyAdapter(PolicyAdapter):
             confidence=1.0,
             policy_name=self._policy_name,
         )
-
-    def _is_gripper_joint(self, index: int) -> bool:
-        """Heuristic to detect if a joint index is the gripper."""
-        if not self._joint_names:
-            return index == 5  # Standard so101
-        name = self._joint_names[index].lower()
-        return "gripper" in name or "finger" in name

@@ -131,8 +131,10 @@ def test_source_modern_degrees_to_radians():
     assert abs(obs.joint_positions[0] - math.pi / 2) < 1e-9
 
 
-def test_source_modern_gripper_exempt_from_degree_conversion():
-    """Gripper joint must NOT be degree-converted (it's a linear/normalised value)."""
+def test_source_modern_gripper_shares_degree_conversion():
+    """Gripper goes through deg→rad like every other joint — the framework's
+    default joint_position_limits encode the gripper at ``1.75 rad ≈ 100°``,
+    so leaving gripper raw while limits get rad-converted breaks J6 guards."""
     robot = ModernMockRobot(
         {
             "shoulder_pan": 0.0,
@@ -140,14 +142,13 @@ def test_source_modern_gripper_exempt_from_degree_conversion():
             "elbow_flex": 0.0,
             "wrist_flex": 0.0,
             "wrist_roll": 0.0,
-            "gripper": 0.035,
+            "gripper": 90.0,  # robot reports 90 (degrees) → expect π/2 rad
         }
     )
     adapter = LeRobotSourceAdapter(robot, degrees_mode=True)
     obs = adapter.read()
     assert obs is not None
-    # gripper index is 5 — value must pass through as 0.035, not converted
-    assert abs(obs.joint_positions[5] - 0.035) < 1e-9
+    assert abs(obs.joint_positions[5] - math.pi / 2) < 1e-9
 
 
 def test_source_modern_radians_mode_no_conversion():
@@ -195,16 +196,16 @@ def test_sink_radians_to_degrees_conversion():
     assert abs(robot.last_action["shoulder_pan.pos"] - math.degrees(0.1)) < 1e-9
 
 
-def test_sink_gripper_exempt_from_degree_conversion():
-    """Gripper joint must NOT be converted (it's a linear/normalised value)."""
+def test_sink_gripper_shares_degree_conversion():
+    """Gripper goes through rad→deg like every other joint (uniform unit
+    handling — see ``test_source_modern_gripper_shares_degree_conversion``)."""
     robot = LegacyMockRobot()
     adapter = LeRobotSinkAdapter(robot, degrees_mode=True)
-    gripper_val = 0.035
-    positions = np.array([0.0, 0.0, 0.0, 0.0, 0.0, gripper_val])
+    # π/2 rad → expect 90° at the sink.
+    positions = np.array([0.0, 0.0, 0.0, 0.0, 0.0, math.pi / 2])
     action = ValidatedAction(target_joint_positions=positions)
     adapter.apply(action)
-    # Gripper must pass through unchanged
-    assert abs(robot.last_action["gripper.pos"] - gripper_val) < 1e-9
+    assert abs(robot.last_action["gripper.pos"] - 90.0) < 1e-9
 
 
 def test_sink_write_alias_calls_apply():
