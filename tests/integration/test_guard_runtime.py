@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from dam.boundary.constraint import BoundaryConstraint
+from dam.boundary.list_container import ListContainer
 from dam.boundary.node import BoundaryNode
 from dam.boundary.single import SingleNodeContainer
 from dam.decorators import guard as guard_decorator
@@ -14,7 +15,11 @@ from dam.runtime.guard_runtime import GuardRuntime
 from dam.testing.mocks import MockPolicyAdapter, MockSinkAdapter, MockSourceAdapter
 from dam.types.action import ActionProposal
 from dam.types.observation import Observation
+from dam.types.result import GuardDecision
 from dam.types.risk import CycleResult
+
+LEFT_PICK_ZONE = [[-0.175, -0.025], [-0.075, 0.075], [0.075, 0.225]]
+RIGHT_PLACE_ZONE = [[0.025, 0.175], [-0.075, 0.075], [0.075, 0.225]]
 
 
 def make_runtime(upper=2.0, lower=-2.0) -> GuardRuntime:
@@ -62,6 +67,86 @@ def make_action(pos=None) -> ActionProposal:
     return ActionProposal(
         target_joint_positions=np.zeros(6) if pos is None else np.array(pos),
     )
+
+
+def make_gripper_action(value: float) -> ActionProposal:
+    return ActionProposal(target_joint_positions=np.zeros(6), gripper_action=value)
+
+
+def make_l2_gripper_sequence_runtime() -> GuardRuntime:
+    from dam.boundary.builtin_callbacks import register_all
+
+    register_all()
+    guard_cls = guard_decorator("L2")(ExecutionGuard)
+    guard = guard_cls()
+    guard.set_name("task_gripper_sequence")
+
+    reg = FallbackRegistry()
+    reg.register(EmergencyStop())
+    reg.register(HoldPosition())
+    build_escalation_chain(reg)
+
+    container = ListContainer(
+        [
+            BoundaryNode(
+                "pick_left",
+                BoundaryConstraint(
+                    callback="task_gripper_command_guard",
+                    params={"allowed_command": "close", "zone": LEFT_PICK_ZONE},
+                ),
+                fallback="hold_position",
+            ),
+            BoundaryNode(
+                "transfer_left_to_right",
+                BoundaryConstraint(
+                    callback="task_gripper_command_guard",
+                    params={"allowed_command": "none"},
+                ),
+                fallback="hold_position",
+            ),
+            BoundaryNode(
+                "place_right",
+                BoundaryConstraint(
+                    callback="task_gripper_command_guard",
+                    params={"allowed_command": "open", "zone": RIGHT_PLACE_ZONE},
+                ),
+                fallback="hold_position",
+            ),
+        ]
+    )
+
+    return GuardRuntime(
+        guards=[guard],
+        boundary_containers={"task_gripper_sequence": container},
+        fallback_registry=reg,
+        task_config={"task": ["task_gripper_sequence"]},
+        config_pool={},
+    )
+
+
+def assert_l2_decision(
+    runtime: GuardRuntime,
+    *,
+    ee: list[float],
+    gripper: float,
+    expected: GuardDecision,
+    trace_id: str,
+) -> None:
+    validated, results, fallback = runtime.validate(
+        make_obs(ee=ee),
+        make_gripper_action(gripper),
+        trace_id,
+    )
+    assert results
+    assert results[0].decision == expected
+    if expected == GuardDecision.CLAMP:
+        assert validated is not None
+        assert validated.was_clamped
+        assert validated.gripper_action is None
+        assert fallback is None
+    else:
+        assert validated is not None
+        assert fallback is None
 
 
 def test_pass_through():
@@ -124,6 +209,64 @@ def test_reject_returns_none():
     validated, results, fallback = runtime2.validate(obs, action, "test-trace")
     assert validated is None
     assert fallback is not None
+
+
+def test_task_gripper_sequence_phase_advance_contract():
+    runtime = make_l2_gripper_sequence_runtime()
+    runtime.start_task("task")
+
+    assert (
+        runtime._boundary_containers["task_gripper_sequence"].get_active_node().node_id
+        == "pick_left"
+    )
+    assert_l2_decision(
+        runtime,
+        ee=[-0.10, 0.0, 0.15, 0.0, 0.0, 0.0, 1.0],
+        gripper=0.0,
+        expected=GuardDecision.PASS,
+        trace_id="pick-close",
+    )
+    assert_l2_decision(
+        runtime,
+        ee=[-0.10, 0.0, 0.15, 0.0, 0.0, 0.0, 1.0],
+        gripper=1.0,
+        expected=GuardDecision.CLAMP,
+        trace_id="pick-open",
+    )
+
+    runtime.advance_container("task_gripper_sequence")
+    assert (
+        runtime._boundary_containers["task_gripper_sequence"].get_active_node().node_id
+        == "transfer_left_to_right"
+    )
+    for gripper, trace_id in [(0.0, "transfer-close"), (1.0, "transfer-open")]:
+        assert_l2_decision(
+            runtime,
+            ee=[0.0, 0.0, 0.15, 0.0, 0.0, 0.0, 1.0],
+            gripper=gripper,
+            expected=GuardDecision.CLAMP,
+            trace_id=trace_id,
+        )
+
+    runtime.advance_container("task_gripper_sequence")
+    assert (
+        runtime._boundary_containers["task_gripper_sequence"].get_active_node().node_id
+        == "place_right"
+    )
+    assert_l2_decision(
+        runtime,
+        ee=[0.10, 0.0, 0.15, 0.0, 0.0, 0.0, 1.0],
+        gripper=1.0,
+        expected=GuardDecision.PASS,
+        trace_id="place-open",
+    )
+    assert_l2_decision(
+        runtime,
+        ee=[0.10, 0.0, 0.15, 0.0, 0.0, 0.0, 1.0],
+        gripper=0.0,
+        expected=GuardDecision.CLAMP,
+        trace_id="place-close",
+    )
 
 
 def test_full_step_cycle():
