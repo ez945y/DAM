@@ -136,8 +136,18 @@ def main() -> None:
 
                 # Instrumentation
                 def step_wrapper(orig_step: Callable[[], Any]) -> Callable[[], Any]:
-                    _state = {"warn_count": 0, "ok_logged": False, "last_live_t": 0.0}
+                    _state = {
+                        "warn_count": 0,
+                        "ok_logged": False,
+                        "last_live_t": 0.0,
+                        "started_at": time.monotonic(),
+                    }
                     live_interval_s = 1.0 / 5.0
+                    # Cameras (OpenCV capture thread + Rust hub publish) typically
+                    # take a beat to produce the first JPEG.  Within this window
+                    # we log an INFO instead of a WARNING so startup races don't
+                    # look alarming.
+                    warmup_window_s = 2.0
 
                     def _instrumented() -> Any:
                         res = orig_step()
@@ -163,8 +173,18 @@ def main() -> None:
                                     n_subs,
                                 )
                             elif not live_imgs:
+                                warming_up = (now - _state["started_at"]) < warmup_window_s
                                 n = _state["warn_count"] = _state["warn_count"] + 1
-                                if n <= 3 or n % 100 == 0:
+                                if warming_up:
+                                    if n == 1:
+                                        log.info(
+                                            "Cameras warming up — no JPEG yet "
+                                            "(cycle %d, subs=%d). Will warn if no frame within %.1fs.",
+                                            res.cycle_id,
+                                            n_subs,
+                                            warmup_window_s,
+                                        )
+                                elif n <= 3 or n % 100 == 0:
                                     log.warning(
                                         "Live images unavailable (cycle %d, warn #%d, subs=%d) — "
                                         "check obs_bus has camera frames. "

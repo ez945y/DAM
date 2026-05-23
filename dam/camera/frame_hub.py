@@ -52,6 +52,7 @@ class CameraFrameHub:
         self._frames: deque[ImageFrame] = deque()
         self._latest: dict[str, ImageFrame] = {}
         self._latest_arrays: dict[str, Any] = {}
+        self._seen_cameras: set[str] = set()
         self._lock = threading.Lock()
         self._rust_hub = _RustImageHub(self._window_sec)
 
@@ -100,9 +101,26 @@ class CameraFrameHub:
         with self._lock:
             self._frames.append(frame)
             self._latest[camera] = frame
+            first_for_camera = camera not in self._seen_cameras
+            self._seen_cameras.add(camera)
             self._trim_locked(timestamp)
+        if first_for_camera:
+            logger.info(
+                "CameraFrameHub: first JPEG received for camera '%s' (%dx%d, %d bytes)",
+                camera,
+                int(width),
+                int(height),
+                len(jpeg_bytes),
+            )
 
     def latest_jpegs(self) -> dict[str, bytes]:
+        """Return latest JPEG per camera from the Rust hub.
+
+        Single source of truth: the Rust hub is the same store the MCAP writer
+        consumes, so live preview and recording can't diverge.  If this comes
+        back empty, the bug is upstream of the hub (camera not capturing,
+        ``submit_jpeg`` not called) — surface that instead of papering over.
+        """
         return {name: bytes(data) for name, _ts, _w, _h, data in self._rust_hub.latest_all()}
 
     def latest_arrays(self) -> dict[str, Any]:
