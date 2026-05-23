@@ -11,20 +11,20 @@ import type { BackendState } from '@/lib/types'
 import pkg from '../../package.json'
 
 const BACKEND_STYLE: Record<BackendState, { text: string; label: string; dot: string }> = {
-  loading:  { text: 'text-yellow-500', label: 'INITIALIZING', dot: 'bg-yellow-500 animate-pulse' },
-  ready:    { text: 'text-dam-green',  label: 'SYS READY',    dot: 'bg-dam-green shadow-[0_0_8px_#10b981]' },
-  error:    { text: 'text-dam-red',    label: 'SYS ERROR',    dot: 'bg-dam-red animate-ping' },
-  faulted:  { text: 'text-dam-red',    label: 'SAFETY FAULT', dot: 'bg-dam-red animate-pulse' },
+  loading: { text: 'text-yellow-500', label: 'INITIALIZING', dot: 'bg-yellow-500 animate-pulse' },
+  ready: { text: 'text-dam-green', label: 'SYS READY', dot: 'bg-dam-green shadow-[0_0_8px_#10b981]' },
+  error: { text: 'text-dam-red', label: 'SYS ERROR', dot: 'bg-dam-red animate-ping' },
+  faulted: { text: 'text-dam-red', label: 'SAFETY FAULT', dot: 'bg-dam-red animate-pulse' },
 }
 
 const NAV = [
-  { href: '/',             label: 'Dashboard',    icon: LayoutDashboard, section: 'Monitor' },
-  { href: '/risk-log',     label: 'Risk Log',     icon: AlertTriangle,   section: 'Monitor' },
-  { href: '/mcap-viewer',  label: 'MCAP Sessions',icon: Film,            section: 'Monitor' },
-  { href: '/replay',       label: 'Replay',       icon: RotateCcw,       section: 'Monitor' },
-  { href: '/experiments',  label: 'Experiments',  icon: FlaskConical,    section: 'Monitor' },
-  { href: '/config',       label: 'Config',       icon: Settings,        section: 'Setup'   },
-  { href: '/guard',        label: 'Guard',        icon: ShieldCheck,     section: 'Setup'   },
+  { href: '/', label: 'Dashboard', icon: LayoutDashboard, section: 'Monitor' },
+  { href: '/risk-log', label: 'Risk Log', icon: AlertTriangle, section: 'Monitor' },
+  { href: '/mcap-viewer', label: 'MCAP Sessions', icon: Film, section: 'Monitor' },
+  { href: '/replay', label: 'Replay', icon: RotateCcw, section: 'Monitor' },
+  { href: '/experiments', label: 'Experiments', icon: FlaskConical, section: 'Monitor' },
+  { href: '/config', label: 'Config', icon: Settings, section: 'Setup' },
+  { href: '/guard', label: 'Guard', icon: ShieldCheck, section: 'Setup' },
 ]
 
 export function Sidebar() {
@@ -67,11 +67,10 @@ export function Sidebar() {
               )}
               <Link
                 href={href}
-                className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all duration-150 ${
-                  active
-                    ? 'bg-dam-blue/10 text-dam-blue border border-dam-blue/20 shadow-[inset_0_1px_0_rgba(59,130,246,0.1)]'
-                    : 'text-dam-muted hover:text-dam-text hover:bg-white/[0.03] border border-transparent'
-                }`}
+                className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all duration-150 ${active
+                  ? 'bg-dam-blue/10 text-dam-blue border border-dam-blue/20 shadow-[inset_0_1px_0_rgba(59,130,246,0.1)]'
+                  : 'text-dam-muted hover:text-dam-text hover:bg-white/[0.03] border border-transparent'
+                  }`}
               >
                 <Icon size={14} className={active ? 'text-dam-blue' : ''} />
                 {label}
@@ -95,13 +94,11 @@ export function Sidebar() {
 
           let btnAction = recheckHardware
           let btnLabel = 'Reload Stackfile'
-          let btnIcon = <RotateCcw size={12} />
           let btnStyle = 'bg-dam-orange/20 text-dam-orange border-dam-orange/40 hover:bg-dam-orange/30'
 
           if (isFault) {
             btnAction = async () => { await confirmFault(); await reset() }
             btnLabel = 'Confirm Safety'
-            btnIcon = <ShieldCheck size={12} />
             btnStyle = 'bg-dam-red/20 text-dam-red border-dam-red/40 hover:bg-dam-red/30 animate-pulse'
           } else if (isStartupError) {
             // Hardware never came up — skip the Reset-then-Recheck two-step
@@ -117,35 +114,37 @@ export function Sidebar() {
 
           const baseStyle = 'w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-[10px] font-black uppercase tracking-widest border transition-all'
 
+          // Emergency fallback: allow reset even if backend is in error/checking.
+          // Rendered as a compact icon button to the right of the main action so
+          // it stays out of the way until needed.
+          const showForceReset = status.state === 'emergency' && bs === 'error'
+
           return (
             <div className="space-y-1.5">
-              <button
-                onClick={btnAction}
-                disabled={loading}
-                className={`${baseStyle} ${btnStyle} disabled:opacity-60 disabled:cursor-wait`}
-              >
-                {loading ? <Loader size={12} className="animate-spin" /> : btnIcon}
-                {loading
-                  ? (isStartupError ? 'Reloading…' : isFault ? 'Confirming…' : 'Resetting…')
-                  : btnLabel}
-              </button>
-
-
-            {/* Emergency fallback: Allow reset even if backend is in error/checking.
-                Uses the same baseStyle as the main action button so the two buttons
-                look like siblings — softer red variant to signal it's the lower-priority
-                fallback path. */}
-            {status.state === 'emergency' && bs === 'error' && (
-              <button
-                onClick={() => reset()}
-                disabled={loading}
-                className={`${baseStyle} bg-dam-red/10 text-dam-red/80 border-dam-red/30 hover:bg-dam-red/20 disabled:opacity-60 disabled:cursor-wait`}
-              >
-                <RotateCcw size={12} />
-                Force Reset
-              </button>
-            )}
-          </div>
+              <div className="flex items-stretch gap-1.5">
+                <button
+                  onClick={btnAction}
+                  disabled={loading}
+                  className={`${baseStyle} ${btnStyle} flex-1 disabled:opacity-60 disabled:cursor-wait`}
+                >
+                  {loading && <Loader size={12} className="animate-spin" />}
+                  {loading
+                    ? (isStartupError ? 'Reloading…' : isFault ? 'Confirming…' : 'Resetting…')
+                    : btnLabel}
+                </button>
+                {showForceReset && (
+                  <button
+                    onClick={() => reset()}
+                    disabled={loading}
+                    title="Force Reset"
+                    aria-label="Force Reset"
+                    className="flex items-center justify-center w-9 rounded-lg border bg-dam-red/10 text-dam-red/80 border-dam-red/30 hover:bg-dam-red/20 disabled:opacity-60 disabled:cursor-wait transition-all"
+                  >
+                    <RotateCcw size={14} />
+                  </button>
+                )}
+              </div>
+            </div>
           )
         })()}
 

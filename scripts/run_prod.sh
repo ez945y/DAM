@@ -90,8 +90,19 @@ _child_pids+=($!)
 BACKEND_PID=$!
 
 # ── Build frontend (concurrently) ──────────────────────────────────────────────
+# Build / runtime output is mirrored to log files so failures are debuggable
+# instead of disappearing into /dev/null (which historically masked TypeScript
+# errors and made `make run` look like it was hanging on the backend).
+FRONTEND_BUILD_LOG="/tmp/dam-frontend-build.log"
+FRONTEND_RUN_LOG="/tmp/dam-frontend-run.log"
+BACKEND_LOG_NOTE="/tmp/dam-backend.log"
 info "Building frontend (Next.js production build) while backend warms up…"
-(cd dam-console && npm run build > /dev/null 2>&1)
+info "  build log → ${FRONTEND_BUILD_LOG}"
+if ! (cd dam-console && npm run build) > "$FRONTEND_BUILD_LOG" 2>&1; then
+    echo -e "${RED}[run] ✗ Frontend build FAILED — last 40 lines of ${FRONTEND_BUILD_LOG}:${NC}" >&2
+    tail -n 40 "$FRONTEND_BUILD_LOG" >&2 || true
+    die "npm run build failed. Full log: ${FRONTEND_BUILD_LOG}"
+fi
 
 # standalone output needs static assets copied in manually
 info "Finalizing frontend bundle…"
@@ -101,8 +112,9 @@ ok "Frontend build complete"
 
 # ── Start production frontend ──────────────────────────────────────────────────
 info "Starting frontend (Next.js standalone) on :3000…"
+info "  run log → ${FRONTEND_RUN_LOG}"
 # standalone mode requires `node .next/standalone/server.js`
-(cd dam-console && PORT=3000 HOSTNAME=127.0.0.1 node .next/standalone/server.js > /dev/null 2>&1) &
+(cd dam-console && PORT=3000 HOSTNAME=127.0.0.1 node .next/standalone/server.js > "$FRONTEND_RUN_LOG" 2>&1) &
 _child_pids+=($!)
 
 # ── Ready banner ───────────────────────────────────────────────────────────────
