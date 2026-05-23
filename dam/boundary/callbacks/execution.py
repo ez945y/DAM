@@ -24,15 +24,15 @@ from dam.types.observation import Observation
     layer="L2",
     description="Rejects if the joint velocity norm exceeds a task-level max_speed.",
     params={
-        "max_speed": "Maximum whole-arm joint velocity norm for this task section.",
-        "use_degrees": "Interpret max_speed as degrees/sec instead of radians/sec.",
+        "max_speed": "Maximum whole-arm joint velocity norm for this task section (radians/sec).",
+        "use_degrees": "UI/loader hint: interpret max_speed as deg/s. Normalised to rad/s once at load — runtime never sees this flag.",
     },
+    unit_params=("max_speed",),
 )
 def task_joint_speed_limit(
     *,
     obs: Observation,
     max_speed: float | None = None,
-    use_degrees: bool = False,
 ) -> CallbackResult:
     """Reject when ‖joint_velocities‖ exceeds ``max_speed``.
 
@@ -45,7 +45,7 @@ def task_joint_speed_limit(
         return CallbackResult.ok(bname)
     if not _all_finite(obs.joint_velocities):
         return CallbackResult.violate(bname, "non-finite joint velocities")
-    limit = float(np.radians(max_speed)) if use_degrees else float(max_speed)
+    limit = float(max_speed)
     speed_norm = float(np.linalg.norm(obs.joint_velocities))
     if speed_norm > limit:
         return CallbackResult.violate(

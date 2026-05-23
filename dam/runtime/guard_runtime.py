@@ -468,9 +468,15 @@ class GuardRuntime:
             "params",
         }
 
+        from dam.boundary.callbacks._registry import normalize_unit_params
+
         for bname, bcfg in new_config.boundaries.items():
             for ncfg in bcfg.nodes:
-                for pk, pv in ncfg.params.items():
+                # Normalise per-node: degrees→radians once, strip use_degrees
+                # so the hot path never sees a unit flag.
+                cb_name = getattr(ncfg, "callback", None) or ""
+                normalised = normalize_unit_params(cb_name, ncfg.params)
+                for pk, pv in normalised.items():
                     if pk in _STRUCTURAL:
                         continue
                     if pk not in pool:

@@ -51,8 +51,16 @@ def boundary_callback(
     layer: str,
     description: str = "",
     params: Mapping[str, str] | None = None,
+    unit_params: tuple[str, ...] | list[str] | None = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    """Decorator that registers a function as a named boundary callback."""
+    """Decorator that registers a function as a named boundary callback.
+
+    ``unit_params`` lists params whose values are interpreted in degrees when
+    ``use_degrees=True`` is set on the boundary; the loader normalises them to
+    radians once at config-pool build time so the callback hot path never
+    touches a unit branch.  ``use_degrees`` itself stays in the catalog as a
+    UI hint and is stripped from the pool after normalisation.
+    """
 
     def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
         import inspect
@@ -69,10 +77,27 @@ def boundary_callback(
                 "description": param_descriptions.get(p_name, ""),
             }
         doc = fn.__doc__ or ""
+        unit_params_tuple: tuple[str, ...] = tuple(unit_params or ())
+
+        # Surface ``use_degrees`` in the catalog as a UI hint whenever the
+        # callback declared unit-sensitive params; the runtime hot path never
+        # receives it (loader strips after normalisation), so it is not in
+        # the function signature.
+        if unit_params_tuple and "use_degrees" not in params_meta:
+            params_meta["use_degrees"] = {
+                "default": False,
+                "has_default": True,
+                "description": param_descriptions.get(
+                    "use_degrees",
+                    f"UI/loader hint: interpret {', '.join(unit_params_tuple)} as deg/s. "
+                    "Normalised to rad/s once at load.",
+                ),
+            }
 
         fn._cb_name = name  # type: ignore[attr-defined]
         fn._cb_layer = layer  # type: ignore[attr-defined]
         fn._cb_description = description or (doc.split("\n")[0] if doc else "")  # type: ignore[attr-defined]
+        fn._cb_unit_params = unit_params_tuple  # type: ignore[attr-defined]
 
         _CATALOG.append(
             {
@@ -80,6 +105,7 @@ def boundary_callback(
                 "layer": layer,
                 "description": fn._cb_description,
                 "params": params_meta,
+                "unit_params": list(unit_params_tuple),
                 "doc": doc,
             }
         )
@@ -89,6 +115,38 @@ def boundary_callback(
         return fn
 
     return decorator
+
+
+_DEG2RAD = 3.141592653589793 / 180.0
+
+
+def normalize_unit_params(callback_name: str, params: Mapping[str, Any]) -> dict[str, Any]:
+    """Return ``params`` with unit-aware fields converted to radians once.
+
+    If the callback declared ``unit_params=[...]`` AND the node sets
+    ``use_degrees=True``, each listed param is scalar/array-multiplied by
+    π/180 and ``use_degrees`` is stripped from the result.  Otherwise the
+    params are returned untouched (with ``use_degrees`` stripped if present
+    — runtime callbacks never see it).
+    """
+    out: dict[str, Any] = dict(params)
+    use_deg = bool(out.pop("use_degrees", False))
+    fn = _CALLBACKS.get(callback_name)
+    unit_keys: tuple[str, ...] = getattr(fn, "_cb_unit_params", ()) if fn is not None else ()
+    if not use_deg or not unit_keys:
+        return out
+    import numpy as np
+
+    for key in unit_keys:
+        if key not in out or out[key] is None:
+            continue
+        val = out[key]
+        if isinstance(val, (int, float)):
+            out[key] = float(val) * _DEG2RAD
+        else:
+            arr = np.asarray(val, dtype=np.float64)
+            out[key] = (arr * _DEG2RAD).tolist()
+    return out
 
 
 def get_catalog() -> list[dict[str, Any]]:

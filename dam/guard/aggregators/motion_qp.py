@@ -26,6 +26,7 @@ was explicitly configured for QP should fail loudly when its solver is missing.
 from __future__ import annotations
 
 import logging
+import typing
 from dataclasses import dataclass
 
 import numpy as np
@@ -67,6 +68,39 @@ class MotionQPConstraint:
     J_linear: np.ndarray | None = None
     # Slack penalty for this boundary's soft constraints (stricter boundary wins).
     slack_weight: float = 1e6
+
+    #: Canonical unit map for this dataclass's numeric fields.  Consumed by
+    #: ``CallbackResult.metadata['_units']`` so frontends can display joint
+    #: limits in deg / deg-s when the active source is degree-native, without
+    #: hardcoding field-name knowledge in the frontend.  Fields not listed
+    #: here (slack_weight, J_linear, cbf_gamma) carry no joint-angular unit.
+    UNITS: typing.ClassVar[dict[str, str]] = {
+        "upper": "rad",
+        "lower": "rad",
+        "max_velocity": "rad/s",
+        "q": "rad",
+        "workspace_bounds": "m",
+        "ee_pos": "m",
+        "dt": "s",
+    }
+
+
+def motion_qp_units(constraint: MotionQPConstraint) -> dict[str, str]:
+    """Return ``{"motion_qp.<field>": unit}`` for every populated field.
+
+    Use this in callbacks to populate ``CallbackResult.metadata['_units']``
+    alongside the ``"motion_qp"`` entry — that lets the inspector convert
+    rad → deg without hardcoding any field-name knowledge in the frontend.
+
+    Only fields that are non-None on this particular constraint are included
+    so the unit map matches what actually flows out (no stale entries for
+    fields the callback chose not to populate).
+    """
+    return {
+        f"motion_qp.{field}": unit
+        for field, unit in MotionQPConstraint.UNITS.items()
+        if getattr(constraint, field) is not None
+    }
 
 
 def _coerce(value: object) -> MotionQPConstraint:

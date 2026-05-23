@@ -30,7 +30,7 @@ from dam.boundary.callbacks._helpers import (
     _resolve_ee_translation,
 )
 from dam.boundary.callbacks._registry import boundary_callback
-from dam.guard.aggregators.motion_qp import MotionQPConstraint
+from dam.guard.aggregators.motion_qp import MotionQPConstraint, motion_qp_units
 from dam.guard.pipeline import CallbackResult
 from dam.kinematics.resolver import KinematicsResolver
 from dam.types.action import ActionProposal, ValidatedAction
@@ -49,12 +49,13 @@ def _to_array(x: Any, *, name: str) -> np.ndarray:
 @boundary_callback(
     name="joint_velocity_limit",
     layer="L1",
-    description="Clamps the action's joint velocities to ±max_velocities (radians or degrees).",
+    description="Clamps the action's joint velocities to ±max_velocities (radians/sec).",
     params={
         "max_velocities": "Per-joint max velocity. Radians/sec by default unless use_degrees is true.",
         "slack_weight": "QP soft-constraint penalty. Higher values make violating this limit more expensive.",
-        "use_degrees": "Interpret max_velocities as degrees/sec instead of radians/sec.",
+        "use_degrees": "UI/loader hint: interpret max_velocities as deg/s. Normalised to rad/s once at load — runtime never sees this flag.",
     },
+    unit_params=("max_velocities",),
 )
 def joint_velocity_limit(
     *,
@@ -63,7 +64,6 @@ def joint_velocity_limit(
     dt: float,
     max_velocities: list[float] | float | None = None,
     slack_weight: float = 1e6,
-    use_degrees: bool = False,
 ) -> CallbackResult:
     """Scale action velocities (or implied velocities) so |v_i| ≤ max_i.
 
@@ -80,8 +80,6 @@ def joint_velocity_limit(
         return CallbackResult.ok(bname, "no joint state to act on")
 
     v_max = _to_array(max_velocities, name="max_velocities")
-    if use_degrees:
-        v_max = np.radians(v_max)
 
     target_pos = np.asarray(action.target_joint_positions, dtype=np.float64)
     cur_pos = np.asarray(obs.joint_positions, dtype=np.float64)
@@ -108,13 +106,18 @@ def joint_velocity_limit(
     if max_ratio <= 1.0:
         # PASS-path telemetry: surface the limit, current velocity, and the
         # headroom ratio so the cycle inspector shows how close we are even
-        # when nothing fires.
+        # when nothing fires.  ``_units`` annotates sibling fields so the
+        # frontend can convert rad → deg without hardcoded key knowledge.
         return CallbackResult.ok(
             bname,
             metadata={
                 "max_velocity": v_max_1d.tolist(),
                 "current_velocity": velocities.tolist(),
                 "scale_ratio": max_ratio,
+                "_units": {
+                    "max_velocity": "rad/s",
+                    "current_velocity": "rad/s",
+                },
             },
         )
 
@@ -138,29 +141,38 @@ def joint_velocity_limit(
     )
     reason = (
         f"velocity scale ratio={max_ratio:.2f} "
-        f"(worst: J{worst + 1} {abs(float(velocities[worst])):.3f}>{float(v_max_1d[worst]):.3f})"
+        f"(worst: J{worst + 1} {abs(float(velocities[worst])):.3f} rad/s "
+        f"> {float(v_max_1d[worst]):.3f} rad/s)"
     )
     # Advertise the per-joint velocity limit (plus the state needed to express
-    # it as a position bound) for an optional QP aggregator.
+    # it as a position bound) for an optional QP aggregator.  ``_units`` is
+    # derived from the constraint itself so populated-field knowledge isn't
+    # duplicated between the dataclass and this dict.
     qp_meta = MotionQPConstraint(
         max_velocity=v_max_1d.copy(),
         q=cur_pos[:n].copy(),
         dt=float(dt),
         slack_weight=float(slack_weight),
     )
-    return CallbackResult.clamp(bname, clamped, reason=reason, metadata={"motion_qp": qp_meta})
+    return CallbackResult.clamp(
+        bname,
+        clamped,
+        reason=reason,
+        metadata={"motion_qp": qp_meta, "_units": motion_qp_units(qp_meta)},
+    )
 
 
 @boundary_callback(
     name="joint_position_limits",
     layer="L1",
-    description="Clamps the action's joint positions into [lower, upper] (radians or degrees).",
+    description="Clamps the action's joint positions into [lower, upper] (radians).",
     params={
         "upper": "Per-joint upper position limits. Radians by default unless use_degrees is true.",
         "lower": "Per-joint lower position limits. Radians by default unless use_degrees is true.",
         "slack_weight": "QP soft-constraint penalty. Higher values make violating this limit more expensive.",
-        "use_degrees": "Interpret upper/lower as degrees instead of radians.",
+        "use_degrees": "UI/loader hint: interpret upper/lower as degrees. Normalised to radians once at load — runtime never sees this flag.",
     },
+    unit_params=("upper", "lower"),
 )
 def joint_position_limits(
     *,
@@ -168,7 +180,6 @@ def joint_position_limits(
     upper: list[float] | None = None,
     lower: list[float] | None = None,
     slack_weight: float = 1e6,
-    use_degrees: bool = False,
 ) -> CallbackResult:
     """Clip ``action.target_joint_positions`` element-wise into [lower, upper].
 
@@ -183,9 +194,6 @@ def joint_position_limits(
 
     lo = _to_array(lower, name="lower")
     up = _to_array(upper, name="upper")
-    if use_degrees:
-        lo = np.radians(lo)
-        up = np.radians(up)
 
     target = np.asarray(action.target_joint_positions, dtype=np.float64)
     if not _all_finite(target):
@@ -204,12 +212,15 @@ def joint_position_limits(
                 "upper": up[:n].tolist(),
                 "lower": lo[:n].tolist(),
                 "target": target[:n].tolist(),
+                "_units": {"upper": "rad", "lower": "rad", "target": "rad"},
             },
         )
 
     diff_mask = ~np.isclose(clipped, target)
     idx = int(np.argmax(diff_mask))
-    reason = f"position clamp J{idx + 1}: {float(target[idx]):.3f}->{float(clipped[idx]):.3f}"
+    reason = (
+        f"position clamp J{idx + 1}: {float(target[idx]):.3f} rad -> {float(clipped[idx]):.3f} rad"
+    )
     clamped = ValidatedAction(
         target_joint_positions=clipped,
         target_joint_velocities=action.target_joint_velocities,
@@ -222,7 +233,12 @@ def joint_position_limits(
     qp_meta = MotionQPConstraint(
         upper=up[:n].copy(), lower=lo[:n].copy(), slack_weight=float(slack_weight)
     )
-    return CallbackResult.clamp(bname, clamped, reason=reason, metadata={"motion_qp": qp_meta})
+    return CallbackResult.clamp(
+        bname,
+        clamped,
+        reason=reason,
+        metadata={"motion_qp": qp_meta, "_units": motion_qp_units(qp_meta)},
+    )
 
 
 @boundary_callback(
@@ -320,6 +336,14 @@ def workspace(
             "workspace_bounds": bounds,
             "ee_pos": ee_pos.tolist(),
             "motion_qp": qp_meta,
+            # workspace_bounds / ee_pos are metres — declared so the inspector
+            # leaves them alone instead of guessing.  motion_qp's own fields
+            # are described under the dotted-path keys below.
+            "_units": {
+                "workspace_bounds": "m",
+                "ee_pos": "m",
+                **motion_qp_units(qp_meta),
+            },
         },
     )
 

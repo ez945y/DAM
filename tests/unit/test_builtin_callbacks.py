@@ -83,12 +83,20 @@ class TestJointLimits:
         assert result.decision == GuardDecision.CLAMP
         assert result.clamped_action.target_joint_positions[0] == -1.0
 
-    def test_use_degrees_converts_limits_to_internal_radians(self):
+    def test_loader_normalises_degrees_so_callback_sees_radians(self):
+        # Runtime never receives use_degrees; the loader strips it and
+        # pre-converts the listed unit_params to radians.
+        from dam.boundary.callbacks._registry import normalize_unit_params
+
+        normalised = normalize_unit_params(
+            "joint_position_limits",
+            {"upper": [90.0] * 6, "lower": [-90.0] * 6, "use_degrees": True},
+        )
+        assert "use_degrees" not in normalised
+        assert normalised["upper"] == pytest.approx([np.pi / 2] * 6)
         result = joint_position_limits(
             action=_action([2.0, 0, 0, 0, 0, 0]),
-            upper=[90.0] * 6,
-            lower=[-90.0] * 6,
-            use_degrees=True,
+            **normalised,
         )
         assert result.decision == GuardDecision.CLAMP
         assert result.clamped_action is not None
@@ -123,13 +131,20 @@ class TestJointVelocityLimit:
             result.clamped_action.target_joint_positions, [0.2] * 6, atol=1e-9
         )
 
-    def test_use_degrees_converts_velocity_limit_to_internal_radians(self):
+    def test_loader_normalises_velocity_limit_degrees_to_radians(self):
+        from dam.boundary.callbacks._registry import normalize_unit_params
+
+        normalised = normalize_unit_params(
+            "joint_velocity_limit",
+            {"max_velocities": [90.0] * 6, "use_degrees": True},
+        )
+        assert "use_degrees" not in normalised
+        assert normalised["max_velocities"] == pytest.approx([np.pi / 2] * 6)
         result = joint_velocity_limit(
             obs=_obs(positions=[0.0] * 6),
             action=_action([1.0] * 6),
             dt=0.1,
-            max_velocities=[90.0] * 6,
-            use_degrees=True,
+            **normalised,
         )
         assert result.decision == GuardDecision.CLAMP
         np.testing.assert_allclose(
@@ -275,10 +290,12 @@ class TestRegisterAll:
         by_name = {c["name"]: c for c in get_catalog()}
 
         assert "metres" in by_name["task_gripper_command_guard"]["params"]["zone"]["description"]
-        assert (
-            "degrees/sec"
-            in by_name["task_joint_speed_limit"]["params"]["use_degrees"]["description"]
-        )
+        assert "deg/s" in by_name["task_joint_speed_limit"]["params"]["use_degrees"]["description"]
+        # Catalog also exposes unit_params so the front-end / loader know
+        # which fields the use_degrees hint applies to.
+        assert by_name["task_joint_speed_limit"]["unit_params"] == ["max_speed"]
+        assert set(by_name["joint_position_limits"]["unit_params"]) == {"upper", "lower"}
+        assert by_name["joint_velocity_limit"]["unit_params"] == ["max_velocities"]
         assert (
             "Consecutive"
             in by_name["ood_detector"]["params"]["temporal_smoothing_frames"]["description"]

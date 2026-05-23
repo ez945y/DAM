@@ -426,7 +426,11 @@ class _WriterSession:
                 "fallback_triggered": {"type": ["string", "null"]},
             },
         )
-        self._reg_channel("/dam/action", sid)
+        self._reg_channel(
+            "/dam/action",
+            sid,
+            user_data={"joint_position_unit": "rad", "joint_velocity_unit": "rad/s"},
+        )
 
         # /dam/L0 … /dam/L3  — each layer gets its own channel so downstream
         # tools can subscribe to exactly the layer they care about.
