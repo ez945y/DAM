@@ -49,8 +49,26 @@ function makeNode(): ConstraintNodeDef {
   }
 }
 
-function makeBoundary(layerStr = 'L1'): BoundaryDef {
-  return { name: '', layer: layerStr, type: 'single', nodes: [makeNode()] }
+function uniqueBoundaryName(base: string, existingNames: Set<string>): string {
+  const cleanBase = base.trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '') || 'boundary'
+  if (!existingNames.has(cleanBase)) return cleanBase
+  let idx = 2
+  while (existingNames.has(`${cleanBase}_${idx}`)) idx += 1
+  return `${cleanBase}_${idx}`
+}
+
+function isAutoBoundaryName(name: string, layer: string): boolean {
+  const lower = name.trim().toLowerCase()
+  return !lower || lower === `${layer.toLowerCase()}_boundary` || /^l[0-3]_boundary_\d+$/.test(lower)
+}
+
+function makeBoundary(layerStr = 'L1', existingNames = new Set<string>()): BoundaryDef {
+  return {
+    name: uniqueBoundaryName(`${layerStr.toLowerCase()}_boundary`, existingNames),
+    layer: layerStr,
+    type: 'single',
+    nodes: [makeNode()],
+  }
 }
 
 function inferGripperCommand(node: ConstraintNodeDef): 'close' | 'open' | 'none' {
@@ -98,6 +116,9 @@ function NodeForm({
   fallbackCatalog = [],
   allowNodeIdEdit,
   boundaryName,
+  boundaryLayer,
+  onBoundaryNameChange,
+  existingBoundaryNames = new Set<string>(),
 }: {
   node: ConstraintNodeDef
   index: number
@@ -109,6 +130,9 @@ function NodeForm({
   fallbackCatalog?: any[]
   allowNodeIdEdit?: boolean
   boundaryName?: string
+  boundaryLayer?: string
+  onBoundaryNameChange?: (name: string) => void
+  existingBoundaryNames?: Set<string>
 }) {
   // Auto-initialize fields if they are missing but expected by the boundary name
   // This helps when a user clicks 'Add Boundary' but the node is empty
@@ -178,9 +202,16 @@ function NodeForm({
               const newCallback = e.target.value === '' ? null : e.target.value
               const meta = callbackCatalog.find(c => c.name === newCallback)
               const newParams = defaultParamsForCallback(newCallback, meta)
+              const nextBoundaryName = newCallback && isAutoBoundaryName(boundaryName ?? '', boundaryLayer ?? '')
+                ? uniqueBoundaryName(
+                  newCallback,
+                  new Set([...existingBoundaryNames].filter(n => n !== boundaryName))
+                )
+                : boundaryName
+              if (nextBoundaryName && nextBoundaryName !== boundaryName) onBoundaryNameChange?.(nextBoundaryName)
               // Auto-assign node_id from boundary name (preferred) or callback name
               const nextId = (!node.node_id || node.node_id === 'default' || node.node_id === node.callback)
-                ? (boundaryName || newCallback || 'default')
+                ? (nextBoundaryName || newCallback || 'default')
                 : node.node_id
 
               onChange(normalizeGripperNode({ ...node, node_id: nextId, callback: newCallback, params: newParams }))
@@ -543,14 +574,18 @@ function BoundaryCard({
   onChange,
   onRemove,
   callbackCatalog = [],
+  callbackGroups = [],
   fallbackCatalog = [],
+  existingBoundaryNames = new Set<string>(),
 }: {
   boundary: BoundaryDef
   isActive?: boolean
   onChange: (b: BoundaryDef) => void
   onRemove: () => void
   callbackCatalog?: any[]
+  callbackGroups?: { layer: string; callbacks: any[] }[]
   fallbackCatalog?: any[]
+  existingBoundaryNames?: Set<string>
 }) {
   const [open, setOpen] = useState(true) // Default open to show fields
   const [activeIdx, setActiveIdx] = useState(0)
@@ -665,9 +700,13 @@ function BoundaryCard({
               onChange={n => updateNode(i, n)}
               onRemove={() => removeNode(i)}
               callbackCatalog={callbackCatalog}
+              callbackGroups={callbackGroups}
               fallbackCatalog={fallbackCatalog}
               allowNodeIdEdit={isList}
               boundaryName={boundary.name}
+              boundaryLayer={boundary.layer}
+              onBoundaryNameChange={nextName => onChange({ ...boundary, name: nextName })}
+              existingBoundaryNames={existingBoundaryNames}
             />
           ))}
           <button
@@ -1114,7 +1153,10 @@ export default function GuardPage() {
   const removeTask = (id: string) => setTasks(prev => prev.filter(t => t.id !== id))
   const updateTask = (t: TaskDef) => setTasks(prev => prev.map(x => x.id === t.id ? t : x))
 
-  const addBoundary = (layer = 'L1') => setBoundaries(prev => [...prev, makeBoundary(layer)])
+  const addBoundary = (layer = 'L1') => setBoundaries(prev => [
+    ...prev,
+    makeBoundary(layer, new Set(prev.map(b => b.name).filter(Boolean))),
+  ])
   const removeBoundary = (name: string) => setBoundaries(prev => prev.filter(b => b.name !== name))
   const updateBoundary = (b: BoundaryDef, origName: string) =>
     setBoundaries(prev => prev.map(x => x.name === origName ? b : x))
@@ -1244,9 +1286,17 @@ export default function GuardPage() {
         <div className="space-y-2 relative z-10">
           {guardCatalog.map(g => {
             const layerBoundaries = boundaries.filter(b => b.layer === g.layer)
+            const layerCallbackCatalog = callbackCatalog.filter(cb => cb.layer === g.layer)
+            const layerCallbackGroups = callbackGroups
+              .filter(group => group.layer === g.layer)
+              .map(group => ({
+                ...group,
+                callbacks: group.callbacks.filter((cb: any) => cb.layer === g.layer),
+              }))
             const isExpanded = expandedBoundaryLayers[g.layer]
             const activeInLayer = layerBoundaries.filter(b => activeBoundaryNames.has(b.name)).length
             const isEnabled = guardsEnabled[g.id] !== false
+            const existingBoundaryNames = new Set(boundaries.map(b => b.name).filter(Boolean))
 
             return (
               <div key={g.layer} className={`border border-dam-border/40 rounded-xl overflow-hidden ${
@@ -1336,8 +1386,10 @@ export default function GuardPage() {
                             isActive={activeBoundaryNames.has(b.name)}
                             onChange={nb => updateBoundary(nb, b.name)}
                             onRemove={() => removeBoundary(b.name)}
-                            callbackCatalog={callbackCatalog}
+                            callbackCatalog={layerCallbackCatalog}
+                            callbackGroups={layerCallbackGroups}
                             fallbackCatalog={fallbackCatalog}
+                            existingBoundaryNames={existingBoundaryNames}
                           />
                         ))
                       )}
