@@ -62,13 +62,8 @@ function isAutoBoundaryName(name: string, layer: string): boolean {
   return !lower || lower === `${layer.toLowerCase()}_boundary` || /^l[0-3]_boundary_\d+$/.test(lower)
 }
 
-function makeBoundary(layerStr = 'L1', existingNames = new Set<string>()): BoundaryDef {
-  return {
-    name: uniqueBoundaryName(`${layerStr.toLowerCase()}_boundary`, existingNames),
-    layer: layerStr,
-    type: 'single',
-    nodes: [makeNode()],
-  }
+function makeBoundary(layerStr = 'L1'): BoundaryDef {
+  return { name: '', layer: layerStr, type: 'single', nodes: [makeNode()] }
 }
 
 function inferGripperCommand(node: ConstraintNodeDef): 'close' | 'open' | 'none' {
@@ -1153,10 +1148,7 @@ export default function GuardPage() {
   const removeTask = (id: string) => setTasks(prev => prev.filter(t => t.id !== id))
   const updateTask = (t: TaskDef) => setTasks(prev => prev.map(x => x.id === t.id ? t : x))
 
-  const addBoundary = (layer = 'L1') => setBoundaries(prev => [
-    ...prev,
-    makeBoundary(layer, new Set(prev.map(b => b.name).filter(Boolean))),
-  ])
+  const addBoundary = (layer = 'L1') => setBoundaries(prev => [...prev, makeBoundary(layer)])
   const removeBoundary = (name: string) => setBoundaries(prev => prev.filter(b => b.name !== name))
   const updateBoundary = (b: BoundaryDef, origName: string) =>
     setBoundaries(prev => prev.map(x => x.name === origName ? b : x))
