@@ -31,6 +31,9 @@ const LAYER_COLORS: { [key: string]: string } = {
   L3: 'text-dam-red border-dam-red/30 bg-dam-red/10',
 }
 
+const LEFT_PICK_ZONE = [[-0.175, -0.025], [-0.075, 0.075], [0.075, 0.225]]
+const RIGHT_PLACE_ZONE = [[0.025, 0.175], [-0.075, 0.075], [0.075, 0.225]]
+
 
 
 // ── Factory helpers ───────────────────────────────────────────────────────────
@@ -64,6 +67,37 @@ function isAutoBoundaryName(name: string, layer: string): boolean {
 
 function makeBoundary(layerStr = 'L1'): BoundaryDef {
   return { name: '', layer: layerStr, type: 'single', nodes: [makeNode()] }
+}
+
+function makeTaskGripperSequence(existingNames: Set<string>): BoundaryDef {
+  return {
+    name: uniqueBoundaryName('task_gripper_sequence', existingNames),
+    layer: 'L2',
+    type: 'list',
+    nodes: [
+      {
+        node_id: 'pick_left',
+        params: { allowed_command: 'close', zone: LEFT_PICK_ZONE },
+        callback: 'task_gripper_command_guard',
+        fallback: 'hold_position',
+        timeout_sec: null,
+      },
+      {
+        node_id: 'transfer_left_to_right',
+        params: { allowed_command: 'none' },
+        callback: 'task_gripper_command_guard',
+        fallback: 'hold_position',
+        timeout_sec: null,
+      },
+      {
+        node_id: 'place_right',
+        params: { allowed_command: 'open', zone: RIGHT_PLACE_ZONE },
+        callback: 'task_gripper_command_guard',
+        fallback: 'hold_position',
+        timeout_sec: null,
+      },
+    ],
+  }
 }
 
 function inferGripperCommand(node: ConstraintNodeDef): 'close' | 'open' | 'none' {
@@ -591,8 +625,22 @@ function BoundaryCard({
   }
   const removeNode = (i: number) =>
     onChange({ ...boundary, nodes: boundary.nodes.filter((_, idx) => idx !== i) })
-  const updateNode = (i: number, n: ConstraintNodeDef) =>
+  const updateNode = (i: number, n: ConstraintNodeDef) => {
+    if (
+      n.callback === 'task_gripper_command_guard' &&
+      boundary.layer === 'L2' &&
+      boundary.type === 'single' &&
+      boundary.nodes.length === 1 &&
+      isAutoBoundaryName(boundary.name, boundary.layer)
+    ) {
+      onChange(makeTaskGripperSequence(
+        new Set([...existingBoundaryNames].filter(name => name !== boundary.name))
+      ))
+      setActiveIdx(0)
+      return
+    }
     onChange({ ...boundary, nodes: boundary.nodes.map((nd, idx) => idx === i ? n : nd) })
+  }
 
   const isList = boundary.type === 'list'
   const nodes = boundary.nodes ?? []
