@@ -147,9 +147,10 @@ export type EnforcementMode = 'enforce' | 'monitor' | 'log_only'
 
 export interface FallbackDef {
   name: string
-  type: string
-  params: Record<string, any>
-  escalates_to: string | null
+  type?: string
+  params?: Record<string, unknown>
+  description?: string
+  escalates_to?: string | null
 }
 
 export interface JointDef {
@@ -200,6 +201,24 @@ export interface BoundaryTemplateDef {
   layer: string
   description?: string
   boundary: BoundaryDef
+}
+
+export interface CallbackParamMeta {
+  default: unknown
+  has_default: boolean
+  description?: string
+}
+
+export interface BoundaryCallbackDef {
+  name: string
+  layer: string
+  description?: string
+  params?: Record<string, CallbackParamMeta>
+}
+
+export interface BoundaryCallbackGroupDef {
+  layer: string
+  callbacks: BoundaryCallbackDef[]
 }
 
 export interface RuntimeStatus {

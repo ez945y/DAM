@@ -7,7 +7,15 @@ import {
   Database, Info
 } from 'lucide-react'
 import { ActionShell } from '@/components/ActionShell'
-import type { TaskDef, BoundaryDef, ConstraintNodeDef, BoundaryTemplateDef } from '@/lib/types'
+import type {
+  TaskDef,
+  BoundaryDef,
+  ConstraintNodeDef,
+  BoundaryCallbackDef,
+  BoundaryCallbackGroupDef,
+  BoundaryTemplateDef,
+  FallbackDef,
+} from '@/lib/types'
 import { DamConfig, defaultConfig, generateYaml, parseConfigFromYaml } from '@/lib/templates'
 import { OODTrainer } from '@/components/OODTrainer'
 import { useStackfileLibrary } from '@/hooks/useStackfileLibrary'
@@ -87,11 +95,11 @@ function inferGripperCommand(node: ConstraintNodeDef): 'close' | 'open' | 'none'
   return 'none'
 }
 
-function defaultParamsForCallback(callback: string | null, meta?: any): Record<string, any> {
+function defaultParamsForCallback(callback: string | null, meta?: BoundaryCallbackDef): Record<string, any> {
   if (callback === 'task_gripper_command_guard') return { allowed_command: 'none' }
   const params: Record<string, any> = {}
   if (!meta?.params) return params
-  Object.entries(meta.params).forEach(([pName, pMeta]: [string, any]) => {
+  Object.entries(meta.params).forEach(([pName, pMeta]) => {
     if (pMeta.has_default && pMeta.default != null) params[pName] = pMeta.default
   })
   return params
@@ -132,9 +140,9 @@ function NodeForm({
   isActive?: boolean
   onChange: (n: ConstraintNodeDef) => void
   onRemove: () => void
-  callbackCatalog?: any[]
-  callbackGroups?: { layer: string; callbacks: any[] }[]
-  fallbackCatalog?: any[]
+  callbackCatalog?: BoundaryCallbackDef[]
+  callbackGroups?: BoundaryCallbackGroupDef[]
+  fallbackCatalog?: FallbackDef[]
   allowNodeIdEdit?: boolean
   boundaryName?: string
   boundaryLayer?: string
@@ -546,7 +554,7 @@ function NodeForm({
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {Object.entries(meta.params)
                 .filter(([pName]) => !(node.callback === 'workspace' && pName === 'bounds'))
-                .map(([pName, pMeta]: [string, any]) => (
+                .map(([pName, pMeta]) => (
                 <div key={pName} className="space-y-0.5">
                   <label
                     htmlFor={`node-${index}-param-${pName}`}
@@ -599,9 +607,9 @@ function BoundaryCard({
   isActive?: boolean
   onChange: (b: BoundaryDef) => void
   onRemove: () => void
-  callbackCatalog?: any[]
-  callbackGroups?: { layer: string; callbacks: any[] }[]
-  fallbackCatalog?: any[]
+  callbackCatalog?: BoundaryCallbackDef[]
+  callbackGroups?: BoundaryCallbackGroupDef[]
+  fallbackCatalog?: FallbackDef[]
   boundaryTemplates?: BoundaryTemplateDef[]
   existingBoundaryNames?: Set<string>
 }) {
@@ -994,11 +1002,11 @@ function migrateConfig(parsed: any) {
 }
 
 export default function GuardPage() {
-  const [callbackCatalog, setCallbackCatalog] = useState<any[]>([])
-  const [callbackGroups, setCallbackGroups] = useState<{ layer: string; callbacks: any[] }[]>([])
+  const [callbackCatalog, setCallbackCatalog] = useState<BoundaryCallbackDef[]>([])
+  const [callbackGroups, setCallbackGroups] = useState<BoundaryCallbackGroupDef[]>([])
   const [boundaryTemplates, setBoundaryTemplates] = useState<BoundaryTemplateDef[]>([])
   const [guardCatalog, setGuardCatalog] = useState<GuardDef[]>([])
-  const [fallbackCatalog, setFallbackCatalog] = useState<any[]>([])
+  const [fallbackCatalog, setFallbackCatalog] = useState<FallbackDef[]>([])
 
   const [tasks, setTasks] = useState<TaskDef[]>([])
 
@@ -1331,7 +1339,7 @@ export default function GuardPage() {
               .filter(group => group.layer === g.layer)
               .map(group => ({
                 ...group,
-                callbacks: group.callbacks.filter((cb: any) => cb.layer === g.layer),
+                callbacks: group.callbacks.filter(cb => cb.layer === g.layer),
               }))
             const isExpanded = expandedBoundaryLayers[g.layer]
             const activeInLayer = layerBoundaries.filter(b => activeBoundaryNames.has(b.name)).length

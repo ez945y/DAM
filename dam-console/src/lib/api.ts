@@ -27,9 +27,12 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 
 import type {
   BoundaryConfig,
+  BoundaryCallbackDef,
+  BoundaryCallbackGroupDef,
   BoundaryTemplateDef,
   ExperimentDef,
   ExperimentResult,
+  FallbackDef,
   RiskEvent,
   RiskLogStats,
   RuntimeStatus,
@@ -84,13 +87,13 @@ export const api = {
   // ── Runtime control ───────────────────────────────────────────────────────
   getStatus: () => apiFetch<RuntimeStatus & { has_rust?: boolean }>('/control/status'),
   getCallbacks: () =>
-    apiFetch<{ callbacks: { name: string; layer: string; description?: string; params?: any }[] }>(
+    apiFetch<{ callbacks: BoundaryCallbackDef[] }>(
       '/control/callbacks'
     ),
   getCallbackCatalog: (grouped: boolean = false) =>
     apiFetch<{
-      callbacks?: { name: string; layer: string; description?: string; params?: any }[],
-      groups?: { layer: string; callbacks: any[] }[]
+      callbacks?: BoundaryCallbackDef[],
+      groups?: BoundaryCallbackGroupDef[]
     }>(`/catalog/callbacks?grouped=${grouped}`),
   getGuardCatalog: () =>
     apiFetch<{ guards: { kind: string; layer: string; description: string; class_name: string }[] }>(
@@ -99,7 +102,7 @@ export const api = {
   getBoundaryTemplates: () =>
     apiFetch<{ templates: BoundaryTemplateDef[] }>('/catalog/boundary-templates'),
   getFallbacks: () =>
-    apiFetch<{ fallbacks: { name: string; type?: string; params?: Record<string, unknown>; description?: string; escalates_to?: string }[] }>(
+    apiFetch<{ fallbacks: FallbackDef[] }>(
       '/control/fallbacks'
     ),
   start: (params?: { task_name?: string; n_cycles?: number; cycle_budget_ms?: number }) => {
