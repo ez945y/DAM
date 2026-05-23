@@ -53,6 +53,33 @@ function makeBoundary(layerStr = 'L1'): BoundaryDef {
   return { name: '', layer: layerStr, type: 'single', nodes: [makeNode()] }
 }
 
+function inferGripperCommand(node: ConstraintNodeDef): 'close' | 'open' | 'none' {
+  const value = node.params?.allowed_command
+  if (value === 'close' || value === 'open' || value === 'none') return value
+  const id = node.node_id.toLowerCase()
+  if (id.includes('pick')) return 'close'
+  if (id.includes('place')) return 'open'
+  return 'none'
+}
+
+function defaultParamsForCallback(callback: string | null, meta?: any): Record<string, any> {
+  if (callback === 'task_gripper_command_guard') return { allowed_command: 'none' }
+  const params: Record<string, any> = {}
+  if (!meta?.params) return params
+  Object.entries(meta.params).forEach(([pName, pMeta]: [string, any]) => {
+    if (pMeta.has_default && pMeta.default != null) params[pName] = pMeta.default
+  })
+  return params
+}
+
+function normalizeGripperNode(node: ConstraintNodeDef): ConstraintNodeDef {
+  if (node.callback !== 'task_gripper_command_guard') return node
+  const allowed = inferGripperCommand(node)
+  const nextParams: Record<string, unknown> = { allowed_command: allowed }
+  if (allowed !== 'none' && node.params?.zone) nextParams.zone = node.params.zone
+  return { ...node, params: nextParams }
+}
+
 // ── Shared input class ────────────────────────────────────────────────────────
 
 const inputCls =
@@ -149,21 +176,14 @@ function NodeForm({
             value={node.callback || ''}
             onChange={e => {
               const newCallback = e.target.value === '' ? null : e.target.value
-              let newParams: Record<string, any> = {}
               const meta = callbackCatalog.find(c => c.name === newCallback)
-              if (meta?.params) {
-                Object.entries(meta.params).forEach(([pName, pMeta]: [string, any]) => {
-                  if (pMeta.has_default) {
-                    newParams[pName] = pMeta.default
-                  }
-                })
-              }
+              const newParams = defaultParamsForCallback(newCallback, meta)
               // Auto-assign node_id from boundary name (preferred) or callback name
               const nextId = (!node.node_id || node.node_id === 'default' || node.node_id === node.callback)
                 ? (boundaryName || newCallback || 'default')
                 : node.node_id
 
-              onChange({ ...node, node_id: nextId, callback: newCallback, params: newParams })
+              onChange(normalizeGripperNode({ ...node, node_id: nextId, callback: newCallback, params: newParams }))
             }}
             className={`w-full ${inputCls}`}
           >
@@ -336,6 +356,53 @@ function NodeForm({
         </div>
       )}
 
+      {node.callback === 'task_gripper_command_guard' && (
+        <div className="space-y-2 border-t border-dam-border/40 pt-2">
+          <p className="text-dam-muted text-[10px] uppercase font-bold tracking-widest">Gripper Gate</p>
+          <div className="grid grid-cols-1 sm:grid-cols-[120px_1fr] gap-2">
+            <label className="space-y-0.5">
+              <span className="text-dam-muted text-[10px]">allowed_command</span>
+              <select
+                value={inferGripperCommand(node)}
+                onChange={e => {
+                  const allowed = e.target.value as 'close' | 'open' | 'none'
+                  const nextParams: Record<string, unknown> = { allowed_command: allowed }
+                  if (allowed !== 'none' && node.params.zone) nextParams.zone = node.params.zone
+                  onChange({ ...node, params: nextParams })
+                }}
+                className={`w-full ${inputCls}`}
+              >
+                <option value="close">close</option>
+                <option value="open">open</option>
+                <option value="none">none</option>
+              </select>
+            </label>
+            {inferGripperCommand(node) !== 'none' && (
+              <label className="space-y-0.5">
+                <span className="text-dam-muted text-[10px]">zone</span>
+                <input
+                  type="text"
+                  value={node.params.zone == null ? '' : JSON.stringify(node.params.zone)}
+                  placeholder="[[xmin,xmax],[ymin,ymax],[zmin,zmax]]"
+                  onChange={e => {
+                    const nextParams: Record<string, unknown> = {
+                      allowed_command: inferGripperCommand(node),
+                    }
+                    try {
+                      nextParams.zone = JSON.parse(e.target.value)
+                    } catch {
+                      nextParams.zone = e.target.value
+                    }
+                    onChange({ ...node, params: nextParams })
+                  }}
+                  className={`w-full ${inputCls}`}
+                />
+              </label>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Dynamic parameters for the selected callback */}
       {(() => {
         if (!node.callback) return null
@@ -433,6 +500,7 @@ function NodeForm({
         // Skip callbacks that have dedicated UI above to avoid double rendering
         if (node.callback === 'joint_position_limits') return null
         if (node.callback === 'joint_velocity_limit') return null
+        if (node.callback === 'task_gripper_command_guard') return null
 
         return (
           <div key={node.callback} className="space-y-1.5 border-t border-dam-border/40 pt-1.5">
@@ -820,20 +888,28 @@ function migrateNode(node: ConstraintNodeDef): ConstraintNodeDef {
     if (jl.lower) next.params.lower = jl.lower
     delete next.params.joint_position_limits
   }
-  return next
+  return normalizeGripperNode(next)
 }
 
 function migrateConfig(parsed: any) {
   if (parsed.boundaries) {
-    parsed.boundaries = parsed.boundaries.map((b: any) => ({
-      ...b,
-      nodes: b.nodes?.map(migrateNode) || []
-    }))
+    parsed.boundaries = parsed.boundaries
+      .filter((b: any) => typeof b.name === 'string' && b.name.trim())
+      .map((b: any) => ({
+        ...b,
+        name: b.name.trim(),
+        nodes: b.nodes?.map(migrateNode) || []
+      }))
   }
   if (parsed.tasks) {
+    const validNames = parsed.boundaries
+      ? new Set(parsed.boundaries.map((b: any) => b.name))
+      : null
     parsed.tasks = parsed.tasks.map((t: any) => ({
       ...t,
-      boundaries: t.boundaries || []
+      boundaries: validNames
+        ? (t.boundaries || []).filter((name: string) => validNames.has(name))
+        : (t.boundaries || [])
     }))
   }
   return parsed

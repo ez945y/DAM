@@ -200,6 +200,30 @@ describe('generateYaml', () => {
     expect(yaml).toContain('zone: [[0.0250, 0.1750], [-0.0750, 0.0750], [0.0750, 0.2250]]')
   })
 
+  it('omits transient unnamed boundaries from generated YAML', () => {
+    const cfg = defaultConfig('so101_act')
+    cfg.boundaries = [
+      ...cfg.boundaries,
+      {
+        name: '',
+        layer: 'L2',
+        type: 'single',
+        nodes: [{
+          node_id: 'task_gripper_command_guard',
+          callback: 'task_gripper_command_guard',
+          params: { close_threshold: 0.25 },
+          fallback: 'emergency_stop',
+          timeout_sec: null,
+        }],
+      },
+    ]
+    cfg.tasks[0].boundaries = [...cfg.tasks[0].boundaries, '']
+
+    const yaml = generateYaml(cfg)
+    expect(yaml).not.toContain('\n  :')
+    expect(yaml).not.toContain('close_threshold: 0.2500')
+  })
+
   it('includes workspace bounds when set (quick_start)', () => {
     const cfg = defaultConfig('quick_start')
     const yaml = generateYaml(cfg)

@@ -369,10 +369,15 @@ function boundaryLines(b: BoundaryDef): string[] {
   return lines
 }
 
-function taskLines(t: TaskDef): string[] {
+function validBoundaries(cfg: DamConfig): BoundaryDef[] {
+  return cfg.boundaries.filter(b => b.name.trim())
+}
+
+function taskLines(t: TaskDef, validNames?: Set<string>): string[] {
   const lines: string[] = [`${t.name}:`]
   if (t.description) lines.push(`  description: "${t.description}"`)
-  lines.push(t.boundaries.length > 0 ? `  boundaries: [${t.boundaries.join(', ')}]` : '  boundaries: []')
+  const refs = validNames ? t.boundaries.filter(name => validNames.has(name)) : t.boundaries
+  lines.push(refs.length > 0 ? `  boundaries: [${refs.join(', ')}]` : '  boundaries: []')
   return lines
 }
 
@@ -488,9 +493,16 @@ const SCHEMA: YamlSection[] = [
   blank,
   list('guards', guardLines),
   blank,
-  custom((cfg, indent) => !cfg.boundaries.length ? [`${indent}boundaries:`, `${indent}  {}`] : [`${indent}boundaries:`, ...cfg.boundaries.flatMap(b => boundaryLines(b).map(l => `${indent}  ${l}`))]),
+  custom((cfg, indent) => {
+    const defs = validBoundaries(cfg)
+    return !defs.length ? [`${indent}boundaries:`, `${indent}  {}`] : [`${indent}boundaries:`, ...defs.flatMap(b => boundaryLines(b).map(l => `${indent}  ${l}`))]
+  }),
   blank,
-  custom((cfg, indent) => !cfg.tasks.length ? [`${indent}tasks:`, `${indent}  default:`, `${indent}    boundaries: []`] : [`${indent}tasks:`, ...cfg.tasks.flatMap(t => taskLines(t).map(l => `${indent}  ${l}`))]),
+  custom((cfg, indent) => {
+    if (!cfg.tasks.length) return [`${indent}tasks:`, `${indent}  default:`, `${indent}    boundaries: []`]
+    const names = new Set(validBoundaries(cfg).map(b => b.name))
+    return [`${indent}tasks:`, ...cfg.tasks.flatMap(t => taskLines(t, names).map(l => `${indent}  ${l}`))]
+  }),
   blank,
   block('loopback', [
     scalar('backend', cfg => cfg.loopback!.backend),
