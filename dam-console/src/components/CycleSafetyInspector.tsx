@@ -2,6 +2,7 @@
 import { useMemo, useState } from 'react'
 import { Activity, AlertTriangle, ChevronDown, ChevronRight, Cpu, Shield } from 'lucide-react'
 import type { FailureType } from '@/lib/types'
+import { useDisplayUnit, type DisplayUnit } from '@/hooks/useDisplayUnit'
 
 export interface InspectorGuardResult {
   name: string
@@ -30,6 +31,85 @@ export interface CycleSafetyInspectorProps {
   readonly action?: unknown
   readonly mode?: 'mcap' | 'risk'
   readonly chrome?: 'card' | 'flush'
+  /**
+   * Optional override for the display unit.  Normally the inspector reads it
+   * from ``DisplayUnitContext`` (mounted at the app root) so prop drilling
+   * isn't required.  Passing this explicitly lets tests or one-off panels
+   * force a unit independent of the active stackfile.
+   */
+  readonly displayUnit?: DisplayUnit
+}
+
+const RAD2DEG = 180.0 / Math.PI
+
+function makeJointFormatter(unit: 'rad' | 'deg'): { scale: (x: number) => number; label: string } {
+  // Function injection: bind once at component init, no per-cell branch.
+  if (unit === 'deg') return { scale: x => x * RAD2DEG, label: 'deg' }
+  return { scale: x => x, label: 'rad' }
+}
+
+/**
+ * Walk a guard-metadata object and apply ``scale`` to fields whose unit
+ * (declared by the server in a sibling ``_units`` map) starts with "rad".
+ *
+ * The server emits ``_units`` alongside the rad-bearing payload — either
+ * flat keys (``"upper": "rad"``) or dotted paths into a nested dataclass
+ * (``"motion_qp.upper": "rad"``).  The frontend reads that map directly
+ * instead of mirroring a hardcoded key list, so adding a new callback
+ * that emits rad-bearing metadata needs zero frontend changes.
+ *
+ * Anything without a unit entry is rendered as-is.  Generic so callers
+ * keep their input type.
+ */
+function scaleRadMetadata<T>(obj: T, scale: (x: number) => number): T {
+  return walkAndScale(obj, scale) as T
+}
+
+function walkAndScale(obj: unknown, scale: (x: number) => number): unknown {
+  if (Array.isArray(obj)) return obj.map(v => walkAndScale(v, scale))
+  if (obj == null || typeof obj !== 'object') return obj
+
+  const src = obj as Record<string, unknown>
+  const units = src._units && typeof src._units === 'object' && !Array.isArray(src._units)
+    ? (src._units as Record<string, string>)
+    : null
+
+  // First pass: recurse into children, dropping the meta key from the output.
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(src)) {
+    if (k === '_units') continue
+    out[k] = walkAndScale(v, scale)
+  }
+
+  // Second pass: apply per-path unit scaling using the declared map.
+  if (units) {
+    for (const [path, unit] of Object.entries(units)) {
+      if (!unit.startsWith('rad')) continue  // metres / seconds / dimensionless: leave alone
+      applyScaleAtPath(out, path.split('.'), scale)
+    }
+  }
+  return out
+}
+
+function applyScaleAtPath(
+  root: Record<string, unknown>,
+  keys: string[],
+  scale: (x: number) => number,
+): void {
+  let parent: Record<string, unknown> | undefined = root
+  for (let i = 0; i < keys.length - 1; i++) {
+    const next = parent?.[keys[i]]
+    if (next == null || typeof next !== 'object' || Array.isArray(next)) return
+    parent = next as Record<string, unknown>
+  }
+  if (!parent) return
+  const last = keys[keys.length - 1]
+  const val = parent[last]
+  if (Array.isArray(val)) {
+    parent[last] = val.map(x => typeof x === 'number' ? scale(x) : x)
+  } else if (typeof val === 'number') {
+    parent[last] = scale(val)
+  }
 }
 
 // DAM event taxonomy (dam.runtime.failure_classify):
@@ -175,9 +255,15 @@ function normalizeGuardMetadata(guard: InspectorGuardResult): Record<string, unk
   return Object.fromEntries(Object.entries(metadata).filter(([key]) => key !== 'host_health'))
 }
 
-function GuardCard({ guard }: { guard: InspectorGuardResult }) {
+function GuardCard({ guard, displayUnit }: { guard: InspectorGuardResult; displayUnit: DisplayUnit }) {
   const [open, setOpen] = useState(guard.decision !== 'PASS' || guard.layer === 'L1' || guard.layer === 'L3')
-  const metadata = normalizeGuardMetadata(guard)
+  // Avoid recomputing the entire walk + allocation on unrelated re-renders.
+  // Dependencies: the raw guard data + which unit we're displaying.
+  const metadata = useMemo(() => {
+    const raw = normalizeGuardMetadata(guard)
+    const { scale } = makeJointFormatter(displayUnit)
+    return scaleRadMetadata(raw, scale)
+  }, [guard, displayUnit])
   const hardwareKeys = ['temperatures', 'currents', 'voltages']
   const extraMetadata = Object.fromEntries(Object.entries(metadata).filter(([k]) => !hardwareKeys.includes(k)))
 
@@ -313,15 +399,17 @@ function VectorTable({
   )
 }
 
-function ActionPanel({ action }: { action: unknown }) {
+function ActionPanel({ action, displayUnit = 'rad' }: { action: unknown; displayUnit?: 'rad' | 'deg' }) {
   if (!action || typeof action !== 'object') {
     return <p className="text-[11px] text-dam-muted/60 italic">No action recorded.</p>
   }
   const a = action as Record<string, unknown>
-  const target = numArr(a.target_positions)
-  const validated = numArr(a.validated_positions)
-  const tvel = numArr(a.target_velocities)
-  const vvel = numArr(a.validated_velocities)
+  const { scale, label } = makeJointFormatter(displayUnit)
+  const apply = (xs: number[] | null) => (xs ?? []).map(scale)
+  const target = apply(numArr(a.target_positions))
+  const validated = apply(numArr(a.validated_positions))
+  const tvel = apply(numArr(a.target_velocities))
+  const vvel = apply(numArr(a.validated_velocities))
   const wasClamped = a.was_clamped === true
   const fallback = typeof a.fallback_triggered === 'string' ? a.fallback_triggered : null
   const known = new Set([
@@ -343,14 +431,14 @@ function ActionPanel({ action }: { action: unknown }) {
         )}
       </div>
       <VectorTable
-        label="Positions (target → validated)"
+        label={`Positions (target → validated) [${label}]`}
         cols={[
           { head: 'target', values: target },
           { head: 'validated', values: validated, highlightDiffWith: target },
         ]}
       />
       <VectorTable
-        label="Velocities (target → validated)"
+        label={`Velocities (target → validated) [${label}/s]`}
         cols={[
           { head: 'target', values: tvel },
           { head: 'validated', values: vvel, highlightDiffWith: tvel },
@@ -363,11 +451,12 @@ function ActionPanel({ action }: { action: unknown }) {
   )
 }
 
-function ObservationPanel({ observation }: { observation: unknown }) {
+function ObservationPanel({ observation, displayUnit = 'rad' }: { observation: unknown; displayUnit?: 'rad' | 'deg' }) {
   if (!observation || typeof observation !== 'object') {
     return <p className="text-[11px] text-dam-muted/60 italic">No observation recorded.</p>
   }
   const o = observation as Record<string, unknown>
+  const { scale, label } = makeJointFormatter(displayUnit)
   const known = new Set([
     'joint_positions', 'joint_velocities', 'end_effector_pose',
     'force_torque', 'obs_timestamp',
@@ -376,10 +465,10 @@ function ObservationPanel({ observation }: { observation: unknown }) {
   return (
     <div className="space-y-2">
       <VectorTable
-        label="Joint state"
+        label={`Joint state [pos ${label}, vel ${label}/s]`}
         cols={[
-          { head: 'position', values: numArr(o.joint_positions) },
-          { head: 'velocity', values: numArr(o.joint_velocities) },
+          { head: 'position', values: (numArr(o.joint_positions) ?? []).map(scale) },
+          { head: 'velocity', values: (numArr(o.joint_velocities) ?? []).map(scale) },
         ]}
       />
       <VectorTable
@@ -427,7 +516,9 @@ function LatencySummary({ latency = {}, totalMs }: { latency?: Record<string, nu
   )
 }
 
-export function CycleSafetyInspector({ guards, latency, totalMs, failure, observation, action, mode = 'mcap', chrome = 'card' }: CycleSafetyInspectorProps) {
+export function CycleSafetyInspector({ guards, latency, totalMs, failure, observation, action, mode = 'mcap', chrome = 'card', displayUnit }: CycleSafetyInspectorProps) {
+  const ctxUnit = useDisplayUnit()
+  const unit: DisplayUnit = displayUnit ?? ctxUnit
   const displayGuards = useMemo(() => {
     const hasHostGuard = guards.some(g => g.name.toLowerCase().includes('host_health'))
     const hostHealth = guards
@@ -501,18 +592,18 @@ export function CycleSafetyInspector({ guards, latency, totalMs, failure, observ
         )}
         {tab === 'guards' && (
           <div className="space-y-2">
-            {displayGuards.length === 0 ? <p className="text-xs text-dam-muted">No guard results recorded.</p> : displayGuards.map((g, i) => <GuardCard key={`${g.layer}-${g.name}-${i}`} guard={g} />)}
+            {displayGuards.length === 0 ? <p className="text-xs text-dam-muted">No guard results recorded.</p> : displayGuards.map((g, i) => <GuardCard key={`${g.layer}-${g.name}-${i}`} guard={g} displayUnit={unit} />)}
           </div>
         )}
         {tab === 'io' && (
           <div className="space-y-3">
             <div className="rounded border border-dam-border/50 bg-dam-surface-2 p-2">
               <p className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-dam-muted"><Cpu size={11} /> Observation</p>
-              <div className="mt-2"><ObservationPanel observation={observation ?? null} /></div>
+              <div className="mt-2"><ObservationPanel observation={observation ?? null} displayUnit={unit} /></div>
             </div>
             <div className="rounded border border-dam-border/50 bg-dam-surface-2 p-2">
               <p className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-dam-muted"><Cpu size={11} /> Action</p>
-              <div className="mt-2"><ActionPanel action={action ?? null} /></div>
+              <div className="mt-2"><ActionPanel action={action ?? null} displayUnit={unit} /></div>
             </div>
           </div>
         )}
