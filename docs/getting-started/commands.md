@@ -19,7 +19,7 @@ Use this page when you know what you want to do and just need the command.
 | Validate one Stackfile | `.venv/bin/dam validate examples/stackfiles/demo.yaml` |
 | Inspect one Stackfile | `.venv/bin/dam inspect examples/stackfiles/demo.yaml` |
 | Run demo task headlessly | `.venv/bin/dam run examples/stackfiles/demo.yaml --cycles 200 --task demo` |
-| Run SO-ARM101 hardware task | `.venv/bin/dam run examples/stackfiles/test.yaml --task soarm101` |
+| Run short SO-ARM101 hardware check | `.venv/bin/dam run examples/stackfiles/test.yaml --cycles 50 --task soarm101` |
 
 ## Tests And Docs
 

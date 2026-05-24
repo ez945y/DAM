@@ -5,10 +5,10 @@ Use this checklist before running DAM against physical robot hardware. It is int
 ## Before Connecting Hardware
 
 - You completed [Quick Start](quickstart.md) without hardware.
-- `python harness/docs/check_docs.py` passes if you changed docs.
 - `make validate` passes for the example Stackfiles.
 - You can explain the task name and active boundaries in your hardware Stackfile.
 - You know how to stop the robot outside DAM.
+- The robot workspace is clear and the physical stop procedure has been tested.
 
 ## Check The Hardware Stackfile
 
@@ -32,7 +32,10 @@ Confirm:
 
 1. Validate: `.venv/bin/dam validate examples/stackfiles/test.yaml`
 2. Inspect: `.venv/bin/dam inspect examples/stackfiles/test.yaml`
-3. Start with a short controlled run.
+3. Start with a short controlled run:
+   ```bash
+   .venv/bin/dam run examples/stackfiles/test.yaml --cycles 50 --task soarm101
+   ```
 4. Watch the console for guard decisions and latency.
 5. Stop and review any reject, fault, repeated clamp, or latency warning.
 

@@ -113,7 +113,7 @@ Use the hardware file only after you have a connected SO-ARM101, correct serial 
 
 ```bash
 .venv/bin/dam inspect examples/stackfiles/test.yaml
-.venv/bin/dam run examples/stackfiles/test.yaml --task soarm101
+.venv/bin/dam run examples/stackfiles/test.yaml --cycles 50 --task soarm101
 ```
 
 Do not use `--task default` for these examples; the task names are explicit in each Stackfile.
