@@ -113,7 +113,7 @@ boundaries:
 | Catches distribution shift | ✅ Usually |
 | False positives | ⚠️ Possible (rejects valid states) |
 | False negatives | ⚠️ Possible (misses subtle shifts) |
-| Real-time safe | ✅ Yes (< 1 ms) |
+| Timing impact | Watch cycle latency on the target machine |
 | User configuration required | ✅ Training phase optional but recommended |
 
 ---
@@ -167,10 +167,10 @@ boundaries:
 
 | Aspect | Status |
 |--------|--------|
-| Prevents impossible actions | ✅ Yes |
-| Sim-to-real fidelity | ⚠️ Good but imperfect (friction, damping) |
-| Real-time safe | ⚠️ Depends on sim complexity |
-| Requires sim model | ✅ Yes (URDF or MuJoCo XML) |
+| Prevents impossible actions | Only as good as the simulator and model assumptions |
+| Sim-to-real fidelity | Imperfect; friction, damping, and contacts need validation |
+| Timing impact | Depends on simulator complexity |
+| Requires sim model | Yes, such as URDF or MuJoCo XML |
 
 ---
 
@@ -314,8 +314,8 @@ boundaries:
 | Velocity bounds | Enforced when configured with accurate limits |
 | Acceleration bounds | Enforced when configured with accurate limits |
 | Workspace bounds | Enforced when configured with a valid kinematic model |
-| Collision-free | ❌ NO (requires a dedicated simulation/collision checker) |
-| Real-time safe | ✅ Yes (< 1 ms) |
+| Collision-free | Not covered by the default guard stack; requires a dedicated simulation or collision checker |
+| Timing health | Watch cycle latency in the console and configure watchdogs for the target hardware |
 
 ---
 
@@ -333,33 +333,30 @@ boundaries:
     layer: L2
     type: list
     nodes:
-      - node_id: pick_left
-        callback: task_gripper_command_guard
+      - callback: task_gripper_command_guard
         params:
           allowed_command: close
           zone: [[-0.175, -0.025], [-0.075, 0.075], [0.075, 0.225]]
         fallback: hold_position
-      - node_id: transfer_left_to_right
-        callback: task_gripper_command_guard
+      - callback: task_gripper_command_guard
         params:
           allowed_command: none
         fallback: hold_position
-      - node_id: place_right
-        callback: task_gripper_command_guard
+      - callback: task_gripper_command_guard
         params:
           allowed_command: open
           zone: [[0.025, 0.175], [-0.075, 0.075], [0.075, 0.225]]
         fallback: hold_position
 ```
 
-### Constraint Types
+### Common L2 Callbacks
 
-| Constraint | Type | Behavior |
-|-----------|------|----------|
-| `task_joint_speed_limit` | callback | Reject if joint velocity norm exceeds task limit |
-| `task_workspace_bounds` | callback | Reject if end-effector leaves task workspace |
-| `check_gripper_clear` | callback | Reject if gripper is closed when it must be clear |
-| `task_gripper_command_guard` | callback | Clamp open/close commands that do not match the active task node or its zone by suppressing the gripper command |
+| Callback | Behavior |
+|----------|----------|
+| `task_joint_speed_limit` | Reject if joint velocity norm exceeds task limit |
+| `task_workspace_bounds` | Reject if end-effector leaves task workspace |
+| `check_gripper_clear` | Reject if gripper is closed when it must be clear |
+| `task_gripper_command_guard` | Clamp open/close commands that do not match the active task node or its zone by suppressing the gripper command |
 
 ### Evaluation Order
 
@@ -368,34 +365,21 @@ boundaries:
 
 If any check fails, evaluation stops and decision is REJECT.
 
-### Callbacks
+### Custom Callbacks
 
-```python
-# Register a callback
-@dam.callback
-def validate_reach_target(obs, state, constraint):
-    """Return True to pass, False to reject."""
-    target_distance = np.linalg.norm(
-        obs.end_effector_pos - state.reach_target
-    )
-    return target_distance < 0.05  # Reject if too far
+Use built-in callbacks first. Add a custom callback only when the task needs a
+check that is not already covered by the callback catalog. See
+[Boundary Callbacks](../boundary-callbacks.md) for the current registration
+pattern and available built-ins.
 
-# Use in Stackfile
-boundaries:
-  reach:
-    nodes:
-      - node_id: reach
-        callback: validate_reach_target
-```
-
-### Guarantees
+### Expected Behavior
 
 | Aspect | Status |
 |--------|--------|
-| Boundary constraints enforced | ✅ Yes |
-| Timeouts prevent indefinite phases | ✅ Yes |
-| Task gripper command compatibility | ✅ Yes, clamps incompatible gripper commands with `task_gripper_command_guard` |
-| Callback correctness | ⚠️ User's responsibility |
+| Boundary callbacks run | When the task activates the boundary and the Stackfile validates |
+| Timeouts prevent indefinite phases | When `timeout_sec` is configured on the node |
+| Task gripper command compatibility | `task_gripper_command_guard` can suppress incompatible gripper commands |
+| Callback correctness | User's responsibility for custom callbacks |
 
 ---
 
@@ -452,14 +436,14 @@ boundaries:
           max_staleness_ms: 1000
 ```
 
-### Guarantees
+### Expected Behavior
 
 | Aspect | Status |
 |--------|--------|
-| Hardware faults detected | ✅ Yes |
-| Temperature monitored | ✅ Yes |
-| Watchdog enforced | ✅ Yes |
-| Prevents hardware damage | ✅ Usually (depends on sensor accuracy) |
+| Hardware faults detected | When the adapter exposes health status |
+| Temperature monitored | When temperature sources are configured |
+| Watchdog enforced | When watchdog boundaries are active |
+| Hardware damage prevention | Depends on sensor accuracy, thresholds, and independent stop procedures |
 
 ---
 
