@@ -43,7 +43,7 @@ The demo Stackfile task is named `demo`:
 The hardware example task is named `soarm101`:
 
 ```bash
-.venv/bin/dam run examples/stackfiles/test.yaml --task soarm101
+.venv/bin/dam run examples/stackfiles/test.yaml --cycles 50 --task soarm101
 ```
 
 Avoid `--task default` unless your own Stackfile actually defines a `default` task.

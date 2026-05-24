@@ -31,6 +31,9 @@ FORBIDDEN_PATTERNS = {
     r"Deterministic Safety": "Avoid deterministic safety claims in research-grade docs.",
     r"確定性安全": "Avoid deterministic safety claims in research-grade docs.",
     r"production deployment": "Prefer supervised hardware deployment in research-grade docs.",
+    r"dam run examples/stackfiles/test\.yaml(?!.*--cycles)": (
+        "Use a bounded --cycles value for hardware-oriented run examples."
+    ),
 }
 
 LEARNER_STACKFILE_FILES = {
