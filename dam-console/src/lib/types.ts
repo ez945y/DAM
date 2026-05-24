@@ -143,6 +143,11 @@ export interface ExperimentResult {
   artifacts: string[]
 }
 
+export interface ExperimentArtifact {
+  experiment_id: string
+  path: string
+}
+
 export interface BoundaryConfig {
   name: string
   layer?: string

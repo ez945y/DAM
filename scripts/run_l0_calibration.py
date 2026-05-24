@@ -1,25 +1,19 @@
-"""Experiment — L0 OOD Calibration (RQ1).
+"""Experiment — L0 Real-NVP NLL Comparison (RQ1).
 
-Trains a real OODGuard (memory_bank backend) on a **HuggingFace lerobot
-dataset** (default: ``MikeChenYZ/soarm-fmb-v2``), then evaluates FPR on
-held-out episodes and FNR on simulated failure modes.
+Trains a real L0 OODGuard with the ``normalizing_flow`` (Real-NVP) backend on
+normal SO-ARM observations, then feeds three held-out observation sequences into
+the trained model and records per-frame Negative Log-Likelihood (NLL):
 
-Optionally loads MCAP session files as additional cross-domain eval data
-(``--sessions-dir``).
-
-Data source
------------
-Training & normal-eval observations come from the HF dataset's
-``observation.state`` field, split by episode index.
-
-OOD observations use simulated failure modes (sensor fault, joint jam, etc.)
-because real OOD events are — by definition — not available in normal recordings.
+* normal test set: ``MikeChenYZ/soarm-fmb-v2``
+* legal-variation test set: ``MikeChenYZ/eval_soarm_fmb``
+* abnormal-A test set: ``MikeChenYZ/soarm-recover-failure``
 
 Usage
 -----
-    python scripts/run_l0_calibration.py [--hf-repo MikeChenYZ/soarm-fmb-v2]
-                                          [--sessions-dir PATH] [--seed S]
-                                          [--outdir PATH]
+    python scripts/run_l0_calibration.py \
+        --normal-repo MikeChenYZ/soarm-fmb-v2 \
+        --legal-repo MikeChenYZ/eval_soarm_fmb \
+        --anomaly-repo MikeChenYZ/soarm-recover-failure
 """
 
 from __future__ import annotations
@@ -35,12 +29,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np
 
-from dam.guard.builtin.ood import OODGuard
+from dam.guard.builtin.ood import MemoryBank, OODGuard
 from dam.injection.static import precompute_injection
 from dam.types.observation import Observation
 from dam.types.result import GuardDecision
 
-_DEFAULT_HF_REPO = "MikeChenYZ/soarm-fmb-v2"
+_DEFAULT_NORMAL_REPO = "MikeChenYZ/soarm-fmb-v2"
+_DEFAULT_LEGAL_REPO = "MikeChenYZ/eval_soarm_fmb"
+_DEFAULT_ANOMALY_REPO = "MikeChenYZ/soarm-recover-failure"
 _DEFAULT_SESSIONS_DIR = "data/robot/sessions"
 
 # Physical limits for OOD scenario generation
@@ -50,6 +46,10 @@ _JOINT_LOWER = -_JOINT_UPPER.copy()
 _JOINT_LOWER[-1] = 0.0
 _JOINT_MID = (_JOINT_UPPER + _JOINT_LOWER) / 2
 _JOINT_RANGE = _JOINT_UPPER - _JOINT_LOWER
+
+
+class DatasetLoadError(RuntimeError):
+    """Raised when an RQ1 HuggingFace dataset cannot provide observations."""
 
 
 # ── MCAP loader ──────────────────────────────────────────────────────────────
@@ -96,6 +96,7 @@ def load_observations_from_hf(
     repo_id: str,
     split: str = "train",
     max_episodes: int | None = None,
+    max_observations: int | None = None,
     degrees_to_radians: bool = True,
 ) -> dict[int, list[Observation]]:
     """Load observations from a lerobot HF dataset, grouped by episode.
@@ -104,9 +105,19 @@ def load_observations_from_hf(
     """
     import datasets
 
-    ds = datasets.load_dataset(repo_id, split=split, streaming=True)
+    try:
+        ds = datasets.load_dataset(repo_id, split=split, streaming=True)
+    except Exception as exc:
+        if exc.__class__.__name__ == "EmptyDatasetError":
+            raise DatasetLoadError(
+                f"HF dataset repo {repo_id!r} contains no data files for split {split!r}. "
+                "RQ1 needs a lerobot dataset with an observation.state column; upload/export "
+                "the abnormal-A frames or pass --anomaly-repo to a repo that contains data."
+            ) from exc
+        raise
 
     by_episode: dict[int, list[Observation]] = {}
+    n_loaded = 0
     for item in ds:
         ep = item.get("episode_index", 0)
         if max_episodes is not None and ep >= max_episodes:
@@ -122,11 +133,20 @@ def load_observations_from_hf(
             joint_positions=positions,
         )
         by_episode.setdefault(ep, []).append(obs)
+        n_loaded += 1
+        if max_observations is not None and n_loaded >= max_observations:
+            break
+
+    if not by_episode:
+        raise DatasetLoadError(
+            f"HF dataset repo {repo_id!r} loaded but produced no observation.state frames "
+            f"for split {split!r}."
+        )
 
     return by_episode
 
 
-# ── OOD scenario generators (simulated failures — not synthetic normals) ─────
+# ── Legacy OOD scenario generators (kept for compatibility helpers) ─────────
 
 
 OOD_SCENARIOS = [
@@ -179,292 +199,280 @@ def _eval_at_threshold(
     return rejects / len(population) if population else 0.0
 
 
+# ── OOD score helpers ────────────────────────────────────────────────────────
+
+
+def _flatten_episode_obs(
+    by_episode: dict[int, list[Observation]],
+) -> list[tuple[int, int, Observation]]:
+    rows: list[tuple[int, int, Observation]] = []
+    for ep in sorted(by_episode.keys()):
+        for frame_idx, obs in enumerate(by_episode[ep]):
+            rows.append((ep, frame_idx, obs))
+    return rows
+
+
+def _vectors_for_observations(
+    guard: OODGuard, labelled_obs: list[tuple[int, int, Observation]]
+) -> np.ndarray:
+    vectors = np.stack([guard._extractor.extract(obs) for _, _, obs in labelled_obs], axis=0)
+    return vectors
+
+
+def _real_nvp_nll_for_vectors(guard: OODGuard, vectors: np.ndarray) -> np.ndarray:
+    if guard._flow is None or not guard._flow.is_fitted:
+        raise RuntimeError("Real-NVP flow was not fitted; install torch and retry RQ1.")
+    return guard._flow.neg_log_prob_batch(vectors)
+
+
+def _memory_bank_scores(train_vectors: np.ndarray, eval_vectors: np.ndarray) -> np.ndarray:
+    bank = MemoryBank()
+    bank.train(train_vectors)
+    return np.array([bank.nearest_distance(z) for z in eval_vectors], dtype=np.float32)
+
+
+def _welford_scores(train_vectors: np.ndarray, eval_vectors: np.ndarray) -> np.ndarray:
+    mean = np.mean(train_vectors, axis=0)
+    std = np.std(train_vectors, axis=0, ddof=1) if len(train_vectors) > 1 else np.ones_like(mean)
+    std = np.sqrt(np.square(std) + 1e-9)
+    return np.max(np.abs(eval_vectors - mean) / std, axis=1).astype(np.float32)
+
+
+def _summarise_scores(values: np.ndarray) -> dict[str, float | int]:
+    if len(values) == 0:
+        return {"samples": 0}
+    return {
+        "samples": int(len(values)),
+        "mean": round(float(np.mean(values)), 4),
+        "std": round(float(np.std(values)), 4),
+        "median": round(float(np.median(values)), 4),
+        "p05": round(float(np.percentile(values, 5)), 4),
+        "p95": round(float(np.percentile(values, 95)), 4),
+        "min": round(float(np.min(values)), 4),
+        "max": round(float(np.max(values)), 4),
+    }
+
+
+def _build_nll_rows(
+    *,
+    method: str,
+    score_name: str,
+    dataset: str,
+    repo_id: str,
+    labelled_obs: list[tuple[int, int, Observation]],
+    scores: np.ndarray,
+    is_nll: bool = False,
+) -> list[dict]:
+    rows: list[dict] = []
+    for (episode_index, frame_index, obs), score in zip(labelled_obs, scores, strict=True):
+        score_f = float(score)
+        rows.append(
+            {
+                "method": method,
+                "dataset": dataset,
+                "repo_id": repo_id,
+                "episode_index": episode_index,
+                "frame_index": frame_index,
+                "timestamp": round(float(obs.timestamp), 6),
+                "score_name": score_name,
+                "score_value": round(score_f, 6),
+                "nll": round(score_f, 6) if is_nll else "",
+            }
+        )
+    return rows
+
+
 # ── Main calibration ────────────────────────────────────────────────────────
 
 
 def run_calibration(
-    hf_repo_id: str = _DEFAULT_HF_REPO,
-    sessions_dir: str | None = _DEFAULT_SESSIONS_DIR,
+    normal_repo_id: str = _DEFAULT_NORMAL_REPO,
+    legal_repo_id: str = _DEFAULT_LEGAL_REPO,
+    anomaly_repo_id: str = _DEFAULT_ANOMALY_REPO,
+    sessions_dir: str | None = None,
     ood_samples_per_scenario: int = 30,
     n_thresholds: int = 40,
     seed: int = 42,
+    max_observations_per_dataset: int | None = None,
+    flow_epochs: int = 50,
+    nll_sigma: float = 3.0,
+    compare_ood_methods: bool = False,
 ) -> tuple[list[dict], dict]:
     rng = np.random.default_rng(seed)
+    del ood_samples_per_scenario, n_thresholds, sessions_dir
 
-    # Try HF dataset first; fall back to MCAP if `datasets` not installed
-    hf_loaded = False
-    by_episode: dict[int, list[Observation]] = {}
-    try:
-        print(f"  Loading HuggingFace dataset {hf_repo_id}...")
-        by_episode = load_observations_from_hf(hf_repo_id)
-        hf_loaded = bool(by_episode)
-    except ImportError:
-        print("  `datasets` package not installed — falling back to MCAP data")
-
-    mcap_eval: list[Observation] = []
-    mcap_sessions_count = 0
-
-    if hf_loaded:
-        episode_ids = sorted(by_episode.keys())
-        total_obs = sum(len(v) for v in by_episode.values())
-        print(f"  Found {len(episode_ids)} episodes, {total_obs} total observations")
-
-        n_train = max(1, int(len(episode_ids) * 0.70))
-        n_eval = max(1, (len(episode_ids) - n_train) // 2)
-
-        train_eps = episode_ids[:n_train]
-        eval_eps_a = episode_ids[n_train : n_train + n_eval]
-        eval_eps_b = episode_ids[n_train + n_eval :]
-
-        train_obs = [obs for ep in train_eps for obs in by_episode[ep]]
-        normal_eval = [obs for ep in eval_eps_a for obs in by_episode[ep]]
-        legal_eval = [obs for ep in eval_eps_b for obs in by_episode[ep]]
-
-        if not normal_eval:
-            idx = rng.choice(len(train_obs), size=min(200, len(train_obs)), replace=False)
-            normal_eval = [train_obs[i] for i in idx]
-        if not legal_eval:
-            idx = rng.choice(len(train_obs), size=min(200, len(train_obs)), replace=False)
-            legal_eval = [train_obs[i] for i in idx]
-
-        # MCAP as cross-domain eval
-        if sessions_dir and os.path.isdir(sessions_dir):
-            mcap_sessions = load_all_sessions(sessions_dir)
-            if mcap_sessions:
-                mcap_eval = [obs for _, session_obs in mcap_sessions for obs in session_obs]
-                mcap_sessions_count = len(mcap_sessions)
-                print(
-                    f"  MCAP cross-domain eval: {mcap_sessions_count} sessions, "
-                    f"{len(mcap_eval)} observations"
-                )
-        data_source = "huggingface"
-        data_detail = {"hf_repo_id": hf_repo_id, "episodes_used": len(episode_ids)}
-    else:
-        # Fallback: load MCAP sessions as primary data
-        if not sessions_dir or not os.path.isdir(sessions_dir):
-            raise RuntimeError(f"HF dataset not available and no MCAP sessions in {sessions_dir}")
-        print(f"  Loading MCAP sessions from {sessions_dir}...")
-        sessions = load_all_sessions(sessions_dir)
-        if not sessions:
-            raise RuntimeError(f"No MCAP sessions found in {sessions_dir}")
-
-        total_obs = sum(len(obs) for _, obs in sessions)
-        print(f"  Found {len(sessions)} sessions, {total_obs} total observations")
-
-        n_train = max(1, int(len(sessions) * 0.70))
-        n_eval = max(1, (len(sessions) - n_train) // 2)
-        train_sessions = sessions[:n_train]
-        eval_sessions_a = sessions[n_train : n_train + n_eval]
-        eval_sessions_b = sessions[n_train + n_eval :]
-
-        train_obs = [obs for _, so in train_sessions for obs in so]
-        normal_eval = [obs for _, so in eval_sessions_a for obs in so]
-        legal_eval = [obs for _, so in eval_sessions_b for obs in so]
-
-        if not normal_eval:
-            idx = rng.choice(len(train_obs), size=min(100, len(train_obs)), replace=False)
-            normal_eval = [train_obs[i] for i in idx]
-        if not legal_eval:
-            idx = rng.choice(len(train_obs), size=min(100, len(train_obs)), replace=False)
-            legal_eval = [train_obs[i] for i in idx]
-
-        data_source = "mcap"
-        data_detail = {"sessions_used": len(sessions)}
-
-    # OOD: simulated failure modes
-    ood_eval: list[Observation] = []
-    for scenario in OOD_SCENARIOS:
-        for _ in range(ood_samples_per_scenario):
-            ood_eval.append(_ood_obs_tagged(scenario, rng))
-
-    print(
-        f"  Split: train={len(train_obs)}, "
-        f"normal_eval={len(normal_eval)}, legal_eval={len(legal_eval)}, "
-        f"ood_eval={len(ood_eval)} (source: {data_source})"
+    print(f"  Loading normal dataset:        {normal_repo_id}")
+    normal_by_episode = load_observations_from_hf(
+        normal_repo_id, max_observations=max_observations_per_dataset
+    )
+    print(f"  Loading legal-variation set:   {legal_repo_id}")
+    legal_by_episode = load_observations_from_hf(
+        legal_repo_id, max_observations=max_observations_per_dataset
+    )
+    print(f"  Loading abnormal-A dataset:    {anomaly_repo_id}")
+    anomaly_by_episode = load_observations_from_hf(
+        anomaly_repo_id, max_observations=max_observations_per_dataset
     )
 
-    # Train
-    guard = OODGuard(backend="memory_bank")
+    episode_ids = sorted(normal_by_episode.keys())
+    if not episode_ids:
+        raise RuntimeError(f"No observations loaded from normal repo {normal_repo_id}")
+    if not legal_by_episode:
+        raise RuntimeError(f"No observations loaded from legal-variation repo {legal_repo_id}")
+    if not anomaly_by_episode:
+        raise RuntimeError(f"No observations loaded from abnormal-A repo {anomaly_repo_id}")
+
+    n_train = max(1, int(len(episode_ids) * 0.70))
+    train_eps = episode_ids[:n_train]
+    normal_test_eps = episode_ids[n_train:]
+    train_obs = [obs for ep in train_eps for obs in normal_by_episode[ep]]
+    normal_labelled = [
+        (ep, frame_idx, obs)
+        for ep in normal_test_eps
+        for frame_idx, obs in enumerate(normal_by_episode[ep])
+    ]
+    if not normal_labelled:
+        sampled = rng.choice(len(train_obs), size=min(200, len(train_obs)), replace=False)
+        normal_labelled = [(-1, int(i), train_obs[int(i)]) for i in sampled]
+
+    legal_labelled = _flatten_episode_obs(legal_by_episode)
+    anomaly_labelled = _flatten_episode_obs(anomaly_by_episode)
+
+    print(
+        f"  Split: train={len(train_obs)}, normal_test={len(normal_labelled)}, "
+        f"legal_variation={len(legal_labelled)}, abnormal_a={len(anomaly_labelled)}"
+    )
+
+    guard = OODGuard(backend="normalizing_flow")
     precompute_injection(guard, {})
-    guard.train(train_obs)
+    print(
+        f"  Training Real-NVP on {len(train_obs)} normal frames for {flow_epochs} epochs...",
+        flush=True,
+    )
+    guard.train(train_obs, flow_epochs=flow_epochs, flow_verbose=True)
 
     diag = guard.diagnostics()
-    print(f"  Trained: bank_size={diag['bank_size']}, backend={diag['bank_backend']}")
-
-    # Distance distributions
-    z_normals = [guard._extractor.extract(o) for o in normal_eval]
-    z_legals = [guard._extractor.extract(o) for o in legal_eval]
-    z_oods = [guard._extractor.extract(o) for o in ood_eval]
-    normal_dists = [guard._bank.nearest_distance(z) for z in z_normals]
-    legal_dists = [guard._bank.nearest_distance(z) for z in z_legals]
-    ood_dists = [guard._bank.nearest_distance(z) for z in z_oods]
-    dist_lo = max(0.0, min(min(normal_dists), min(ood_dists)) * 0.5)
-    dist_hi = max(max(normal_dists), max(ood_dists)) * 1.2
     print(
-        f"  Distance distributions (p50/p95):\n"
-        f"    normal:  p50={np.median(normal_dists):.3f}  p95={np.percentile(normal_dists, 95):.3f}\n"
-        f"    legal:   p50={np.median(legal_dists):.3f}  p95={np.percentile(legal_dists, 95):.3f}\n"
-        f"    ood:     p50={np.median(ood_dists):.3f}  p5={np.percentile(ood_dists, 5):.3f}"
-    )
-    separation = float(np.percentile(ood_dists, 5)) - float(np.percentile(legal_dists, 95))
-    print(
-        f"  Separation gap (OOD p5 - legal p95): {separation:.3f}"
-        f" {'✓ clear' if separation > 0 else '⚠ overlap'}"
+        "  Trained Real-NVP: "
+        f"mean_train_nll={diag.get('mean_train_nll')} std_train_nll={diag.get('std_train_nll')}"
     )
 
-    # Threshold sweep
-    thresholds = np.linspace(dist_lo, dist_hi, n_thresholds)
+    print("  Extracting train embeddings...", flush=True)
+    train_vectors = np.stack([guard._extractor.extract(obs) for obs in train_obs], axis=0)
+    print("  Extracting eval embeddings...", flush=True)
+    eval_vectors = {
+        "normal_test": _vectors_for_observations(guard, normal_labelled),
+        "legal_variation": _vectors_for_observations(guard, legal_labelled),
+        "abnormal_a": _vectors_for_observations(guard, anomaly_labelled),
+    }
+    labelled_sets = {
+        "normal_test": (normal_repo_id, normal_labelled),
+        "legal_variation": (legal_repo_id, legal_labelled),
+        "abnormal_a": (anomaly_repo_id, anomaly_labelled),
+    }
 
-    rows: list[dict] = []
-    best_eer = {"threshold": 0.0, "eer_gap": 1.0, "fpr": 0.0, "fnr": 0.0}
+    method_scores: dict[str, dict[str, np.ndarray]] = {"real_nvp": {}}
+    method_score_names = {"real_nvp": "nll"}
+    for dataset, vectors in eval_vectors.items():
+        print(f"  Scoring real_nvp/{dataset} ({len(vectors)} frames)...", flush=True)
+        method_scores["real_nvp"][dataset] = _real_nvp_nll_for_vectors(guard, vectors)
 
-    for tau in thresholds:
-        tau_f = float(tau)
-        fpr = _eval_at_threshold(guard, normal_eval, tau_f)
-        fnr = 1.0 - _eval_at_threshold(guard, ood_eval, tau_f)
-        legal_fpr = _eval_at_threshold(guard, legal_eval, tau_f)
-        gap = abs(fpr - fnr)
-        if gap < best_eer["eer_gap"]:
-            best_eer = {"threshold": tau_f, "eer_gap": gap, "fpr": fpr, "fnr": fnr}
-        rows.append(
+    if compare_ood_methods:
+        method_scores["memory_bank"] = {}
+        for dataset, vectors in eval_vectors.items():
+            print(f"  Scoring memory_bank/{dataset} ({len(vectors)} frames)...", flush=True)
+            method_scores["memory_bank"][dataset] = _memory_bank_scores(train_vectors, vectors)
+        method_scores["welford"] = {}
+        for dataset, vectors in eval_vectors.items():
+            print(f"  Scoring welford/{dataset} ({len(vectors)} frames)...", flush=True)
+            method_scores["welford"][dataset] = _welford_scores(train_vectors, vectors)
+        method_score_names.update(
             {
-                "threshold": round(tau_f, 4),
-                "fpr": round(fpr, 4),
-                "fnr": round(fnr, 4),
-                "legal_variation_fpr": round(legal_fpr, 4),
+                "memory_bank": "nearest_neighbor_distance",
+                "welford": "max_z_score",
             }
         )
-        print(f"  τ={tau_f:.4f}  FPR={fpr:.3f}  FNR={fnr:.3f}  legal_FPR={legal_fpr:.3f}")
 
-    eer = (best_eer["fpr"] + best_eer["fnr"]) / 2.0
-    legal_fpr_at_eer = min(rows, key=lambda r: abs(r["threshold"] - best_eer["threshold"]))[
-        "legal_variation_fpr"
-    ]
+    normal_nll = method_scores["real_nvp"]["normal_test"]
+    legal_nll = method_scores["real_nvp"]["legal_variation"]
+    anomaly_nll = method_scores["real_nvp"]["abnormal_a"]
 
-    # Operational threshold: best detection rate where FPR<5% AND legal_FPR<10%
-    op_candidates = [r for r in rows if r["fpr"] <= 0.05 and r["legal_variation_fpr"] <= 0.10]
-    if op_candidates:
-        op_best = min(op_candidates, key=lambda r: r["fnr"])
-        op_threshold = op_best["threshold"]
-        op_detection_rate = round(1.0 - op_best["fnr"], 4)
-        op_fpr = op_best["fpr"]
-        op_legal_fpr = op_best["legal_variation_fpr"]
-    else:
-        op_threshold = None
-        op_detection_rate = 0.0
-        op_fpr = None
-        op_legal_fpr = None
+    rows = []
+    for method, dataset_scores in method_scores.items():
+        for dataset, scores in dataset_scores.items():
+            repo_id, labelled_obs = labelled_sets[dataset]
+            rows.extend(
+                _build_nll_rows(
+                    method=method,
+                    score_name=method_score_names[method],
+                    dataset=dataset,
+                    repo_id=repo_id,
+                    labelled_obs=labelled_obs,
+                    scores=scores,
+                    is_nll=method == "real_nvp",
+                )
+            )
 
-    deployable = op_threshold is not None and op_detection_rate >= 0.80
+    train_mean = float(diag.get("mean_train_nll") or 0.0)
+    train_std = float(diag.get("std_train_nll") or 0.0)
+    nll_threshold = train_mean + nll_sigma * train_std
+    normal_fpr = float(np.mean(normal_nll > nll_threshold))
+    legal_fpr = float(np.mean(legal_nll > nll_threshold))
+    anomaly_detection_rate = float(np.mean(anomaly_nll > nll_threshold))
+    anomaly_fnr = 1.0 - anomaly_detection_rate
+
+    stats = {
+        "normal_test": {"repo_id": normal_repo_id, **_summarise_scores(normal_nll)},
+        "legal_variation": {"repo_id": legal_repo_id, **_summarise_scores(legal_nll)},
+        "abnormal_a": {"repo_id": anomaly_repo_id, **_summarise_scores(anomaly_nll)},
+    }
+    method_stats = {
+        method: {
+            dataset: {
+                "repo_id": labelled_sets[dataset][0],
+                "score_name": method_score_names[method],
+                **_summarise_scores(scores),
+            }
+            for dataset, scores in dataset_scores.items()
+        }
+        for method, dataset_scores in method_scores.items()
+    }
+
+    for name, values in stats.items():
+        print(
+            f"  {name:<16} samples={values['samples']} "
+            f"median_nll={values.get('median')} p95_nll={values.get('p95')}"
+        )
 
     summary: dict = {
-        "eer_threshold": round(best_eer["threshold"], 4),
-        "eer": round(eer, 4),
-        "fpr_at_eer": round(best_eer["fpr"], 4),
-        "fnr_at_eer": round(best_eer["fnr"], 4),
-        "legal_variation_fpr_at_eer": round(legal_fpr_at_eer, 4),
-        "operational_threshold": op_threshold,
-        "operational_detection_rate": op_detection_rate,
-        "operational_fpr": op_fpr,
-        "operational_legal_fpr": op_legal_fpr,
-        "deployable": deployable,
-        "data_source": data_source,
-        **data_detail,
+        "backend": "normalizing_flow",
+        "model": "Real-NVP",
+        "normal_repo_id": normal_repo_id,
+        "legal_repo_id": legal_repo_id,
+        "anomaly_repo_id": anomaly_repo_id,
+        "train_mean_nll": round(train_mean, 4),
+        "train_std_nll": round(train_std, 4),
+        "nll_sigma": nll_sigma,
+        "nll_threshold": round(nll_threshold, 4),
+        "compare_ood_methods": compare_ood_methods,
+        "normal_fpr_at_threshold": round(normal_fpr, 4),
+        "legal_variation_fpr_at_threshold": round(legal_fpr, 4),
+        "abnormal_a_detection_rate_at_threshold": round(anomaly_detection_rate, 4),
+        "abnormal_a_fnr_at_threshold": round(anomaly_fnr, 4),
+        "dataset_stats": stats,
+        "method_stats": method_stats,
+        "data_source": "huggingface",
         "train_observations": len(train_obs),
-        "eval_observations": len(normal_eval),
-        "ood_observations": len(ood_eval),
-        "bank_size": diag["bank_size"],
-        "bank_backend": diag["bank_backend"],
+        "normal_test_observations": len(normal_labelled),
+        "legal_variation_observations": len(legal_labelled),
+        "abnormal_a_observations": len(anomaly_labelled),
     }
 
-    print(f"\n  EER = {eer:.4f} at threshold = {best_eer['threshold']:.4f}")
-    print(f"  Legal-variation FPR at EER = {legal_fpr_at_eer:.4f}")
-    if op_threshold is not None:
-        print(
-            f"  Operational: threshold={op_threshold:.4f}  "
-            f"detection={op_detection_rate:.1%}  FPR={op_fpr}  legal_FPR={op_legal_fpr}"
-        )
-    else:
-        print("  Operational: NO threshold satisfies FPR<5% AND legal_FPR<10%")
-
-    # Temporal smoothing
-    smoothing_frames = [1, 2, 3, 5]
-    if op_fpr is not None:
-        smoothed_fpr = {n: round(op_fpr**n, 6) for n in smoothing_frames}
-        smoothed_legal = {
-            n: round(op_legal_fpr**n, 6) if op_legal_fpr else 0.0 for n in smoothing_frames
-        }
-        summary["temporal_smoothing_fpr"] = smoothed_fpr
-        summary["temporal_smoothing_legal_fpr"] = smoothed_legal
-
-    summary["distance_stats"] = {
-        "normal_p50": round(float(np.median(normal_dists)), 4),
-        "normal_p95": round(float(np.percentile(normal_dists, 95)), 4),
-        "legal_p50": round(float(np.median(legal_dists)), 4),
-        "legal_p95": round(float(np.percentile(legal_dists, 95)), 4),
-        "ood_p50": round(float(np.median(ood_dists)), 4),
-        "ood_p5": round(float(np.percentile(ood_dists, 5)), 4),
-        "separation_gap": round(separation, 4),
-    }
-
-    # Per-scenario breakdown
-    if op_threshold is not None:
-        scenario_detection: dict[str, dict] = {}
-        rng_scenario = np.random.default_rng(seed + 1000)
-        for scenario in OOD_SCENARIOS:
-            scene_obs = [
-                _ood_obs_tagged(scenario, rng_scenario) for _ in range(ood_samples_per_scenario)
-            ]
-            det_rate = _eval_at_threshold(guard, scene_obs, op_threshold)
-            scenario_detection[scenario] = {
-                "detection_rate": round(det_rate, 4),
-                "samples": ood_samples_per_scenario,
-            }
-            print(f"    {scenario:<25} detection={det_rate:.1%}")
-        summary["per_scenario_detection"] = scenario_detection
-
-    # MCAP cross-domain eval
-    if mcap_eval and op_threshold is not None:
-        mcap_fpr = _eval_at_threshold(guard, mcap_eval, op_threshold)
-        summary["mcap_cross_domain"] = {
-            "sessions": mcap_sessions_count,
-            "observations": len(mcap_eval),
-            "fpr_at_operational": round(mcap_fpr, 4),
-        }
-        print(
-            f"  MCAP cross-domain FPR at operational threshold: {mcap_fpr:.1%} "
-            f"({len(mcap_eval)} obs from {mcap_sessions_count} sessions)"
-        )
-
-    # Recommendations
-    recommendations: list[str] = []
-    if not deployable:
-        if op_detection_rate < 0.80:
-            recommendations.append(
-                "Train feature extractor on this data to improve embedding separation."
-            )
-        if separation < 0:
-            recommendations.append(
-                "Enable temporal_smoothing_frames >= 3 to suppress "
-                f"single-frame false positives (legal FPR drops to "
-                f"{summary.get('temporal_smoothing_legal_fpr', {}).get(3, '?')})."
-            )
-    if op_threshold is not None and "per_scenario_detection" in summary:
-        weak = [
-            s for s, d in summary["per_scenario_detection"].items() if d["detection_rate"] < 0.70
-        ]
-        if weak:
-            recommendations.append(
-                f"Scenarios [{', '.join(weak)}] need L1 motion guard "
-                "cooperation — L0 alone cannot catch physically valid postures."
-            )
-    summary["recommendations"] = recommendations
-
-    verdict = "PASS — deployable" if deployable else "FAIL — not deployable"
-    print(f"  Verdict: {verdict}")
-    if recommendations:
-        for r in recommendations:
-            print(f"  → {r}")
+    print(f"\n  NLL threshold = {nll_threshold:.4f} (train mean + {nll_sigma:g}σ)")
+    print(
+        f"  FPR normal={normal_fpr:.3f} legal={legal_fpr:.3f} "
+        f"abnormal-A detection={anomaly_detection_rate:.3f}"
+    )
     return rows, summary
 
 
@@ -489,23 +497,19 @@ def plot_results(rows: list[dict], outdir: Path) -> None:
         print("matplotlib not installed — skipping plot generation.")
         return
 
-    thresholds = [r["threshold"] for r in rows]
     fig, ax = plt.subplots(figsize=(8, 5))
-    ax.plot(thresholds, [r["fpr"] for r in rows], "b-o", markersize=3, label="FPR (normal)")
-    ax.plot(thresholds, [r["fnr"] for r in rows], "r-s", markersize=3, label="FNR (OOD)")
-    ax.plot(
-        thresholds,
-        [r["legal_variation_fpr"] for r in rows],
-        "g--^",
-        markersize=3,
-        label="FPR (legal variation)",
-    )
-    ax.set_xlabel("nn_threshold")
-    ax.set_ylabel("Error Rate")
-    ax.set_title("RQ1 — L0 OOD Calibration (HuggingFace lerobot)")
-    ax.legend()
+    real_nvp_rows = [r for r in rows if r.get("method", "real_nvp") == "real_nvp"]
+    groups = {
+        name: [float(r["score_value"]) for r in real_nvp_rows if r["dataset"] == name]
+        for name in ("normal_test", "legal_variation", "abnormal_a")
+    }
+    labels = [name for name, values in groups.items() if values]
+    data = [groups[name] for name in labels]
+    ax.boxplot(data, labels=labels, showfliers=False)
+    ax.set_xlabel("Dataset")
+    ax.set_ylabel("Per-frame NLL")
+    ax.set_title("RQ1 — L0 Real-NVP NLL by Dataset")
     ax.grid(True, alpha=0.3)
-    ax.set_ylim(-0.02, 1.02)
     fig.tight_layout()
     out = outdir / "l0_calibration.png"
     fig.savefig(out, dpi=150)
@@ -518,25 +522,62 @@ def main() -> None:
     parser.add_argument(
         "--hf-repo",
         type=str,
-        default=_DEFAULT_HF_REPO,
-        help="HuggingFace lerobot dataset repo id",
+        default=None,
+        help="Deprecated alias for --normal-repo",
+    )
+    parser.add_argument(
+        "--normal-repo",
+        type=str,
+        default=_DEFAULT_NORMAL_REPO,
+        help="Normal HuggingFace lerobot dataset repo id",
+    )
+    parser.add_argument(
+        "--legal-repo",
+        type=str,
+        default=_DEFAULT_LEGAL_REPO,
+        help="Legal-variation HuggingFace lerobot dataset repo id",
+    )
+    parser.add_argument(
+        "--anomaly-repo",
+        type=str,
+        default=_DEFAULT_ANOMALY_REPO,
+        help="Abnormal-A HuggingFace lerobot dataset repo id",
     )
     parser.add_argument(
         "--sessions-dir",
         type=str,
-        default=_DEFAULT_SESSIONS_DIR,
-        help="Path to MCAP session files (optional cross-domain eval)",
+        default=None,
+        help="Deprecated; RQ1 now compares HuggingFace test datasets",
     )
     parser.add_argument("--ood-samples", type=int, default=30)
     parser.add_argument("--n-thresholds", type=int, default=40)
+    parser.add_argument("--flow-epochs", type=int, default=50)
+    parser.add_argument("--nll-sigma", type=float, default=3.0)
+    parser.add_argument(
+        "--compare-ood-methods",
+        action="store_true",
+        help="Also score Welford and MemoryBank alongside the default Real-NVP NLL.",
+    )
+    parser.add_argument("--max-observations-per-dataset", type=int, default=None)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--outdir", type=str, default="data/experiments/l0_calibration")
     args = parser.parse_args()
 
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
+    normal_repo = args.hf_repo or args.normal_repo
     rows, summary = run_calibration(
-        args.hf_repo, args.sessions_dir, args.ood_samples, args.n_thresholds, args.seed
+        normal_repo_id=normal_repo,
+        legal_repo_id=args.legal_repo,
+        anomaly_repo_id=args.anomaly_repo,
+        sessions_dir=args.sessions_dir,
+        ood_samples_per_scenario=args.ood_samples,
+        n_thresholds=args.n_thresholds,
+        seed=args.seed,
+        max_observations_per_dataset=args.max_observations_per_dataset,
+        flow_epochs=args.flow_epochs,
+        nll_sigma=args.nll_sigma,
+        compare_ood_methods=args.compare_ood_methods,
     )
     write_csv(rows, outdir / "results.csv")
     plot_results(rows, outdir)

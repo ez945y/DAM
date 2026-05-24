@@ -420,6 +420,8 @@ def _cmd_experiment(args: argparse.Namespace) -> int:
         params["samples"] = args.samples
     if args.trials_per_scenario is not None:
         params["trials_per_scenario"] = args.trials_per_scenario
+    if args.compare_ood_methods:
+        params["compare_ood_methods"] = True
     if args.outdir is not None:
         params["outdir"] = args.outdir
     result = run_experiment(args.experiment_id, params)
@@ -626,7 +628,12 @@ def build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.Argument
     )
     p_exp_run.add_argument("--trials", type=int, help="boundary-scan trials per level")
     p_exp_run.add_argument("--frames", type=int, help="latency-bench frames per config")
-    p_exp_run.add_argument("--samples", type=int, help="l0-calibration synthetic sample count")
+    p_exp_run.add_argument("--samples", type=int, help="l0-calibration max HF observations")
+    p_exp_run.add_argument(
+        "--compare-ood-methods",
+        action="store_true",
+        help="RQ1: compare Welford, MemoryBank, and Real-NVP OOD scores",
+    )
     p_exp_run.add_argument(
         "--trials-per-scenario", type=int, help="usability trials per normal scenario"
     )

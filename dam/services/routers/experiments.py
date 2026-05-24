@@ -16,6 +16,27 @@ def create_experiments_router() -> APIRouter:
 
         return {"experiments": [exp.__dict__ for exp in list_experiments()]}
 
+    @router.get("/artifacts")
+    def list_experiment_artifacts() -> Any:
+        root = Path.cwd().resolve()
+        artifacts_root = root / "data" / "experiments"
+        preview_suffixes = {".svg", ".png", ".jpg", ".jpeg"}
+        artifacts: list[dict[str, str]] = []
+        if artifacts_root.is_dir():
+            for path in sorted(artifacts_root.rglob("*")):
+                if not path.is_file() or path.suffix.lower() not in preview_suffixes:
+                    continue
+                rel = path.relative_to(root)
+                parts = rel.parts
+                experiment_id = parts[2] if len(parts) > 2 else "experiments"
+                artifacts.append(
+                    {
+                        "experiment_id": experiment_id,
+                        "path": str(rel),
+                    }
+                )
+        return {"artifacts": artifacts}
+
     @router.post("/{experiment_id}/run")
     def run_native_experiment(
         experiment_id: str,

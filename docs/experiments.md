@@ -14,15 +14,18 @@ from three entry points:
 
 | RQ | Id | What it measures | Data source |
 |----|----|------------------|-------------|
-| RQ1 | `l0-calibration` | L0 threshold / FPR / FNR / EER | Parametric synthetic study |
+| RQ1 | `l0-calibration` | L0 Real-NVP per-frame NLL separation | HF datasets: normal / legal variation / abnormal-A |
 | RQ2 | `boundary-scan` | L1/L2 interception curves | Real `guard.check()` runs |
 | RQ3 | `usability` | False-trigger & success rate on benign legal-variation frames | Real L0–L2 guard runs |
 | RQ4 | `latency-bench` | Guard runtime latency under 10/20/50 Hz budgets | Isolated Guard profiling |
 | RQ5 | `failure-record-quality` | Completeness/classification/diversity of harvested failure records | Real violating-scenario runs |
 
-RQ3 and RQ5 are real measurements driven by the live guard stack and the
-shared production classifier — they are not hardcoded. RQ1 is an explicit
-parametric synthetic calibration.
+RQ1, RQ3, and RQ5 are real measurements driven by the live guard stack and the
+shared production classifier — they are not hardcoded. RQ1 trains the L0
+Real-NVP model on normal observations, then compares per-frame NLL across the
+normal test set, legal-variation test set, and abnormal-A test set. An optional
+RQ1 flag can also score the same three datasets with Welford z-score,
+MemoryBank nearest-neighbor distance, and Real-NVP NLL for method comparison.
 
 RQ4 is an isolated Guard profiling experiment. It measures the safety-monitoring
 path from receiving an action proposal to outputting the validated action, and
@@ -37,6 +40,24 @@ pip install matplotlib        # only needed for plot generation
 # DAM itself must already be installed:
 make setup                    # or: pip install -e .
 ```
+
+### RQ1 Options
+
+```bash
+python scripts/run_l0_calibration.py
+python scripts/run_l0_calibration.py --compare-ood-methods
+dam experiment run l0-calibration --compare-ood-methods
+```
+
+Default RQ1 output is the Real-NVP per-frame NLL comparison. With
+`--compare-ood-methods`, `results.csv` additionally includes Welford and
+MemoryBank rows using the shared columns `method`, `score_name`, and
+`score_value`; Real-NVP rows also fill the `nll` column.
+
+`nll_sigma` controls the Real-NVP decision threshold:
+`threshold = training_NLL_mean + nll_sigma * training_NLL_std`. Larger values
+are more tolerant and usually reduce false positives; smaller values are more
+sensitive and usually detect abnormal frames earlier.
 
 ---
 

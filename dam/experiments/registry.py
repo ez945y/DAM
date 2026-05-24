@@ -170,6 +170,14 @@ def _numeric_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return cleaned
 
 
+def _as_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
 def _summarise_boundary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     by_scenario: dict[str, dict[str, Any]] = {}
     for row in rows:
@@ -316,28 +324,63 @@ def _run_latency_bench(params: dict[str, Any], outdir: Path) -> ExperimentResult
 def _run_l0_calibration(params: dict[str, Any], outdir: Path) -> ExperimentResult:
     from scripts import run_l0_calibration as cal
 
-    hf_repo_id = str(params.get("hf_repo_id", "MikeChenYZ/soarm-fmb-v2"))
+    normal_repo_id = str(
+        params.get("normal_repo_id", params.get("hf_repo_id", "MikeChenYZ/soarm-fmb-v2"))
+    )
+    legal_repo_id = str(params.get("legal_repo_id", "MikeChenYZ/eval_soarm_fmb"))
+    anomaly_repo_id = str(params.get("anomaly_repo_id", "MikeChenYZ/soarm-recover-failure"))
     sessions_dir: str | None = params.get("sessions_dir", "data/robot/sessions")
     ood_samples = int(params.get("ood_samples_per_scenario", 30))
     n_thresholds = int(params.get("n_thresholds", 40))
     seed = int(params.get("seed", 42))
+    max_observations = params.get("max_observations_per_dataset", params.get("samples"))
+    max_observations = int(max_observations) if max_observations is not None else None
+    flow_epochs = int(params.get("flow_epochs", 50))
+    nll_sigma = float(params.get("nll_sigma", 3.0))
+    compare_ood_methods = _as_bool(params.get("compare_ood_methods", False))
     outdir.mkdir(parents=True, exist_ok=True)
     started = time.perf_counter()
 
-    rows, summary = cal.run_calibration(hf_repo_id, sessions_dir, ood_samples, n_thresholds, seed)
+    rows, summary = cal.run_calibration(
+        normal_repo_id=normal_repo_id,
+        legal_repo_id=legal_repo_id,
+        anomaly_repo_id=anomaly_repo_id,
+        sessions_dir=sessions_dir,
+        ood_samples_per_scenario=ood_samples,
+        n_thresholds=n_thresholds,
+        seed=seed,
+        max_observations_per_dataset=max_observations,
+        flow_epochs=flow_epochs,
+        nll_sigma=nll_sigma,
+        compare_ood_methods=compare_ood_methods,
+    )
     cal.write_csv(rows, outdir / "results.csv")
     cal.plot_results(rows, outdir)
 
-    plot_rows = [{"series": "FPR", "threshold": r["threshold"], "rate": r["fpr"]} for r in rows] + [
-        {"series": "FNR", "threshold": r["threshold"], "rate": r["fnr"]} for r in rows
-    ]
-    _write_line_svg(
+    if compare_ood_methods:
+        method_stats = summary.get("method_stats", {})
+        plot_rows = [
+            {
+                "dataset": f"{method}:{dataset}",
+                "median_score": values.get("median", 0.0),
+            }
+            for method, datasets in method_stats.items()
+            for dataset, values in datasets.items()
+        ]
+        title = "RQ1 L0 OOD Method Median Score"
+    else:
+        stats = summary.get("dataset_stats", {})
+        plot_rows = [
+            {"dataset": name, "median_score": values.get("median", 0.0)}
+            for name, values in stats.items()
+        ]
+        title = "RQ1 L0 Real-NVP Median NLL"
+    _write_bar_svg(
         plot_rows,
         outdir / "l0_calibration.svg",
-        title="RQ1 L0 OOD Calibration — Real Guard Pipeline",
-        series_key="series",
-        x_key="threshold",
-        y_key="rate",
+        title=title,
+        label_key="dataset",
+        value_key="median_score",
     )
     return ExperimentResult(
         id="l0-calibration",
@@ -441,15 +484,17 @@ _EXPERIMENTS: dict[
             title="L0 OOD Calibration",
             rq="RQ1",
             description=(
-                "Trains OODGuard (memory_bank) on HuggingFace lerobot dataset, "
-                "evaluates FPR on held-out episodes and FNR on simulated "
-                "failure modes. MCAP sessions used as cross-domain eval."
+                "Trains L0 OODGuard (Real-NVP) on normal HuggingFace lerobot "
+                "observations, then compares per-frame NLL for normal, "
+                "legal-variation, and abnormal-A test datasets."
             ),
             default_params={
-                "hf_repo_id": "MikeChenYZ/soarm-fmb-v2",
-                "sessions_dir": "data/robot/sessions",
-                "ood_samples_per_scenario": 30,
-                "n_thresholds": 40,
+                "normal_repo_id": "MikeChenYZ/soarm-fmb-v2",
+                "legal_repo_id": "MikeChenYZ/eval_soarm_fmb",
+                "anomaly_repo_id": "MikeChenYZ/soarm-recover-failure",
+                "flow_epochs": 50,
+                "nll_sigma": 3.0,
+                "compare_ood_methods": False,
                 "seed": 42,
                 "outdir": "data/experiments/l0_calibration",
             },

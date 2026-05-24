@@ -31,6 +31,7 @@ import type {
   BoundaryCallbackGroupDef,
   BoundaryTemplateDef,
   ContextEvent,
+  ExperimentArtifact,
   ExperimentDef,
   ExperimentResult,
   FallbackDef,
@@ -124,6 +125,8 @@ export const api = {
   // ── Experiments ──────────────────────────────────────────────────────────
   listExperiments: () =>
     apiFetch<{ experiments: ExperimentDef[] }>('/experiments'),
+  listExperimentArtifacts: () =>
+    apiFetch<{ artifacts: ExperimentArtifact[] }>('/experiments/artifacts'),
   runExperiment: (id: string, params?: Record<string, unknown>) =>
     apiFetch<ExperimentResult>(`/experiments/${encodeURIComponent(id)}/run`, {
       method: 'POST',

@@ -30,8 +30,11 @@ host/robot hardware view on the dashboard.
   `realtime=true` option, then embed the plot directly in the result card. The
   measurement window starts at action proposal receipt and ends at the
   validated action decision, excluding image preprocessing and policy
-  inference. RQ1 (L0 calibration) is a parametric synthetic study and is
-  documented as such.
+  inference. RQ1 (L0 calibration) trains the L0 Real-NVP model on normal
+  SO-ARM observations, then compares per-frame NLL across normal,
+  legal-variation, and abnormal-A HuggingFace test datasets. RQ1 can
+  optionally compare Welford, MemoryBank, and Real-NVP OOD scoring on the same
+  three datasets.
 
 ## Event Taxonomy
 

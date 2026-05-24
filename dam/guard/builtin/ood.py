@@ -578,13 +578,13 @@ class RealNVPFlow:
                 opt.step()
                 total_loss += loss.item()
                 n_batches += 1
-            if verbose and (epoch + 1) % 10 == 0:
-                logger.info(
-                    "RealNVP epoch %d/%d  loss=%.4f",
-                    epoch + 1,
-                    epochs,
-                    total_loss / max(n_batches, 1),
+            if verbose and ((epoch + 1) == 1 or (epoch + 1) % 5 == 0 or (epoch + 1) == epochs):
+                message = (
+                    f"  Real-NVP epoch {epoch + 1}/{epochs}  "
+                    f"loss={total_loss / max(n_batches, 1):.4f}"
                 )
+                print(message, flush=True)
+                logger.info(message.strip())
 
         self._model.eval()
         self._is_fitted = True
@@ -763,6 +763,7 @@ class OODGuard(Guard):
         observations: list[Observation],
         flow_epochs: int = _FLOW_EPOCHS,
         flow_lr: float = _FLOW_LR,
+        flow_verbose: bool = False,
     ) -> None:
         """Build the memory bank / fit the flow from normal observations.
 
@@ -796,7 +797,7 @@ class OODGuard(Guard):
             try:
                 if self._flow is None:
                     self._flow = RealNVPFlow(dim=vectors.shape[1], device=self._device)
-                self._flow.fit(vectors, epochs=flow_epochs, lr=flow_lr)
+                self._flow.fit(vectors, epochs=flow_epochs, lr=flow_lr, verbose=flow_verbose)
                 # Record training NLL distribution for later threshold computation.
                 train_nlls = self._flow.neg_log_prob_batch(vectors)
                 self._mean_train_nll = float(np.mean(train_nlls))

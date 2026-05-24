@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, CheckCircle2, FileSpreadsheet, FlaskConical, Loader2, Play, XCircle } from "lucide-react";
 import { PageShell } from "@/components/PageShell";
 import { api } from "@/lib/api";
-import type { ExperimentDef, ExperimentResult } from "@/lib/types";
+import type { ExperimentArtifact, ExperimentDef, ExperimentResult } from "@/lib/types";
 
 function asNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -90,10 +90,90 @@ function primaryPreviewArtifacts(paths: string[]): string[] {
 
 function visibleArtifacts(result: ExperimentResult | null): string[] {
   if (!result) return [];
-  return result.id === "latency-bench" ? [] : result.artifacts;
+  return result.artifacts.filter(isPreviewArtifact);
 }
 
 function L0CalibrationSummary({ summary }: { summary: Record<string, unknown> }) {
+  const nllThreshold = asNumber(summary.nll_threshold);
+  const datasetStats = summary.dataset_stats as Record<string, { samples?: number; median?: number; p95?: number; repo_id?: string }> | undefined;
+  const methodStats = summary.method_stats as Record<string, Record<string, { samples?: number; median?: number; p95?: number; score_name?: string }>> | undefined;
+  const normalFprNll = asNumber(summary.normal_fpr_at_threshold);
+  const legalFprNll = asNumber(summary.legal_variation_fpr_at_threshold);
+  const abnormalDetection = asNumber(summary.abnormal_a_detection_rate_at_threshold);
+  const trainObsNll = asNumber(summary.train_observations);
+  const compareMethods = summary.compare_ood_methods === true;
+
+  if (nllThreshold !== null && datasetStats) {
+    return (
+      <div className="space-y-3">
+        <div className="bg-dam-surface-2 border border-dam-border rounded-lg px-3 py-2 flex flex-wrap items-center gap-3 text-[11px]">
+          <span className="font-mono text-dam-accent">Real-NVP</span>
+          <span className="text-dam-muted font-mono">threshold={nllThreshold.toFixed(4)}</span>
+          {trainObsNll !== null && <span className="text-dam-muted">{trainObsNll.toLocaleString()} train obs</span>}
+          {compareMethods && <span className="text-dam-blue font-mono">method comparison enabled</span>}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+          <div className="bg-dam-surface-2 border border-dam-border rounded-lg px-3 py-2">
+            <p className="section-label">Normal FPR</p>
+            <p className="metric-value text-sm text-dam-text">{normalFprNll !== null ? `${(normalFprNll * 100).toFixed(1)}%` : "—"}</p>
+          </div>
+          <div className="bg-dam-surface-2 border border-dam-border rounded-lg px-3 py-2">
+            <p className="section-label">Legal Var. FPR</p>
+            <p className="metric-value text-sm text-dam-text">{legalFprNll !== null ? `${(legalFprNll * 100).toFixed(1)}%` : "—"}</p>
+          </div>
+          <div className="bg-dam-surface-2 border border-dam-border rounded-lg px-3 py-2">
+            <p className="section-label">Abnormal-A Detection</p>
+            <p className="metric-value text-sm text-dam-text">{abnormalDetection !== null ? `${(abnormalDetection * 100).toFixed(1)}%` : "—"}</p>
+          </div>
+        </div>
+
+        <div className="bg-dam-surface-2 border border-dam-border rounded-lg px-3 py-2">
+          <p className="section-label mb-2">Real-NVP NLL Distribution</p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-[11px] font-mono">
+            {Object.entries(datasetStats).map(([name, data]) => (
+              <div key={name} className="min-w-0">
+                <p className="text-dam-muted truncate">{name}</p>
+                <p className="text-dam-text">median={data.median?.toFixed(3) ?? "—"} p95={data.p95?.toFixed(3) ?? "—"}</p>
+                <p className="text-dam-muted">{data.samples?.toLocaleString() ?? "0"} frames</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {compareMethods && methodStats && (
+          <div className="bg-dam-surface-2 border border-dam-border rounded-lg px-3 py-2">
+            <p className="section-label mb-2">OOD Method Comparison</p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-[11px] font-mono">
+                <thead className="text-dam-muted">
+                  <tr>
+                    <th className="text-left py-1 pr-3">Method</th>
+                    <th className="text-left py-1 pr-3">Dataset</th>
+                    <th className="text-right py-1 pr-3">Median</th>
+                    <th className="text-right py-1">P95</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(methodStats).flatMap(([method, datasets]) =>
+                    Object.entries(datasets).map(([dataset, data]) => (
+                      <tr key={`${method}:${dataset}`} className="border-t border-dam-border/60">
+                        <td className="py-1 pr-3 text-dam-accent">{method}</td>
+                        <td className="py-1 pr-3 text-dam-muted">{dataset}</td>
+                        <td className="py-1 pr-3 text-right text-dam-text">{data.median?.toFixed(3) ?? "—"}</td>
+                        <td className="py-1 text-right text-dam-text">{data.p95?.toFixed(3) ?? "—"}</td>
+                      </tr>
+                    )),
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   const deployable = summary.deployable === true;
   const opThreshold = asNumber(summary.operational_threshold);
   const opDetection = asNumber(summary.operational_detection_rate);
@@ -503,6 +583,7 @@ export default function ExperimentsPage() {
   const [experiments, setExperiments] = useState<ExperimentDef[]>([]);
   const [paramsById, setParamsById] = useState<Record<string, Record<string, unknown>>>({});
   const [results, setResults] = useState<Record<string, ExperimentResult>>({});
+  const [diskArtifacts, setDiskArtifacts] = useState<ExperimentArtifact[]>([]);
   const [runningId, setRunningId] = useState<string | null>(null);
   const [progressById, setProgressById] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -520,6 +601,20 @@ export default function ExperimentsPage() {
       })
       .catch((e: Error) => setError(e.message));
   }, []);
+
+  useEffect(() => {
+    api
+      .listExperimentArtifacts()
+      .then((data) => setDiskArtifacts(data.artifacts.filter((artifact) => isPreviewArtifact(artifact.path))))
+      .catch((e: Error) => setError(e.message));
+  }, []);
+
+  function refreshArtifacts() {
+    api
+      .listExperimentArtifacts()
+      .then((data) => setDiskArtifacts(data.artifacts.filter((artifact) => isPreviewArtifact(artifact.path))))
+      .catch((e: Error) => setError(e.message));
+  }
 
   async function run(exp: ExperimentDef) {
     setError(null);
@@ -560,6 +655,7 @@ export default function ExperimentsPage() {
         const result = await api.runExperiment(exp.id, params);
         setResults((prev) => ({ ...prev, [exp.id]: result }));
       }
+      refreshArtifacts();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -618,31 +714,27 @@ export default function ExperimentsPage() {
           ))
         ) : (
           <section className="panel p-4 space-y-3">
-            {Object.values(results).length === 0 ? (
+            {diskArtifacts.length === 0 && Object.values(results).length === 0 ? (
               <p className="text-xs text-dam-muted">No artifacts yet.</p>
             ) : (
-              Object.values(results).map((result) => {
-                const artifacts = visibleArtifacts(result);
-                return (
-                  <div key={result.id} className="bg-dam-surface-2 border border-dam-border rounded-lg p-3 space-y-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-bold text-dam-text">{result.id}</p>
-                      <span className="text-[10px] font-mono text-dam-muted">{result.outdir}</span>
+              <div className="space-y-3">
+                {Object.entries(
+                  diskArtifacts.reduce<Record<string, string[]>>((groups, artifact) => {
+                    groups[artifact.experiment_id] = groups[artifact.experiment_id] ?? [];
+                    groups[artifact.experiment_id].push(artifact.path);
+                    return groups;
+                  }, {}),
+                ).map(([experimentId, paths]) => (
+                  <div key={experimentId} className="bg-dam-surface-2 border border-dam-border rounded-lg p-3 space-y-2">
+                    <p className="text-sm font-bold text-dam-text">{experimentId}</p>
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                      {paths.map((path) => (
+                        <ArtifactPreview key={path} path={path} />
+                      ))}
                     </div>
-                    {result.id === "latency-bench" ? (
-                      <LatencyGroupedBarChart rows={result.rows} />
-                    ) : artifacts.length > 0 ? (
-                      <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-                        {artifacts.map((path) => (
-                          <ArtifactPreview key={path} path={path} />
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-xs text-dam-muted">No displayed artifacts for this run.</p>
-                    )}
                   </div>
-                );
-              })
+                ))}
+              </div>
             )}
           </section>
         )}
