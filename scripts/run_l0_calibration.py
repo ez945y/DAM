@@ -54,6 +54,14 @@ _JOINT_MID = (_JOINT_UPPER + _JOINT_LOWER) / 2
 _JOINT_RANGE = _JOINT_UPPER - _JOINT_LOWER
 
 
+def _training_obs(rng: np.random.Generator) -> Observation:
+    """Covers the full legal operating envelope — nominal + deployment variations."""
+    sigma = rng.choice([0.05, 0.08, 0.12])
+    pos = _JOINT_MID + rng.normal(0.0, sigma, _N_JOINTS) * _JOINT_RANGE
+    pos = np.clip(pos, _JOINT_LOWER, _JOINT_UPPER)
+    return Observation(timestamp=time.monotonic(), joint_positions=pos)
+
+
 def _normal_obs(rng: np.random.Generator) -> Observation:
     pos = _JOINT_MID + rng.normal(0.0, 0.05, _N_JOINTS) * _JOINT_RANGE
     pos = np.clip(pos, _JOINT_LOWER, _JOINT_UPPER)
@@ -67,13 +75,26 @@ def _legal_variation_obs(rng: np.random.Generator) -> Observation:
 
 
 def _ood_obs(rng: np.random.Generator) -> Observation:
-    kind = rng.integers(0, 3)
+    kind = rng.integers(0, 5)
     if kind == 0:
-        pos = _JOINT_MID + rng.normal(0.0, 0.6, _N_JOINTS) * _JOINT_RANGE
+        # Sensor fault: all zeros or constant
+        pos = np.zeros(_N_JOINTS)
     elif kind == 1:
-        pos = rng.uniform(_JOINT_UPPER * 0.8, _JOINT_UPPER * 1.5, _N_JOINTS)
-    else:
+        # Joint at hard limits (collision / jam)
+        pos = np.where(rng.random(_N_JOINTS) > 0.5, _JOINT_UPPER, _JOINT_LOWER)
+    elif kind == 2:
+        # Sudden large jump from nominal (external perturbation)
+        pos = _JOINT_MID + rng.choice([-1, 1], _N_JOINTS) * _JOINT_RANGE * rng.uniform(
+            0.4, 0.8, _N_JOINTS
+        )
+    elif kind == 3:
+        # Wrong robot / corrupted state (values outside physical range)
         pos = rng.uniform(-5.0, 5.0, _N_JOINTS)
+    else:
+        # Extreme single-joint deviation (partial failure)
+        pos = _JOINT_MID.copy()
+        bad_joint = rng.integers(0, _N_JOINTS)
+        pos[bad_joint] = _JOINT_UPPER[bad_joint] * rng.uniform(0.9, 1.5)
     return Observation(timestamp=time.monotonic(), joint_positions=pos)
 
 
@@ -105,7 +126,7 @@ def run_calibration(
 ) -> tuple[list[dict], dict]:
     rng = np.random.default_rng(seed)
 
-    train_obs = [_normal_obs(rng) for _ in range(train_samples)]
+    train_obs = [_training_obs(rng) for _ in range(train_samples)]
     normal_eval = [_normal_obs(rng) for _ in range(eval_samples)]
     legal_eval = [_legal_variation_obs(rng) for _ in range(eval_samples)]
     ood_eval = [_ood_obs(rng) for _ in range(eval_samples)]
@@ -117,15 +138,24 @@ def run_calibration(
     diag = guard.diagnostics()
     print(f"  Trained: bank_size={diag['bank_size']}, backend={diag['bank_backend']}")
 
-    z_normals = [guard._extractor.extract(o) for o in normal_eval[:20]]
-    z_oods = [guard._extractor.extract(o) for o in ood_eval[:20]]
+    z_normals = [guard._extractor.extract(o) for o in normal_eval]
+    z_legals = [guard._extractor.extract(o) for o in legal_eval]
+    z_oods = [guard._extractor.extract(o) for o in ood_eval]
     normal_dists = [guard._bank.nearest_distance(z) for z in z_normals]
+    legal_dists = [guard._bank.nearest_distance(z) for z in z_legals]
     ood_dists = [guard._bank.nearest_distance(z) for z in z_oods]
     dist_lo = max(0.0, min(min(normal_dists), min(ood_dists)) * 0.5)
-    dist_hi = max(max(normal_dists), max(ood_dists)) * 1.5
+    dist_hi = max(max(normal_dists), max(ood_dists)) * 1.2
     print(
-        f"  Distance range: normal=[{min(normal_dists):.3f}, {max(normal_dists):.3f}], "
-        f"ood=[{min(ood_dists):.3f}, {max(ood_dists):.3f}]"
+        f"  Distance distributions (p50/p95):\n"
+        f"    normal:  p50={np.median(normal_dists):.3f}  p95={np.percentile(normal_dists, 95):.3f}\n"
+        f"    legal:   p50={np.median(legal_dists):.3f}  p95={np.percentile(legal_dists, 95):.3f}\n"
+        f"    ood:     p50={np.median(ood_dists):.3f}  p5={np.percentile(ood_dists, 5):.3f}"
+    )
+    separation = float(np.percentile(ood_dists, 5)) - float(np.percentile(legal_dists, 95))
+    print(
+        f"  Separation gap (OOD p5 - legal p95): {separation:.3f}"
+        f" {'✓ clear' if separation > 0 else '⚠ overlap'}"
     )
 
     thresholds = np.linspace(dist_lo, dist_hi, n_thresholds)
@@ -155,19 +185,71 @@ def run_calibration(
     legal_fpr_at_eer = min(rows, key=lambda r: abs(r["threshold"] - best_eer["threshold"]))[
         "legal_variation_fpr"
     ]
+
+    # Operational threshold: best detection rate where FPR<5% AND legal_FPR<10%
+    op_candidates = [r for r in rows if r["fpr"] <= 0.05 and r["legal_variation_fpr"] <= 0.10]
+    if op_candidates:
+        op_best = min(op_candidates, key=lambda r: r["fnr"])
+        op_threshold = op_best["threshold"]
+        op_detection_rate = round(1.0 - op_best["fnr"], 4)
+        op_fpr = op_best["fpr"]
+        op_legal_fpr = op_best["legal_variation_fpr"]
+    else:
+        op_threshold = None
+        op_detection_rate = 0.0
+        op_fpr = None
+        op_legal_fpr = None
+
+    deployable = op_threshold is not None and op_detection_rate >= 0.80
+
     summary = {
         "eer_threshold": round(best_eer["threshold"], 4),
         "eer": round(eer, 4),
         "fpr_at_eer": round(best_eer["fpr"], 4),
         "fnr_at_eer": round(best_eer["fnr"], 4),
         "legal_variation_fpr_at_eer": round(legal_fpr_at_eer, 4),
+        "operational_threshold": op_threshold,
+        "operational_detection_rate": op_detection_rate,
+        "operational_fpr": op_fpr,
+        "operational_legal_fpr": op_legal_fpr,
+        "deployable": deployable,
         "train_samples": train_samples,
         "eval_samples_per_population": eval_samples,
         "bank_size": diag["bank_size"],
         "bank_backend": diag["bank_backend"],
     }
+
     print(f"\n  EER = {eer:.4f} at threshold = {best_eer['threshold']:.4f}")
     print(f"  Legal-variation FPR at EER = {legal_fpr_at_eer:.4f}")
+    if op_threshold is not None:
+        print(
+            f"  Operational: threshold={op_threshold:.4f}  "
+            f"detection={op_detection_rate:.1%}  FPR={op_fpr}  legal_FPR={op_legal_fpr}"
+        )
+    else:
+        print("  Operational: NO threshold satisfies FPR<5% AND legal_FPR<10%")
+    # Temporal smoothing effect: if single-frame FPR=p, then N-consecutive FPR≈p^N
+    smoothing_frames = [1, 2, 3, 5]
+    if op_fpr is not None:
+        smoothed_fpr = {n: round(op_fpr**n, 6) for n in smoothing_frames}
+        smoothed_legal = {
+            n: round(op_legal_fpr**n, 6) if op_legal_fpr else 0.0 for n in smoothing_frames
+        }
+        summary["temporal_smoothing_fpr"] = smoothed_fpr
+        summary["temporal_smoothing_legal_fpr"] = smoothed_legal
+
+    summary["distance_stats"] = {
+        "normal_p50": round(float(np.median(normal_dists)), 4),
+        "normal_p95": round(float(np.percentile(normal_dists, 95)), 4),
+        "legal_p50": round(float(np.median(legal_dists)), 4),
+        "legal_p95": round(float(np.percentile(legal_dists, 95)), 4),
+        "ood_p50": round(float(np.median(ood_dists)), 4),
+        "ood_p5": round(float(np.percentile(ood_dists, 5)), 4),
+        "separation_gap": round(separation, 4),
+    }
+
+    verdict = "PASS — deployable" if deployable else "FAIL — not deployable"
+    print(f"  Verdict: {verdict}")
     return rows, summary
 
 
