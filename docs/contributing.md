@@ -57,6 +57,27 @@ pytest tests/ -m "not hardware and not rust and not ros2"
 make test
 ```
 
+### Documentation Changes
+
+For documentation-only changes, run the lightweight docs gate:
+
+```bash
+python harness/docs/check_docs.py
+```
+
+This builds MkDocs in strict mode and checks for onboarding command patterns that should not return, such as old `--stack` syntax.
+
+When a documentation change completes a meaningful PM checkpoint, append a short log entry:
+
+```bash
+python harness/docs/log_writer.py "Clarified first-run troubleshooting" \
+  --phase docs-troubleshooting \
+  --files docs/getting-started/troubleshooting.md \
+  --metrics "Setup and task-name issues have recovery steps"
+```
+
+Keep documentation user-outcome focused: explain how to install, validate, run, observe, debug, and safely iterate before exposing implementation details.
+
 ---
 
 ## Commit & PR Format
