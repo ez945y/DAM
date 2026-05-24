@@ -28,6 +28,7 @@ FORBIDDEN_PATTERNS = {
     r"ready to deploy safety-critical": "Avoid claiming safety-critical deployment readiness.",
     r"production-ready Stackfiles": "Prefer validated or deployment-oriented Stackfiles.",
     r"Fully implemented and production-ready": "Avoid production-readiness claims in research-grade docs.",
+    r"Deterministic Safety": "Avoid deterministic safety claims in research-grade docs.",
 }
 
 

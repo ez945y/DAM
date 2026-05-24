@@ -274,9 +274,9 @@ DAM's modules are organized into two distinct responsibilities: **Core Guard Log
 
 ## 3. Design Decisions
 
-### 3.1 Deterministic Safety over Probabilistic Output
+### 3.1 Explicit Validation over Probabilistic Output
 
-Neural network policies produce probabilistic action proposals. DAM guarantees that every action dispatched to hardware is **deterministically validated** against explicit boundary rules — the framework never relies on model confidence alone.
+Neural network policies produce probabilistic action proposals. DAM validates proposed actions against explicit boundary rules before dispatch — the framework never relies on model confidence alone.
 
 ### 3.2 Non-Intrusive Integration (Adapter Pattern)
 
