@@ -96,6 +96,7 @@ def load_observations_from_hf(
     repo_id: str,
     split: str = "train",
     max_episodes: int | None = None,
+    degrees_to_radians: bool = True,
 ) -> dict[int, list[Observation]]:
     """Load observations from a lerobot HF dataset, grouped by episode.
 
@@ -113,9 +114,12 @@ def load_observations_from_hf(
         state = item.get("observation.state")
         if state is None:
             continue
+        positions = np.array(state, dtype=np.float64)
+        if degrees_to_radians:
+            positions = np.deg2rad(positions)
         obs = Observation(
             timestamp=item.get("timestamp", 0.0),
-            joint_positions=np.array(state, dtype=np.float64),
+            joint_positions=positions,
         )
         by_episode.setdefault(ep, []).append(obs)
 
