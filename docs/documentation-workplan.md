@@ -23,7 +23,9 @@ Help a new DAM user go from "what is this?" to "I can run a demo, read a guard d
 | Stackfile education | Separate "how to use" from full schema detail | Done: Stackfile Walkthrough explains the no-hardware demo before the reference guide |
 | Console workflow | Teach how to inspect pass, clamp, reject, and latency | Done: Console overview starts with operator questions and healthy signals |
 | Troubleshooting | Add symptom-led fixes | Done: setup, ports, validation, model startup, and task-name issues have short recovery steps |
-| Reference hygiene | Keep deep implementation detail discoverable but secondary | In progress: strict build passes; internal refactor notes are excluded from the public docs build |
+| Reference hygiene | Keep deep implementation detail discoverable but secondary | Done: first-run pages point to Stackfiles, commands, and console before architecture internals |
+| Harness | Prevent repeated onboarding regressions | Done: `make docs-check` runs strict MkDocs plus command, safety wording, and learner Stackfile checks |
+| Hardware readiness | Slow the transition from demo to physical robot | Done: hardware examples use bounded cycles and require independent stop readiness |
 
 ## Definition Of Done
 
@@ -38,8 +40,8 @@ A documentation improvement is complete when:
 
 ## Current Priority Queue
 
-1. Keep `mkdocs build --strict` passing as the documentation quality gate.
-2. Split `quick-stack.md` further only if users need a shorter "common edits" page.
-3. Move implementation-heavy reference material out of the first-run learning path.
-4. Add screenshots or short console examples when stable demo artifacts are available.
+1. Keep `make docs-check` passing as the documentation quality gate.
+2. Add stable console screenshots or sample event snippets when demo artifacts are available.
+3. Review deep reference pages for outdated callback parameter names after each schema change.
+4. Split `quick-stack.md` further only if users need a shorter "common edits" page.
 5. Continue logging PM checkpoints in `harness/docs/logs/docs_pm_log.jsonl`.
