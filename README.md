@@ -9,7 +9,7 @@ Detachable Trust. Deterministic Safety.
 [![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen)](LICENSE)
 [![Discussions](https://img.shields.io/badge/Chat-GitHub_Discussions-blue?logo=github)](https://github.com/ez945y/DAM/discussions)
 
-[Features](#features) • [Installation](#installation) • [Usage](#usage) • [Configuration](#configuration)
+[Features](#features) • [Quick Start](#quick-start) • [Documentation](#documentation) • [Configuration](#configuration)
 </div>
 
 
@@ -35,25 +35,26 @@ This design enables strong safety boundaries while keeping the learning/policy l
 
 ---
 
-### Installation
+### Quick Start
 
 ```bash
 git clone https://github.com/ez945y/DAM.git
 cd DAM
 make setup
-```
-
-### Usage
-
-```bash
 make run
 ```
+
+Open **http://localhost:3000** for the DAM Console and **http://localhost:8080/docs** for API docs.
+
+For the guided no-hardware path, see [Quick Start](docs/getting-started/quickstart.md).
 
 | Command      | Description                                              |
 |--------------|----------------------------------------------------------|
 | `make setup` | Create venv, compile Rust extension, install dependencies |
 | `make run`   | Start backend (:8080) + frontend (:3000)                |
-| `make test`  | Run full test suite (unit + integration + safety)       |                       |
+| `make validate` | Validate example Stackfiles                          |
+| `make docs-check` | Run strict MkDocs and documentation pattern checks |
+| `make test`  | Run full test suite (unit + integration + safety)       |
 | `make clean` | Remove build artifacts                                  |
 
 The `dam` CLI is available after `make setup`:
@@ -73,6 +74,25 @@ After starting, open **http://localhost:3000** in your browser and select a conf
 - **Quick Start** — Simulation only (no hardware needed)
 - **SO-ARM101** — Pre-configured for SO-ARM101 robot
 - **Custom** — Create your own Stackfile
+
+---
+
+### Documentation
+
+| Goal | Start here |
+|------|------------|
+| Learn DAM step by step | [Learn DAM](docs/learn/index.md) |
+| Read a Stackfile | [Stackfile Walkthrough](docs/getting-started/stackfile-walkthrough.md) |
+| Make safe config edits | [Common Stackfile Edits](docs/getting-started/common-stackfile-edits.md) |
+| Understand the console | [Console Walkthrough](docs/getting-started/console-walkthrough.md) |
+| Prepare for hardware | [Hardware Readiness](docs/getting-started/hardware-readiness.md) |
+| Fix first-run issues | [Troubleshooting](docs/getting-started/troubleshooting.md) |
+
+Preview the MkDocs site locally:
+
+```bash
+make docs
+```
 
 ---
 
@@ -102,7 +122,7 @@ The final decision is the **most restrictive** outcome from all active layers.
 
 ### Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for details on:
+See [Contributing](docs/contributing.md) for details on:
 - Setting up the development environment
 - Code style and testing requirements
 - How to propose new features or guard layers
