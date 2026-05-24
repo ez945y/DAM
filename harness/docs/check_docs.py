@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 DEFAULT_GLOBS = (
+    "README.md",
     "docs/*.md",
     "docs/getting-started/*.md",
     "docs/learn/*.md",

@@ -24,4 +24,4 @@ Use `check_docs.py` before committing documentation changes:
 make docs-check
 ```
 
-It runs `mkdocs build --strict` and scans documentation pages for command patterns and overconfident safety language that have caused onboarding mistakes, such as old `--stack` syntax, assuming every Stackfile has a `default` task, or claiming safety-critical deployment readiness.
+It runs `mkdocs build --strict` and scans README plus documentation pages for command patterns and overconfident safety language that have caused onboarding mistakes, such as old `--stack` syntax, assuming every Stackfile has a `default` task, or claiming safety-critical deployment readiness.
