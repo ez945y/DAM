@@ -20,7 +20,7 @@ def create_experiments_router() -> APIRouter:
     def list_experiment_artifacts() -> Any:
         root = Path.cwd().resolve()
         artifacts_root = root / "data" / "experiments"
-        preview_suffixes = {".svg", ".png", ".jpg", ".jpeg"}
+        preview_suffixes = {".png", ".jpg", ".jpeg"}
         artifacts: list[dict[str, str]] = []
         if artifacts_root.is_dir():
             for path in sorted(artifacts_root.rglob("*")):

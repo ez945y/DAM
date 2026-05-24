@@ -54,6 +54,13 @@ Default RQ1 output is the Real-NVP per-frame NLL comparison. With
 MemoryBank rows using the shared columns `method`, `score_name`, and
 `score_value`; Real-NVP rows also fill the `nll` column.
 
+RQ1 previews are generated as PNG (`l0_calibration.png`). The old SVG median
+bar preview is intentionally not generated because negative Real-NVP NLL values
+make the simple SVG bar chart misleading. RQ1 also uses a local cache for
+HuggingFace observations and the trained Real-NVP flow under
+`data/experiments/l0_calibration/cache`; pass `--no-cache` to force a full
+reload/retrain.
+
 `nll_sigma` controls the Real-NVP decision threshold:
 `threshold = training_NLL_mean + nll_sigma * training_NLL_std`. Larger values
 are more tolerant and usually reduce false positives; smaller values are more

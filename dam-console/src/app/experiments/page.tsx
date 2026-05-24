@@ -75,7 +75,6 @@ function RowPreview({ result }: { result: ExperimentResult }) {
 function isPreviewArtifact(path: string): boolean {
   const lower = path.toLowerCase();
   return (
-    lower.endsWith(".svg") ||
     lower.endsWith(".png") ||
     lower.endsWith(".jpg") ||
     lower.endsWith(".jpeg")

@@ -58,7 +58,7 @@ def test_experiment_registry_covers_all_thesis_rqs(tmp_path: Path, monkeypatch) 
         assert result.status == "success"
         assert result.rows
         assert any(path.endswith("results.csv") for path in result.artifacts)
-        assert any(path.endswith(".svg") for path in result.artifacts)
+        assert any(path.endswith((".png", ".svg")) for path in result.artifacts)
         for artifact in result.artifacts:
             assert Path(artifact).is_file()
 
@@ -112,17 +112,21 @@ def test_experiment_artifacts_endpoint_lists_preview_files() -> None:
 
     outdir = Path("data") / "experiments" / "tmp_preview"
     outdir.mkdir(parents=True, exist_ok=True)
-    preview = outdir / "plot.svg"
+    preview = outdir / "plot.png"
+    svg = outdir / "plot.svg"
     csv = outdir / "results.csv"
-    preview.write_text('<svg xmlns="http://www.w3.org/2000/svg"></svg>')
+    preview.write_text("png")
+    svg.write_text('<svg xmlns="http://www.w3.org/2000/svg"></svg>')
     csv.write_text("x\n1\n")
     try:
         response = client.get("/api/experiments/artifacts")
         assert response.status_code == 200
         paths = {item["path"] for item in response.json()["artifacts"]}
         assert str(preview) in paths
+        assert str(svg) not in paths
         assert str(csv) not in paths
     finally:
         preview.unlink(missing_ok=True)
+        svg.unlink(missing_ok=True)
         csv.unlink(missing_ok=True)
         outdir.rmdir()

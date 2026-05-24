@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
+import json
 import os
 import sys
 import time
@@ -29,7 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np
 
-from dam.guard.builtin.ood import MemoryBank, OODGuard
+from dam.guard.builtin.ood import MemoryBank, OODGuard, RealNVPFlow
 from dam.injection.static import precompute_injection
 from dam.types.observation import Observation
 from dam.types.result import GuardDecision
@@ -38,6 +40,7 @@ _DEFAULT_NORMAL_REPO = "MikeChenYZ/soarm-fmb-v2"
 _DEFAULT_LEGAL_REPO = "MikeChenYZ/eval_soarm_fmb"
 _DEFAULT_ANOMALY_REPO = "MikeChenYZ/soarm-recover-failure"
 _DEFAULT_SESSIONS_DIR = "data/robot/sessions"
+_DEFAULT_CACHE_DIR = "data/experiments/l0_calibration/cache"
 
 # Physical limits for OOD scenario generation
 _N_JOINTS = 6
@@ -146,6 +149,101 @@ def load_observations_from_hf(
     return by_episode
 
 
+def _cache_key(payload: dict) -> str:
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()[:16]
+
+
+def _dataset_cache_path(
+    cache_dir: str | Path,
+    *,
+    repo_id: str,
+    split: str,
+    max_observations: int | None,
+    degrees_to_radians: bool,
+) -> Path:
+    key = _cache_key(
+        {
+            "kind": "hf_observations",
+            "repo_id": repo_id,
+            "split": split,
+            "max_observations": max_observations,
+            "degrees_to_radians": degrees_to_radians,
+        }
+    )
+    return Path(cache_dir) / "datasets" / f"{key}.npz"
+
+
+def _save_observation_cache(path: Path, by_episode: dict[int, list[Observation]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    episode_indices: list[int] = []
+    frame_indices: list[int] = []
+    timestamps: list[float] = []
+    positions: list[np.ndarray] = []
+    for ep in sorted(by_episode.keys()):
+        for frame_idx, obs in enumerate(by_episode[ep]):
+            episode_indices.append(ep)
+            frame_indices.append(frame_idx)
+            timestamps.append(float(obs.timestamp))
+            positions.append(np.asarray(obs.joint_positions, dtype=np.float64))
+    np.savez_compressed(
+        path,
+        episode_indices=np.asarray(episode_indices, dtype=np.int64),
+        frame_indices=np.asarray(frame_indices, dtype=np.int64),
+        timestamps=np.asarray(timestamps, dtype=np.float64),
+        positions=np.stack(positions, axis=0),
+    )
+
+
+def _load_observation_cache(path: Path) -> dict[int, list[Observation]]:
+    data = np.load(path)
+    by_episode: dict[int, list[Observation]] = {}
+    for ep, ts, pos in zip(
+        data["episode_indices"],
+        data["timestamps"],
+        data["positions"],
+        strict=True,
+    ):
+        by_episode.setdefault(int(ep), []).append(
+            Observation(timestamp=float(ts), joint_positions=np.asarray(pos, dtype=np.float64))
+        )
+    if not by_episode:
+        raise DatasetLoadError(f"Observation cache {path} is empty.")
+    return by_episode
+
+
+def load_observations_from_hf_cached(
+    repo_id: str,
+    *,
+    cache_dir: str | Path | None,
+    split: str = "train",
+    max_observations: int | None = None,
+    degrees_to_radians: bool = True,
+) -> dict[int, list[Observation]]:
+    if cache_dir:
+        path = _dataset_cache_path(
+            cache_dir,
+            repo_id=repo_id,
+            split=split,
+            max_observations=max_observations,
+            degrees_to_radians=degrees_to_radians,
+        )
+        if path.is_file():
+            print(f"  Dataset cache hit: {repo_id} -> {path}", flush=True)
+            return _load_observation_cache(path)
+
+    by_episode = load_observations_from_hf(
+        repo_id,
+        split=split,
+        max_observations=max_observations,
+        degrees_to_radians=degrees_to_radians,
+    )
+    if cache_dir:
+        _save_observation_cache(path, by_episode)
+        print(f"  Dataset cache saved: {repo_id} -> {path}", flush=True)
+    return by_episode
+
+
 # ── Legacy OOD scenario generators (kept for compatibility helpers) ─────────
 
 
@@ -238,6 +336,84 @@ def _welford_scores(train_vectors: np.ndarray, eval_vectors: np.ndarray) -> np.n
     return np.max(np.abs(eval_vectors - mean) / std, axis=1).astype(np.float32)
 
 
+def _vectors_fingerprint(vectors: np.ndarray) -> str:
+    if len(vectors) == 0:
+        return "empty"
+    sample_indices = sorted({0, len(vectors) // 2, len(vectors) - 1})
+    sample = np.ascontiguousarray(vectors[sample_indices].astype(np.float32))
+    digest = hashlib.sha256()
+    digest.update(str(vectors.shape).encode("utf-8"))
+    digest.update(sample.tobytes())
+    return digest.hexdigest()[:16]
+
+
+def _flow_cache_path(
+    cache_dir: str | Path,
+    *,
+    normal_repo_id: str,
+    max_observations_per_dataset: int | None,
+    flow_epochs: int,
+    train_vectors: np.ndarray,
+) -> Path:
+    key = _cache_key(
+        {
+            "kind": "real_nvp_flow",
+            "normal_repo_id": normal_repo_id,
+            "max_observations_per_dataset": max_observations_per_dataset,
+            "flow_epochs": flow_epochs,
+            "train_shape": train_vectors.shape,
+            "train_fingerprint": _vectors_fingerprint(train_vectors),
+        }
+    )
+    return Path(cache_dir) / "models" / f"{key}.flow.pt"
+
+
+def _fit_or_load_real_nvp(
+    guard: OODGuard,
+    train_vectors: np.ndarray,
+    *,
+    cache_dir: str | Path | None,
+    normal_repo_id: str,
+    max_observations_per_dataset: int | None,
+    flow_epochs: int,
+) -> tuple[float, float, bool]:
+    flow_path: Path | None = None
+    if cache_dir:
+        flow_path = _flow_cache_path(
+            cache_dir,
+            normal_repo_id=normal_repo_id,
+            max_observations_per_dataset=max_observations_per_dataset,
+            flow_epochs=flow_epochs,
+            train_vectors=train_vectors,
+        )
+        if flow_path.is_file():
+            print(f"  Real-NVP model cache hit: {flow_path}", flush=True)
+            guard._flow = RealNVPFlow(device=guard._device)
+            mean_nll, std_nll = guard._flow.load(str(flow_path), device=guard._device)
+            guard._mean_train_nll = mean_nll
+            guard._std_train_nll = std_nll
+            guard._install_trained_backend_into_context()
+            return float(mean_nll or 0.0), float(std_nll or 0.0), True
+
+    print(
+        f"  Training Real-NVP on {len(train_vectors)} normal frames for {flow_epochs} epochs...",
+        flush=True,
+    )
+    guard._flow = RealNVPFlow(dim=train_vectors.shape[1], device=guard._device)
+    guard._flow.fit(train_vectors, epochs=flow_epochs, verbose=True)
+    train_nlls = guard._flow.neg_log_prob_batch(train_vectors)
+    mean_nll = float(np.mean(train_nlls))
+    std_nll = float(np.std(train_nlls))
+    guard._mean_train_nll = mean_nll
+    guard._std_train_nll = std_nll
+    guard._install_trained_backend_into_context()
+    if flow_path is not None:
+        flow_path.parent.mkdir(parents=True, exist_ok=True)
+        guard._flow.save(str(flow_path), mean_train_nll=mean_nll, std_train_nll=std_nll)
+        print(f"  Real-NVP model cache saved: {flow_path}", flush=True)
+    return mean_nll, std_nll, False
+
+
 def _summarise_scores(values: np.ndarray) -> dict[str, float | int]:
     if len(values) == 0:
         return {"samples": 0}
@@ -297,21 +473,28 @@ def run_calibration(
     flow_epochs: int = 50,
     nll_sigma: float = 3.0,
     compare_ood_methods: bool = False,
+    cache_dir: str | None = _DEFAULT_CACHE_DIR,
 ) -> tuple[list[dict], dict]:
     rng = np.random.default_rng(seed)
     del ood_samples_per_scenario, n_thresholds, sessions_dir
 
     print(f"  Loading normal dataset:        {normal_repo_id}")
-    normal_by_episode = load_observations_from_hf(
-        normal_repo_id, max_observations=max_observations_per_dataset
+    normal_by_episode = load_observations_from_hf_cached(
+        normal_repo_id,
+        cache_dir=cache_dir,
+        max_observations=max_observations_per_dataset,
     )
     print(f"  Loading legal-variation set:   {legal_repo_id}")
-    legal_by_episode = load_observations_from_hf(
-        legal_repo_id, max_observations=max_observations_per_dataset
+    legal_by_episode = load_observations_from_hf_cached(
+        legal_repo_id,
+        cache_dir=cache_dir,
+        max_observations=max_observations_per_dataset,
     )
     print(f"  Loading abnormal-A dataset:    {anomaly_repo_id}")
-    anomaly_by_episode = load_observations_from_hf(
-        anomaly_repo_id, max_observations=max_observations_per_dataset
+    anomaly_by_episode = load_observations_from_hf_cached(
+        anomaly_repo_id,
+        cache_dir=cache_dir,
+        max_observations=max_observations_per_dataset,
     )
 
     episode_ids = sorted(normal_by_episode.keys())
@@ -345,20 +528,22 @@ def run_calibration(
 
     guard = OODGuard(backend="normalizing_flow")
     precompute_injection(guard, {})
-    print(
-        f"  Training Real-NVP on {len(train_obs)} normal frames for {flow_epochs} epochs...",
-        flush=True,
-    )
-    guard.train(train_obs, flow_epochs=flow_epochs, flow_verbose=True)
-
-    diag = guard.diagnostics()
-    print(
-        "  Trained Real-NVP: "
-        f"mean_train_nll={diag.get('mean_train_nll')} std_train_nll={diag.get('std_train_nll')}"
-    )
-
     print("  Extracting train embeddings...", flush=True)
     train_vectors = np.stack([guard._extractor.extract(obs) for obs in train_obs], axis=0)
+    train_mean, train_std, model_cache_hit = _fit_or_load_real_nvp(
+        guard,
+        train_vectors,
+        cache_dir=cache_dir,
+        normal_repo_id=normal_repo_id,
+        max_observations_per_dataset=max_observations_per_dataset,
+        flow_epochs=flow_epochs,
+    )
+    print(
+        f"  Trained Real-NVP: mean_train_nll={train_mean} std_train_nll={train_std} "
+        f"cache_hit={model_cache_hit}",
+        flush=True,
+    )
+
     print("  Extracting eval embeddings...", flush=True)
     eval_vectors = {
         "normal_test": _vectors_for_observations(guard, normal_labelled),
@@ -413,8 +598,6 @@ def run_calibration(
                 )
             )
 
-    train_mean = float(diag.get("mean_train_nll") or 0.0)
-    train_std = float(diag.get("std_train_nll") or 0.0)
     nll_threshold = train_mean + nll_sigma * train_std
     normal_fpr = float(np.mean(normal_nll > nll_threshold))
     legal_fpr = float(np.mean(legal_nll > nll_threshold))
@@ -455,6 +638,8 @@ def run_calibration(
         "nll_sigma": nll_sigma,
         "nll_threshold": round(nll_threshold, 4),
         "compare_ood_methods": compare_ood_methods,
+        "cache_dir": cache_dir,
+        "real_nvp_model_cache_hit": model_cache_hit,
         "normal_fpr_at_threshold": round(normal_fpr, 4),
         "legal_variation_fpr_at_threshold": round(legal_fpr, 4),
         "abnormal_a_detection_rate_at_threshold": round(anomaly_detection_rate, 4),
@@ -554,6 +739,17 @@ def main() -> None:
     parser.add_argument("--flow-epochs", type=int, default=50)
     parser.add_argument("--nll-sigma", type=float, default=3.0)
     parser.add_argument(
+        "--cache-dir",
+        type=str,
+        default=_DEFAULT_CACHE_DIR,
+        help="Cache directory for HF observations and trained Real-NVP flow.",
+    )
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Disable local RQ1 dataset/model caches.",
+    )
+    parser.add_argument(
         "--compare-ood-methods",
         action="store_true",
         help="Also score Welford and MemoryBank alongside the default Real-NVP NLL.",
@@ -578,6 +774,7 @@ def main() -> None:
         flow_epochs=args.flow_epochs,
         nll_sigma=args.nll_sigma,
         compare_ood_methods=args.compare_ood_methods,
+        cache_dir=None if args.no_cache else args.cache_dir,
     )
     write_csv(rows, outdir / "results.csv")
     plot_results(rows, outdir)

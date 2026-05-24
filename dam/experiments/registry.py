@@ -338,6 +338,8 @@ def _run_l0_calibration(params: dict[str, Any], outdir: Path) -> ExperimentResul
     flow_epochs = int(params.get("flow_epochs", 50))
     nll_sigma = float(params.get("nll_sigma", 3.0))
     compare_ood_methods = _as_bool(params.get("compare_ood_methods", False))
+    cache_dir = params.get("cache_dir", "data/experiments/l0_calibration/cache")
+    cache_dir = str(cache_dir) if cache_dir else None
     outdir.mkdir(parents=True, exist_ok=True)
     started = time.perf_counter()
 
@@ -353,35 +355,11 @@ def _run_l0_calibration(params: dict[str, Any], outdir: Path) -> ExperimentResul
         flow_epochs=flow_epochs,
         nll_sigma=nll_sigma,
         compare_ood_methods=compare_ood_methods,
+        cache_dir=cache_dir,
     )
     cal.write_csv(rows, outdir / "results.csv")
     cal.plot_results(rows, outdir)
-
-    if compare_ood_methods:
-        method_stats = summary.get("method_stats", {})
-        plot_rows = [
-            {
-                "dataset": f"{method}:{dataset}",
-                "median_score": values.get("median", 0.0),
-            }
-            for method, datasets in method_stats.items()
-            for dataset, values in datasets.items()
-        ]
-        title = "RQ1 L0 OOD Method Median Score"
-    else:
-        stats = summary.get("dataset_stats", {})
-        plot_rows = [
-            {"dataset": name, "median_score": values.get("median", 0.0)}
-            for name, values in stats.items()
-        ]
-        title = "RQ1 L0 Real-NVP Median NLL"
-    _write_bar_svg(
-        plot_rows,
-        outdir / "l0_calibration.svg",
-        title=title,
-        label_key="dataset",
-        value_key="median_score",
-    )
+    (outdir / "l0_calibration.svg").unlink(missing_ok=True)
     return ExperimentResult(
         id="l0-calibration",
         status="success",
@@ -389,9 +367,7 @@ def _run_l0_calibration(params: dict[str, Any], outdir: Path) -> ExperimentResul
         outdir=str(outdir),
         rows=_numeric_rows(rows),
         summary=summary,
-        artifacts=_artifact_paths(
-            outdir, ("results.csv", "l0_calibration.svg", "l0_calibration.png")
-        ),
+        artifacts=_artifact_paths(outdir, ("results.csv", "l0_calibration.png")),
     )
 
 
@@ -495,10 +471,11 @@ _EXPERIMENTS: dict[
                 "flow_epochs": 50,
                 "nll_sigma": 3.0,
                 "compare_ood_methods": False,
+                "cache_dir": "data/experiments/l0_calibration/cache",
                 "seed": 42,
                 "outdir": "data/experiments/l0_calibration",
             },
-            outputs=("results.csv", "l0_calibration.svg", "l0_calibration.png"),
+            outputs=("results.csv", "l0_calibration.png"),
         ),
         _run_l0_calibration,
     ),
