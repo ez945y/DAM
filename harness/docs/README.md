@@ -15,3 +15,13 @@ python harness/docs/log_writer.py "Added a learning path and PM workplan" \
 
 The writer appends JSONL records under `harness/docs/logs/` with a UTC timestamp.
 Keep entries short and outcome-oriented so reviews stay cheap.
+
+## Docs Check
+
+Use `check_docs.py` before committing documentation changes:
+
+```bash
+python harness/docs/check_docs.py
+```
+
+It runs `mkdocs build --strict` and scans learner-facing docs for command patterns that have caused onboarding mistakes, such as old `--stack` syntax or assuming every Stackfile has a `default` task.
