@@ -31,6 +31,10 @@ FORBIDDEN_PATTERNS = {
     r"Deterministic Safety": "Avoid deterministic safety claims in research-grade docs.",
     r"確定性安全": "Avoid deterministic safety claims in research-grade docs.",
     r"production deployment": "Prefer supervised hardware deployment in research-grade docs.",
+    r"zero-latency": "Avoid latency guarantees; describe measured or low-latency behavior.",
+    r"Real-time safe": "Avoid real-time safety claims; describe measured timing health.",
+    r"Safety Guarantees": "Use Safety Model for research-grade safety documentation.",
+    r"Deploy DAM to simulation and hardware": "Prefer supervised hardware preparation wording.",
     r"dam run examples/stackfiles/test\.yaml(?!.*--cycles)": (
         "Use a bounded --cycles value for hardware-oriented run examples."
     ),
