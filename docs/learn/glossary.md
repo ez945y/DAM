@@ -23,7 +23,7 @@ A task-specific safety envelope that constrains robot behavior. Defined in a Sta
 A data structure holding boundary nodes. Three types: **Single** (one static node), **List** (sequential phases), **Graph** (arbitrary DAG).
 
 **Boundary Node**
-A single safety configuration within a container. Contains constraints, fallback strategy, and timeout. Example: "reach" node in a pick-and-place task.
+A single safety configuration within a container. In a Stackfile, a node normally names a `callback`, passes `params`, and may define a `fallback` and `timeout_sec`.
 
 ---
 
@@ -36,7 +36,7 @@ An action adjustment to satisfy constraints without rejection. Example: if propo
 A registered function that evaluates a named boundary rule. Built-in callbacks cover common checks; custom callbacks are optional and should be introduced after the Stackfile workflow is clear.
 
 **Constraint**
-A safety rule within a boundary node. Types: max_speed, bounds (workspace), max_force_n, max_velocity (per-joint), upper_limits, lower_limits, callback.
+A safety rule expressed through a boundary callback and its parameters. Common parameters include `max_speed`, `bounds`, `max_velocities`, `upper`, and `lower`.
 
 **Control Plane**
 The Python layer handling Stackfile parsing, component lifecycle, hot-reload logic, and telemetry collection. Coordinates guard evaluation and data plane execution.
@@ -128,7 +128,7 @@ Runtime update of boundary constraints and guard parameters from a modified Stac
 ## J
 
 **Joint Limits**
-Hardware constraints on joint positions. Typically defined as `upper_limits` and `lower_limits` arrays (radians). Enforced by L1 guard via clamping.
+Hardware constraints on joint positions. In Stackfiles, the built-in `joint_position_limits` callback reads `upper` and `lower` arrays in radians.
 
 ---
 
@@ -194,7 +194,7 @@ Guard layer detecting out-of-distribution observations. Rejects actions when the
 Guard decision allowing the action to execute unmodified.
 
 **Phase**
-A stage in a multi-phase task. Example: "reach", "grasp", "lift" phases in pick-and-place. Typically each phase is a boundary node with its own constraints.
+A stage in a multi-phase task. Example: "reach", "grasp", and "lift" phases in pick-and-place. Typically each phase is represented by a boundary node with its own callback parameters.
 
 **Policy**
 The ML model (PyTorch, Diffusion Policy, ACT, etc.) that proposes actions given observations. DAM does NOT modify the policy; it validates its outputs.
@@ -260,7 +260,7 @@ An observation older than the configured threshold (e.g., 0.1 seconds). DAM warn
 A named job that activates one or more boundary containers. Example: "pick_and_place" task activates "reach" and "place" boundaries.
 
 **Task Execution Guard** (L2)
-Guard layer enforcing task-specific boundary constraints: max speed, workspace bounds, force limits, callbacks, timeouts.
+Guard layer enforcing task-specific boundary callbacks such as speed limits, workspace bounds, force limits, and node timeouts.
 
 **Telemetry**
 Real-time data logged by DAM: cycle time, risk level, guard decisions, latencies. Streamed via WebSocket and queryable via REST API.
@@ -292,7 +292,7 @@ A timeout mechanism ensuring the control loop executes within budget. If cycle t
 An online statistical method for OOD detection. Maintains running mean and variance; rejects if any dimension's z-score exceeds threshold.
 
 **Workspace Bounds**
-3D spatial constraints (x, y, z ranges in meters) that the end-effector cannot leave. Commonly enforced by L1 motion boundaries and, for task-specific zones, L2 task boundaries.
+3D spatial limits (x, y, z ranges in meters) for the end-effector. L1 workspace boundaries can halt or clamp motion, while L2 task workspace boundaries reject task actions outside the configured zone.
 
 ---
 
