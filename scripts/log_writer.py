@@ -8,7 +8,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-DEFAULT_LOG = Path("harness/docs/logs/docs_pm_log.jsonl")
+DEFAULT_LOG = Path("logs/pm_log.jsonl")
 
 
 def _csv(value: str) -> list[str]:

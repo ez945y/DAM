@@ -7,7 +7,7 @@
 - [ ] `make test`（或相關子集）通過
 - [ ] `claude-progress.md` 已更新，反映本輪成果
 - [ ] `session-handoff.md` 已更新（長會話或多區域並行時）
-- [ ] PM log 已寫（`harness/docs/logs/docs_pm_log.jsonl`）
+- [ ] PM log 已寫（`logs/pm_log.jsonl`）
 - [ ] 沒有半成品處於未記錄狀態
 - [ ] 沒有暫存的 debug 代碼留在 codebase
 - [ ] git status 乾淨（改動已 commit 或明確標記為 WIP）

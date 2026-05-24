@@ -54,8 +54,8 @@ coverage/
 # MkDocs
 site/
 
-# PM harness logs (local-only, never commit)
-harness/docs/logs/
+# PM logs (local-only, never commit)
+logs/
 
 # Project specific
 data/

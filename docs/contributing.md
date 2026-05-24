@@ -70,7 +70,7 @@ This builds MkDocs in strict mode and checks for onboarding command patterns tha
 When a documentation change completes a meaningful PM checkpoint, append a short log entry:
 
 ```bash
-python harness/docs/log_writer.py "Clarified first-run troubleshooting" \
+python scripts/log_writer.py "Clarified first-run troubleshooting" \
   --phase docs-troubleshooting \
   --files docs/getting-started/troubleshooting.md \
   --metrics "Setup and task-name issues have recovery steps"

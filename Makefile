@@ -56,7 +56,7 @@ docs:   ## Preview documentation locally at http://127.0.0.1:8002/DAM/
 	@.venv/bin/mkdocs serve --dev-addr 127.0.0.1:8002
 
 docs-check:   ## Run documentation quality checks (strict MkDocs + onboarding patterns)
-	@python harness/docs/check_docs.py
+	@python scripts/check_docs.py
 
 test: _chmod   ## Run all tests + linters (Python, Rust, frontend)
 	@bash scripts/test.sh
@@ -75,8 +75,8 @@ lint: _chmod   ## Linters only (ruff check, mypy, cargo clippy) — no auto-fix
 
 format:   ## Auto-format Python (ruff) + Rust (cargo fmt) + trailing whitespace
 	@echo "Formatting Python..."
-	@.venv/bin/ruff format dam/ tests/ scripts/ harness/
-	@.venv/bin/ruff check --fix dam/ tests/ scripts/ harness/ || true
+	@.venv/bin/ruff format dam/ tests/ scripts/
+	@.venv/bin/ruff check --fix dam/ tests/ scripts/ || true
 	@if command -v cargo >/dev/null 2>&1 && [ -d dam-rust ]; then \
 		echo "Formatting Rust..."; \
 		cargo fmt --all --manifest-path dam-rust/Cargo.toml; \

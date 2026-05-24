@@ -12,7 +12,7 @@ Help a new DAM user go from "what is this?" to "I can run a demo, read a guard d
 - Prefer examples and checkpoints over architecture detail.
 - Keep implementation detail behind reference pages.
 - Update one reader journey at a time, then verify navigation and commands.
-- Log meaningful PM checkpoints with `harness/docs/log_writer.py`.
+- Log meaningful PM checkpoints with `scripts/log_writer.py`.
 
 ## Work Lanes
 
@@ -45,4 +45,4 @@ A documentation improvement is complete when:
 2. Add stable console screenshots or sample event snippets when demo artifacts are available.
 3. Review deep reference pages for outdated callback parameter names after each schema change.
 4. Keep English and Chinese specification examples aligned when public commands change.
-5. Continue logging PM checkpoints in `harness/docs/logs/docs_pm_log.jsonl`.
+5. Continue logging PM checkpoints in `logs/pm_log.jsonl`.
