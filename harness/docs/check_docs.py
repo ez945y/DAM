@@ -33,6 +33,19 @@ FORBIDDEN_PATTERNS = {
     r"production deployment": "Prefer supervised hardware deployment in research-grade docs.",
 }
 
+LEARNER_STACKFILE_FILES = {
+    Path("docs/quick-stack.md"),
+    Path("docs/learn/tutorial.md"),
+    Path("docs/concepts/boundaries.md"),
+}
+
+LEARNER_FORBIDDEN_PATTERNS = {
+    r"\bnode_id:": "Use current Stackfile nodes with callback and params, not node_id examples.",
+    r"\bconstraint:": "Use current Stackfile nodes with callback and params, not constraint examples.",
+    r"\bsafe_retreat\b": "Use the built-in retreat fallback name.",
+    r"BoundaryConstraint": "Avoid low-level boundary internals in learner-facing Stackfile docs.",
+}
+
 
 def _expand(root: Path, patterns: tuple[str, ...]) -> list[Path]:
     seen: set[Path] = set()
@@ -48,6 +61,9 @@ def _expand(root: Path, patterns: tuple[str, ...]) -> list[Path]:
 def check_forbidden_patterns(root: Path, files: list[Path]) -> list[str]:
     failures: list[str] = []
     compiled = [(re.compile(pattern), message) for pattern, message in FORBIDDEN_PATTERNS.items()]
+    learner_compiled = [
+        (re.compile(pattern), message) for pattern, message in LEARNER_FORBIDDEN_PATTERNS.items()
+    ]
     for path in files:
         text = path.read_text(encoding="utf-8")
         rel = path.relative_to(root)
@@ -55,6 +71,10 @@ def check_forbidden_patterns(root: Path, files: list[Path]) -> list[str]:
             for pattern, message in compiled:
                 if pattern.search(line):
                     failures.append(f"{rel}:{lineno}: {message}")
+            if rel in LEARNER_STACKFILE_FILES:
+                for pattern, message in learner_compiled:
+                    if pattern.search(line):
+                        failures.append(f"{rel}:{lineno}: {message}")
     return failures
 
 
