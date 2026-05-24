@@ -103,6 +103,11 @@ function L0CalibrationSummary({ summary }: { summary: Record<string, unknown> })
   const perScenario = summary.per_scenario_detection as Record<string, { detection_rate: number; samples: number }> | undefined;
   const distStats = summary.distance_stats as Record<string, number> | undefined;
   const recommendations = Array.isArray(summary.recommendations) ? summary.recommendations as string[] : [];
+  const dataSource = summary.data_source as string | undefined;
+  const hfRepoId = summary.hf_repo_id as string | undefined;
+  const episodesUsed = asNumber(summary.episodes_used);
+  const trainObs = asNumber(summary.train_observations);
+  const mcapCrossDomain = summary.mcap_cross_domain as { sessions: number; observations: number; fpr_at_operational: number } | undefined;
 
   return (
     <div className="space-y-3">
@@ -121,6 +126,15 @@ function L0CalibrationSummary({ summary }: { summary: Record<string, unknown> })
           </span>
         )}
       </div>
+
+      {dataSource && (
+        <div className="bg-dam-surface-2 border border-dam-border rounded-lg px-3 py-2 flex items-center gap-3 text-[11px]">
+          <span className="font-mono text-dam-accent">{dataSource === "huggingface" ? "HuggingFace" : "MCAP"}</span>
+          {hfRepoId && <span className="text-dam-muted font-mono">{hfRepoId}</span>}
+          {episodesUsed !== null && <span className="text-dam-muted">{episodesUsed} episodes</span>}
+          {trainObs !== null && <span className="text-dam-muted">{trainObs.toLocaleString()} train obs</span>}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
         {eer !== null && (
@@ -194,6 +208,27 @@ function L0CalibrationSummary({ summary }: { summary: Record<string, unknown> })
               );
             })}
           </div>
+        </div>
+      )}
+
+      {mcapCrossDomain && (
+        <div className={`bg-dam-surface-2 border rounded-lg px-3 py-2 ${
+          mcapCrossDomain.fpr_at_operational > 0.10
+            ? "border-amber-500/30"
+            : "border-dam-border"
+        }`}>
+          <p className="section-label mb-1">MCAP Cross-Domain Eval</p>
+          <div className="flex items-center gap-4 text-[11px] font-mono">
+            <span className="text-dam-muted">{mcapCrossDomain.sessions} sessions, {mcapCrossDomain.observations.toLocaleString()} obs</span>
+            <span className={mcapCrossDomain.fpr_at_operational > 0.10 ? "text-amber-400 font-bold" : "text-green-400"}>
+              FPR: {(mcapCrossDomain.fpr_at_operational * 100).toFixed(1)}%
+            </span>
+          </div>
+          {mcapCrossDomain.fpr_at_operational > 0.10 && (
+            <p className="text-[10px] text-amber-400/70 mt-1">
+              Distribution shift detected — consider fine-tuning on target robot data.
+            </p>
+          )}
         </div>
       )}
 
