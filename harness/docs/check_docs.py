@@ -32,10 +32,14 @@ FORBIDDEN_PATTERNS = {
 
 
 def _expand(root: Path, patterns: tuple[str, ...]) -> list[Path]:
+    seen: set[Path] = set()
     files: list[Path] = []
     for pattern in patterns:
-        files.extend(sorted(root.glob(pattern)))
-    return [path for path in files if path.is_file()]
+        for path in sorted(root.glob(pattern)):
+            if path.is_file() and path not in seen:
+                seen.add(path)
+                files.append(path)
+    return files
 
 
 def check_forbidden_patterns(root: Path, files: list[Path]) -> list[str]:
