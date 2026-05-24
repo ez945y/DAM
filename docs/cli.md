@@ -1,8 +1,9 @@
-# Command-Line Interface
+# CLI Reference
 
-DAM installs a `dam` console command (entry point `dam.cli:main`). When the
-package is installed (`pip install -e .` / `make setup`) use `dam …`; in any
-checkout it is equivalent to `python -m dam.cli …`.
+Use the `dam` command when you want to validate Stackfiles, inspect what DAM
+will run, list available callbacks, or run a bounded headless demo without the
+web console. After `make setup`, prefer `.venv/bin/dam ...` unless your virtual
+environment is already active.
 
 ```text
 dam <command> [options]
@@ -16,19 +17,24 @@ dam <command> [options]
   help       show help for the CLI or a subcommand
 ```
 
-`dam --version` prints the package version. `dam` with no command prints
-help and exits non-zero.
+`dam --version` prints the package version. `dam` with no command prints help.
 
 ### Default Stackfile
 
 `validate`, `run`, and `inspect` fall back to the **`.dam_stackfile.yaml`**
 convention file (repo root) when no `STACK` argument is given — the same
-file `make run` / the host use. So from a project with that file:
+file the host can use. From a project with that file:
 
 ```bash
 dam inspect          # == dam inspect .dam_stackfile.yaml
 dam validate         # == dam validate .dam_stackfile.yaml
-dam run --cycles 50
+dam run --cycles 50 --task <task-in-that-file>
+```
+
+For repository examples, prefer explicit paths and task names:
+
+```bash
+.venv/bin/dam run examples/stackfiles/demo.yaml --cycles 200 --task demo
 ```
 
 ### Via make
@@ -87,7 +93,7 @@ dam run examples/stackfiles/demo.yaml --cycles 200 --task demo
 
 | Option | Default | Description |
 |---|---|---|
-| `--task` | `default` | Task to start |
+| `--task` | `default` | Task to start. Use an explicit task name unless your Stackfile defines `default`. |
 | `--cycles` | `100` | Cycles to run (`-1` = unbounded, Ctrl-C to stop) |
 
 Exit code `1` if the runtime ends in the `EMERGENCY` state or fails to
@@ -137,9 +143,8 @@ dam help validate   # help for one subcommand
 
 ---
 
-## Adding a subcommand
+## Extending the CLI
 
-Subcommands live in [`dam/cli.py`](https://github.com/ez945y/DAM/blob/main/dam/cli.py):
-add a `_cmd_<name>(args) -> int` function, register a subparser in
-`build_parser()`, and add it to the `choices` map so `dam help <name>` works.
-Return `0` on success, non-zero on failure.
+Most users do not need to extend the CLI. If you are contributing a new command,
+start with [Contributing](contributing.md) so tests, documentation, and command
+help stay aligned.
