@@ -306,14 +306,14 @@ class TestRiskLogService:
     def test_query_limit(self):
         svc = RiskLogService()
         for i in range(20):
-            svc.record(_make_cycle_result(i))
+            svc.record(_make_cycle_result(i, clamped=True))
         events = svc.query(limit=5)
         assert len(events) == 5
 
     def test_get_by_id(self):
         svc = RiskLogService()
-        svc.record(_make_cycle_result(0))
-        svc.record(_make_cycle_result(1))
+        svc.record(_make_cycle_result(0, clamped=True))
+        svc.record(_make_cycle_result(1, clamped=True))
         ev = svc.get_by_id(0)
         assert ev is not None
         assert ev.cycle_id == 0
@@ -326,14 +326,14 @@ class TestRiskLogService:
         import json
 
         svc = RiskLogService()
-        svc.record(_make_cycle_result(5))
+        svc.record(_make_cycle_result(5, clamped=True))
         data = json.loads(svc.export_json())
         assert isinstance(data, list)
         assert data[0]["cycle_id"] == 5
 
     def test_export_csv(self):
         svc = RiskLogService()
-        svc.record(_make_cycle_result(3))
+        svc.record(_make_cycle_result(3, clamped=True))
         csv_str = svc.export_csv()
         assert "event_id" in csv_str
         assert "risk_level" in csv_str
@@ -349,32 +349,37 @@ class TestRiskLogService:
         svc.record(_make_cycle_result(1, clamped=True, risk=RiskLevel.ELEVATED))
         svc.record(_make_cycle_result(2, risk=RiskLevel.NORMAL))
         s = svc.stats()
-        assert s["total"] == 3
+        assert s["total"] == 2  # NORMAL cycle is filtered out
         assert s["rejected"] == 1
         assert s["clamped"] == 1
 
+    def test_normal_cycle_not_recorded(self):
+        svc = RiskLogService()
+        svc.record(_make_cycle_result(0, risk=RiskLevel.NORMAL))
+        assert svc.stats()["total"] == 0
+
     def test_clear(self):
         svc = RiskLogService()
-        svc.record(_make_cycle_result(0))
+        svc.record(_make_cycle_result(0, clamped=True))
         svc.clear()
         assert svc.stats()["total"] == 0
 
     def test_max_events_eviction(self):
         svc = RiskLogService(max_events=5)
         for i in range(10):
-            svc.record(_make_cycle_result(i))
+            svc.record(_make_cycle_result(i, clamped=True))
         assert svc.stats()["total"] == 5
 
     def test_query_since_until(self):
         svc = RiskLogService()
-        svc.record(_make_cycle_result(0))
+        svc.record(_make_cycle_result(0, rejected=True))
         now = time.time()
         events = svc.query(until=now + 10)
         assert len(events) >= 1
 
     def test_event_to_dict(self):
         svc = RiskLogService()
-        svc.record(_make_cycle_result(7))
+        svc.record(_make_cycle_result(7, clamped=True))
         ev = svc.query()[0]
         d = ev.to_dict()
         assert d["cycle_id"] == 7

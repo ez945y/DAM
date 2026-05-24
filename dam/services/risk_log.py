@@ -58,7 +58,7 @@ class RiskLogService:
         stats()               — summary statistics
     """
 
-    def __init__(self, max_events: int = 1_000) -> None:
+    def __init__(self, max_events: int = 10_000) -> None:
         self._events: list[RiskEvent] = []
         self._lock = threading.Lock()
         self._max_events = max_events
@@ -77,6 +77,20 @@ class RiskLogService:
                     at the same cycle boundary.  When provided it is stored verbatim
                     and exposed via the API for per-guard and per-layer latency display.
         """
+        is_notable = (
+            result.was_rejected
+            or result.was_clamped
+            or result.fallback_triggered is not None
+            or (hasattr(result.risk_level, "name") and result.risk_level.name != "NORMAL")
+            or any(
+                gr.decision.name in ("REJECT", "FAULT", "CLAMP")
+                for gr in result.guard_results
+                if hasattr(gr.decision, "name")
+            )
+        )
+        if not is_notable:
+            return
+
         guard_summaries = [
             {
                 "name": gr.guard_name,
