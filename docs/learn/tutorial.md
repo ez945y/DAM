@@ -173,10 +173,10 @@ boundaries:
 
 tasks:
   demo:
-    boundaries: [default]
+    boundaries: [joint_position_limits]
 ```
 
-This enables L1 motion guard only. No other constraints.
+This enables the L1 motion guard with one named joint-limit boundary.
 
 ### 2.3 Adding More Guards
 
@@ -222,17 +222,19 @@ Add task-specific constraints:
 
 ```yaml
 boundaries:
-  always_active: safe_zone
-  containers:
-    safe_zone:
-      type: single
-      nodes:
-        - node_id: workspace
-          constraint:
-            max_speed: 0.3
-            bounds: [[-0.3, 0.3], [-0.3, 0.3], [0.1, 1.4]]
-          fallback: hold_position
-          timeout_sec: 300
+  task_speed_limit:
+    layer: L2
+    type: single
+    nodes:
+      - callback: task_joint_speed_limit
+        fallback: hold_position
+        timeout_sec: 300
+        params:
+          max_speed: 0.3
+
+tasks:
+  demo:
+    boundaries: [task_speed_limit]
 ```
 
 ### Exercise 2.1: Build a Stackfile
@@ -248,7 +250,7 @@ Create `tutorial_stackfile.yaml` with:
 dam validate tutorial_stackfile.yaml
 ```
 
-Should print: `✓ Stackfile is valid`
+Expected result: `OK tutorial_stackfile.yaml`
 
 ---
 
@@ -425,7 +427,7 @@ hardware:
 
 policy:
   type: act
-  model_id: lerobot/aloha-2-mobile-aloha/2024-07-29
+  pretrained_path: MikeChenYZ/act-soarm-fmb-v2
 
 guards:
   - L1: motion

@@ -183,8 +183,8 @@ hardware:
       ref: sources.follower_arm
 
 policy:
-  type: motor
-  model_id: lerobot/aloha-2-mobile-aloha/2024-07-29
+  type: act
+  pretrained_path: MikeChenYZ/act-soarm-fmb-v2
 
 guards:
   - L1: motion
@@ -206,7 +206,7 @@ boundaries:
 
 tasks:
   pick_and_place:
-    boundaries: [default]
+    boundaries: [joint_position_limits]
 ```
 
 ---
