@@ -7,21 +7,21 @@
 
 ## Table of Contents
 
-- [Glossary](#glossary)
-0. [User-Facing Overview](#0-user-facing-overview)
-1. [Core Components](#1-core-components)
-2. [Technology Stack](#2-technology-stack)
-3. [Design Decisions](#3-design-decisions)
-4. [Communication Map](#4-communication-map)
-5. [Interface Contract & Infrastructure Layer](#5-interface-contract--infrastructure-layer)
-6. [Stackfile Reference](#6-stackfile-reference)
-7. [Syntax Sugar Reference](#7-syntax-sugar-reference)
-8. [Pipeline](#8-pipeline)
-9. [Component Deep Dives](#9-component-deep-dives)
-10. [SDK & External API Dependencies](#10-sdk--external-api-dependencies)
-11. [Function Implementation Table](#11-function-implementation-table)
-12. [Testing Strategy](#12-testing-strategy)
-13. [Development Roadmap](#13-development-roadmap)
+- Glossary
+0. User-Facing Overview
+1. Core Components
+2. Technology Stack
+3. Design Decisions
+4. Communication Map
+5. Interface Contract & Infrastructure Layer
+6. Stackfile Reference
+7. Syntax Sugar Reference
+8. Pipeline
+9. Component Deep Dives
+10. SDK & External API Dependencies
+11. Function Implementation Table
+12. Testing Strategy
+13. Development Roadmap
 
 ---
 
@@ -209,7 +209,7 @@ Everything else — hardware connection, policy inference, guard pipeline, fallb
 
 DAM's modules are organized into two distinct responsibilities: **Core Guard Logic** (safety decision-making) and **Infrastructure / Utility** (integration glue). Keeping this separation clear is critical — infrastructure modules are policy-agnostic and hardware-agnostic wrappers; only the guard modules carry safety semantics.
 
-> Infrastructure modules (Adapters, Parsers) are defined in [§5 Interface Contract & Infrastructure Layer](#5-interface-contract--infrastructure-layer).
+> Infrastructure modules (Adapters, Parsers) are defined in [§5 Interface Contract & Infrastructure Layer](#5-interface-contract-infrastructure-layer).
 
 ### 1.1 Core Guard Logic
 

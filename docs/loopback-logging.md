@@ -403,6 +403,6 @@ Common causes:
 
 ## See also
 
-- [Services API → Loopback endpoints](services-api.md#loopback)
-- [Stackfile Guide → loopback section](quick-stack.md#loopback)
+- [Services API -> Loopback Sessions](services-api.md#loopback-sessions)
+- [Stackfile Guide -> Loopback Logging](quick-stack.md#loopback-logging-mcap)
 - [MCAP Spec](https://mcap.dev/spec/)

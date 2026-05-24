@@ -4,6 +4,8 @@ site_url: https://ez945y.github.io/DAM/
 repo_url: https://github.com/ez945y/DAM
 repo_name: ez945y/DAM
 edit_uri: edit/main/docs/
+exclude_docs: |
+  refactor-guard-pipeline.md
 
 theme:
   name: material

@@ -7,21 +7,21 @@
 
 ## 目錄 (Table of Contents)
 
-- [詞彙表](#詞彙表-glossary)
-0. [用戶導向總覽](#0-用戶導向總覽-user-facing-overview)
-1. [核心組件](#1-核心組件-core-components)
-2. [技術棧](#2-技術棧-technology-stack)
-3. [設計決策](#3-設計決策-design-decisions)
-4. [通訊地圖](#4-通訊地圖-communication-map)
-5. [接口合約與基礎設施層](#5-接口合約與基礎設施層-interface-contract--infrastructure-layer)
-6. [Stackfile 參考](#6-stackfile-參考-stackfile-reference)
-7. [語法糖參考](#7-語法糖參考-syntax-sugar-reference)
-8. [執行管線 (Pipeline)](#8-執行管線-pipeline)
-9. [組件深入導讀](#9-組件深入導讀-component-deep-dives)
-10. [SDK 與外部 API 依賴](#10-sdk--外部-api-依賴-sdk--external-api-dependencies)
-11. [功能實現對照表](#11-功能實現對照表-function-implementation-table)
-12. [測試策略](#12-測試策略-testing-strategy)
-13. [開發路線圖](#13-開發路線圖-development-roadmap)
+- 詞彙表
+0. 用戶導向總覽
+1. 核心組件
+2. 技術棧
+3. 設計決策
+4. 通訊地圖
+5. 接口合約與基礎設施層
+6. Stackfile 參考
+7. 語法糖參考
+8. 執行管線 (Pipeline)
+9. 組件深入導讀
+10. SDK 與外部 API 依賴
+11. 功能實現對照表
+12. 測試策略
+13. 開發路線圖
 
 ---
 
@@ -214,7 +214,7 @@ dam run --stack stackfile.yaml --task pick_and_place
 
 DAM 的模組分為兩個截然不同的職責：**核心守衛邏輯**（安全決策）與**基礎設施/工具**（集成膠水）。保持這種職責分離至關重要——基礎設施模組是策略無關和硬體無關的包裝器；只有守衛模組承載安全語義。
 
-> 基礎設施模組（適配器、解析器）定義在 [§5 接口合約與基礎設施層](#5-接口合約與基礎設施層-interface-contract--infrastructure-layer)。
+> 基礎設施模組（適配器、解析器）定義在 §5 接口合約與基礎設施層。
 
 ### 1.1 核心守衛邏輯
 
