@@ -74,28 +74,35 @@ def _legal_variation_obs(rng: np.random.Generator) -> Observation:
     return Observation(timestamp=time.monotonic(), joint_positions=pos)
 
 
-def _ood_obs(rng: np.random.Generator) -> Observation:
-    kind = rng.integers(0, 5)
-    if kind == 0:
-        # Sensor fault: all zeros or constant
+OOD_SCENARIOS = [
+    "sensor_fault",
+    "joint_jam",
+    "external_perturbation",
+    "corrupted_state",
+    "partial_failure",
+]
+
+
+def _ood_obs_tagged(scenario: str, rng: np.random.Generator) -> Observation:
+    if scenario == "sensor_fault":
         pos = np.zeros(_N_JOINTS)
-    elif kind == 1:
-        # Joint at hard limits (collision / jam)
+    elif scenario == "joint_jam":
         pos = np.where(rng.random(_N_JOINTS) > 0.5, _JOINT_UPPER, _JOINT_LOWER)
-    elif kind == 2:
-        # Sudden large jump from nominal (external perturbation)
+    elif scenario == "external_perturbation":
         pos = _JOINT_MID + rng.choice([-1, 1], _N_JOINTS) * _JOINT_RANGE * rng.uniform(
             0.4, 0.8, _N_JOINTS
         )
-    elif kind == 3:
-        # Wrong robot / corrupted state (values outside physical range)
+    elif scenario == "corrupted_state":
         pos = rng.uniform(-5.0, 5.0, _N_JOINTS)
     else:
-        # Extreme single-joint deviation (partial failure)
         pos = _JOINT_MID.copy()
         bad_joint = rng.integers(0, _N_JOINTS)
         pos[bad_joint] = _JOINT_UPPER[bad_joint] * rng.uniform(0.9, 1.5)
     return Observation(timestamp=time.monotonic(), joint_positions=pos)
+
+
+def _ood_obs(rng: np.random.Generator) -> Observation:
+    return _ood_obs_tagged(rng.choice(OOD_SCENARIOS), rng)
 
 
 def _is_reject(result: object) -> bool:
@@ -247,6 +254,21 @@ def run_calibration(
         "ood_p5": round(float(np.percentile(ood_dists, 5)), 4),
         "separation_gap": round(separation, 4),
     }
+
+    # Per-scenario breakdown at operational threshold
+    if op_threshold is not None:
+        scenario_detection: dict[str, dict] = {}
+        samples_per = max(1, eval_samples // len(OOD_SCENARIOS))
+        rng_scenario = np.random.default_rng(seed + 1000)
+        for scenario in OOD_SCENARIOS:
+            scene_obs = [_ood_obs_tagged(scenario, rng_scenario) for _ in range(samples_per)]
+            det_rate = _eval_at_threshold(guard, scene_obs, op_threshold)
+            scenario_detection[scenario] = {
+                "detection_rate": round(det_rate, 4),
+                "samples": samples_per,
+            }
+            print(f"    {scenario:<25} detection={det_rate:.1%}")
+        summary["per_scenario_detection"] = scenario_detection
 
     verdict = "PASS — deployable" if deployable else "FAIL — not deployable"
     print(f"  Verdict: {verdict}")
