@@ -240,7 +240,7 @@ This is how DAM provides safety guarantees.
 
 ## License
 
-By contributing, you agree your work is licensed under [Mozilla Public License 2.0](LICENSE).
+By contributing, you agree your work is licensed under [Mozilla Public License 2.0](https://github.com/ez945y/DAM/blob/main/LICENSE).
 
 ---
 
