@@ -225,7 +225,7 @@ boundaries:
       - callback: task_workspace_bounds
         params:
           bounds: [[-0.35, 0.35], [-0.05, 0.45], [0.01, 0.40]]
-        fallback: hold_position      # Hold if constraint violated
+        fallback: hold_position      # Hold if the node violates
 
       - callback: task_workspace_bounds
         params:
@@ -253,16 +253,17 @@ build_escalation_chain(fallback_registry)
 
 ## Workspace Bounds (Common Pattern)
 
-The most common constraint type is **workspace bounds** — define a 3D box the end-effector cannot leave.
+The most common boundary is **workspace bounds**: a 3D box the end-effector should stay inside.
 
 ```yaml
 boundaries:
   table_workspace:
+    layer: L1
     type: single
     nodes:
-      - node_id: on_table
-        constraint:
-          # Workspace is 70 cm wide, 50 cm deep, 40 cm tall
+      - callback: workspace
+        params:
+          # Workspace is 70 cm wide, 50 cm deep, 40 cm tall.
           bounds:
             - [-0.35, 0.35]        # x: ±35 cm
             - [-0.05, 0.45]        # y: 5–45 cm
@@ -273,7 +274,7 @@ boundaries:
 **How bounds are checked:**
 1. Compute end-effector position via forward kinematics
 2. Check if position is inside `[x_min..x_max, y_min..y_max, z_min..z_max]`
-3. If outside → REJECT
+3. If outside, the selected layer responds: L1 can halt or clamp, while L2 rejects the task action.
 
 **Coordinate system:** Relative to the robot base (usually the mount point).
 
@@ -323,36 +324,27 @@ runtime.start_task("pick_and_place")
 
 ## Advanced: Custom Callbacks
 
-For constraints beyond position/velocity/force, use **callbacks**.
+For checks beyond built-in position, velocity, workspace, and hardware limits,
+add a boundary callback and reference it from a Stackfile.
 
 ### Define a Callback
 
 ```python
-import dam
+from dam.boundary.registry import boundary_callback
+from dam.guard.pipeline import CallbackResult
+from dam.types.observation import Observation
 
-@dam.callback
-def validate_grasp_target(obs, state, constraint):
-    """
-    Check if the proposed action moves toward the grasp target.
-    Return True to pass, False to reject.
-    """
-    target = state.grasp_target  # Set by your task logic
-    current_ee_pos = obs.end_effector_pos
-
-    # Compute distance to target
-    distance = np.linalg.norm(current_ee_pos - target)
-
-    # Reject if we're moving away from target
-    if distance > state.last_distance:
-        return False  # REJECT
-
-    state.last_distance = distance
-    return True  # PASS
-
-@dam.callback
-def force_limited_grasp(obs, state, constraint):
-    """Reject if contact force exceeds a threshold."""
-    return obs.force_norm < 30.0  # Max 30 N
+@boundary_callback(
+    name="force_limited_grasp",
+    layer="L2",
+    description="Rejects when contact force exceeds the configured limit.",
+    params={"max_force_n": "Maximum allowed contact force in newtons."},
+)
+def force_limited_grasp(*, obs: Observation, max_force_n: float = 30.0) -> CallbackResult:
+    force_norm = obs.metadata.get("force_norm")
+    if force_norm is None or float(force_norm) <= max_force_n:
+        return CallbackResult.ok("force_limited_grasp")
+    return CallbackResult.violate("force_limited_grasp", "force limit exceeded")
 ```
 
 ### Register in Stackfile
@@ -360,12 +352,12 @@ def force_limited_grasp(obs, state, constraint):
 ```yaml
 boundaries:
   grasp_phase:
+    layer: L2
     type: single
     nodes:
-      - node_id: grasp
-        callback: validate_grasp_target
+      - callback: force_limited_grasp
         params:
-          max_speed: 0.05
+          max_force_n: 30.0
         fallback: hold_position
         timeout_sec: 5.0
 ```
@@ -373,16 +365,15 @@ boundaries:
 ### Callback Signature
 
 ```python
-def my_callback(obs: Observation, state: RuntimeState, constraint: BoundaryConstraint) -> bool:
+def my_callback(*, obs: Observation, my_param: float = 1.0) -> CallbackResult:
     """
     Parameters:
       obs: Current observation (sensor readings)
-      state: Runtime state (task variables, history)
-      constraint: The boundary constraint being evaluated
+      my_param: A value supplied from Stackfile params
 
     Returns:
-      True: constraint passed
-      False: constraint failed (action will be rejected)
+      CallbackResult.ok(...): check passed
+      CallbackResult.violate(...): check failed
     """
     ...
 ```
@@ -398,27 +389,25 @@ Start conservative, loosen as task progresses.
 ```yaml
 boundaries:
   pick_and_place:
+    layer: L2
     type: list
     nodes:
       # Phase 1: Conservative approach
-      - node_id: safe_approach
-        constraint:
+      - callback: task_workspace_bounds
+        params:
           bounds: [[-0.2, 0.2], [0.1, 0.3], [0.0, 0.2]]
-          max_speed: 0.1
         timeout_sec: 10.0
 
       # Phase 2: Tighter bound for precision
-      - node_id: precision_grasp
-        constraint:
+      - callback: task_workspace_bounds
+        params:
           bounds: [[-0.05, 0.05], [0.15, 0.25], [0.0, 0.1]]
-          max_speed: 0.01
         timeout_sec: 5.0
 
       # Phase 3: Lift phase (larger space)
-      - node_id: lift
-        constraint:
+      - callback: task_workspace_bounds
+        params:
           bounds: [[-0.3, 0.3], [0.05, 0.45], [0.0, 0.5]]
-          max_speed: 0.1
         timeout_sec: 10.0
 ```
 
@@ -429,16 +418,20 @@ Chain recovery boundaries for different failure modes.
 ```yaml
 boundaries:
   main_task:
+    layer: L2
     type: list
     nodes:
-      - node_id: normal_reach
-        fallback: safe_retreat
+      - callback: task_workspace_bounds
+        params:
+          bounds: [[-0.35, 0.35], [-0.05, 0.45], [0.01, 0.40]]
+        fallback: retreat
 
   error_recovery:
+    layer: L2
     type: single
     nodes:
-      - node_id: recover
-        constraint:
+      - callback: task_joint_speed_limit
+        params:
           max_speed: 0.05
         fallback: hold_position
 
@@ -454,13 +447,12 @@ Use force bounds for soft manipulation.
 ```yaml
 boundaries:
   soft_assembly:
+    layer: L2
     type: single
     nodes:
-      - node_id: insert
-        callback: check_insertion_progress
+      - callback: force_limited_grasp
         params:
           max_force_n: 10.0        # Max 10 N contact force
-          max_speed: 0.01          # Very slow
         fallback: hold_position
         timeout_sec: 30.0
 ```
@@ -472,10 +464,11 @@ Define a global workspace limit active during all tasks.
 ```yaml
 boundaries:
   global_safety:
+    layer: L1
     type: single
     nodes:
-      - node_id: safe_space
-        constraint:
+      - callback: workspace
+        params:
           bounds: [[-0.5, 0.5], [-0.2, 0.6], [-0.1, 1.5]]
         fallback: emergency_stop
 

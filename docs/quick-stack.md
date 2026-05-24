@@ -385,47 +385,12 @@ for _ in range(n_cycles):
 runtime.stop_task()
 ```
 
-### Programmatic construction (no Stackfile)
+### Programmatic construction
 
-```python
-import numpy as np
-from dam.runtime.guard_runtime import GuardRuntime
-from dam.guard.builtin.motion import MotionGuard
-from dam.decorators import guard as guard_decorator
-from dam.fallback.registry import FallbackRegistry
-from dam.fallback.builtin import EmergencyStop, HoldPosition, SafeRetreat
-from dam.fallback.chain import build_escalation_chain
-from dam.boundary.node import BoundaryNode
-from dam.boundary.constraint import BoundaryConstraint
-from dam.boundary.single import SingleNodeContainer
-
-# Decorate and instantiate the guard
-MotionGuard = guard_decorator("L2")(MotionGuard)
-motion_guard = MotionGuard()
-
-# Set up fallback registry
-fallback_registry = FallbackRegistry()
-fallback_registry.register(EmergencyStop())
-fallback_registry.register(HoldPosition())
-fallback_registry.register(SafeRetreat())
-build_escalation_chain(fallback_registry)
-
-# Set up a boundary
-constraint = BoundaryConstraint(max_speed=0.3)
-node = BoundaryNode(node_id="default", constraint=constraint, fallback="hold_position")
-container = SingleNodeContainer(node)
-
-runtime = GuardRuntime(
-    guards=[motion_guard],
-    boundary_containers={"main": container},
-    fallback_registry=fallback_registry,
-    task_config={"demo": ["main"]},
-    config_pool={
-        "upper_limits": np.array([1.57, 1.57, 1.57, 1.57, 1.57, 0.08]),
-        "lower_limits": np.array([-1.57, -1.57, -1.57, -1.57, -1.57, 0.0]),
-    },
-)
-```
+Prefer Stackfiles for normal use. They are easier to inspect, validate, review,
+and share than hand-built runtime objects. Use the low-level Python APIs only
+when you are writing DAM itself, building a test fixture, or adding a new
+adapter/guard implementation.
 
 ---
 
