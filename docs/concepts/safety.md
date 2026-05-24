@@ -1,12 +1,12 @@
-# Safety Guarantees
+# Safety Model
 
-DAM is designed using **defense-in-depth** and **fail-safe** principles. This document explains what safety properties DAM provides, what it does NOT guarantee, and how to reason about safety in your system.
+DAM is designed using **defense-in-depth** and **fail-to-reject** principles. This document explains the safety behavior DAM is designed to provide, the assumptions it depends on, and what it does not guarantee.
 
 ---
 
 ## Core Safety Principle: Fail-to-Reject
 
-**The most important rule: Any failure mode in the guard stack results in immediate rejection.**
+**The most important rule: guard failures should result in rejection, not silent execution.**
 
 ```python
 try:
@@ -24,11 +24,11 @@ This means:
 - ✅ Guard memory error → action rejected, not executed
 - ✅ Corrupt data → action rejected, not executed
 
-There is **no graceful degradation** that still executes unsafe actions.
+The intended behavior is conservative: do not execute an action when the guard stack cannot evaluate it reliably.
 
 ---
 
-## Five-Layer Defense
+## Four-Layer Defense
 
 Each guard layer is independent and evaluates the action from a different perspective. The **most restrictive decision wins**.
 
@@ -73,7 +73,7 @@ L1 is the most mature layer. It enforces hard kinematic and dynamic constraints.
 
 **Constraints:**
 1. **Joint position limits** — clamps if joint exceeds `[lower_limit, upper_limit]`
-2. **Velocity limits** — scales action if joint velocity would exceed `max_velocity`
+2. **Velocity limits** — scales action if joint velocity would exceed `max_velocities`
 3. **Acceleration limits** — scales action if implied acceleration would exceed `max_acceleration`
 4. **Workspace bounds** — rejects if end-effector goes outside `[xmin..xmax, ymin..ymax, zmin..zmax]`
 
@@ -107,11 +107,11 @@ boundaries:
 - **Acceleration:** Target velocity scaled back
 - **Workspace:** **Rejected** (cannot clamp an end-effector back into bounds without knowing which joints to move)
 
-**Guarantees:**
-- ✅ Joint limits are **never** violated
-- ✅ Velocity and acceleration are bounded
-- ✅ End-effector stays within workspace
-- ❌ Does NOT guarantee collision-free motion without an additional simulation/collision checker
+**Expected behavior when configured correctly:**
+- Joint limits are clamped to configured `upper` and `lower` values.
+- Velocity and acceleration are bounded according to configured limits.
+- Workspace callbacks respond when end-effector pose leaves the configured box.
+- Collision-free motion still requires a dedicated simulation or collision checker.
 
 ---
 
@@ -132,20 +132,20 @@ and task-phase gripper command validation.
 ```yaml
 boundaries:
   pick_and_place:
+    layer: L2
     type: list
     nodes:
-      - node_id: reach
-        callback: task_workspace_bounds
+      - callback: task_workspace_bounds
         params:
           bounds: [[-0.35, 0.35], [-0.05, 0.45], [0.01, 0.40]]
         fallback: hold_position
         timeout_sec: 15.0
 ```
 
-**Guarantees:**
-- ✅ Actions violating boundary constraints are rejected
-- ✅ Timeouts prevent indefinite task execution
-- ❌ Callbacks are user-provided; DAM cannot guarantee they are correct
+**Expected behavior when configured correctly:**
+- Actions violating active boundary callbacks are rejected or clamped according to the callback.
+- Timeouts reject task phases that exceed `timeout_sec`.
+- Custom callback correctness remains the user's responsibility.
 
 ---
 
@@ -173,13 +173,13 @@ L3 rejects any action if:
 - Watchdog is not responding
 - Sensor is disconnected
 
-**Guarantees:**
-- ✅ Actions are rejected if hardware is unhealthy
-- ❌ Cannot prevent hardware faults themselves (only detect them)
+**Expected behavior when configured correctly:**
+- Actions are rejected when configured hardware health checks report unhealthy state.
+- DAM cannot prevent hardware faults themselves; it can only react to signals it receives.
 
 ---
 
-## Memory Safety & Real-Time Guarantees
+## Runtime Safety Considerations
 
 ### Rust Data Plane
 
@@ -188,23 +188,17 @@ The Rust layer is responsible for the real-time critical path:
 - Action evaluation
 - Decision caching
 
-**Safety properties:**
-- ✅ **No buffer overflows** — Rust's type system prevents out-of-bounds access
-- ✅ **No use-after-free** — borrow checker ensures lifetime safety
-- ✅ **No data races** — Send/Sync traits enforced at compile time
-- ✅ **No garbage collection** — deterministic memory deallocation
-- ✅ **No GIL contention** — guards can run in parallel without fighting Python's GIL
-
-**Worst-case execution time (WCET):**
-- Per-cycle guard evaluation: < 5 ms (typical hardware)
-- Can be formally analyzed if needed
+**Runtime properties:**
+- Rust helps avoid memory-safety classes such as use-after-free and data races.
+- Moving high-volume messaging away from Python reduces GIL-related timing noise.
+- Actual cycle timing must still be measured on the target machine and watched in the console.
 
 ### Python Fallback
 
 If Rust extension is not compiled:
-- ✅ Still safe (Python implementation uses same logic)
-- ⚠️ Slower (GIL may introduce unpredictable latency)
-- ⚠️ WCET harder to analyze (Python runtime not deterministic)
+- The same guard semantics are used where supported.
+- The Python runtime may have more timing variability.
+- Validate latency before using hardware.
 
 ---
 
@@ -226,10 +220,10 @@ DAM performs atomic updates:
 4. Swap config atomically at the start of the next cycle
 5. Old config is kept as fallback if validation fails
 
-**Guarantees:**
-- ✅ Partial/invalid new config is **never** applied (all-or-nothing)
-- ✅ Guards see consistent state (no torn reads)
-- ✅ No control loop interruption
+**Expected behavior:**
+- Partial or invalid new config is not applied.
+- Guards see a consistent config snapshot.
+- Validate hot-reload behavior in your own deployment before relying on it around hardware.
 
 ---
 
@@ -276,23 +270,22 @@ DAM's design follows best practices, but proofs are ongoing work. The system is 
 DAM has two safety components:
 
 ### Design Safety
-The **architecture itself** is safe by construction:
+The architecture is designed for conservative behavior:
 - Fail-to-reject principle
 - Layered guards
 - Hot-reload atomicity
 - Memory safety (Rust)
 
 ### Implementation Safety
-Requires careful code review and testing:
+It still requires careful code review and testing:
 - No logic bugs in guard evaluators
 - No off-by-one errors in boundary checks
 - Proper error handling
 
 DAM includes:
-- ✅ Comprehensive unit tests
-- ✅ Integration tests with real hardware
-- ✅ MCAP replay for post-incident analysis
-- ⚠️ No formal verification (yet)
+- Unit, integration, safety, and regression tests
+- MCAP replay for post-incident analysis
+- No formal verification claim
 
 ---
 
@@ -314,23 +307,27 @@ guards:
 ```
 
 ### 2. Tight Boundaries
-Start with conservative constraints. Loosen them incrementally as you verify safety.
+Start with conservative boundary parameters. Loosen them incrementally as you validate behavior.
 
 ```yaml
 # Phase 1: Very conservative
 boundaries:
   reach:
+    layer: L2
+    type: single
     nodes:
-      - constraint:
-          max_speed: 0.1
+      - callback: task_workspace_bounds
+        params:
           bounds: [[-0.1, 0.1], [0.1, 0.2], [0.0, 0.3]]
 
 # Phase 2: Loosen as you gain confidence
 boundaries:
   reach:
+    layer: L2
+    type: single
     nodes:
-      - constraint:
-          max_speed: 0.3
+      - callback: task_workspace_bounds
+        params:
           bounds: [[-0.3, 0.3], [0.05, 0.45], [0.01, 0.40]]
 ```
 
@@ -374,7 +371,7 @@ Always test new versions in simulation before deploying to hardware.
 
 - **Understand the guards in detail** → [Guard Stack Explained](guards-explained.md)
 - **Configure boundaries** → [Boundary System](boundaries.md)
-- **Deploy your system** → [Quick Start Guide](../quick-stack.md)
+- **Prepare hardware carefully** → [Hardware Readiness](../getting-started/hardware-readiness.md)
 - **Monitor with the Console** → [DAM Console](../console.md)
 
 ---
@@ -386,4 +383,4 @@ Safety is paramount. If you have concerns about a specific scenario:
 2. File an issue with the safety tag
 3. Contact the DAM team
 
-**Remember:** DAM is currently experimental-grade. For safety-critical production use, combine it with formal methods, extensive testing, and human oversight.
+**Remember:** DAM is currently experimental-grade. For safety-critical production use, combine it with formal methods, extensive testing, independent hardware safety procedures, and human oversight.
