@@ -26,6 +26,7 @@ Help a new DAM user go from "what is this?" to "I can run a demo, read a guard d
 | Reference hygiene | Keep deep implementation detail discoverable but secondary | Done: first-run pages point to Stackfiles, commands, and console before architecture internals |
 | Harness | Prevent repeated onboarding regressions | Done: `make docs-check` runs strict MkDocs plus command, safety wording, and learner Stackfile checks |
 | Hardware readiness | Slow the transition from demo to physical robot | Done: hardware examples use bounded cycles and require independent stop readiness |
+| Safety wording | Keep research-grade claims conditional and auditable | Done: docs use Safety Model language and harness blocks common overclaims |
 
 ## Definition Of Done
 
@@ -43,5 +44,5 @@ A documentation improvement is complete when:
 1. Keep `make docs-check` passing as the documentation quality gate.
 2. Add stable console screenshots or sample event snippets when demo artifacts are available.
 3. Review deep reference pages for outdated callback parameter names after each schema change.
-4. Split `quick-stack.md` further only if users need a shorter "common edits" page.
+4. Keep English and Chinese specification examples aligned when public commands change.
 5. Continue logging PM checkpoints in `harness/docs/logs/docs_pm_log.jsonl`.
