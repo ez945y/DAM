@@ -24,4 +24,4 @@ Use `check_docs.py` before committing documentation changes:
 python harness/docs/check_docs.py
 ```
 
-It runs `mkdocs build --strict` and scans learner-facing docs, including Concepts pages, for command patterns that have caused onboarding mistakes, such as old `--stack` syntax or assuming every Stackfile has a `default` task.
+It runs `mkdocs build --strict` and scans documentation pages for command patterns that have caused onboarding mistakes, such as old `--stack` syntax or assuming every Stackfile has a `default` task.
