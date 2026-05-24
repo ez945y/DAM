@@ -13,7 +13,7 @@
 #   make ci-import         ← build Rust + import
 #   make ci-stackfile     ← validate stackfile
 #
-.PHONY: setup setup-lerobot ros dev run docs docs-check test test-py test-rs test-ui lint build-rs clean help dam validate ci-lint ci-syntax ci-import ci-stackfile _kill_port
+.PHONY: setup setup-lerobot ros dev run docs docs-check test test-py test-rs test-ui lint format build-rs clean help dam validate ci-lint ci-syntax ci-import ci-stackfile _kill_port
 
 # Ensure scripts are executable before every target that uses them
 _chmod:
@@ -70,8 +70,18 @@ test-rs: _chmod   ## Rust tests only (cargo test --workspace)
 test-ui: _chmod   ## Frontend tests only (jest --ci)
 	@bash scripts/test.sh --frontend
 
-lint: _chmod   ## Linters only (ruff, mypy, cargo clippy)
+lint: _chmod   ## Linters only (ruff check, mypy, cargo clippy) — no auto-fix
 	@bash scripts/test.sh --lint
+
+format:   ## Auto-format Python (ruff) + Rust (cargo fmt) + trailing whitespace
+	@echo "Formatting Python..."
+	@.venv/bin/ruff format dam/ tests/ scripts/ harness/
+	@.venv/bin/ruff check --fix dam/ tests/ scripts/ harness/ || true
+	@if command -v cargo >/dev/null 2>&1 && [ -d dam-rust ]; then \
+		echo "Formatting Rust..."; \
+		cargo fmt --all --manifest-path dam-rust/Cargo.toml; \
+	fi
+	@echo "Done."
 
 clean:   ## Remove venv, Rust build artefacts, and node_modules
 	rm -rf .venv dam-rust/target dam-console/node_modules dam-console/.next

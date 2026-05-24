@@ -54,6 +54,9 @@ coverage/
 # MkDocs
 site/
 
+# PM harness logs (local-only, never commit)
+harness/docs/logs/
+
 # Project specific
 data/
 **.drawio.*
