@@ -19,16 +19,16 @@ https://github.com/user-attachments/assets/a10711ea-a419-4aee-ba06-de1e2d437d49
 
 **DAM** is a detachable safety middleware that sits between any machine learning policy (or controller) and robot hardware. It intercepts every proposed action, evaluates it through a layered guard stack (L0–L3), and either **passes**, **clamps**, or **rejects** it — without modifying the policy weights or hardware drivers.
 
-This design enables strong safety boundaries while keeping the learning/policy layer fully detachable and upgradable.
+This design keeps safety boundaries explicit while leaving the learning/policy layer detachable and upgradable.
 
 ### Features
-+ **Graduated L0→L3 Pipeline**: Validates OOD, motion feasibility, task logic, and hardware health with graceful fallback escalation instead of hard crashes.
-+ **L1 Motion Boundary (CBF)**: Solves joint, velocity, and workspace constraints in one ProxSuite QP for minimally disruptive safe actions.
-+ **MCAP Loopback Ring Buffer**: Saves ±30s of frames, observations, and safety events around failures into MCAP using Rust async workers.
-+ **Cycle Inspector**: Audits each control loop with per-guard latency, boundary decisions, and observation/action diffs in-browser.
-+ **Rust Data Plane**: Moves serialization, MCAP writing, and messaging out of the Python GIL for deterministic performance.
-+ **Strict Adapter Isolation**: Sensor, Policy, and Action ABCs enable swapping LeRobot, ROS 2, or OpenCV without touching guard logic.
-7. **Stackfile-Driven Config**: Robots, policies, and safety boundaries are fully YAML-defined and CI-validated via `dam validate`.
+
+- **Graduated L0-L3 pipeline**: Validates OOD, motion feasibility, task logic, and hardware health with fallback escalation.
+- **Stackfile-driven config**: Robots, policies, guards, boundaries, and tasks are YAML-defined and validated via `dam validate`.
+- **MCAP loopback logging**: Records observations, actions, guard decisions, and safety events for replay and review.
+- **Cycle inspection**: Audits control loops with guard decisions, latency, and observation/action context in the console.
+- **Rust data plane**: Moves serialization, MCAP writing, and messaging out of the Python GIL for more predictable performance.
+- **Adapter isolation**: Swaps LeRobot, ROS 2, dataset, or custom adapters without changing guard logic.
 
 **Disclaimer**: DAM is experimental research software and not certified for safety-critical or production environments.
 
