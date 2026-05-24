@@ -12,6 +12,7 @@ from pathlib import Path
 DEFAULT_GLOBS = (
     "docs/getting-started/*.md",
     "docs/learn/*.md",
+    "docs/concepts/*.md",
     "docs/cli.md",
     "docs/quick-stack.md",
     "docs/console.md",
