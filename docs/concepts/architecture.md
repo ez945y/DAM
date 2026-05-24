@@ -82,11 +82,10 @@ Rust Layer (Real-time safe)
 └── Guard Evaluators     — Vectorized constraint checking
 ```
 
-**Why Rust?**
-- **Memory safety** — no buffer overflows, use-after-free, or data races
-- **Deterministic latency** — no garbage collection pauses
-- **GIL-free** — multiple threads can run guards in parallel
-- **Real-time friendly** — predictable worst-case execution time
+**Why keep this path separate?**
+- High-volume logging and messaging stay away from policy code.
+- The control loop has fewer Python runtime pauses to account for.
+- Hardware-oriented deployments get a clearer boundary between orchestration and hot-path work.
 
 Falls back to pure-Python if Rust extension is not compiled.
 
@@ -110,16 +109,16 @@ Boundaries define the **safety envelope** active during a task. They are pure da
 ```yaml
 boundaries:
   pick_and_place:
+    layer: L2
     type: list
     nodes:
-      - node_id: reach
-        constraint:
-          max_speed: 0.3
+      - callback: task_workspace_bounds
+        params:
           bounds: [[-0.35, 0.35], [-0.05, 0.45], [0.01, 0.40]]
         fallback: hold_position
         timeout_sec: 15.0
-      - node_id: grasp
-        constraint:
+      - callback: task_joint_speed_limit
+        params:
           max_speed: 0.08
 ```
 
@@ -169,8 +168,7 @@ class MySink:
 A **Stackfile** is a YAML file that wires together all components. No Python code required for tier-1 deployments.
 
 ```yaml
-dam:
-  version: "1"
+version: "1"
 
 hardware:
   preset: so101_follower
@@ -285,7 +283,7 @@ Only **static** configuration (guard limits, boundary constraints) reloads. Guar
 3. **Configuration over Code** — use YAML for 99% of deployments; Python for advanced tier-2/3 setups
 4. **Modularity** — swap hardware, policies, and safety rules independently
 5. **Observability** — every decision is auditable; violations are captured for post-incident analysis
-6. **Deterministic Execution** — Rust data plane eliminates GIL contention and garbage collection pauses
+6. **Predictable Runtime Path** — keep logging, messaging, and guard work observable and bounded
 
 ---
 
@@ -294,4 +292,4 @@ Only **static** configuration (guard limits, boundary constraints) reloads. Guar
 - **Understand the guards** → [Guard Stack Explained](guards-explained.md)
 - **Learn about safety** → [Safety Guarantees](safety.md)
 - **Configure boundaries** → [Boundary System](boundaries.md)
-- **Deploy** → [Quick Start Guide](../quick-stack.md)
+- **Read a Stackfile** → [Stackfile Walkthrough](../getting-started/stackfile-walkthrough.md)
