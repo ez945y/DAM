@@ -49,7 +49,7 @@ One iteration of the control loop: read observations → propose action → eval
 ## D
 
 **Data Plane**
-The Rust layer running the real-time critical path: observation multiplexing, guard evaluation, action validation, and dispatch. Eliminates GIL contention and provides deterministic latency. Optional but recommended for production.
+The Rust layer running the real-time critical path: observation multiplexing, guard evaluation, action validation, and dispatch. Eliminates GIL contention and helps provide more predictable latency. Optional but recommended for hardware-oriented development.
 
 **Decision**
 The outcome of guard evaluation: **PASS** (execute action), **CLAMP** (adjust action), or **REJECT** (forbid action).
@@ -234,7 +234,7 @@ The main DAM execution engine (`GuardRuntime`). Orchestrates sources, policy, gu
 **Safe Retreat** (See **Retreat**)
 
 **Safety Guarantee**
-A property that DAM commits to maintaining. Example: "Joint limits are never violated." See [Safety Guarantees](../concepts/safety.md) for complete list.
+A safety property DAM is designed to enforce when the relevant guards and boundaries are configured correctly. See [Safety Guarantees](../concepts/safety.md) for limitations and required assumptions.
 
 **Sensor**
 Hardware device providing observations: encoders (joint position), IMUs, force/torque sensors, cameras. Read by sources.

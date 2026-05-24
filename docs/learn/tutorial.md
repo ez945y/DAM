@@ -633,10 +633,11 @@ After completing this tutorial, you can:
 
 ## Next Steps
 
-- **Deploy to real hardware** → [Installation Guide](../installation.md)
+- **Prepare for real hardware** → [Hardware Readiness](../getting-started/hardware-readiness.md)
 - **Advanced safety** → [Safety Guarantees](../concepts/safety.md)
 - **Deep dive into guards** → [Guard Stack Explained](../concepts/guards-explained.md)
-- **Troubleshoot** → [Glossary](glossary.md)
+- **Troubleshoot** → [Troubleshooting](../getting-started/troubleshooting.md)
+- **Look up terms** → [Glossary](glossary.md)
 - **Contribute** → [Contributing](../contributing.md)
 
 ---
