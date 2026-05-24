@@ -101,7 +101,7 @@ DAM 用戶分為三個層次，各層次累加——進階層包含所有基礎�
 | **安全邊界** | 編寫 YAML 節點 + 內建約束條件 | Stackfile `boundaries` |
 | **任務** | 聲明名稱 + 激活哪些邊界 | Stackfile `tasks` |
 
-無需任何 Python 檔案。執行：`dam run --stack stackfile.yaml --task <name>`
+無需任何 Python 檔案。執行：`dam run stackfile.yaml --task <name>`
 
 **第二層 — 基礎用戶（YAML + Python 回調）**
 
@@ -145,7 +145,7 @@ DAM 用戶分為三個層次，各層次累加——進階層包含所有基礎�
  │  定義 (離線)                                                 │
  │  Stackfile YAML  +  Python 回調 / 自定義守衛                │
  └────────────────────────────┬────────────────────────────────┘
-                              │  dam run --stack stackfile.yaml
+                              │  dam run stackfile.yaml
  ┌────────────────────────────▼────────────────────────────────┐
  │  連接                                                       │
  │  DAM 自動佈線：Sources → ObservationBus                    │
@@ -172,7 +172,7 @@ DAM 用戶分為三個層次，各層次累加——進階層包含所有基礎�
 
 **第一層 — 純 YAML，無需任何 Python：**
 ```bash
-dam run --stack stackfile.yaml --task pick_and_place
+dam run stackfile.yaml --task pick_and_place
 ```
 
 **第二層 — 加入自定義約束檢查：**
@@ -186,7 +186,7 @@ def check_grasp_force(obs, max_force_n: float) -> bool:
     return float(obs.force_torque[2]) < max_force_n
 ```
 ```bash
-dam run --stack stackfile.yaml --task pick_and_place --python callbacks.py
+dam run stackfile.yaml --task pick_and_place --python callbacks.py
 ```
 
 **在執行點切換任務（Python 入口）：**
@@ -203,7 +203,7 @@ runner.start_task("sorting_box")      # 切換到另一組邊界
 
 ```bash
 # 終端機
-dam run --stack stackfile.yaml --task pick_and_place
+dam run stackfile.yaml --task pick_and_place
 ```
 
 其餘的一切——硬體連接、策略推理、守衛管線、回退、遙測——都由 DAM 透過 Stackfile 處理。
@@ -779,7 +779,7 @@ class Fallback(ABC):
 
 ## 6. Stackfile 參考 (Stackfile Reference)
 
-**Stackfile** (`.dam_stackfile.yaml`) 是 DAM 部署的**唯一配置入口點**。不需要 Python 入口點 —— `dam run --stack .dam_stackfile.yaml` 即可引導整個系統。所有硬體連接、守衛註冊、任務生命週期與運行時參數都在此處聲明。
+**Stackfile** (`.dam_stackfile.yaml`) 是 DAM 部署的**唯一配置入口點**。不需要 Python 入口點 —— `dam run .dam_stackfile.yaml` 即可引導整個系統。所有硬體連接、守衛註冊、任務生命週期與運行時參數都在此處聲明。
 
 ```yaml
 # .dam_stackfile.yaml — 完整註釋範例 (so101 + LeRobot + ROS2 混合模式)
@@ -1157,8 +1157,8 @@ L1 守衛運行在獨立線程上，使用當前觀測值、提議動作以及 `
 | :--- | :--- |
 | `StackfileLoader.load(path)` | 解析 + 驗證；Schema 錯誤時拋出 |
 | `StackfileLoader.validate(path)` | 僅執行試運行驗證；用於 `dam validate` |
-| `dam run --stack --task` | 系統主入口點 |
-| `dam validate --stack` | 部署前 Schema + 註冊檢查；不連接硬體 |
+| `dam run <stackfile> --task <task>` | 系統主入口點 |
+| `dam validate <stackfile>` | 部署前 Schema + 註冊檢查；不連接硬體 |
 | `dam replay --mcap --stack` | 離線重放違規上下文進行管線調試 |
 
 ### 11.8 測試工具集 (Phase 1)

@@ -101,7 +101,7 @@ DAM users fall into three tiers. Higher tiers are additive — each includes eve
 | **Safety boundaries** | Write YAML nodes + built-in constraints | Stackfile `boundaries` |
 | **Tasks** | Declare name + which boundaries activate | Stackfile `tasks` |
 
-No Python file required. Run with `dam run --stack stackfile.yaml --task <name>`.
+No Python file required. Run with `dam run stackfile.yaml --task <name>`.
 
 **Tier 2 — Basic (YAML + Python callbacks)**
 
@@ -145,7 +145,7 @@ Everything else — you write none of this:
  │  DEFINE (offline)                                           │
  │  Stackfile YAML  +  Python callbacks / custom guards        │
  └────────────────────────────┬────────────────────────────────┘
-                              │  dam run --stack stackfile.yaml
+                              │  dam run stackfile.yaml
  ┌────────────────────────────▼────────────────────────────────┐
  │  CONNECT                                                    │
  │  DAM auto-wires multi-Sources → ObservationBus (Merged)     │
@@ -172,7 +172,7 @@ Everything else — you write none of this:
 
 **Tier 1 — YAML only (no Python at all):**
 ```bash
-dam run --stack stackfile.yaml --task pick_and_place
+dam run stackfile.yaml --task pick_and_place
 ```
 
 **Tier 2 — add a custom constraint check:**
@@ -186,7 +186,7 @@ def check_grasp_force(obs, max_force_n: float) -> bool:
     return float(obs.force_torque[2]) < max_force_n
 ```
 ```bash
-dam run --stack stackfile.yaml --task pick_and_place --python callbacks.py
+dam run stackfile.yaml --task pick_and_place --python callbacks.py
 ```
 
 **Task switching at runtime (Python entry point):**
@@ -547,7 +547,7 @@ profiles:
 ```
 
 ```bash
-dam run --stack stackfile.yaml --profile training_rl --task pick_and_place
+dam run stackfile.yaml --profile training_rl --task pick_and_place
 ```
 
 ### 3.19 Static Acceleration: Startup Pre-computation
@@ -809,7 +809,7 @@ class Fallback(ABC):
 
 ## 6. Stackfile Reference
 
-The **Stackfile** (`.dam_stackfile.yaml`) is the **single configuration entry point** for a DAM deployment. No Python entry point is required — `dam run --stack .dam_stackfile.yaml` bootstraps the entire system. All hardware connections, guard registration, task lifecycle, and runtime parameters are declared here.
+The **Stackfile** (`.dam_stackfile.yaml`) is the **single configuration entry point** for a DAM deployment. No Python entry point is required — `dam run .dam_stackfile.yaml` bootstraps the entire system. All hardware connections, guard registration, task lifecycle, and runtime parameters are declared here.
 
 ```yaml
 # .dam_stackfile.yaml — full annotated example (so101 + LeRobot + ROS2 mixed)
@@ -1497,8 +1497,8 @@ All functions that must be implemented, grouped by module. **Bold** = must exist
 | `StackfileLoader.load(path)` | Parse + validate; raises on schema error |
 | `StackfileLoader.validate(path)` | Dry-run validation only; used by `dam validate` CLI |
 | `StackfileLoader.hot_reload(path)` | Double-buffer swap; called by file watcher |
-| `dam run --stack --task [--profile] [--mode]` | Main entry point |
-| `dam validate --stack` | Schema + registration check; no hardware connection |
+| `dam run <stackfile> --task <task> [--profile <name>] [--mode <mode>]` | Main entry point |
+| `dam validate <stackfile>` | Schema + registration check; no hardware connection |
 | `dam replay --mcap --stack` | Replay violation context through guard pipeline offline |
 
 ### 11.8 Testing Utilities (Phase 1)

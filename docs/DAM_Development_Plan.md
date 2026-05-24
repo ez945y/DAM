@@ -43,7 +43,7 @@
 
 | 項目 | 要求 |
 |---|---|
-| Schema 驗證 | `dam validate --stack <file>` 必須通過，CI 對所有範例 Stackfile 執行驗證 |
+| Schema 驗證 | `dam validate <file>` 必須通過，CI 對所有範例 Stackfile 執行驗證 |
 | 範例文件 | 每個 Phase 附帶至少一個完整的範例 Stackfile，作為文件也作為測試輸入 |
 
 ### 0.3 Git 工作流
@@ -127,7 +127,7 @@ jobs:
   # ── Stackfile 驗證 ───────────────────────────────────
   stackfile-validate:
     steps:
-      - dam validate --stack examples/*.yaml
+      - dam validate examples/*.yaml
 
   # ── Nightly（不阻擋合併，但追蹤趨勢）─────────────────
   nightly-fuzz:
