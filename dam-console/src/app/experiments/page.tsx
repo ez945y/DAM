@@ -555,7 +555,7 @@ function ExperimentCard({
 }
 
 function ArtifactPreview({ path }: { path: string }) {
-  const url = api.experimentArtifactUrl(path);
+  const url = `${api.experimentArtifactUrl(path)}&v=${Date.now()}`;
   if (isPreviewArtifact(path)) {
     return (
       <a href={url} target="_blank" rel="noreferrer" className="block bg-dam-surface-1 border border-dam-border rounded-lg overflow-hidden">

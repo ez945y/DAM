@@ -682,19 +682,30 @@ def plot_results(rows: list[dict], outdir: Path) -> None:
         print("matplotlib not installed — skipping plot generation.")
         return
 
-    fig, ax = plt.subplots(figsize=(8, 5))
-    real_nvp_rows = [r for r in rows if r.get("method", "real_nvp") == "real_nvp"]
-    groups = {
-        name: [float(r["score_value"]) for r in real_nvp_rows if r["dataset"] == name]
-        for name in ("normal_test", "legal_variation", "abnormal_a")
-    }
-    labels = [name for name, values in groups.items() if values]
-    data = [groups[name] for name in labels]
-    ax.boxplot(data, labels=labels, showfliers=False)
-    ax.set_xlabel("Dataset")
-    ax.set_ylabel("Per-frame NLL")
-    ax.set_title("RQ1 — L0 Real-NVP NLL by Dataset")
-    ax.grid(True, alpha=0.3)
+    methods = list(dict.fromkeys(str(r.get("method", "real_nvp")) for r in rows))
+    fig, axes = plt.subplots(
+        len(methods),
+        1,
+        figsize=(9, max(4, 3.2 * len(methods))),
+        squeeze=False,
+    )
+    datasets = ("normal_test", "legal_variation", "abnormal_a")
+    for ax, method in zip(axes[:, 0], methods, strict=True):
+        method_rows = [r for r in rows if str(r.get("method", "real_nvp")) == method]
+        groups = {
+            name: [float(r["score_value"]) for r in method_rows if r["dataset"] == name]
+            for name in datasets
+        }
+        labels = [name for name, values in groups.items() if values]
+        data = [groups[name] for name in labels]
+        if data:
+            ax.boxplot(data, labels=labels, showfliers=False)
+        score_name = str(method_rows[0].get("score_name", "score")) if method_rows else "score"
+        ax.set_ylabel(score_name)
+        ax.set_title(f"{method} by dataset")
+        ax.grid(True, alpha=0.3)
+    axes[-1, 0].set_xlabel("Dataset")
+    fig.suptitle("RQ1 — L0 OOD score distributions", fontweight="bold")
     fig.tight_layout()
     out = outdir / "l0_calibration.png"
     fig.savefig(out, dpi=150)
