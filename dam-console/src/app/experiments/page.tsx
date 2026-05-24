@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, FileSpreadsheet, FlaskConical, Loader2, Play } from "lucide-react";
+import { AlertCircle, CheckCircle2, FileSpreadsheet, FlaskConical, Loader2, Play, XCircle } from "lucide-react";
 import { PageShell } from "@/components/PageShell";
 import { api } from "@/lib/api";
 import type { ExperimentDef, ExperimentResult } from "@/lib/types";
@@ -91,6 +91,112 @@ function primaryPreviewArtifacts(paths: string[]): string[] {
 function visibleArtifacts(result: ExperimentResult | null): string[] {
   if (!result) return [];
   return result.id === "latency-bench" ? [] : result.artifacts;
+}
+
+function L0CalibrationSummary({ summary }: { summary: Record<string, unknown> }) {
+  const deployable = summary.deployable === true;
+  const opThreshold = asNumber(summary.operational_threshold);
+  const opDetection = asNumber(summary.operational_detection_rate);
+  const opFpr = asNumber(summary.operational_fpr);
+  const opLegalFpr = asNumber(summary.operational_legal_fpr);
+  const eer = asNumber(summary.eer);
+  const perScenario = summary.per_scenario_detection as Record<string, { detection_rate: number; samples: number }> | undefined;
+  const distStats = summary.distance_stats as Record<string, number> | undefined;
+
+  return (
+    <div className="space-y-3">
+      <div className={`flex items-center gap-2 rounded-lg border px-4 py-3 ${
+        deployable
+          ? "bg-green-500/10 border-green-500/30"
+          : "bg-red-500/10 border-red-500/30"
+      }`}>
+        {deployable ? <CheckCircle2 size={18} className="text-green-400" /> : <XCircle size={18} className="text-red-400" />}
+        <span className={`text-sm font-black uppercase tracking-wide ${deployable ? "text-green-400" : "text-red-400"}`}>
+          {deployable ? "Deployable" : "Not Deployable"}
+        </span>
+        {opDetection !== null && (
+          <span className="text-xs text-dam-muted ml-2">
+            Detection: {(opDetection * 100).toFixed(1)}% (need &ge;80%)
+          </span>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        {eer !== null && (
+          <div className="bg-dam-surface-2 border border-dam-border rounded-lg px-3 py-2">
+            <p className="section-label">EER</p>
+            <p className="metric-value text-sm text-dam-text">{(eer * 100).toFixed(2)}%</p>
+          </div>
+        )}
+        {opThreshold !== null && (
+          <div className="bg-dam-surface-2 border border-dam-border rounded-lg px-3 py-2">
+            <p className="section-label">Op. Threshold</p>
+            <p className="metric-value text-sm font-mono text-dam-text">{opThreshold.toFixed(4)}</p>
+          </div>
+        )}
+        {opFpr !== null && (
+          <div className="bg-dam-surface-2 border border-dam-border rounded-lg px-3 py-2">
+            <p className="section-label">Normal FPR</p>
+            <p className="metric-value text-sm text-dam-text">{(opFpr * 100).toFixed(1)}%</p>
+          </div>
+        )}
+        {opLegalFpr !== null && (
+          <div className="bg-dam-surface-2 border border-dam-border rounded-lg px-3 py-2">
+            <p className="section-label">Legal Var. FPR</p>
+            <p className="metric-value text-sm text-dam-text">{(opLegalFpr * 100).toFixed(1)}%</p>
+          </div>
+        )}
+      </div>
+
+      {distStats && (
+        <div className="bg-dam-surface-2 border border-dam-border rounded-lg px-3 py-2">
+          <p className="section-label mb-1">NN Distance Distribution</p>
+          <div className="grid grid-cols-3 gap-4 text-[11px] font-mono">
+            <div>
+              <span className="text-dam-muted">Normal</span>
+              <span className="text-dam-text ml-2">p50={distStats.normal_p50?.toFixed(3)} p95={distStats.normal_p95?.toFixed(3)}</span>
+            </div>
+            <div>
+              <span className="text-dam-muted">Legal</span>
+              <span className="text-dam-text ml-2">p50={distStats.legal_p50?.toFixed(3)} p95={distStats.legal_p95?.toFixed(3)}</span>
+            </div>
+            <div>
+              <span className="text-dam-muted">OOD</span>
+              <span className="text-dam-text ml-2">p50={distStats.ood_p50?.toFixed(3)} p5={distStats.ood_p5?.toFixed(3)}</span>
+            </div>
+          </div>
+          {distStats.separation_gap !== undefined && (
+            <p className={`text-[10px] mt-1 ${distStats.separation_gap > 0 ? "text-green-400" : "text-amber-400"}`}>
+              Separation gap: {distStats.separation_gap.toFixed(3)} {distStats.separation_gap > 0 ? "(clear)" : "(overlap)"}
+            </p>
+          )}
+        </div>
+      )}
+
+      {perScenario && (
+        <div className="bg-dam-surface-2 border border-dam-border rounded-lg px-3 py-2">
+          <p className="section-label mb-2">Per-Scenario Detection at Operational Threshold</p>
+          <div className="space-y-1">
+            {Object.entries(perScenario).map(([name, data]) => {
+              const rate = data.detection_rate;
+              const color = rate >= 0.9 ? "bg-green-500" : rate >= 0.7 ? "bg-amber-500" : "bg-red-500";
+              return (
+                <div key={name} className="flex items-center gap-2">
+                  <span className="text-[10px] font-mono text-dam-muted w-40 truncate">{name}</span>
+                  <div className="flex-1 h-3 bg-dam-surface-1 rounded-full overflow-hidden">
+                    <div className={`h-full ${color} rounded-full transition-all`} style={{ width: `${rate * 100}%` }} />
+                  </div>
+                  <span className={`text-[10px] font-bold w-12 text-right ${rate >= 0.9 ? "text-green-400" : rate >= 0.7 ? "text-amber-400" : "text-red-400"}`}>
+                    {(rate * 100).toFixed(0)}%
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 const CHART_COLORS = ["#3b82f6", "#22c55e", "#f97316", "#ef4444", "#a855f7"];
@@ -294,6 +400,7 @@ function ExperimentCard({
             </div>
           </div>
           <RowPreview result={result} />
+          {exp.id === "l0-calibration" && result.summary && <L0CalibrationSummary summary={result.summary} />}
           {exp.id === "latency-bench" && <LatencyGroupedBarChart rows={result.rows} />}
           {previewArtifacts.length > 0 && (
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
