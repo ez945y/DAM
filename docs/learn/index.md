@@ -7,6 +7,7 @@ Use this path when you are new to DAM or teaching it to someone else. The goal i
 | If you want to... | Start here | You are done when... |
 |-------------------|------------|----------------------|
 | Run DAM locally | [Quick Start](../getting-started/quickstart.md) | `make run` opens the console and the backend is reachable |
+| Find common commands | [Command Cheat Sheet](../getting-started/commands.md) | You can validate, inspect, run, test, and diagnose from one page |
 | Install dependencies carefully | [Installation](../installation.md) | `make setup` finishes and import checks pass |
 | Understand the mental model | [Complete Tutorial](tutorial.md) | You can explain pass, clamp, reject, and fallback in your own words |
 | Configure a deployment | [Stackfile Walkthrough](../getting-started/stackfile-walkthrough.md) | You can validate an example Stackfile and point to the active boundaries |
