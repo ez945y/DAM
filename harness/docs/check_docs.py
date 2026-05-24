@@ -30,6 +30,7 @@ FORBIDDEN_PATTERNS = {
     r"Fully implemented and production-ready": "Avoid production-readiness claims in research-grade docs.",
     r"Deterministic Safety": "Avoid deterministic safety claims in research-grade docs.",
     r"確定性安全": "Avoid deterministic safety claims in research-grade docs.",
+    r"production deployment": "Prefer supervised hardware deployment in research-grade docs.",
 }
 
 

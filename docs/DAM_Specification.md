@@ -518,7 +518,7 @@ In all cases, the user's contribution is the Stackfile (declarative) and optiona
 
 ### 3.18 Guard Profiles + Monitor Mode (Training Support)
 
-DAM supports three **runtime enforcement modes** and **named guard profiles** to cover training, evaluation, and production deployment without changing guard code.
+DAM supports three **runtime enforcement modes** and **named guard profiles** to cover training, evaluation, and supervised hardware deployment without changing guard code.
 
 **Enforcement Modes:**
 
