@@ -2,6 +2,8 @@
 
 Use this page when you know what you want to do and just need the command.
 
+If you are unsure, use this order: validate the Stackfile, inspect what it resolves to, then run a bounded task.
+
 ## Setup And Run
 
 | Goal | Command |
