@@ -270,8 +270,33 @@ def run_calibration(
             print(f"    {scenario:<25} detection={det_rate:.1%}")
         summary["per_scenario_detection"] = scenario_detection
 
+    recommendations: list[str] = []
+    if not deployable:
+        if op_detection_rate < 0.80:
+            recommendations.append(
+                "Train feature extractor on real robot data (HF dataset) "
+                "to improve embedding separation."
+            )
+        if separation < 0:
+            recommendations.append(
+                "Enable temporal_smoothing_frames >= 3 to suppress "
+                f"single-frame false positives (legal FPR drops to "
+                f"{summary.get('temporal_smoothing_legal_fpr', {}).get(3, '?')})."
+            )
+    if op_threshold is not None and scenario_detection:
+        weak = [s for s, d in scenario_detection.items() if d["detection_rate"] < 0.70]
+        if weak:
+            recommendations.append(
+                f"Scenarios [{', '.join(weak)}] need L1 motion guard "
+                "cooperation — L0 alone cannot catch physically valid postures."
+            )
+    summary["recommendations"] = recommendations
+
     verdict = "PASS — deployable" if deployable else "FAIL — not deployable"
     print(f"  Verdict: {verdict}")
+    if recommendations:
+        for r in recommendations:
+            print(f"  → {r}")
     return rows, summary
 
 

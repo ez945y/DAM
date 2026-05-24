@@ -102,6 +102,7 @@ function L0CalibrationSummary({ summary }: { summary: Record<string, unknown> })
   const eer = asNumber(summary.eer);
   const perScenario = summary.per_scenario_detection as Record<string, { detection_rate: number; samples: number }> | undefined;
   const distStats = summary.distance_stats as Record<string, number> | undefined;
+  const recommendations = Array.isArray(summary.recommendations) ? summary.recommendations as string[] : [];
 
   return (
     <div className="space-y-3">
@@ -193,6 +194,20 @@ function L0CalibrationSummary({ summary }: { summary: Record<string, unknown> })
               );
             })}
           </div>
+        </div>
+      )}
+
+      {recommendations.length > 0 && (
+        <div className="bg-amber-500/5 border border-amber-500/20 rounded-lg px-3 py-2">
+          <p className="section-label mb-1 text-amber-400">Recommendations</p>
+          <ul className="space-y-1">
+            {recommendations.map((rec, idx) => (
+              <li key={idx} className="text-[11px] text-dam-muted leading-relaxed flex gap-1.5">
+                <span className="text-amber-400 shrink-0">→</span>
+                {rec}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </div>
