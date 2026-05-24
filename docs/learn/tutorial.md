@@ -18,7 +18,7 @@ START → Module 1 → Module 2 → Module 3 → Module 4 → Module 5 → END
 | 1 | **Core Concepts** | Understand guard stack, fail-to-reject, defense-in-depth |
 | 2 | **Stackfiles** | Write and validate DAM YAML configurations |
 | 3 | **Boundaries** | Design multi-phase task constraints |
-| 4 | **Deployment** | Run on real hardware (or simulator) |
+| 4 | **Deployment** | Prepare for simulator or supervised hardware runs |
 | 5 | **Monitoring** | Use console and API to observe safety |
 
 ---
@@ -59,9 +59,9 @@ The most important rule in DAM:
 > Any guard timeout, exception, or crash → **immediate rejection**
 
 This means:
-- ✅ You can't accidentally execute unsafe code
-- ✅ If a guard breaks, you default to rejection
-- ✅ No "best effort" unsafe execution
+- Guard failures should default to rejection
+- Timeouts should stop the action from being executed
+- Do not rely on "best effort" execution for safety decisions
 
 ### 1.4 Key Decisions
 
@@ -624,7 +624,7 @@ After completing this tutorial, you can:
 ✅ Explain the guard stack and fail-to-reject principle
 ✅ Write and validate Stackfiles
 ✅ Design multi-phase task boundaries
-✅ Deploy DAM to simulation and hardware
+✅ Prepare DAM for simulation and supervised hardware checks
 ✅ Monitor and analyze safety events
 ✅ Debug and optimize safety constraints
 
