@@ -48,11 +48,11 @@ A **single** node is active for the **entire task**.
 ```yaml
 boundaries:
   idle:
+    layer: L1
     type: single
     nodes:
-      - node_id: idle_position
-        constraint:
-          max_speed: 0.05
+      - callback: workspace
+        params:
           bounds: [[-0.1, 0.1], [0.2, 0.3], [0.0, 0.2]]
         fallback: emergency_stop
 ```
@@ -69,25 +69,24 @@ A **list** contains multiple nodes. The runtime **advances** to the next node ex
 ```yaml
 boundaries:
   pick_and_place:
+    layer: L2
     type: list
     loop: false      # If true, wraps back to node 0 after last node
     nodes:
-      - node_id: reach
-        constraint:
-          max_speed: 0.3
+      - callback: task_workspace_bounds
+        params:
           bounds: [[-0.35, 0.35], [-0.05, 0.45], [0.01, 0.40]]
         fallback: hold_position
         timeout_sec: 15.0
 
-      - node_id: grasp
-        constraint:
-          max_speed: 0.08
+      - callback: task_workspace_bounds
+        params:
           bounds: [[-0.20, 0.20], [0.05, 0.35], [0.01, 0.15]]
         fallback: hold_position
         timeout_sec: 8.0
 
-      - node_id: lift
-        constraint:
+      - callback: task_joint_speed_limit
+        params:
           max_speed: 0.15
         fallback: hold_position
         timeout_sec: 10.0
@@ -96,11 +95,11 @@ boundaries:
 **Activation:**
 
 ```python
-runtime.start_task("pick_and_place")  # Starts at node 0: "reach"
+runtime.start_task("pick_and_place")  # Starts at the first node
 # ... control loop runs ...
-runtime.advance_container("pick_and_place")  # Move to "grasp"
+runtime.advance_container("pick_and_place")  # Move to the next node
 # ... control loop runs ...
-runtime.advance_container("pick_and_place")  # Move to "lift"
+runtime.advance_container("pick_and_place")  # Move to the final node
 ```
 
 **Use cases:**
@@ -115,20 +114,21 @@ A **graph** allows **arbitrary transitions** between nodes. Nodes form a directe
 ```yaml
 boundaries:
   recovery:
+    layer: L2
     type: graph
     nodes:
-      - node_id: normal
-        constraint:
+      - callback: task_joint_speed_limit
+        params:
           max_speed: 0.3
         fallback: hold_position
 
-      - node_id: error_recovery
-        constraint:
+      - callback: task_joint_speed_limit
+        params:
           max_speed: 0.05
         fallback: emergency_stop
 
-      - node_id: shutdown
-        constraint:
+      - callback: task_joint_speed_limit
+        params:
           max_speed: 0.0
         fallback: emergency_stop
 ```
@@ -150,33 +150,30 @@ runtime.transition_to("recovery", "shutdown")       # Move to shutdown
 
 ---
 
-## Constraints (Per Node)
+## Node Checks
 
-Each node has a **constraint** that L3 evaluates every cycle.
+Each node names a **callback** and passes that callback a `params` object. The
+boundary's `layer` decides which guard layer runs the check.
 
-### Available Constraint Types
+### Common Callback Parameters
 
-| Constraint | Type | Example | Behavior |
-|-----------|------|---------|----------|
-| `max_speed` | float | `0.3` | Reject if joint velocity norm > limit |
-| `max_velocity` | list[float] | `[1.0, 1.0, ...]` | Reject if any joint velocity > limit |
-| `bounds` | 3×2 floats | `[[-0.5, 0.5], ...]` | Reject if end-effector outside box |
-| `upper_limits` | list[float] | `[1.57, ...]` | Reject if joint > limit |
-| `lower_limits` | list[float] | `[-1.57, ...]` | Reject if joint < limit |
-| `max_force_n` | float | `50.0` | Reject if force/torque norm > limit (sensor required) |
-| `callback` | string | `my_check_fn` | Reject if callback returns `False` |
+| Parameter | Used by | Example | Behavior |
+|-----------|---------|---------|----------|
+| `max_speed` | `task_joint_speed_limit` | `0.3` | Reject if joint velocity norm exceeds the task limit |
+| `max_velocities` | `joint_velocity_limit` | `[1.0, 1.0, ...]` | Clamp per-joint velocity proposals to the limit |
+| `bounds` | `workspace`, `task_workspace_bounds` | `[[-0.5, 0.5], ...]` | Keep or reject motion outside the workspace box, depending on layer |
+| `upper` / `lower` | `joint_position_limits` | `[1.57, ...]` | Clamp or reject joint positions outside the configured limits |
 
-### Example: Full Constraint
+### Example: Full Node
 
 ```yaml
 boundaries:
   manipulation:
+    layer: L2
     type: single
     nodes:
-      - node_id: reach_with_force_limit
-        callback: validate_trajectory        # Custom L2 check
+      - callback: task_workspace_bounds
         params:
-          max_speed: 0.3
           bounds: [[-0.35, 0.35], [-0.05, 0.45], [0.01, 0.40]]
         fallback: hold_position
         timeout_sec: 20.0
@@ -184,38 +181,20 @@ boundaries:
 
 ### Evaluation Order
 
-L2 evaluates the active node's callback first, then checks `timeout_sec`.
-Constraint semantics such as speed, workspace, or task phase live inside the
-callback selected by the node.
+The guard layer evaluates the active node's callback, then applies node-level
+settings such as `timeout_sec`.
 
 1. **callback** — registered boundary callback
 2. **timeout_sec** — node active duration
-4. **callback** — user-provided checks
-5. **timeout_sec** — node duration
 
 ```python
 # Pseudocode
-def evaluate_constraint(action, obs, constraint):
-    # Check 1: Velocity
-    if velocity_norm(action) > constraint.max_speed:
-        return REJECT
+def evaluate_node(obs, node):
+    result = callbacks[node.callback](obs=obs, **node.params)
+    if not result.ok:
+        return result
 
-    # Check 2: Workspace
-    if not in_bounds(fk(action), constraint.bounds):
-        return REJECT
-
-    # Check 3: Force
-    if hasattr(constraint, 'max_force_n'):
-        if force_norm(obs.force) > constraint.max_force_n:
-            return REJECT
-
-    # Check 4: Callbacks
-    for cb_name in constraint.callback:
-        if not callbacks[cb_name](obs, constraint):
-            return REJECT
-
-    # Check 5: Timeout
-    if node.active_time > constraint.timeout_sec:
+    if node.timeout_sec and node.active_time > node.timeout_sec:
         return REJECT
 
     return PASS
@@ -232,7 +211,7 @@ When a boundary constraint is violated, what happens? That's determined by the *
 | Strategy | Behavior | Use Case |
 |----------|----------|----------|
 | `hold_position` | Command zero velocity; stay put | Normal violations |
-| `safe_retreat` | Move at low speed along predefined retreat path | Error recovery |
+| `retreat` | Move at low speed along predefined retreat path | Error recovery |
 | `emergency_stop` | Stop all motion immediately; activate E-Stop | Critical failures |
 
 ### Configuration
@@ -240,11 +219,17 @@ When a boundary constraint is violated, what happens? That's determined by the *
 ```yaml
 boundaries:
   reach:
+    layer: L2
+    type: list
     nodes:
-      - node_id: reach
+      - callback: task_workspace_bounds
+        params:
+          bounds: [[-0.35, 0.35], [-0.05, 0.45], [0.01, 0.40]]
         fallback: hold_position      # Hold if constraint violated
 
-      - node_id: approach_fragile
+      - callback: task_workspace_bounds
+        params:
+          bounds: [[-0.10, 0.10], [0.10, 0.30], [0.02, 0.20]]
         fallback: emergency_stop     # E-Stop if we get near fragile object
 ```
 

@@ -263,11 +263,11 @@ A **single** boundary has one node active for the entire task.
 ```yaml
 boundaries:
   idle:
+    layer: L1
     type: single
     nodes:
-      - node_id: idle_position
-        constraint:
-          max_speed: 0.05
+      - callback: workspace
+        params:
           bounds: [[-0.1, 0.1], [0.2, 0.3], [0.0, 0.2]]
         fallback: emergency_stop
 ```
@@ -281,25 +281,24 @@ A **list** has multiple nodes. You advance through them sequentially.
 ```yaml
 boundaries:
   pick_and_place:
+    layer: L2
     type: list
     loop: false
     nodes:
-      - node_id: reach
-        constraint:
-          max_speed: 0.3
+      - callback: task_workspace_bounds
+        params:
           bounds: [[-0.35, 0.35], [-0.05, 0.45], [0.01, 0.40]]
         fallback: hold_position
         timeout_sec: 15.0
 
-      - node_id: grasp
-        constraint:
-          max_speed: 0.08
+      - callback: task_workspace_bounds
+        params:
           bounds: [[-0.20, 0.20], [0.05, 0.35], [0.01, 0.15]]
         fallback: hold_position
         timeout_sec: 8.0
 
-      - node_id: lift
-        constraint:
+      - callback: task_joint_speed_limit
+        params:
           max_speed: 0.15
         fallback: hold_position
         timeout_sec: 10.0
@@ -308,21 +307,21 @@ boundaries:
 **In code:**
 
 ```python
-runtime.start_task("pick_and_place")  # Starts at "reach"
+runtime.start_task("pick_and_place")  # Starts at the first node
 # ... control loop ...
-runtime.advance_container("pick_and_place")  # Move to "grasp"
+runtime.advance_container("pick_and_place")  # Move to the next node
 # ... control loop ...
-runtime.advance_container("pick_and_place")  # Move to "lift"
+runtime.advance_container("pick_and_place")  # Move to the final node
 ```
 
 ### 3.3 Constraint Types
 
-| Constraint | Example | Behavior |
+| Setting | Example | Behavior |
 |-----------|---------|----------|
 | `max_speed` | `0.3` | Reject if velocity norm > 0.3 |
 | `bounds` | `[[-0.5, 0.5], ...]` | Reject if out of workspace box |
 | `max_force_n` | `50.0` | Reject if force > 50 N |
-| `callback` | `[my_check]` | Call Python function; reject if returns False |
+| `callback` | `task_workspace_bounds` | Select the check that reads the `params` |
 
 ### 3.4 Fallback Strategies
 
@@ -331,7 +330,7 @@ When a constraint is violated:
 | Strategy | Behavior |
 |----------|----------|
 | `hold_position` | Stop, hold current position |
-| `safe_retreat` | Move at low speed away from danger |
+| `retreat` | Move at low speed away from danger |
 | `emergency_stop` | Halt all motion immediately |
 
 ### 3.5 Design Pattern: Nested Workspaces
@@ -341,27 +340,27 @@ Start conservative, loosen as task progresses:
 ```yaml
 nodes:
   # Phase 1: Conservative
-  - node_id: approach
-    constraint:
+  - callback: task_workspace_bounds
+    params:
       bounds: [[-0.2, 0.2], [0.1, 0.3], [0.0, 0.2]]
 
   # Phase 2: Precision (tighter)
-  - node_id: insert
-    constraint:
+  - callback: task_workspace_bounds
+    params:
       bounds: [[-0.05, 0.05], [0.15, 0.25], [0.0, 0.1]]
 
   # Phase 3: Lift (wider)
-  - node_id: lift
-    constraint:
+  - callback: task_workspace_bounds
+    params:
       bounds: [[-0.4, 0.4], [0.05, 0.45], [0.0, 0.5]]
 ```
 
 ### Exercise 3.1: Design a Multi-Phase Task
 
 Create a Stackfile with a **list** boundary for:
-1. Reach phase: max_speed = 0.3, large workspace
-2. Grasp phase: max_speed = 0.05, tight workspace
-3. Lift phase: max_speed = 0.2, medium workspace
+1. Reach phase: large workspace
+2. Grasp phase: tight workspace
+3. Lift phase: medium workspace
 
 ---
 

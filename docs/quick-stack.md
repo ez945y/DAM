@@ -11,8 +11,7 @@ No Python code is required for a Tier 1 deployment (built-in guards + built-in a
 The smallest valid Stackfile that runs the motion guard with a single boundary:
 
 ```yaml
-dam:
-  version: "1"
+version: "1"
 
 guards:
   - L1: motion
@@ -35,12 +34,16 @@ boundaries:
         params:
           upper: [1.57, 1.57, 1.57, 1.57, 1.57, 0.08]
           lower: [-1.57, -1.57, -1.57, -1.57, -1.57, 0.0]
+
+tasks:
+  demo:
+    boundaries: [joint_position_limits]
 ```
 
 To run it:
 
 ```bash
-dam run my_stackfile.yaml --task <task-name>
+dam run my_stackfile.yaml --task demo
 ```
 
 Or in Python:
@@ -52,7 +55,7 @@ runtime = GuardRuntime.from_stackfile("my_stackfile.yaml")
 runtime.register_source("arm", my_source)
 runtime.register_policy(my_policy)
 runtime.register_sink(my_sink)
-runtime.start_task("<task-name>")
+runtime.start_task("demo")
 
 for _ in range(100):
     result = runtime.step()
@@ -135,14 +138,14 @@ Enforces joint position limits, velocity limits, and acceleration limits. Clamps
 | `enabled` | bool | `true` | Enable/disable this guard |
 | `upper_limits` | list[float] | required | Joint upper limits [rad], one per joint |
 | `lower_limits` | list[float] | required | Joint lower limits [rad], one per joint |
-| `max_velocity` | list[float] | `null` | Per-joint velocity limits [rad/s] |
+| `max_velocities` | list[float] | `null` | Per-joint velocity limits [rad/s] |
 | `max_acceleration` | list[float] | `null` | Per-joint acceleration limits [rad/s²] |
 | `bounds` | list[list[float]] | `null` | `[[xmin, xmax], [ymin, ymax], [zmin, zmax]]` in metres |
 | `params.velocity_scale` | float | `1.0` | Scale factor applied on top of hardware preset limits (Phase 2) |
 
 **Clamping behaviour:**
 - Joint positions outside limits are clamped to the nearest limit.
-- Velocities exceeding `max_velocity` are scaled proportionally (all joints scaled by the same ratio).
+- Velocities exceeding `max_velocities` are scaled proportionally (all joints scaled by the same ratio).
 - Acceleration violations scale the target velocity back so the implied acceleration stays within limits.
 - Workspace violations always result in REJECT (cannot clamp the end-effector back into bounds).
 
@@ -192,11 +195,12 @@ The simplest container. Holds one node that is active for the entire task.
 ```yaml
 boundaries:
   safe_idle:
+    layer: L1
     type: single
     nodes:
-      - node_id: idle
-        constraint:
-          max_speed: 0.05
+      - callback: joint_velocity_limit
+        params:
+          max_velocities: [0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
         fallback: emergency_stop
 ```
 
@@ -207,12 +211,12 @@ Nodes are activated in order. The runtime advances to the next node by calling `
 ```yaml
 boundaries:
   pick_place_approach:
+    layer: L2
     type: list
     loop: false   # if true, wraps back to node 0 after the last node
     nodes:
-      - node_id: reach
-        constraint:
-          max_speed: 0.3
+      - callback: task_workspace_bounds
+        params:
           bounds:
             - [-0.35, 0.35]
             - [-0.05, 0.45]
@@ -220,9 +224,8 @@ boundaries:
         fallback: hold_position
         timeout_sec: 15.0
 
-      - node_id: grasp
-        constraint:
-          max_speed: 0.08
+      - callback: task_workspace_bounds
+        params:
           bounds:
             - [-0.20, 0.20]
             - [0.05, 0.35]
@@ -230,8 +233,8 @@ boundaries:
         fallback: hold_position
         timeout_sec: 8.0
 
-      - node_id: lift
-        constraint:
+      - callback: task_joint_speed_limit
+        params:
           max_speed: 0.15
         fallback: hold_position
         timeout_sec: 10.0
@@ -244,29 +247,38 @@ Nodes form a directed graph. Transitions are triggered programmatically. Require
 ```yaml
 boundaries:
   recovery_graph:
+    layer: L2
     type: graph
     nodes:
-      - node_id: normal
-        constraint:
+      - callback: task_joint_speed_limit
+        params:
           max_speed: 0.3
         fallback: hold_position
-      - node_id: slow_recovery
-        constraint:
+      - callback: task_joint_speed_limit
+        params:
           max_speed: 0.05
         fallback: emergency_stop
 ```
 
-### Constraint fields (per node)
+### Node fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `callback` | string | Built-in or registered callback name to evaluate |
+| `params` | object | Callback-specific settings such as speed limits or workspace bounds |
+| `fallback` | string | Optional named fallback strategy to use when the node violates |
+| `timeout_sec` | float | Optional maximum time a node may remain active |
+
+### Common `params` fields
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `max_speed` | float | Maximum joint velocity norm [rad/s] |
-| `max_velocity` | list[float] | Per-joint velocity limit [rad/s] |
+| `max_velocities` | list[float] | Per-joint velocity limit [rad/s] |
 | `bounds` | list[list[float]] | `[[xmin, xmax], [ymin, ymax], [zmin, zmax]]` [m] |
 | `upper_limits` | list[float] | Per-joint position upper limit [rad] |
 | `lower_limits` | list[float] | Per-joint position lower limit [rad] |
 | `max_force_n` | float | Maximum force norm [N] |
-| `callback` | list[string] | Python callback names registered with `@dam.callback` |
 
 ### Fallback strategies (per node)
 
@@ -274,7 +286,7 @@ boundaries:
 |------|-----------|
 | `emergency_stop` | Immediately stop all motion. Sets hardware E-Stop if available. |
 | `hold_position` | Command the robot to hold its current joint positions. |
-| `safe_retreat` | Move at low speed along a predefined retreat trajectory. |
+| `retreat` | Move at low speed along a predefined retreat trajectory. |
 
 ---
 
