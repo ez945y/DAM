@@ -1625,16 +1625,17 @@ class GuardRuntime:
 
     @classmethod
     def _build_boundary_node(cls, ncfg: Any, guard_kind: str, config: StackfileConfig) -> Any:
-        from dam.boundary.constraint import BoundaryConstraint
-        from dam.boundary.node import BoundaryNode
-
         # Every guard dispatches through the boundary-callback pipeline, so the
         # callback name is always kept on the constraint.  (OODGuard used to be
         # the exception — model-driven, name dropped — but it now also supports
         # an L0 callback path via ood_welford / ood_memory_bank /
         # ood_normalizing_flow, falling back to its own detector when no
         # callback is wired.)
-        params = dict(ncfg.params)
+        from dam.boundary.callbacks._registry import normalize_unit_params
+        from dam.boundary.constraint import BoundaryConstraint
+        from dam.boundary.node import BoundaryNode
+
+        params = normalize_unit_params(ncfg.callback or "", ncfg.params)
 
         if "device" not in params and config.policy and config.policy.device:
             params["device"] = config.policy.device
