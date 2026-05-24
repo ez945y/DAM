@@ -282,8 +282,6 @@ export interface TelemetrySnapshot {
   events: LogEntry[]
   /** Camera names seen in recent binary WS frames or cycle events. */
   activeCameras: string[]
-  /** Most recent JPEG frame per camera, from binary WS frames. */
-  liveImages: Record<string, Blob>
 }
 
 // ── MCAP Session Types ────────────────────────────────────────────────────

@@ -327,7 +327,6 @@ export default function DashboardPage() {
                   filename=""
                   cameras={tele.activeCameras}
                   currentTimestampNs={null}
-                  liveImages={tele.liveImages}
                   liveMode
                 />
               </div>

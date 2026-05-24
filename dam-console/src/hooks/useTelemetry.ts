@@ -27,7 +27,8 @@ let gCycleTimes: number[] = []
 let gRejectTimes: number[] = []
 let gClampTimes: number[] = []
 let gGuardMap: Record<string, any> = {}
-let gLiveImages: Record<string, Blob> = {}
+// Exported so LiveCameraCell can read directly without React state.
+export let gLiveImages: Record<string, Blob> = {}
 let gActiveCameras: string[] = []
 let gLastRiskNotify = 0
 // Version counter replaces the shared gDirty boolean.
@@ -83,7 +84,6 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
     windowClamps: gClampTimes.length,
     events: [...gEvents],
     activeCameras: [...gActiveCameras],
-    liveImages: { ...gLiveImages },
   }))
 
   const wsRef = useRef<WebSocket | null>(null)
@@ -92,7 +92,6 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
   // Per-instance version tracking — avoids the shared-flag race between
   // multiple useTelemetry consumers (e.g. PageShell and Dashboard).
   const lastVersionRef = useRef(gVersion)
-  const lastLiveImagesVerRef = useRef(gLiveImagesVer)
   const lastGuardMapVerRef = useRef(gGuardMapVer)
   const lastEventsVerRef = useRef(gEventsVer)
   const lastLatencyVerRef = useRef(gLatencyVer)
@@ -232,12 +231,13 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
           gLiveImages[name] = new Blob([jpegData], { type: 'image/jpeg' })
           gLiveImagesVer++
 
-          if (gActiveCameras.includes(name)) {
-            // Already tracked
-          } else {
+          if (!gActiveCameras.includes(name)) {
             gActiveCameras = [...gActiveCameras, name]
+            gVersion++
           }
-          gVersion++
+
+          // Bypass React state — LiveCameraCell listens directly.
+          globalThis.dispatchEvent(new CustomEvent('dam-live-frame', { detail: name }))
         } catch (err) { console.error('Binary parse error:', err) }
         return
       }
@@ -444,11 +444,6 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
         }
         if (s.activeCameras !== gActiveCameras) {
           next.activeCameras = [...gActiveCameras]
-          changed = true
-        }
-        if (lastLiveImagesVerRef.current !== gLiveImagesVer) {
-          lastLiveImagesVerRef.current = gLiveImagesVer
-          next.liveImages = { ...gLiveImages }
           changed = true
         }
         if (lastGuardMapVerRef.current !== gGuardMapVer) {

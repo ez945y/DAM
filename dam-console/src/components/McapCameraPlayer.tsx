@@ -2,6 +2,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react'
 import { api } from '@/lib/api'
 import type { McapFrame } from '@/lib/api'
+import { gLiveImages } from '@/hooks/useTelemetry'
 import {
   ChevronLeft, ChevronRight, Play, Pause,
   Camera, Loader2, ImageOff, LayoutGrid, Maximize2, Radio,
@@ -12,11 +13,6 @@ interface McapCameraPlayerProps {
   readonly cameras: string[]
   /** log_time_ns of the currently selected cycle — used to sync the player. */
   readonly currentTimestampNs: number | null
-  /**
-   * these instead of fetching frames from the MCAP API, and the scrubbar +
-   * playback controls will be hidden.
-   */
-  readonly liveImages?: Record<string, string | Blob> | null
   /** Whether live mode is currently enabled (shows badge, hides controls). */
   readonly liveMode?: boolean
 }
@@ -121,40 +117,41 @@ function CameraCell({
 
 // ── Live camera cell (WS-backed) ──────────────────────────────────────────────
 
-const LiveCameraCell = React.memo(({
+function LiveCameraCell({
   cam,
-  src,
   label,
 }: {
   cam: string
-  src: string | Blob | null | undefined
   label?: string
-}) => {
+}) {
   const imgRef = useRef<HTMLImageElement>(null)
+  const prevUrlRef = useRef('')
+  const [hasFrame, setHasFrame] = useState(() => !!gLiveImages[cam])
 
-  // Direct DOM manipulation to bypass React render cycle for high-frequency updates
+  // Listen for dam-live-frame events and update img.src directly — bypasses
+  // React state entirely so image updates never trigger a page re-render.
   useEffect(() => {
-    let url = ''
-    if (src instanceof Blob) {
-      url = URL.createObjectURL(src)
-    } else if (typeof src === 'string') {
-      url = src
+    const onFrame = (e: Event) => {
+      if ((e as CustomEvent).detail !== cam) return
+      const blob = gLiveImages[cam]
+      if (!blob) return
+      if (!hasFrame) setHasFrame(true)
+      const url = URL.createObjectURL(blob)
+      if (imgRef.current) imgRef.current.src = url
+      const prev = prevUrlRef.current
+      if (prev) URL.revokeObjectURL(prev)
+      prevUrlRef.current = url
     }
-
-    if (imgRef.current && url) {
-      imgRef.current.src = url
-    }
-
+    globalThis.addEventListener('dam-live-frame', onFrame)
     return () => {
-      if (src instanceof Blob && url) {
-        URL.revokeObjectURL(url)
-      }
+      globalThis.removeEventListener('dam-live-frame', onFrame)
+      if (prevUrlRef.current) URL.revokeObjectURL(prevUrlRef.current)
     }
-  }, [src])
+  }, [cam, hasFrame])
 
   return (
     <div className="relative bg-black flex items-center justify-center h-full w-full overflow-hidden">
-      {!src ? (
+      {!hasFrame ? (
         <div className="flex flex-col items-center gap-1 text-dam-muted/40">
           <Radio size={20} className="animate-pulse" />
           <span className="text-[10px]">Waiting for frames…</span>
@@ -175,7 +172,7 @@ const LiveCameraCell = React.memo(({
       )}
     </div>
   )
-}, (prev, next) => prev.src === next.src && prev.label === next.label && prev.cam === next.cam)
+}
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
@@ -183,7 +180,6 @@ export function McapCameraPlayer({
   filename,
   cameras,
   currentTimestampNs,
-  liveImages,
   liveMode = false,
 }: McapCameraPlayerProps) {
   const [selectedCam, setSelectedCam] = useState<string | null>(null)
@@ -436,7 +432,7 @@ export function McapCameraPlayer({
                     className="relative bg-black overflow-hidden cursor-pointer hover:ring-1 hover:ring-dam-blue/50 transition-all"
                     style={{ minHeight: 0 }}
                   >
-                    <LiveCameraCell cam={cam} src={liveImages?.[cam]} label={currentCams.length > 1 ? cam : undefined} />
+                    <LiveCameraCell cam={cam} label={currentCams.length > 1 ? cam : undefined} />
                   </button>
                 )
               }
@@ -477,7 +473,7 @@ export function McapCameraPlayer({
           // ── Single camera view ────────────────────────────────────────────
           <div className="h-full bg-black">
             {liveMode ? (
-              <LiveCameraCell cam={selectedCam ?? currentCams[0]} src={liveImages?.[selectedCam ?? currentCams[0]]} />
+              <LiveCameraCell cam={selectedCam ?? currentCams[0]} />
             ) : selectedCam && ((framesMap[selectedCam]?.length ?? 0) > 0 || (loadingCams.has(selectedCam) && currentTimestampNs != null)) ? (
               <CameraCell
                 filename={filename}

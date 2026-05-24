@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Live Preview Debug</title>
+<style>
+  body { background: #111; color: #eee; font-family: monospace; margin: 20px; }
+  .cam { display: inline-block; margin: 10px; vertical-align: top; }
+  .cam img { max-width: 640px; max-height: 480px; background: #222; display: block; }
+  .cam .info { font-size: 11px; color: #888; margin-top: 4px; }
+  #stats { background: #1a1a1a; padding: 10px; border-radius: 6px; margin-bottom: 20px; font-size: 12px; }
+  .ok { color: #4f4; } .warn { color: #fa0; } .err { color: #f44; }
+</style>
+</head>
+<body>
+<h2>Live Preview — Raw WS Test (no React)</h2>
+<div id="stats">Connecting…</div>
+<div id="cameras"></div>
+
+<script>
+const WS_URL = (location.protocol === 'https:' ? 'wss://' : 'ws://') +
+               location.hostname + ':8080';
+
+const cameras = {};  // cam_name -> { img, url, frames, bytes, lastT, intervals }
+let jsonCount = 0;
+let binCount = 0;
+let startT = 0;
+let stalls = 0;
+
+function getOrCreate(name) {
+  if (cameras[name]) return cameras[name];
+  const div = document.createElement('div');
+  div.className = 'cam';
+  div.innerHTML = `<img alt="${name}"><div class="info" id="info-${name}"></div>`;
+  document.getElementById('cameras').appendChild(div);
+  cameras[name] = {
+    img: div.querySelector('img'),
+    info: div.querySelector('.info'),
+    url: '',
+    frames: 0,
+    bytes: 0,
+    lastT: 0,
+    intervals: [],
+    sizes: [],
+  };
+  return cameras[name];
+}
+
+function connect() {
+  const ws = new WebSocket(WS_URL + '/ws/telemetry');
+  ws.binaryType = 'arraybuffer';
+  startT = performance.now();
+
+  ws.onopen = () => updateStats('Connected');
+  ws.onclose = () => {
+    updateStats('Disconnected — reconnecting…');
+    setTimeout(connect, 2000);
+  };
+
+  ws.onmessage = (e) => {
+    if (typeof e.data === 'string') {
+      jsonCount++;
+      return;
+    }
+
+    binCount++;
+    const buf = e.data;
+    const view = new Uint8Array(buf);
+    const magic = view[0];
+
+    let nameOffset, nameLen;
+    if (magic === 0x02) {
+      nameLen = view[5];
+      nameOffset = 6;
+    } else if (magic === 0x01) {
+      nameLen = view[1];
+      nameOffset = 2;
+    } else return;
+
+    const name = new TextDecoder().decode(view.subarray(nameOffset, nameOffset + nameLen));
+    const jpegData = view.subarray(nameOffset + nameLen);
+    const cam = getOrCreate(name);
+
+    // Revoke old URL, create new one
+    const oldUrl = cam.url;
+    const blob = new Blob([jpegData], { type: 'image/jpeg' });
+    cam.url = URL.createObjectURL(blob);
+    cam.img.src = cam.url;
+    if (oldUrl) URL.revokeObjectURL(oldUrl);
+
+    // Stats
+    const now = performance.now();
+    cam.frames++;
+    cam.bytes += jpegData.byteLength;
+    cam.sizes.push(jpegData.byteLength);
+    if (cam.sizes.length > 100) cam.sizes.shift();
+
+    if (cam.lastT > 0) {
+      const interval = now - cam.lastT;
+      cam.intervals.push(interval);
+      if (cam.intervals.length > 100) cam.intervals.shift();
+      if (interval > 500) stalls++;
+    }
+    cam.lastT = now;
+
+    // Per-camera info
+    const avgSize = cam.sizes.reduce((a,b) => a+b, 0) / cam.sizes.length;
+    const avgInterval = cam.intervals.length > 0
+      ? cam.intervals.reduce((a,b) => a+b, 0) / cam.intervals.length : 0;
+    const maxInterval = cam.intervals.length > 0
+      ? Math.max(...cam.intervals) : 0;
+    const fps = avgInterval > 0 ? (1000 / avgInterval).toFixed(1) : '—';
+
+    cam.info.innerHTML = `${name}: ${cam.frames} frames | ` +
+      `${(avgSize/1024).toFixed(0)} KB avg | ` +
+      `${fps} fps | ` +
+      `max gap: ${maxInterval.toFixed(0)}ms`;
+
+    updateStats();
+  };
+}
+
+function updateStats(msg) {
+  const elapsed = ((performance.now() - startT) / 1000).toFixed(1);
+  const el = document.getElementById('stats');
+  const stallClass = stalls > 0 ? 'warn' : 'ok';
+  el.innerHTML = (msg ? `<b>${msg}</b><br>` : '') +
+    `Elapsed: ${elapsed}s | JSON: ${jsonCount} | Binary: ${binCount} | ` +
+    `<span class="${stallClass}">Stalls (>500ms): ${stalls}</span>`;
+}
+
+connect();
+</script>
+</body>
+</html>
