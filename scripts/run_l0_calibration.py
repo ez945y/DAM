@@ -1,38 +1,32 @@
 """Experiment — L0 OOD Calibration (RQ1).
 
-Trains a real OODGuard (memory_bank backend) on normal robot observations,
-then evaluates on three populations — normal, legal-variation, and OOD —
-sweeping ``nn_threshold`` to produce verifiable FPR/FNR/EER curves.
+Trains a real OODGuard (memory_bank backend) on a **HuggingFace lerobot
+dataset** (default: ``MikeChenYZ/soarm-fmb-v2``), then evaluates FPR on
+held-out episodes and FNR on simulated failure modes.
 
-All numbers come from real ``OODGuard.check()`` decisions running through
-the production callback pipeline. Nothing is hardcoded.
+Optionally loads MCAP session files as additional cross-domain eval data
+(``--sessions-dir``).
 
-Populations
+Data source
 -----------
-normal:
-    Drawn from the same tight distribution used for training.
-    Should PASS at the working threshold → FPR = fraction that REJECT.
+Training & normal-eval observations come from the HF dataset's
+``observation.state`` field, split by episode index.
 
-legal_variation:
-    Slight perturbations within deployment tolerance (object shift,
-    perception jitter).  Should also PASS → legal_fpr counts how many
-    of these an operator would see flagged.
-
-ood:
-    Clearly different joint configurations — large offsets, extreme values,
-    novel postures the guard has never seen.
-    Should REJECT → FNR = fraction that PASS.
+OOD observations use simulated failure modes (sensor fault, joint jam, etc.)
+because real OOD events are — by definition — not available in normal recordings.
 
 Usage
 -----
-    python scripts/run_l0_calibration.py [--train-samples N] [--eval-samples N]
-                                          [--seed S] [--outdir PATH]
+    python scripts/run_l0_calibration.py [--hf-repo MikeChenYZ/soarm-fmb-v2]
+                                          [--sessions-dir PATH] [--seed S]
+                                          [--outdir PATH]
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import os
 import sys
 import time
 from pathlib import Path
@@ -46,6 +40,10 @@ from dam.injection.static import precompute_injection
 from dam.types.observation import Observation
 from dam.types.result import GuardDecision
 
+_DEFAULT_HF_REPO = "MikeChenYZ/soarm-fmb-v2"
+_DEFAULT_SESSIONS_DIR = "data/robot/sessions"
+
+# Physical limits for OOD scenario generation
 _N_JOINTS = 6
 _JOINT_UPPER = np.array([1.8243, 1.7691, 1.6026, 1.8067, 3.0741, 1.7453])
 _JOINT_LOWER = -_JOINT_UPPER.copy()
@@ -54,24 +52,77 @@ _JOINT_MID = (_JOINT_UPPER + _JOINT_LOWER) / 2
 _JOINT_RANGE = _JOINT_UPPER - _JOINT_LOWER
 
 
-def _training_obs(rng: np.random.Generator) -> Observation:
-    """Covers the full legal operating envelope — nominal + deployment variations."""
-    sigma = rng.choice([0.05, 0.08, 0.12])
-    pos = _JOINT_MID + rng.normal(0.0, sigma, _N_JOINTS) * _JOINT_RANGE
-    pos = np.clip(pos, _JOINT_LOWER, _JOINT_UPPER)
-    return Observation(timestamp=time.monotonic(), joint_positions=pos)
+# ── MCAP loader ──────────────────────────────────────────────────────────────
 
 
-def _normal_obs(rng: np.random.Generator) -> Observation:
-    pos = _JOINT_MID + rng.normal(0.0, 0.05, _N_JOINTS) * _JOINT_RANGE
-    pos = np.clip(pos, _JOINT_LOWER, _JOINT_UPPER)
-    return Observation(timestamp=time.monotonic(), joint_positions=pos)
+def load_observations_from_mcap(mcap_path: str) -> list[Observation]:
+    import msgpack
+    from mcap.reader import make_reader
+
+    obs_list: list[Observation] = []
+    with open(mcap_path, "rb") as fp:
+        reader = make_reader(fp)
+        for _schema, _ch, msg in reader.iter_messages(topics=["/dam/cycle"]):
+            data = msgpack.unpackb(msg.data, raw=False)
+            joint_pos = data.get("obs_joint_positions")
+            if joint_pos is None:
+                continue
+            obs_list.append(
+                Observation(
+                    timestamp=data.get("obs_timestamp", 0.0),
+                    joint_positions=np.array(joint_pos, dtype=np.float64),
+                )
+            )
+    return obs_list
 
 
-def _legal_variation_obs(rng: np.random.Generator) -> Observation:
-    pos = _JOINT_MID + rng.normal(0.0, 0.12, _N_JOINTS) * _JOINT_RANGE
-    pos = np.clip(pos, _JOINT_LOWER, _JOINT_UPPER)
-    return Observation(timestamp=time.monotonic(), joint_positions=pos)
+def load_all_sessions(
+    sessions_dir: str,
+) -> list[tuple[str, list[Observation]]]:
+    mcap_files = sorted(f for f in os.listdir(sessions_dir) if f.endswith(".mcap"))
+    sessions = []
+    for f in mcap_files:
+        path = os.path.join(sessions_dir, f)
+        obs = load_observations_from_mcap(path)
+        if obs:
+            sessions.append((f, obs))
+    return sessions
+
+
+# ── HuggingFace dataset loader ──────────────────────────────────────────────
+
+
+def load_observations_from_hf(
+    repo_id: str,
+    split: str = "train",
+    max_episodes: int | None = None,
+) -> dict[int, list[Observation]]:
+    """Load observations from a lerobot HF dataset, grouped by episode.
+
+    Returns {episode_index: [Observation, ...]}.
+    """
+    import datasets
+
+    ds = datasets.load_dataset(repo_id, split=split, streaming=True)
+
+    by_episode: dict[int, list[Observation]] = {}
+    for item in ds:
+        ep = item.get("episode_index", 0)
+        if max_episodes is not None and ep >= max_episodes:
+            break
+        state = item.get("observation.state")
+        if state is None:
+            continue
+        obs = Observation(
+            timestamp=item.get("timestamp", 0.0),
+            joint_positions=np.array(state, dtype=np.float64),
+        )
+        by_episode.setdefault(ep, []).append(obs)
+
+    return by_episode
+
+
+# ── OOD scenario generators (simulated failures — not synthetic normals) ─────
 
 
 OOD_SCENARIOS = [
@@ -101,8 +152,7 @@ def _ood_obs_tagged(scenario: str, rng: np.random.Generator) -> Observation:
     return Observation(timestamp=time.monotonic(), joint_positions=pos)
 
 
-def _ood_obs(rng: np.random.Generator) -> Observation:
-    return _ood_obs_tagged(rng.choice(OOD_SCENARIOS), rng)
+# ── Evaluation helpers ───────────────────────────────────────────────────────
 
 
 def _is_reject(result: object) -> bool:
@@ -125,19 +175,111 @@ def _eval_at_threshold(
     return rejects / len(population) if population else 0.0
 
 
+# ── Main calibration ────────────────────────────────────────────────────────
+
+
 def run_calibration(
-    train_samples: int = 200,
-    eval_samples: int = 120,
+    hf_repo_id: str = _DEFAULT_HF_REPO,
+    sessions_dir: str | None = _DEFAULT_SESSIONS_DIR,
+    ood_samples_per_scenario: int = 30,
     n_thresholds: int = 40,
     seed: int = 42,
 ) -> tuple[list[dict], dict]:
     rng = np.random.default_rng(seed)
 
-    train_obs = [_training_obs(rng) for _ in range(train_samples)]
-    normal_eval = [_normal_obs(rng) for _ in range(eval_samples)]
-    legal_eval = [_legal_variation_obs(rng) for _ in range(eval_samples)]
-    ood_eval = [_ood_obs(rng) for _ in range(eval_samples)]
+    # Try HF dataset first; fall back to MCAP if `datasets` not installed
+    hf_loaded = False
+    by_episode: dict[int, list[Observation]] = {}
+    try:
+        print(f"  Loading HuggingFace dataset {hf_repo_id}...")
+        by_episode = load_observations_from_hf(hf_repo_id)
+        hf_loaded = bool(by_episode)
+    except ImportError:
+        print("  `datasets` package not installed — falling back to MCAP data")
 
+    mcap_eval: list[Observation] = []
+    mcap_sessions_count = 0
+
+    if hf_loaded:
+        episode_ids = sorted(by_episode.keys())
+        total_obs = sum(len(v) for v in by_episode.values())
+        print(f"  Found {len(episode_ids)} episodes, {total_obs} total observations")
+
+        n_train = max(1, int(len(episode_ids) * 0.70))
+        n_eval = max(1, (len(episode_ids) - n_train) // 2)
+
+        train_eps = episode_ids[:n_train]
+        eval_eps_a = episode_ids[n_train : n_train + n_eval]
+        eval_eps_b = episode_ids[n_train + n_eval :]
+
+        train_obs = [obs for ep in train_eps for obs in by_episode[ep]]
+        normal_eval = [obs for ep in eval_eps_a for obs in by_episode[ep]]
+        legal_eval = [obs for ep in eval_eps_b for obs in by_episode[ep]]
+
+        if not normal_eval:
+            idx = rng.choice(len(train_obs), size=min(200, len(train_obs)), replace=False)
+            normal_eval = [train_obs[i] for i in idx]
+        if not legal_eval:
+            idx = rng.choice(len(train_obs), size=min(200, len(train_obs)), replace=False)
+            legal_eval = [train_obs[i] for i in idx]
+
+        # MCAP as cross-domain eval
+        if sessions_dir and os.path.isdir(sessions_dir):
+            mcap_sessions = load_all_sessions(sessions_dir)
+            if mcap_sessions:
+                mcap_eval = [obs for _, session_obs in mcap_sessions for obs in session_obs]
+                mcap_sessions_count = len(mcap_sessions)
+                print(
+                    f"  MCAP cross-domain eval: {mcap_sessions_count} sessions, "
+                    f"{len(mcap_eval)} observations"
+                )
+        data_source = "huggingface"
+        data_detail = {"hf_repo_id": hf_repo_id, "episodes_used": len(episode_ids)}
+    else:
+        # Fallback: load MCAP sessions as primary data
+        if not sessions_dir or not os.path.isdir(sessions_dir):
+            raise RuntimeError(f"HF dataset not available and no MCAP sessions in {sessions_dir}")
+        print(f"  Loading MCAP sessions from {sessions_dir}...")
+        sessions = load_all_sessions(sessions_dir)
+        if not sessions:
+            raise RuntimeError(f"No MCAP sessions found in {sessions_dir}")
+
+        total_obs = sum(len(obs) for _, obs in sessions)
+        print(f"  Found {len(sessions)} sessions, {total_obs} total observations")
+
+        n_train = max(1, int(len(sessions) * 0.70))
+        n_eval = max(1, (len(sessions) - n_train) // 2)
+        train_sessions = sessions[:n_train]
+        eval_sessions_a = sessions[n_train : n_train + n_eval]
+        eval_sessions_b = sessions[n_train + n_eval :]
+
+        train_obs = [obs for _, so in train_sessions for obs in so]
+        normal_eval = [obs for _, so in eval_sessions_a for obs in so]
+        legal_eval = [obs for _, so in eval_sessions_b for obs in so]
+
+        if not normal_eval:
+            idx = rng.choice(len(train_obs), size=min(100, len(train_obs)), replace=False)
+            normal_eval = [train_obs[i] for i in idx]
+        if not legal_eval:
+            idx = rng.choice(len(train_obs), size=min(100, len(train_obs)), replace=False)
+            legal_eval = [train_obs[i] for i in idx]
+
+        data_source = "mcap"
+        data_detail = {"sessions_used": len(sessions)}
+
+    # OOD: simulated failure modes
+    ood_eval: list[Observation] = []
+    for scenario in OOD_SCENARIOS:
+        for _ in range(ood_samples_per_scenario):
+            ood_eval.append(_ood_obs_tagged(scenario, rng))
+
+    print(
+        f"  Split: train={len(train_obs)}, "
+        f"normal_eval={len(normal_eval)}, legal_eval={len(legal_eval)}, "
+        f"ood_eval={len(ood_eval)} (source: {data_source})"
+    )
+
+    # Train
     guard = OODGuard(backend="memory_bank")
     precompute_injection(guard, {})
     guard.train(train_obs)
@@ -145,6 +287,7 @@ def run_calibration(
     diag = guard.diagnostics()
     print(f"  Trained: bank_size={diag['bank_size']}, backend={diag['bank_backend']}")
 
+    # Distance distributions
     z_normals = [guard._extractor.extract(o) for o in normal_eval]
     z_legals = [guard._extractor.extract(o) for o in legal_eval]
     z_oods = [guard._extractor.extract(o) for o in ood_eval]
@@ -165,6 +308,7 @@ def run_calibration(
         f" {'✓ clear' if separation > 0 else '⚠ overlap'}"
     )
 
+    # Threshold sweep
     thresholds = np.linspace(dist_lo, dist_hi, n_thresholds)
 
     rows: list[dict] = []
@@ -209,7 +353,7 @@ def run_calibration(
 
     deployable = op_threshold is not None and op_detection_rate >= 0.80
 
-    summary = {
+    summary: dict = {
         "eer_threshold": round(best_eer["threshold"], 4),
         "eer": round(eer, 4),
         "fpr_at_eer": round(best_eer["fpr"], 4),
@@ -220,8 +364,11 @@ def run_calibration(
         "operational_fpr": op_fpr,
         "operational_legal_fpr": op_legal_fpr,
         "deployable": deployable,
-        "train_samples": train_samples,
-        "eval_samples_per_population": eval_samples,
+        "data_source": data_source,
+        **data_detail,
+        "train_observations": len(train_obs),
+        "eval_observations": len(normal_eval),
+        "ood_observations": len(ood_eval),
         "bank_size": diag["bank_size"],
         "bank_backend": diag["bank_backend"],
     }
@@ -235,7 +382,8 @@ def run_calibration(
         )
     else:
         print("  Operational: NO threshold satisfies FPR<5% AND legal_FPR<10%")
-    # Temporal smoothing effect: if single-frame FPR=p, then N-consecutive FPR≈p^N
+
+    # Temporal smoothing
     smoothing_frames = [1, 2, 3, 5]
     if op_fpr is not None:
         smoothed_fpr = {n: round(op_fpr**n, 6) for n in smoothing_frames}
@@ -255,27 +403,41 @@ def run_calibration(
         "separation_gap": round(separation, 4),
     }
 
-    # Per-scenario breakdown at operational threshold
+    # Per-scenario breakdown
     if op_threshold is not None:
         scenario_detection: dict[str, dict] = {}
-        samples_per = max(1, eval_samples // len(OOD_SCENARIOS))
         rng_scenario = np.random.default_rng(seed + 1000)
         for scenario in OOD_SCENARIOS:
-            scene_obs = [_ood_obs_tagged(scenario, rng_scenario) for _ in range(samples_per)]
+            scene_obs = [
+                _ood_obs_tagged(scenario, rng_scenario) for _ in range(ood_samples_per_scenario)
+            ]
             det_rate = _eval_at_threshold(guard, scene_obs, op_threshold)
             scenario_detection[scenario] = {
                 "detection_rate": round(det_rate, 4),
-                "samples": samples_per,
+                "samples": ood_samples_per_scenario,
             }
             print(f"    {scenario:<25} detection={det_rate:.1%}")
         summary["per_scenario_detection"] = scenario_detection
 
+    # MCAP cross-domain eval
+    if mcap_eval and op_threshold is not None:
+        mcap_fpr = _eval_at_threshold(guard, mcap_eval, op_threshold)
+        summary["mcap_cross_domain"] = {
+            "sessions": mcap_sessions_count,
+            "observations": len(mcap_eval),
+            "fpr_at_operational": round(mcap_fpr, 4),
+        }
+        print(
+            f"  MCAP cross-domain FPR at operational threshold: {mcap_fpr:.1%} "
+            f"({len(mcap_eval)} obs from {mcap_sessions_count} sessions)"
+        )
+
+    # Recommendations
     recommendations: list[str] = []
     if not deployable:
         if op_detection_rate < 0.80:
             recommendations.append(
-                "Train feature extractor on real robot data (HF dataset) "
-                "to improve embedding separation."
+                "Train feature extractor on this data to improve embedding separation."
             )
         if separation < 0:
             recommendations.append(
@@ -283,8 +445,10 @@ def run_calibration(
                 f"single-frame false positives (legal FPR drops to "
                 f"{summary.get('temporal_smoothing_legal_fpr', {}).get(3, '?')})."
             )
-    if op_threshold is not None and scenario_detection:
-        weak = [s for s, d in scenario_detection.items() if d["detection_rate"] < 0.70]
+    if op_threshold is not None and "per_scenario_detection" in summary:
+        weak = [
+            s for s, d in summary["per_scenario_detection"].items() if d["detection_rate"] < 0.70
+        ]
         if weak:
             recommendations.append(
                 f"Scenarios [{', '.join(weak)}] need L1 motion guard "
@@ -334,7 +498,7 @@ def plot_results(rows: list[dict], outdir: Path) -> None:
     )
     ax.set_xlabel("nn_threshold")
     ax.set_ylabel("Error Rate")
-    ax.set_title("RQ1 — L0 OOD Calibration (Real Guard Pipeline)")
+    ax.set_title("RQ1 — L0 OOD Calibration (HuggingFace lerobot)")
     ax.legend()
     ax.grid(True, alpha=0.3)
     ax.set_ylim(-0.02, 1.02)
@@ -347,8 +511,19 @@ def plot_results(rows: list[dict], outdir: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="DAM L0 OOD Calibration (RQ1)")
-    parser.add_argument("--train-samples", type=int, default=200)
-    parser.add_argument("--eval-samples", type=int, default=120)
+    parser.add_argument(
+        "--hf-repo",
+        type=str,
+        default=_DEFAULT_HF_REPO,
+        help="HuggingFace lerobot dataset repo id",
+    )
+    parser.add_argument(
+        "--sessions-dir",
+        type=str,
+        default=_DEFAULT_SESSIONS_DIR,
+        help="Path to MCAP session files (optional cross-domain eval)",
+    )
+    parser.add_argument("--ood-samples", type=int, default=30)
     parser.add_argument("--n-thresholds", type=int, default=40)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--outdir", type=str, default="data/experiments/l0_calibration")
@@ -357,7 +532,7 @@ def main() -> None:
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
     rows, summary = run_calibration(
-        args.train_samples, args.eval_samples, args.n_thresholds, args.seed
+        args.hf_repo, args.sessions_dir, args.ood_samples, args.n_thresholds, args.seed
     )
     write_csv(rows, outdir / "results.csv")
     plot_results(rows, outdir)

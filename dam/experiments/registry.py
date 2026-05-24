@@ -316,14 +316,15 @@ def _run_latency_bench(params: dict[str, Any], outdir: Path) -> ExperimentResult
 def _run_l0_calibration(params: dict[str, Any], outdir: Path) -> ExperimentResult:
     from scripts import run_l0_calibration as cal
 
-    train_samples = int(params.get("train_samples", 200))
-    eval_samples = int(params.get("eval_samples", 120))
+    hf_repo_id = str(params.get("hf_repo_id", "MikeChenYZ/soarm-fmb-v2"))
+    sessions_dir: str | None = params.get("sessions_dir", "data/robot/sessions")
+    ood_samples = int(params.get("ood_samples_per_scenario", 30))
     n_thresholds = int(params.get("n_thresholds", 40))
     seed = int(params.get("seed", 42))
     outdir.mkdir(parents=True, exist_ok=True)
     started = time.perf_counter()
 
-    rows, summary = cal.run_calibration(train_samples, eval_samples, n_thresholds, seed)
+    rows, summary = cal.run_calibration(hf_repo_id, sessions_dir, ood_samples, n_thresholds, seed)
     cal.write_csv(rows, outdir / "results.csv")
     cal.plot_results(rows, outdir)
 
@@ -440,14 +441,14 @@ _EXPERIMENTS: dict[
             title="L0 OOD Calibration",
             rq="RQ1",
             description=(
-                "Trains a real OODGuard (memory_bank) on normal observations, "
-                "then evaluates FPR/FNR across nn_threshold values on normal, "
-                "legal-variation, and OOD populations using the production "
-                "callback pipeline."
+                "Trains OODGuard (memory_bank) on HuggingFace lerobot dataset, "
+                "evaluates FPR on held-out episodes and FNR on simulated "
+                "failure modes. MCAP sessions used as cross-domain eval."
             ),
             default_params={
-                "train_samples": 200,
-                "eval_samples": 120,
+                "hf_repo_id": "MikeChenYZ/soarm-fmb-v2",
+                "sessions_dir": "data/robot/sessions",
+                "ood_samples_per_scenario": 30,
                 "n_thresholds": 40,
                 "seed": 42,
                 "outdir": "data/experiments/l0_calibration",
