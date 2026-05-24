@@ -1,36 +1,40 @@
 # DAM Console
 
-The DAM Console is a real-time web dashboard for monitoring and controlling the DAM runtime.
-It is built with **Next.js 14**, **TypeScript**, and **Tailwind CSS**, and connects to the
-DAM API server via REST and WebSocket.
+The DAM Console is where operators and developers watch DAM make safety decisions in real time. Use it to answer four practical questions:
+
+- Is the runtime connected and cycling?
+- Did the latest action PASS, CLAMP, or REJECT?
+- Which guard layer made the decision?
+- Is latency still inside the cycle budget?
 
 ---
 
 ## Quick start
 
-=== "Docker (recommended)"
+For normal project use, start the backend and console together:
 
-    ```bash
-    # Start API + Console together
-    docker compose up api console-dev
+```bash
+make run
+```
 
-    # → Console: http://localhost:3000
-    # → API docs: http://localhost:8080/docs
-    ```
+Then open:
 
-=== "Local dev"
+- Console: `http://localhost:3000`
+- API docs: `http://localhost:8080/docs`
 
-    ```bash
-    # Terminal 1 — API server
-    pip install "dam[dev,services]"
-    uvicorn dam.services.api:app --host 0.0.0.0 --port 8080 --reload
+For frontend development, run the API and console separately from the repo root and `dam-console/` folder.
 
-    # Terminal 2 — Console
-    cd dam-console
-    npm install
-    npm run dev
-    # → http://localhost:3000
-    ```
+---
+
+## First Things To Check
+
+| Question | Where to look | Healthy signal |
+|----------|---------------|----------------|
+| Is DAM connected? | Runtime status / connection badge | Connected, cycling, or ready state |
+| Are actions safe? | Risk gauge and guard status | PASS or expected CLAMP events |
+| Why was something rejected? | Event log and guard table | Guard layer, guard name, reason string |
+| Is the loop too slow? | Cycle latency panel | Total latency below the configured budget |
+| What should I inspect after an event? | MCAP Sessions | The cycle, guard result, and nearby context |
 
 ---
 
@@ -38,7 +42,7 @@ DAM API server via REST and WebSocket.
 
 ### Dashboard `/`
 
-Real-time overview of the running DAM runtime.
+Real-time overview of the running DAM runtime. This is the first page to open during a demo or safety investigation.
 
 | Widget | Description |
 |--------|-------------|
@@ -46,17 +50,15 @@ Real-time overview of the running DAM runtime.
 | **Stats cards** | Total cycles, reject count + rate, clamp count, average latency |
 | **Runtime Control** | Start / Pause / Resume / Stop / E-STOP / Reset |
 | **Cycle Latency** | Rolling area chart of the last 60 end-to-end cycle times |
-| **Pipeline Breakdown** | Horizontal stacked bar showing Source / Policy / Guards / Sink split for the latest cycle (requires MetricBus) |
-| **Guard Layers** | Per-layer (L0–L3) guard latency bars for the latest cycle (requires MetricBus) |
+| **Pipeline Breakdown** | Source / Policy / Guards / Sink split for the latest cycle, when available |
+| **Guard Layers** | Per-layer L0-L3 guard latency bars, when available |
 | **Deadline Margin** | Badge next to the latency panel header showing remaining headroom before the cycle budget deadline (green / amber / red) |
 | **Guard Status** | Per-guard table: name, layer, last decision, reason |
 | **Event Log** | Filterable scrolling event log with timestamps |
 
-#### Deadline Margin badge
+#### Reading Latency
 
-The **Deadline Margin** badge appears only when the backend `TelemetryService`
-is wired with a `MetricBus` (i.e. `perf` data is present in the WebSocket
-stream). It displays `slack_ms = deadline_ms − total_ms` with three visual states:
+The **Deadline Margin** badge shows how much time remains before the configured cycle budget is exceeded.
 
 | Colour | Condition | Label |
 |--------|-----------|-------|
@@ -64,13 +66,6 @@ stream). It displays `slack_ms = deadline_ms − total_ms` with three visual sta
 | Amber  | 10–30 % of budget | `NEAR` |
 | Red    | < 10 % of budget | `TIGHT` |
 | Red    | Negative (over-budget) | `OVER` |
-
-#### Pipeline Breakdown & Guard Layers
-
-These two sub-charts appear inside the **Cycle Latency** panel only when the
-`perf` field is present in the live WebSocket stream.  They use the same data
-source as the `perf.stages` and `perf.layers` fields described in
-[Services API → Telemetry](services-api.md#ws-wstelemetry).
 
 Colour mapping:
 
@@ -87,8 +82,7 @@ Colour mapping:
 
 ### Config `/config`
 
-Visual Stackfile editor. Pick a template, configure adapters, manage USB devices,
-edit joint limits, then download the generated YAML.
+Visual Stackfile editor. Pick a template, configure adapters, edit joint limits, and export the generated YAML.
 
 | Section | Description |
 |---------|-------------|
@@ -143,18 +137,13 @@ View and analyze recorded loopback sessions.
 
 ## WebSocket stream
 
-The console subscribes to the live telemetry stream to provide real-time visual feedback.
+The console subscribes to the live telemetry stream to provide real-time visual feedback. Most users do not need this section unless they are extending the console or debugging an integration.
 
 Each control cycle, the console receives:
 *   **State Updates**: JSON metadata including guard decisions, risk levels, and latency metrics.
 *   **High-Speed Video**: Zero-latency binary image frames for all active cameras.
 
-The telemetry pipeline is optimized using a custom **Binary Protocol** to minimize CPU overhead and ensure a smooth, hardware-accelerated preview even at high control frequencies. For the low-level message format, see [Services API → Binary Protocol](services-api.md#binary-message-protocol).
-
-The optional `perf` object is included
-when the backend `TelemetryService` is constructed with a `MetricBus`
-reference — see [Services API → Telemetry](services-api.md#ws-wstelemetry)
-for the full field reference and wiring instructions.
+For low-level message formats and telemetry wiring, see [Services API → Telemetry](services-api.md#ws-wstelemetry).
 
 ```json
 {

@@ -1,6 +1,16 @@
 # Quick Start
 
-Get DAM running in **2 minutes**. Clone the repo and use the Makefile.
+Get DAM running without robot hardware, then confirm that the console, CLI, and demo Stackfiles are wired correctly. Budget about **10 minutes** on a fresh machine; repeat runs are faster.
+
+## What Success Looks Like
+
+By the end of this page you should have:
+
+- A local Python environment and Rust extension built by `make setup`
+- The backend API listening on `http://localhost:8080`
+- The DAM Console available at `http://localhost:3000`
+- Example Stackfiles passing validation
+- A clear next page for learning guards, Stackfiles, or the console
 
 ---
 
@@ -15,14 +25,13 @@ cd DAM
 make setup
 ```
 
-Done! You now have:
-- ✅ Python 3.11+ with all dependencies
-- ✅ Rust data plane compiled
-- ✅ Frontend console ready
+Expected result: setup finishes without errors and creates `.venv/`. It may take several minutes because it installs Python packages, builds the Rust extension, and installs console dependencies.
+
+If setup fails because `cargo` is missing, install Rust from [rustup.rs](https://rustup.rs/) and run `make setup` again.
 
 ---
 
-## Run DAM
+## Start DAM
 
 ```bash
 # Start the backend + frontend
@@ -30,38 +39,59 @@ make run
 ```
 
 This launches:
-- **DAM Runtime** — validates every robot action through the guard stack
-- **Web Console** — real-time dashboard at `http://localhost:3000`
-- **API Server** — REST + WebSocket at `http://localhost:8080`
+- **API server** at `http://localhost:8080`
+- **DAM Console** at `http://localhost:3000`
+- **Runtime host** using the repo's default Stackfile convention
 
 ---
 
-## See It In Action
+## Confirm It Is Running
 
 Open your browser:
 
 - **Dashboard:** http://localhost:3000
 - **API Docs:** http://localhost:8080/docs
 
-You'll see live telemetry: cycles, risk levels, guard decisions, latencies.
+Expected result: the dashboard loads and shows runtime status, cycle counters, risk state, guard decisions, and latency panels. If the console opens but looks disconnected, confirm that the API server is still running on port 8080.
 
 ## Validate A Demo Stack
 
-Before editing a robot configuration, validate one known-good Stackfile:
+Before editing a robot configuration, validate the example Stackfiles:
 
 ```bash
 make validate
 ```
 
-Expected result: every file under `examples/stackfiles/` reports `OK`. If you want to inspect one stack, run:
+Expected result: every file under `examples/stackfiles/` reports `OK`.
+
+Inspect one demo Stackfile to see what DAM resolved:
 
 ```bash
 .venv/bin/dam inspect examples/stackfiles/demo.yaml
 ```
 
+Expected result: the output lists safety settings, guards, boundaries, tasks, and fallback escalation. You do not need to understand every field yet; just confirm that the stack can be loaded and explained.
+
+!!! note "No hardware path"
+    The demo Stackfile is safe to inspect and validate without a robot. It uses a dataset source and a matching sink reference for replay-style development. The ACT policy may use CPU and may download model assets the first time it is run.
+
 ---
 
-## Run Tests
+## Learn The First Workflow
+
+Use this loop when you are learning DAM:
+
+1. Pick an example Stackfile under `examples/stackfiles/`.
+2. Run `make validate`.
+3. Inspect it with `.venv/bin/dam inspect <path>`.
+4. Start DAM with `make run`.
+5. Open the console and identify whether the latest cycles are PASS, CLAMP, or REJECT.
+
+The important habit is to validate configuration before thinking about hardware.
+
+---
+
+## Optional: Run Tests
 
 ```bash
 # Full test suite (Python + Rust + Frontend)
@@ -78,16 +108,18 @@ make lint         # Linters only
 
 ## Customize with Stackfiles
 
-Edit `.dam_stackfile.yaml` to change:
+After the demo path works, edit a copy of an example Stackfile to change:
+
 - Guard parameters (L0–L3)
 - Task boundaries
 - Hardware adapters
 - Safety constraints
 
-Then:
+Then validate before running:
 
 ```bash
-make run  # Reload automatically
+make validate
+make run
 ```
 
 ---
@@ -110,8 +142,8 @@ make help     # Show all available targets
 
 ## Next Steps
 
-- **Learn the concepts** → [Architecture Overview](../concepts/architecture.md)
 - **Follow the guided path** → [Learn DAM](../learn/index.md)
+- **Learn the concepts** → [Architecture Overview](../concepts/architecture.md)
 - **Understand guards** → [Guard Stack Explained](../concepts/guards-explained.md)
 - **Design boundaries** → [Boundary System](../concepts/boundaries.md)
 - **Full learning path** → [Complete Tutorial](../learn/tutorial.md)
@@ -119,4 +151,4 @@ make help     # Show all available targets
 
 ---
 
-**You're running DAM! 🚀 Next: explore the console at http://localhost:3000**
+You are running DAM. Next, use the console to connect what the runtime is doing with the Stackfile that configured it.

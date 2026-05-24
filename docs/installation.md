@@ -91,3 +91,9 @@ After setup completes, verify the installation:
 # Run the test suite
 make test
 ```
+
+Expected results:
+
+- The Python package command prints the installed DAM version, such as `0.5.0`.
+- The Rust extension command prints `Rust data plane OK`.
+- `make test` ends with `All checks passed.`

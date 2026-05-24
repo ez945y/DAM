@@ -82,7 +82,7 @@ dam callbacks --json          # machine-readable (name, layer, description, para
 Builds the runtime from a Stackfile and runs a headless control loop.
 
 ```bash
-dam run examples/stackfiles/demo.yaml --cycles 200 --task default
+dam run examples/stackfiles/demo.yaml --cycles 200 --task demo
 ```
 
 | Option | Default | Description |
