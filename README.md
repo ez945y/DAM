@@ -2,7 +2,7 @@
 
 <h1>Detachable Action Monitor (DAM)</h1>
 
-Detachable Trust. Deterministic Safety.
+Detachable safety. Observable control.
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue?logo=python)](https://www.python.org/downloads/)
 [![Rust 1.80+](https://img.shields.io/badge/rust-1.80%2B-orange?logo=rust)](https://www.rust-lang.org/)
