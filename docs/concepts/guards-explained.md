@@ -164,7 +164,7 @@ boundaries:
 
 **Responsibility:** Enforce joint limits, velocity bounds, and workspace constraints.
 
-**Status:** ✅ Fully implemented and production-ready.
+**Status:** Implemented and ready for research and supervised development use.
 
 This is the most important and mature layer. It prevents kinematic and dynamic violations.
 
@@ -292,14 +292,14 @@ boundaries:
 | Acceleration exceeds max | Reduce target velocity | PASS (clamped) |
 | End-effector outside workspace | Cannot fix | **REJECT** |
 
-### Guarantees
+### Expected Enforcement
 
 | Aspect | Status |
 |--------|--------|
-| Joint limits never exceeded | ✅ Guaranteed |
-| Velocity bounded | ✅ Guaranteed |
-| Acceleration bounded | ✅ Guaranteed |
-| Workspace enforced | ✅ Guaranteed |
+| Joint limits | Enforced when configured with accurate limits |
+| Velocity bounds | Enforced when configured with accurate limits |
+| Acceleration bounds | Enforced when configured with accurate limits |
+| Workspace bounds | Enforced when configured with a valid kinematic model |
 | Collision-free | ❌ NO (requires a dedicated simulation/collision checker) |
 | Real-time safe | ✅ Yes (< 1 ms) |
 

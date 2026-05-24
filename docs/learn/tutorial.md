@@ -1,6 +1,6 @@
 # Complete Tutorial
 
-A structured learning path to master DAM from zero to production. Estimated time: **2–3 hours** (can be done in modules).
+A structured learning path to understand DAM from first run to supervised hardware preparation. Estimated time: **2–3 hours** (can be done in modules).
 
 ---
 
@@ -16,7 +16,7 @@ START → Module 1 → Module 2 → Module 3 → Module 4 → Module 5 → END
 | Module | Topic | Outcome |
 |--------|-------|---------|
 | 1 | **Core Concepts** | Understand guard stack, fail-to-reject, defense-in-depth |
-| 2 | **Stackfiles** | Write production-ready YAML configurations |
+| 2 | **Stackfiles** | Write and validate DAM YAML configurations |
 | 3 | **Boundaries** | Design multi-phase task constraints |
 | 4 | **Deployment** | Run on real hardware (or simulator) |
 | 5 | **Monitoring** | Use console and API to observe safety |
@@ -623,7 +623,7 @@ Combine everything you learned into one complete project.
 After completing this tutorial, you can:
 
 ✅ Explain the guard stack and fail-to-reject principle
-✅ Write production-ready Stackfiles
+✅ Write and validate Stackfiles
 ✅ Design multi-phase task boundaries
 ✅ Deploy DAM to simulation and hardware
 ✅ Monitor and analyze safety events
@@ -653,4 +653,4 @@ After completing this tutorial, you can:
 
 ---
 
-**Congratulations! You've completed the DAM tutorial. You're now ready to deploy safety-critical robot systems.** 🚀
+**Congratulations! You've completed the DAM tutorial. You are ready to keep iterating with validated Stackfiles, console evidence, and supervised hardware checks.**
