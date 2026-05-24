@@ -40,6 +40,6 @@ A documentation improvement is complete when:
 
 1. Learning path visibility: add a Learning nav section and a learner landing page.
 2. Quickstart validation: align install/run/validate commands with current Makefile and CLI behavior.
-3. Stackfile guide cleanup: move advanced schema details lower and keep the first example runnable.
+3. Stackfile guide cleanup: keep the walkthrough beginner-friendly, then decide whether to split `quick-stack.md` further.
 4. Console task flow: show how to use the console during a safety event.
 5. Glossary correction pass: align layer ownership, callback naming, and fallback names with current code.

@@ -9,7 +9,7 @@ Use this path when you are new to DAM or teaching it to someone else. The goal i
 | Run DAM locally | [Quick Start](../getting-started/quickstart.md) | `make run` opens the console and the backend is reachable |
 | Install dependencies carefully | [Installation](../installation.md) | `make setup` finishes and import checks pass |
 | Understand the mental model | [Complete Tutorial](tutorial.md) | You can explain pass, clamp, reject, and fallback in your own words |
-| Configure a deployment | [Stackfile Guide](../quick-stack.md) | You can validate an example Stackfile and point to the active boundaries |
+| Configure a deployment | [Stackfile Walkthrough](../getting-started/stackfile-walkthrough.md) | You can validate an example Stackfile and point to the active boundaries |
 | Watch a run | [Console Overview](../console.md) | You can find guard decisions, latency, and the active task |
 | Look up terms | [Glossary](glossary.md) | You can resolve unfamiliar DAM vocabulary without reading source code |
 
@@ -17,7 +17,7 @@ Use this path when you are new to DAM or teaching it to someone else. The goal i
 
 1. Install and run the demo stack with the quick start.
 2. Read the guard stack explanation in the tutorial.
-3. Validate one example Stackfile with `make validate`.
+3. Validate one example Stackfile with `make validate`, then read it with the Stackfile walkthrough.
 4. Open the console and identify one pass, clamp, or reject event.
 5. Change one boundary value in a copy of an example Stackfile, validate it, and explain the expected safety effect.
 

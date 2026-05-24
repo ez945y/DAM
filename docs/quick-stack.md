@@ -40,7 +40,7 @@ boundaries:
 To run it:
 
 ```bash
-dam run my_stackfile.yaml --task default
+dam run my_stackfile.yaml --task <task-name>
 ```
 
 Or in Python:
@@ -52,7 +52,7 @@ runtime = GuardRuntime.from_stackfile("my_stackfile.yaml")
 runtime.register_source("arm", my_source)
 runtime.register_policy(my_policy)
 runtime.register_sink(my_sink)
-runtime.start_task("default")
+runtime.start_task("<task-name>")
 
 for _ in range(100):
     result = runtime.step()
