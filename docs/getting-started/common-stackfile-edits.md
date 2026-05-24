@@ -12,6 +12,14 @@ cp examples/stackfiles/demo.yaml /tmp/dam-demo.yaml
 
 Expected result: validation reports `OK`, and inspect shows the task, guards, boundaries, and fallbacks you expect.
 
+After a successful validation, use a bounded run:
+
+```bash
+.venv/bin/dam run /tmp/dam-demo.yaml --cycles 200 --task demo
+```
+
+Expected result: DAM loads the edited Stackfile, starts task `demo`, runs the requested cycles, and exits.
+
 ## Change The Active Task Boundaries
 
 Find:
