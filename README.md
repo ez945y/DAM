@@ -27,7 +27,7 @@ This design keeps safety boundaries explicit while leaving the learning/policy l
 - **Stackfile-driven config**: Robots, policies, guards, boundaries, and tasks are YAML-defined and validated via `dam validate`.
 - **MCAP loopback logging**: Records observations, actions, guard decisions, and safety events for replay and review.
 - **Cycle inspection**: Audits control loops with guard decisions, latency, and observation/action context in the console.
-- **Rust data plane**: Moves serialization, MCAP writing, and messaging out of the Python GIL for more predictable performance.
+- **Predictable runtime path**: Keeps high-volume logging and messaging off the policy path for steadier control-loop timing.
 - **Adapter isolation**: Swaps LeRobot, ROS 2, dataset, or custom adapters without changing guard logic.
 
 **Disclaimer**: DAM is experimental research software and not certified for safety-critical or production environments.
@@ -62,18 +62,17 @@ The `dam` CLI is available after `make setup`:
 ```bash
 .venv/bin/dam doctor                                # check environment / dependencies
 .venv/bin/dam callbacks                             # list built-in boundary callbacks
-.venv/bin/dam inspect <stack>                       # print the resolved Stackfile graph
+.venv/bin/dam inspect examples/stackfiles/demo.yaml # print the resolved Stackfile graph
 .venv/bin/dam validate examples/stackfiles/*.yaml   # schema-check Stackfiles (CI gate)
-.venv/bin/dam run <stack> --cycles 200              # headless control loop
+.venv/bin/dam run examples/stackfiles/demo.yaml --cycles 200 --task demo
 .venv/bin/dam replay <session>.mcap                 # summarise a recorded session
 .venv/bin/dam help [command]
 ```
 
-After starting, open **http://localhost:3000** in your browser and select a configuration template:
-
-- **Quick Start** — Simulation only (no hardware needed)
-- **SO-ARM101** — Pre-configured for SO-ARM101 robot
-- **Custom** — Create your own Stackfile
+After starting, open **http://localhost:3000** in your browser and use the console
+to inspect guard decisions, latency, and runtime status. Start with
+`examples/stackfiles/demo.yaml` before moving to SO-ARM101 hardware or a custom
+Stackfile.
 
 ---
 
