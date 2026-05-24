@@ -95,10 +95,17 @@ fallbacks:
     type: emergency_stop
   hold_position:
     type: hold_position
-    escalates_to: emergency_stop
+  slow_payload:
+    type: slow_down
+    escalate_to: emergency_stop
+    escalate_after_seconds: 5.0
     params:
-      require_sink: false
+      scale: 0.5
 ```
+
+Built-in context types are `emergency_stop`, `hold_position`, `wait_and_retry`,
+`slow_down`, and `retreat`. Fallback Contexts can opt into L3 hardware monitoring
+with `monitors_hardware`; `emergency_stop` is terminal and disables it.
 
 ### `runtime` section defaults
 
@@ -161,6 +168,10 @@ gripper commands to no-op). For pick-and-place, the default stack uses a
 left-to-right `task_gripper_sequence` list: close is allowed only in a 15 cm
 left pick cube, transfer allows no open/close command, and open is allowed only
 in a 15 cm right place cube about 20 cm away.
+
+L2 results are emitted as `/dam/L2` guard messages with `event_class: "task"`.
+List containers fan out per active boundary/node name, so replay and the console
+can show which task phase produced the result.
 
 ---
 

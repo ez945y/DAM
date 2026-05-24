@@ -159,6 +159,9 @@ def _serialise_cycle(
         if hasattr(result.risk_level, "name")
         else str(result.risk_level),
         "fallback_triggered": result.fallback_triggered,
+        "active_context": result.fallback_triggered or "normal",
+        "context_severity": None,
+        "context_event": None,
         "latency_ms": result.latency_ms,
         "guard_statuses": guard_statuses,
         "active_task": result.active_task,

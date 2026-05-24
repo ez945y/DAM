@@ -19,9 +19,6 @@ from dam.boundary.constraint import BoundaryConstraint
 from dam.boundary.node import BoundaryNode
 from dam.boundary.single import SingleNodeContainer
 from dam.decorators import guard as guard_decorator
-from dam.fallback.builtin import EmergencyStop
-from dam.fallback.chain import build_escalation_chain
-from dam.fallback.registry import FallbackRegistry
 from dam.guard.builtin.ood import OODGuard
 from dam.registry.callback import CallbackRegistry
 from dam.runtime.guard_runtime import GuardRuntime
@@ -190,17 +187,12 @@ class TestOodInMonitorPipeline:
         g = OG()
         g.set_name("ood")
 
-        reg = FallbackRegistry()
-        reg.register(EmergencyStop())
-        build_escalation_chain(reg)
-
         node = BoundaryNode("n0", BoundaryConstraint(), fallback="emergency_stop")
         container = SingleNodeContainer(node)
 
         return GuardRuntime(
             guards=[g],
             boundary_containers={"ood": container},
-            fallback_registry=reg,
             task_config={"task": ["ood"]},
             config_pool={
                 "nn_threshold": 0.5,

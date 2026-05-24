@@ -111,7 +111,7 @@ def run_scenario(name: str, trials: int, rng: np.random.Generator) -> dict:
             target_joint_positions=obs.joint_positions,
             target_joint_velocities=obs.joint_velocities,
         )
-        _v, results, _fb = rt.validate(obs, action, f"study-{cid}")
+        _v, results = rt.validate(obs, action, f"study-{cid}")
         tripped = any(_intercepted(r) for r in results)
         if tripped:
             false_triggers += 1

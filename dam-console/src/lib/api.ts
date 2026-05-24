@@ -30,6 +30,7 @@ import type {
   BoundaryCallbackDef,
   BoundaryCallbackGroupDef,
   BoundaryTemplateDef,
+  ContextEvent,
   ExperimentDef,
   ExperimentResult,
   FallbackDef,
@@ -332,6 +333,9 @@ export interface McapCycleDetail {
   failure_decisions?: string[]
   failure_reasons?: string[]
   failure_tuple?: Record<string, unknown> | null
+  active_context?: string
+  context_severity?: number
+  context_event?: ContextEvent | null
   active_task: string | null
   active_boundaries: string[]
   // Latency (from /dam/cycle quick access)
@@ -364,6 +368,7 @@ export interface McapCycleDetail {
   // Guard results (one per guard that executed)
   guard_results: Array<{
     guard_name: string
+    event_class?: string
     layer: number
     layer_name: string
     decision: number

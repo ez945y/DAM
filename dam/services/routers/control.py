@@ -70,19 +70,19 @@ def create_control_router(control: RuntimeControlService | None) -> APIRouter:
 
     @router.get("/api/control/fallbacks")
     async def control_fallbacks() -> Any:
-        from dam.fallback.registry import get_global_registry
+        """List builtin fallback Contexts available to stackfile authors."""
+        import dam.runtime.contexts  # noqa: F401 - imports builtin registrations
+        from dam.runtime.context import iter_context_classes
 
-        reg = get_global_registry()
         fallbacks = []
-        for name in reg.list_all():
-            f = reg.get(name)
+        for name, cls in iter_context_classes().items():
             fallbacks.append(
                 {
                     "name": name,
-                    "type": f.get_type(),
-                    "params": f.get_params(),
-                    "description": (f.__doc__ or "").strip(),
-                    "escalates_to": f.get_escalation_target(),
+                    "severity": cls.severity,
+                    "requires_proposal": cls.requires_proposal,
+                    "monitors_hardware": cls.monitors_hardware,
+                    "description": (cls.__doc__ or "").strip(),
                 }
             )
         return {"fallbacks": fallbacks}

@@ -28,9 +28,21 @@ export type BackendState = 'loading' | 'ready' | 'error' | 'faulted'
 export interface GuardStatus {
   name: string
   layer: string
+  event_class?: 'perception' | 'motion' | 'task' | 'hardware' | string
   decision: GuardDecision
   reason: string
   metadata?: Record<string, unknown>
+}
+
+export interface ContextEvent {
+  event: 'enter' | 'exit' | 'preempt' | 'escalate' | string
+  ctx_name: string
+  ctx_severity: number
+  from_ctx_name?: string | null
+  from_ctx_severity?: number | null
+  trigger_guard?: string | null
+  trigger_reason?: string | null
+  extra?: Record<string, unknown>
 }
 
 export interface CycleEvent {
@@ -41,6 +53,9 @@ export interface CycleEvent {
   was_rejected: boolean
   risk_level: RiskLevel
   fallback_triggered: string | null
+  active_context?: string
+  context_severity?: number
+  context_event?: ContextEvent | null
   latency_ms: Record<string, number>
   active_task?: string | null
   active_boundaries?: string[]
@@ -150,7 +165,11 @@ export interface FallbackDef {
   type?: string
   params?: Record<string, unknown>
   description?: string
-  escalates_to?: string | null
+  severity?: number
+  requires_proposal?: boolean
+  monitors_hardware?: boolean
+  escalate_to?: string | null
+  escalate_after_seconds?: number | null
 }
 
 export interface JointDef {

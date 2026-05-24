@@ -16,9 +16,6 @@ from dam.boundary.constraint import BoundaryConstraint
 from dam.boundary.node import BoundaryNode
 from dam.boundary.single import SingleNodeContainer
 from dam.decorators import guard as guard_decorator
-from dam.fallback.builtin import EmergencyStop, HoldPosition
-from dam.fallback.chain import build_escalation_chain
-from dam.fallback.registry import FallbackRegistry
 from dam.guard.builtin.execution import ExecutionGuard
 from dam.guard.builtin.motion import MotionGuard
 from dam.runtime.guard_runtime import GuardRuntime
@@ -56,11 +53,6 @@ def _make_runtime(
     g = KG()
     g.set_name("main")
 
-    reg = FallbackRegistry()
-    reg.register(EmergencyStop())
-    reg.register(HoldPosition())
-    build_escalation_chain(reg)
-
     node = BoundaryNode(
         "n0",
         BoundaryConstraint(
@@ -74,7 +66,6 @@ def _make_runtime(
     runtime = GuardRuntime(
         guards=[g],
         boundary_containers={"main": container},
-        fallback_registry=reg,
         task_config={"task": ["main"]},
         config_pool={},
         enforcement_mode=enforcement_mode,
@@ -92,10 +83,9 @@ def test_monitor_mode_passes_action_on_guard_violation():
 
     obs = _obs(ee_x=-1.0)  # ee_x=-1 is outside [0, 0.5] → REJECT
     action = _action()
-    validated, results, fallback = runtime.validate(obs, action, "trace-001")
+    validated, results = runtime.validate(obs, action, "trace-001")
 
     assert validated is not None, "monitor mode must pass the action through"
-    assert fallback is None, "monitor mode must not trigger fallback"
 
 
 def test_monitor_mode_records_violation():
@@ -105,7 +95,7 @@ def test_monitor_mode_records_violation():
 
     obs = _obs(ee_x=-1.0)
     action = _action()
-    _validated, results, _fallback = runtime.validate(obs, action, "trace-002")
+    _validated, results = runtime.validate(obs, action, "trace-002")
 
     decisions = [r.decision for r in results]
     assert GuardDecision.REJECT in decisions, (
@@ -121,7 +111,7 @@ def test_monitor_mode_passes_original_positions():
     target = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6])
     obs = _obs(ee_x=-1.0)
     action = ActionProposal(target_joint_positions=target)
-    validated, _results, _fallback = runtime.validate(obs, action, "trace-003")
+    validated, _results = runtime.validate(obs, action, "trace-003")
 
     assert validated is not None
     np.testing.assert_array_equal(
@@ -139,10 +129,6 @@ def test_monitor_mode_does_not_apply_clamp():
     KG = guard_decorator("L1")(MotionGuard)
     g = KG()
     g.set_name("main")
-    reg = FallbackRegistry()
-    reg.register(EmergencyStop())
-    reg.register(HoldPosition())
-    build_escalation_chain(reg)
     node = BoundaryNode(
         "n0",
         BoundaryConstraint(
@@ -154,7 +140,6 @@ def test_monitor_mode_does_not_apply_clamp():
     runtime = GuardRuntime(
         guards=[g],
         boundary_containers={"main": SingleNodeContainer(node)},
-        fallback_registry=reg,
         task_config={"task": ["main"]},
         config_pool={},
         enforcement_mode="monitor",
@@ -164,10 +149,9 @@ def test_monitor_mode_does_not_apply_clamp():
     target = np.array([9.0, 0.2, 0.3, 0.4, 0.5, 0.6])
     obs = _obs(ee_x=0.1)
     action = ActionProposal(target_joint_positions=target)
-    validated, results, fallback = runtime.validate(obs, action, "trace-clamp")
+    validated, results = runtime.validate(obs, action, "trace-clamp")
 
     assert validated is not None
-    assert fallback is None
     assert GuardDecision.CLAMP in [r.decision for r in results]
     assert not validated.was_clamped
     np.testing.assert_array_equal(validated.target_joint_positions, target)
@@ -192,10 +176,6 @@ def test_monitor_mode_does_not_call_violation_hooks():
     g = KG()
     g.set_name("main")
 
-    reg = FallbackRegistry()
-    reg.register(EmergencyStop())
-    build_escalation_chain(reg)
-
     node = BoundaryNode(
         "n0",
         BoundaryConstraint(
@@ -208,17 +188,15 @@ def test_monitor_mode_does_not_call_violation_hooks():
     runtime = GuardRuntime(
         guards=[g],
         boundary_containers={"main": container},
-        fallback_registry=reg,
         task_config={"task": ["main"]},
         config_pool={},
         enforcement_mode="monitor",
     )
     runtime.start_task("task")
 
-    _validated, results, fallback = runtime.validate(_obs(ee_x=-1.0), _action(), "trace-hook")
+    _validated, results = runtime.validate(_obs(ee_x=-1.0), _action(), "trace-hook")
 
     assert GuardDecision.REJECT in [r.decision for r in results]
-    assert fallback is None
     assert SpyExecutionGuard.violation_count == 0
 
 
@@ -226,11 +204,10 @@ def test_log_only_skips_guard_checks():
     runtime = _make_runtime(enforcement_mode="log_only")
     runtime.start_task("task")
 
-    validated, results, fallback = runtime.validate(_obs(ee_x=-1.0), _action(), "trace-log")
+    validated, results = runtime.validate(_obs(ee_x=-1.0), _action(), "trace-log")
 
     assert validated is not None
     assert results == []
-    assert fallback is None
 
 
 # ── Policy I/O wiring ─────────────────────────────────────────────────────────
@@ -246,7 +223,7 @@ def test_policy_output_is_what_guards_receive():
     obs = _obs(ee_x=0.2)
     action = ActionProposal(target_joint_positions=safe_pos)
 
-    validated, results, fallback = runtime.validate(obs, action, "trace-005")
+    validated, results = runtime.validate(obs, action, "trace-005")
 
     assert validated is not None
     np.testing.assert_array_equal(validated.target_joint_positions, safe_pos)

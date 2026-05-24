@@ -97,6 +97,21 @@ default pick-and-place stack uses a left pick cube and right place cube; the
 list container only orders those nodes, while each node keeps its own
 `allowed_command` and `zone` params.
 
+L2 guard output is recorded on `/dam/L2` with `event_class: "task"`. The same
+per-boundary `GuardResult` list feeds cycle aggregation, MCAP, the console, and
+replay.
+
+## Fallback Contexts
+
+Fallbacks are `StepContext` classes registered with `@dam.fallback`. Stackfile
+nodes reference them by fallback name; named entries can add `params`,
+`escalate_to`, and `escalate_after_seconds`.
+
+Built-ins: `emergency_stop`, `hold_position`, `wait_and_retry`, `slow_down`,
+`retreat`. Contexts have `requires_proposal` and `monitors_hardware` flags;
+hardware monitoring stays on during fallback unless the Context disables it
+(`emergency_stop` does).
+
 ---
 
 ## HardwareGuard (L3)

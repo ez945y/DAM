@@ -285,7 +285,7 @@ def _replay_through_guards(args: argparse.Namespace) -> int:
             target_joint_velocities=(np.asarray(tv, dtype=float) if isinstance(tv, list) else None),
         )
         try:
-            _, guard_results, _ = runtime.validate(
+            _, guard_results = runtime.validate(
                 obs, action, trace_id=f"replay-{cid}", now=obs.timestamp
             )
             decision = (
@@ -536,7 +536,7 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
 
     print(f"\nfallbacks ({len(config.fallbacks)}):")
     for name, fb in config.fallbacks.items():
-        chain = f" -> {fb.escalates_to}" if fb.escalates_to else ""
+        chain = f" -> {fb.escalate_to}" if fb.escalate_to else ""
         print(f"  {name}: {fb.type}{chain}")
     return 0
 

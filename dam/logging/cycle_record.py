@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from dam.runtime.context import ContextEvent
     from dam.types.result import GuardResult
 
 
@@ -69,7 +70,7 @@ class CycleRecord:
     validated_positions: list[float] | None  # None when action was rejected
     validated_velocities: list[float] | None
     was_clamped: bool
-    fallback_triggered: str | None
+    fallback_triggered: str | None  # deprecated alias for active_context; one-release back-compat
 
     # ── Guard results (flat; writer groups by layer) ───────────────────────────
     guard_results: tuple[GuardResult, ...]
@@ -102,3 +103,10 @@ class CycleRecord:
     # 0 = initial config; bumped by GuardRuntime on every successful hot-reload
     # swap.  Readers join cycles to the config that produced them via this id.
     config_version: int = 0
+
+    # ── Context state (Runtime Context state machine, see project_runtime_context_state_machine memory) ─
+    active_context: str = "normal"
+    context_severity: int = 0
+    # Filled only on cycles that saw a Context transition; consumed by
+    # LoopbackWriter to emit /dam/context_events. None on steady-state cycles.
+    context_event: ContextEvent | None = None

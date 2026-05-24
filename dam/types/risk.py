@@ -21,7 +21,7 @@ class CycleResult:
     cycle_id: int
     trace_id: str
     validated_action: ValidatedAction | None
-    original_proposal: ActionProposal
+    original_proposal: ActionProposal | None
     was_clamped: bool
     was_rejected: bool
     guard_results: list[GuardResult] = field(default_factory=list)

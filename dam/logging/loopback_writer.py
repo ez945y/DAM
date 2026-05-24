@@ -144,6 +144,7 @@ def _record_to_dict(
                 "cycle_id": rec.cycle_id,
                 "timestamp": rec.obs_timestamp,
                 "guard_name": result.guard_name,
+                "event_class": result.resolved_event_class(),
                 "layer": int(result.layer),
                 "decision": int(result.decision),
                 "decision_name": result.decision.name,
@@ -184,6 +185,22 @@ def _record_to_dict(
         "validated_velocities": rec.validated_velocities,
         "was_clamped": rec.was_clamped,
         "fallback_triggered": rec.fallback_triggered,
+        "active_context": rec.active_context,
+        "context_severity": rec.context_severity,
+        "context_event": (
+            {
+                "event": rec.context_event.event,
+                "ctx_name": rec.context_event.ctx_name,
+                "ctx_severity": rec.context_event.ctx_severity,
+                "from_ctx_name": rec.context_event.from_ctx_name,
+                "from_ctx_severity": rec.context_event.from_ctx_severity,
+                "trigger_guard": rec.context_event.trigger_guard,
+                "trigger_reason": rec.context_event.trigger_reason,
+                "extra": rec.context_event.extra,
+            }
+            if rec.context_event is not None
+            else None
+        ),
         "guard_results": guard_results,
         "latency_stages": rec.latency_stages,
         "latency_layers": rec.latency_layers,
@@ -289,6 +306,7 @@ class _WriterSession:
         "cycle_id": {"type": "integer"},
         "timestamp": {"type": "number"},
         "guard_name": {"type": "string"},
+        "event_class": {"type": "string"},  # perception/motion/task/hardware
         "layer": {"type": "integer"},
         "decision": {"type": "integer"},
         "decision_name": {"type": "string"},
@@ -375,6 +393,8 @@ class _WriterSession:
                 "active_task": {"type": ["string", "null"]},
                 "active_boundaries": {"type": "array", "items": {"type": "string"}},
                 "active_cameras": {"type": "array", "items": {"type": "string"}},
+                "active_context": {"type": "string"},
+                "context_severity": {"type": "integer"},
                 "has_violation": {"type": "boolean"},
                 "has_clamp": {"type": "boolean"},
                 "violated_layer_mask": {"type": "integer"},
@@ -393,6 +413,24 @@ class _WriterSession:
             },
         )
         self._reg_channel("/dam/cycle", sid)
+
+        # /dam/context_events — sparse, only on Context transitions
+        # (enter / exit / preempt). STEP events stay in Python logger.
+        sid = self._reg_schema(
+            "dam.ContextEvent",
+            {
+                "cycle_id": {"type": "integer"},
+                "event": {"type": "string"},  # enter / exit / preempt
+                "ctx_name": {"type": "string"},
+                "ctx_severity": {"type": "integer"},
+                "from_ctx_name": {"type": ["string", "null"]},
+                "from_ctx_severity": {"type": ["integer", "null"]},
+                "trigger_guard": {"type": ["string", "null"]},
+                "trigger_reason": {"type": ["string", "null"]},
+                "extra": {"type": "object"},
+            },
+        )
+        self._reg_channel("/dam/context_events", sid)
 
         # /dam/obs
         sid = self._reg_schema(
@@ -789,6 +827,8 @@ class LoopbackWriter:
             "timestamp": rec.obs_timestamp,
             "active_task": rec.active_task,
             "active_boundaries": list(rec.active_boundaries),
+            "active_context": rec.active_context,
+            "context_severity": rec.context_severity,
             "has_violation": rec.has_violation,
             "has_clamp": rec.has_clamp,
             "violated_layer_mask": rec.violated_layer_mask,
@@ -806,6 +846,23 @@ class LoopbackWriter:
             "total_ms": rec.latency_stages.get("total", 0.0),
         }
         session.write("/dam/cycle", _json(cycle_msg), log_time_ns)
+
+        # 1b. /dam/context_events — sparse: only when this cycle saw a Context
+        #     transition. Steady-state cycles skip this topic entirely.
+        if rec.context_event is not None:
+            ev = rec.context_event
+            ev_msg: dict[str, Any] = {
+                "cycle_id": rec.cycle_id,
+                "event": ev.event,
+                "ctx_name": ev.ctx_name,
+                "ctx_severity": ev.ctx_severity,
+                "from_ctx_name": ev.from_ctx_name,
+                "from_ctx_severity": ev.from_ctx_severity,
+                "trigger_guard": ev.trigger_guard,
+                "trigger_reason": ev.trigger_reason,
+                "extra": ev.extra,
+            }
+            session.write("/dam/context_events", _json(ev_msg), log_time_ns)
 
         # 2. /dam/obs — joint state + any extra channels (fields already list[float])
         obs_msg: dict[str, Any] = {
@@ -843,6 +900,7 @@ class LoopbackWriter:
                 "cycle_id": rec.cycle_id,
                 "timestamp": rec.obs_timestamp,
                 "guard_name": result.guard_name,
+                "event_class": result.resolved_event_class(),
                 "layer": layer_int,
                 "decision": int(result.decision),
                 "decision_name": result.decision.name,

@@ -145,6 +145,7 @@ def _guard_result_from_mapping(data: Any) -> dict[str, Any] | None:
     layer_int = data.get("layer", 0)
     return {
         "guard_name": data.get("guard_name", ""),
+        "event_class": data.get("event_class"),
         "layer": layer_int,
         "layer_name": f"L{layer_int}",
         "decision": data.get("decision", 0),
@@ -822,6 +823,9 @@ class McapSessionService:
                                 "failure_tuple": d[_IDX_FAILURE_TUPLE]
                                 if arr_len > _IDX_FAILURE_TUPLE
                                 else None,
+                                "active_context": _message_get(d, "active_context", "normal"),
+                                "context_severity": _message_get(d, "context_severity", 0),
+                                "context_event": _message_get(d, "context_event"),
                                 "active_task": d[_IDX_ACTIVE_TASK]
                                 if arr_len > _IDX_ACTIVE_TASK
                                 else None,
@@ -923,6 +927,7 @@ class McapSessionService:
                             "validated_velocities": _message_get(d, "validated_velocities"),
                             "was_clamped": bool(_message_get(d, "was_clamped")),
                             "fallback_triggered": _message_get(d, "fallback_triggered"),
+                            "active_context": _message_get(d, "active_context"),
                         }
                     elif topic == "/dam/latency":
                         detail["latency"] = {

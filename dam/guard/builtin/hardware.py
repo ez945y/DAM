@@ -284,6 +284,15 @@ class HardwareGuard(Guard):
             layer=layer,
             reason=f"{reason} (streak {self._hardware_violation_streak}/{frames})",
             fault_source="hardware",
+            metadata={
+                **self._extract_telemetry(hardware_status),
+                # Downstream Context fallbacks (SlowDown) read this to inherit
+                # the boundary's debounce setting for exit hysteresis — the
+                # same frame count required to declare entry is reused as the
+                # default frames required to declare clear.
+                "required_frames": frames,
+                "violation_streak": self._hardware_violation_streak,
+            },
         )
 
         return None

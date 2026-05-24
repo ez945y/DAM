@@ -25,6 +25,15 @@ class GuardResult:
     clamped_action: ValidatedAction | None = None
     fault_source: str | None = None  # "environment", "guard_code", "timeout"
     metadata: dict[str, Any] = field(default_factory=dict)
+    event_class: str | None = None  # None → derived from layer at MCAP write time
+
+    def resolved_event_class(self) -> str:
+        """event_class explicit if set, else layer default (perception/motion/task/hardware)."""
+        if self.event_class is not None:
+            return self.event_class
+        from dam.guard.layer import LAYER_TO_EVENT_CLASS
+
+        return LAYER_TO_EVENT_CLASS[self.layer]
 
     @classmethod
     def success(

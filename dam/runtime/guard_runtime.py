@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import logging
 import threading
 import time
@@ -9,10 +10,21 @@ from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
+import dam.runtime.contexts  # noqa: F401 - imports builtin fallback Context registrations
+from dam.bus import ObservationBus, PipelineMetricBus, RiskController, WatchdogTimer
+from dam.guard.layer import GuardLayer
+from dam.guard.stage import Stage
 from dam.injection.static import precompute_injection
+from dam.runtime.context import (
+    ContextEvent,
+    NormalContext,
+    StepContext,
+    get_context_class,
+    make_context,
+)
 from dam.runtime.execution_engine import ExecutionEngine, ValidationContext, _filter_kwargs
 from dam.runtime.failure_classify import classify_failure, select_failure_results
-from dam.types.action import ValidatedAction
+from dam.types.action import ActionProposal, ValidatedAction
 from dam.types.enforcement import EnforcementMode
 from dam.types.observation import Observation
 from dam.types.result import GuardDecision, GuardResult
@@ -20,16 +32,26 @@ from dam.types.risk import CycleResult, RiskLevel
 
 if TYPE_CHECKING:
     from dam.boundary.container import BoundaryContainer
-    from dam.config.schema import StackfileConfig
-    from dam.fallback.registry import FallbackRegistry
+    from dam.config.schema import FallbackConfig, StackfileConfig
     from dam.guard.base import Guard
-    from dam.guard.stage import Stage
     from dam.kinematics.resolver import KinematicsResolver
-    from dam.types.action import ActionProposal
-
-from dam.bus import ObservationBus, PipelineMetricBus, RiskController, WatchdogTimer
 
 logger = logging.getLogger(__name__)
+
+
+@dataclasses.dataclass(frozen=True)
+class ResolvedFallback:
+    """Parsed stackfile fallback entry and optional auto-escalation."""
+
+    context_type: str
+    params: dict[str, Any] = dataclasses.field(default_factory=dict)
+    escalate_after_seconds: float | None = None
+    escalate_to: str | None = None
+
+
+# Note: fallback routing is no longer a separate global map. The rejecting
+# boundary's ``node.fallback`` field IS the routing — each boundary owns its
+# own reaction. See _pick_context_for below.
 
 
 class GuardRuntime:
@@ -37,7 +59,6 @@ class GuardRuntime:
         self,
         guards: list[Guard],
         boundary_containers: dict[str, BoundaryContainer],
-        fallback_registry: FallbackRegistry,
         task_config: dict[str, list[str]],
         always_active: list[str] | None = None,
         config_pool: dict[str, Any] | None = None,
@@ -77,13 +98,32 @@ class GuardRuntime:
         self._boundary_to_kind: dict[str, str] = dict(boundary_to_kind) if boundary_to_kind else {}
 
         self._boundary_containers = boundary_containers
-        self._fallback_registry = fallback_registry
         self._task_config = task_config
         self._always_active = always_active
         self._control_frequency_hz = control_frequency_hz
         self._enforcement_mode = enforcement_mode
         self._cycle_id = 0
         self._prev_validated_positions: list[float] | None = None
+        # Execution context state machine — STACK. NormalContext sits at the
+        # bottom permanently; fallback Contexts push on top via severity-based
+        # preemption. is_done pops (resume the previous Context); popping past
+        # the bottom restores plain Normal operation. See
+        # project_runtime_context_state_machine memory for the full design.
+        self._context_stack: list[StepContext] = [NormalContext()]
+        # Wall-clock activation time of the current top-of-stack Context.
+        # Updated on every push AND pop (= whenever the active Context changes).
+        # Runtime owns the timer; Contexts ask via ``should_escalate(elapsed)``.
+        self._active_context_since: float = time.monotonic()
+        # Named fallback configurations from the stackfile (``fallbacks:``
+        # dict in YAML). Each entry has a ``type`` matching a registered
+        # fallback Context name plus optional ``params``. Populated by from_stackfile;
+        # empty for runtimes built directly (defaults to inline-name shorthand
+        # — node.fallback that doesn't match an entry here is tried as a
+        # builtin Context name with empty params).
+        self._fallbacks_config: dict[str, FallbackConfig] = {}
+        # Set when a transition happens this cycle; consumed by _submit_loopback
+        # and reset back to None. Used by /dam/context_events MCAP topic.
+        self._pending_context_event: ContextEvent | None = None
         self._active_task: str | None = None
         self._active_containers: list[BoundaryContainer] = []
         self._active_container_names: list[str] = []
@@ -156,7 +196,6 @@ class GuardRuntime:
         # Execution pipeline (pure compute — no hardware I/O)
         self._engine = ExecutionEngine(
             enforcement_mode=enforcement_mode,
-            fallback_registry=fallback_registry,
             metric_bus=self._metric_bus,
             default_fallback=default_fallback,
         )
@@ -539,10 +578,13 @@ class GuardRuntime:
         action: ActionProposal,
         trace_id: str,
         now: float | None = None,
-    ) -> tuple[ValidatedAction | None, list[GuardResult], str | None]:
-        """Returns (validated_action, guard_results, fallback_name_triggered).
+    ) -> tuple[ValidatedAction | None, list[GuardResult]]:
+        """Returns (validated_action, guard_results).
 
-        Delegates all guard execution and enforcement logic to the ExecutionEngine.
+        Delegates all guard execution to the ExecutionEngine. ``None`` validated
+        action means the chassis rejected; the Runtime Context state machine
+        in ``step()`` picks a fallback via the rejecting boundary's
+        ``node.fallback``.
         """
         ctx = ValidationContext(
             cycle_id=self._cycle_id,
@@ -562,6 +604,78 @@ class GuardRuntime:
             dynamics=self._select_dynamics(),
         )
         return self._engine.validate(obs, action, trace_id, ctx, now=now)
+
+    def _run_context_hardware_monitors(
+        self,
+        obs: Observation,
+        trace_id: str,
+        existing_results: list[GuardResult],
+        now: float | None,
+    ) -> list[GuardResult]:
+        """Run L3 / always-on monitors for Contexts that bypass the chassis."""
+        if not self._active_context.monitors_hardware:
+            return []
+        if any(r.layer == GuardLayer.L3 for r in existing_results):
+            return []
+
+        monitor_guards = [
+            g for g in self._guards if g.get_layer() == GuardLayer.L3 or g.is_always_on()
+        ]
+        if not monitor_guards:
+            return []
+
+        monitor_stages: list[Stage] | None = None
+        if self._stages is not None:
+            monitor_stages = []
+            for stage in self._stages:
+                pairs = [
+                    (g, bnames)
+                    for g, bnames in stage.guard_boundary_pairs
+                    if g.get_layer() == GuardLayer.L3 or g.is_always_on()
+                ]
+                guards = [
+                    g for g in stage.guards if g.get_layer() == GuardLayer.L3 or g.is_always_on()
+                ]
+                if pairs or guards:
+                    monitor_stages.append(
+                        Stage(
+                            name=stage.name,
+                            guards=guards,
+                            guard_boundary_pairs=pairs,
+                            parallel=stage.parallel,
+                            timeout_ms=stage.timeout_ms,
+                        )
+                    )
+            if not monitor_stages:
+                return []
+
+        action = ActionProposal(target_joint_positions=np.asarray(obs.joint_positions))
+        ctx = ValidationContext(
+            cycle_id=self._cycle_id,
+            guards=monitor_guards,
+            stages=monitor_stages,
+            active_containers=self._active_containers,
+            active_container_names=self._active_container_names,
+            boundary_containers=self._boundary_containers,
+            node_start_times=dict(self._node_start_times),
+            active_task=self._active_task,
+            kinematics_resolver=self._kinematics_resolver,
+            hardware_status=self._collect_hardware_status(obs),
+            risk_controller=self._risk_controller,
+            sink=self._sink,
+            runtime=self,
+            prev_validated_positions=self._prev_validated_positions,
+            dynamics=self._select_dynamics(),
+        )
+        return self._engine.run_guard_checks(
+            obs,
+            action,
+            trace_id,
+            ctx,
+            guards=monitor_guards,
+            stages=monitor_stages,
+            now=now,
+        )
 
     def _select_dynamics(self) -> Any:
         """Return the first source's ``dynamics`` context that's available.
@@ -586,6 +700,155 @@ class GuardRuntime:
         — guards must never block on hardware reads.
         """
         return obs.metadata.get("hardware_status") or None
+
+    # ── Context state machine helpers ───────────────────────────────────────
+
+    @property
+    def _active_context(self) -> StepContext:
+        return self._context_stack[-1]
+
+    def _resolve_fallback_name(self, fallback_name: str) -> ResolvedFallback | None:
+        """Turn a ``node.fallback`` string into a ResolvedFallback.
+
+        Resolution order:
+          1. Look up in stackfile ``fallbacks:`` dict → FallbackConfig fields
+          2. Treat the string itself as a builtin Context name with empty params
+             and no escalation
+          3. None (unknown)
+        """
+        entry = self._fallbacks_config.get(fallback_name)
+        if entry is not None:
+            ctx_type = getattr(entry, "type", None)
+            if isinstance(ctx_type, str):
+                return ResolvedFallback(
+                    context_type=ctx_type,
+                    params=dict(getattr(entry, "params", {}) or {}),
+                    escalate_after_seconds=getattr(entry, "escalate_after_seconds", None),
+                    escalate_to=getattr(entry, "escalate_to", None),
+                )
+        # Inline shorthand: node.fallback is itself a registered Context name.
+        if get_context_class(fallback_name) is not None:
+            return ResolvedFallback(context_type=fallback_name)
+        return None
+
+    def _make_context_from_fallback_name(self, fallback_name: str) -> StepContext | None:
+        """Resolve a fallback name + instantiate the Context with all the
+        config (params, escalation). Returns None on unknown/invalid names."""
+        resolved = self._resolve_fallback_name(fallback_name)
+        if resolved is None:
+            logger.warning("Unknown fallback '%s' — no Context picked", fallback_name)
+            return None
+        if get_context_class(resolved.context_type) is None:
+            logger.warning(
+                "fallbacks['%s'].type='%s' is not a registered fallback Context",
+                fallback_name,
+                resolved.context_type,
+            )
+            return None
+        try:
+            ctx = make_context(resolved.context_type, **resolved.params)
+        except TypeError as e:
+            logger.error(
+                "Context '%s' rejected params %s: %s",
+                resolved.context_type,
+                resolved.params,
+                e,
+            )
+            return None
+        # Apply escalation config as per-instance attrs (overrides class defaults).
+        if resolved.escalate_after_seconds is not None:
+            ctx.escalate_after_seconds = float(resolved.escalate_after_seconds)
+        if resolved.escalate_to is not None:
+            ctx.escalate_to = str(resolved.escalate_to)
+        return ctx
+
+    def _pick_context_for(self, rejected: GuardResult) -> StepContext | None:
+        """Resolve the Context for a rejecting GuardResult.
+
+        Route: rejected guard_name (often a boundary id after fan-out) →
+        boundary's active node.fallback → resolve via fallbacks dict or
+        builtin Context name. Falls back to ``self._default_fallback``
+        (``safety.no_task_behavior``, default "emergency_stop") when the
+        boundary has no fallback configured.
+        """
+        fallback_name: str | None = None
+        container = self._boundary_containers.get(rejected.guard_name)
+        if container is not None:
+            node = container.get_active_node()
+            if node is not None and getattr(node, "fallback", None):
+                fallback_name = node.fallback
+        # No boundary match (guard_name is a guard kind, or the reject came
+        # from guard_code with no boundary context) → fall to runtime default.
+        # Deliberately NOT guessing "first active container" — that would route
+        # an unrelated boundary's fallback and be unpredictable.
+        if fallback_name is None:
+            fallback_name = self._default_fallback
+        return self._make_context_from_fallback_name(fallback_name)
+
+    def _push_context(
+        self, new_ctx: StepContext, *, trigger: GuardResult | None, event: str
+    ) -> None:
+        """Push a new Context on top of the stack and fire on_enter."""
+        from_ctx = self._active_context
+        new_ctx.on_enter(self, trigger=trigger)
+        self._context_stack.append(new_ctx)
+        self._active_context_since = time.monotonic()
+        self._record_transition(event=event, ctx=new_ctx, from_ctx=from_ctx, trigger=trigger)
+
+    def _pop_context(self) -> None:
+        """Pop the top Context (resume the previous). Never pops past
+        the bottom NormalContext. The resumed Context is NOT re-entered —
+        its internal state is preserved across the preemption. Resume restarts
+        the escalation timer (the situation may have changed during preemption)."""
+        if len(self._context_stack) <= 1:
+            return  # already at Normal
+        from_ctx = self._context_stack.pop()
+        new_top = self._active_context
+        self._active_context_since = time.monotonic()
+        self._record_transition(event="exit", ctx=new_top, from_ctx=from_ctx, trigger=None)
+
+    def _record_transition(
+        self,
+        *,
+        event: str,
+        ctx: StepContext,
+        from_ctx: StepContext,
+        trigger: GuardResult | None,
+    ) -> None:
+        self._pending_context_event = ContextEvent(
+            event=event,
+            ctx_name=ctx.name,
+            ctx_severity=ctx.severity,
+            from_ctx_name=from_ctx.name,
+            from_ctx_severity=from_ctx.severity,
+            trigger_guard=trigger.guard_name if trigger is not None else None,
+            trigger_reason=trigger.reason if trigger is not None else None,
+        )
+        logger.info(
+            "Context %s: %s(sev=%d) → %s(sev=%d) | trigger=%s reason=%s | stack_depth=%d",
+            event.upper(),
+            from_ctx.name,
+            from_ctx.severity,
+            ctx.name,
+            ctx.severity,
+            trigger.guard_name if trigger is not None else None,
+            trigger.reason if trigger is not None else None,
+            len(self._context_stack),
+        )
+
+    def _consume_pending_context_event(self) -> ContextEvent | None:
+        ev = self._pending_context_event
+        self._pending_context_event = None
+        return ev
+
+    @staticmethod
+    def _find_worst_reject(results: list[GuardResult]) -> GuardResult | None:
+        """Return the highest-priority REJECT/FAULT (or None if all PASS/CLAMP)."""
+        bad = [r for r in results if r.decision in (GuardDecision.REJECT, GuardDecision.FAULT)]
+        if not bad:
+            return None
+        # FAULT > REJECT; within same decision, higher layer wins on ties.
+        return max(bad, key=lambda r: (r.decision.value, r.layer.value))
 
     # ── step() — single cycle ───────────────────────────────────────────────
 
@@ -651,12 +914,70 @@ class GuardRuntime:
         active_camera_names = tuple(obs.images.keys()) if obs.images else ()
         t_obs = time.monotonic()
 
-        action: ActionProposal = self._policy.predict(obs)
+        # ── Context state machine: auto-escalate then pop done contexts ──
+        # Only active in ENFORCE mode — monitor / log_only must observe without
+        # intervening in the action stream.
+        state_machine_on = self._enforcement_mode == EnforcementMode.ENFORCE
+        if state_machine_on:
+            # Auto-escalation: if current Context's timer fired AND it isn't
+            # resolving (trigger still violating), push the escalate_to target.
+            # Runs before pop so a stuck Context graduates to something stricter
+            # rather than yielding back down.
+            if not isinstance(self._active_context, NormalContext):
+                elapsed = t_start - self._active_context_since
+                if self._active_context.should_escalate(elapsed):
+                    target_name = self._active_context.escalate_to
+                    if target_name:
+                        target = self._make_context_from_fallback_name(target_name)
+                        if target is not None and target.severity > self._active_context.severity:
+                            self._push_context(target, trigger=None, event="escalate")
+
+            # Pop cascading: if a popped Context's predecessor is also done,
+            # keep popping. Limit iterations to stack depth as a safety net.
+            for _ in range(len(self._context_stack)):
+                if isinstance(self._active_context, NormalContext):
+                    break
+                if not self._active_context.is_done(obs, self):
+                    break
+                self._pop_context()
+
+        # ── Action proposal (skipped when active Context doesn't need it) ──
+        action: ActionProposal | None = (
+            self._policy.predict(obs) if self._active_context.requires_proposal else None
+        )
         t_policy = time.monotonic()
 
-        validated, guard_results, fallback_triggered = self.validate(
-            obs, action, trace_id, now=t_start
+        # ── Run the active Context's step ──
+        step_result = self._active_context.step(
+            obs, self, proposal=action, trace_id=trace_id, now=t_start
         )
+        guard_results = step_result.guard_results
+        guard_results.extend(
+            self._run_context_hardware_monitors(obs, trace_id, guard_results, now=t_start)
+        )
+
+        # ── Check for reject/fault → push higher-severity Context if any ──
+        # Suppressed in non-ENFORCE modes — monitor must not intervene.
+        rejected = self._find_worst_reject(guard_results) if state_machine_on else None
+        if rejected is not None:
+            new_ctx = self._pick_context_for(rejected)
+            if new_ctx is not None and new_ctx.severity > self._active_context.severity:
+                event = (
+                    "preempt" if not isinstance(self._active_context, NormalContext) else "enter"
+                )
+                self._push_context(new_ctx, trigger=rejected, event=event)
+                # Re-step in the new Context this cycle so the sink gets a
+                # fallback action immediately rather than a silent cycle.
+                if new_ctx.requires_proposal and action is None:
+                    action = self._policy.predict(obs)
+                step_result = new_ctx.step(
+                    obs, self, proposal=action, trace_id=trace_id, now=t_start
+                )
+                # guard_results stays as the original chassis output — the
+                # re-step's results (if any) would duplicate or differ from
+                # what the cycle truly decided. Logging prefers the trigger.
+
+        validated = step_result.action
         t_validate = time.monotonic()
 
         # Track last sent positions for following-error detection in HardwareGuard.
@@ -706,6 +1027,17 @@ class GuardRuntime:
         self._metric_bus.commit_cycle()
         self._log_source_latency_if_slow(_src_ms, source_latencies)
 
+        # Surface the active Context name in the legacy ``fallback_triggered``
+        # field — None when we're sitting in NormalContext, the Context's name
+        # otherwise. Will be renamed to ``active_context`` once all consumers
+        # migrate (one-release back-compat alias).
+        fallback_triggered = (
+            self._active_context.name
+            if not isinstance(self._active_context, NormalContext)
+            else None
+        )
+        context_event = self._consume_pending_context_event()
+
         # ── Loopback: build CycleRecord and hand off to writer thread ────────
         if self._loopback is not None:
             self._submit_loopback(
@@ -723,6 +1055,9 @@ class GuardRuntime:
                     "total": _total_ms,
                 },
                 active_cameras=active_camera_names,
+                active_context=self._active_context.name,
+                context_severity=self._active_context.severity,
+                context_event=context_event,
             )
 
         return CycleResult(
@@ -799,13 +1134,16 @@ class GuardRuntime:
     def _submit_loopback(
         self,
         obs: Observation,
-        action: ActionProposal,
+        action: ActionProposal | None,
         validated: ValidatedAction | None,
         guard_results: list[GuardResult],
         fallback_triggered: str | None,
         trace_id: str,
         latency_stages: dict[str, float],
         active_cameras: tuple[str, ...] = (),
+        active_context: str = "normal",
+        context_severity: int = 0,
+        context_event: ContextEvent | None = None,
     ) -> None:
         """Build a CycleRecord and enqueue it on the LoopbackWriter.
 
@@ -876,8 +1214,10 @@ class GuardRuntime:
             obs_joint_positions=obs.joint_positions.tolist(),
             obs_channels=obs_channels,
             obs_metadata=dict(obs.metadata),
-            action_positions=action.target_joint_positions.tolist(),
-            action_velocities=_to_list(action.target_joint_velocities),
+            action_positions=action.target_joint_positions.tolist() if action is not None else [],
+            action_velocities=_to_list(action.target_joint_velocities)
+            if action is not None
+            else None,
             validated_positions=_to_list(validated.target_joint_positions if validated else None),
             validated_velocities=_to_list(validated.target_joint_velocities if validated else None),
             was_clamped=validated.was_clamped if validated else False,
@@ -897,6 +1237,9 @@ class GuardRuntime:
             failure_reasons=tuple(failure["reasons"]),
             failure_tuple=failure["tuple"],
             config_version=self._config_version,
+            active_context=active_context,
+            context_severity=context_severity,
+            context_event=context_event,
         )
         self._loopback.submit(rec)  # type: ignore[union-attr]
 
@@ -904,7 +1247,7 @@ class GuardRuntime:
         self,
         *,
         obs: Observation,
-        action: ActionProposal,
+        action: ActionProposal | None,
         validated: ValidatedAction | None,
         guard_results: list[GuardResult],
         fallback_triggered: str | None,
@@ -943,7 +1286,9 @@ class GuardRuntime:
                 "violated_layer_mask": violated_layer_mask,
                 "clamped_layer_mask": clamped_layer_mask,
                 "fallback_triggered": fallback_triggered,
-                "action_target_positions": action.target_joint_positions.tolist(),
+                "action_target_positions": (
+                    action.target_joint_positions.tolist() if action is not None else []
+                ),
                 "validated_positions": (
                     validated.target_joint_positions.tolist()
                     if validated is not None and validated.target_joint_positions is not None
@@ -1066,9 +1411,6 @@ class GuardRuntime:
         Called by ``from_stackfile`` and by ``RuntimeFactory`` (which already
         holds a parsed config and uses this to avoid re-parsing the YAML).
         """
-        from dam.fallback.builtin import register_all as register_fallbacks
-        from dam.fallback.chain import build_escalation_chain
-        from dam.fallback.registry import get_global_registry
         from dam.registry.callback import get_global_registry as _get_cb_registry
         from dam.registry.guard import get_guard_registry
 
@@ -1076,10 +1418,6 @@ class GuardRuntime:
         guards_by_kind, boundary_to_kind, boundary_containers = cls._build_all_boundaries(
             config, _get_cb_registry(), get_guard_registry()
         )
-
-        register_fallbacks()
-        fallback_registry = get_global_registry().configured_copy(config.fallbacks)
-        build_escalation_chain(fallback_registry)
 
         task_config = {tname: tcfg.boundaries for tname, tcfg in config.tasks.items()}
         always_active = config.safety.always_active_list()
@@ -1095,10 +1433,9 @@ class GuardRuntime:
         # boundary params (and auto-injected ``dt``) from cycle 0.
         initial_pool = cls._build_config_pool(config)
 
-        return cls(
+        runtime = cls(
             guards=list(guards_by_kind.values()),
             boundary_containers=boundary_containers,
-            fallback_registry=fallback_registry,
             task_config=task_config,
             always_active=always_active,
             config_pool=initial_pool,
@@ -1111,6 +1448,49 @@ class GuardRuntime:
             frame_hub=frame_hub,
             default_fallback=config.safety.no_task_behavior,
         )
+
+        # Per-guard phase/always override (Task #8). cfg.guards items shaped
+        # like {"L1": "motion", "phase": 0, "always": false} → set instance
+        # attrs on the matching guard kind.
+        _LAYER_KEYS = {"L0", "L1", "L2", "L3"}
+        for item in config.guards if isinstance(config.guards, list) else []:
+            if not isinstance(item, dict):
+                continue
+            kind_value: str | None = None
+            for k, v in item.items():
+                if k in _LAYER_KEYS and isinstance(v, str):
+                    kind_value = v
+                    break
+            if kind_value is None:
+                continue
+            inst = guards_by_kind.get(kind_value)
+            if inst is None:
+                continue
+            phase_override = item.get("phase")
+            always_override = item.get("always")
+            if phase_override is None and always_override is None:
+                continue
+            resolved_always = (
+                bool(always_override) if always_override is not None else inst.is_always_on()
+            )
+            resolved_phase = (
+                int(phase_override) if phase_override is not None and not resolved_always else None
+            )
+            if not resolved_always and resolved_phase is None:
+                resolved_phase = inst.get_phase()
+            inst.set_phase(resolved_phase, always=resolved_always)
+            logger.info(
+                "Stackfile override: guard '%s' phase=%s always=%s",
+                kind_value,
+                resolved_phase,
+                resolved_always,
+            )
+
+        # Store the stackfile fallbacks: dict so _pick_context_for can resolve
+        # node.fallback names → Context type + params at runtime.
+        runtime._fallbacks_config = dict(config.fallbacks)
+
+        return runtime
 
     @classmethod
     def _init_kinematics_resolver(cls, config: StackfileConfig) -> KinematicsResolver | None:

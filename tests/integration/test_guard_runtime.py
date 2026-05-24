@@ -6,9 +6,6 @@ from dam.boundary.list_container import ListContainer
 from dam.boundary.node import BoundaryNode
 from dam.boundary.single import SingleNodeContainer
 from dam.decorators import guard as guard_decorator
-from dam.fallback.builtin import EmergencyStop, HoldPosition
-from dam.fallback.chain import build_escalation_chain
-from dam.fallback.registry import FallbackRegistry
 from dam.guard.builtin.execution import ExecutionGuard
 from dam.guard.builtin.motion import MotionGuard
 from dam.runtime.guard_runtime import GuardRuntime
@@ -28,10 +25,6 @@ def make_runtime(upper=2.0, lower=-2.0) -> GuardRuntime:
     register_all()
     KG = guard_decorator("L1")(MotionGuard)
     g = KG()
-    reg = FallbackRegistry()
-    reg.register(EmergencyStop())
-    reg.register(HoldPosition())
-    build_escalation_chain(reg)
     node = BoundaryNode(
         "n0",
         BoundaryConstraint(
@@ -45,7 +38,6 @@ def make_runtime(upper=2.0, lower=-2.0) -> GuardRuntime:
     runtime = GuardRuntime(
         guards=[g],
         boundary_containers={"main": container},
-        fallback_registry=reg,
         task_config={"task": ["main"]},
         config_pool={},
     )
@@ -81,11 +73,6 @@ def make_l2_gripper_sequence_runtime() -> GuardRuntime:
     guard = guard_cls()
     guard.set_name("task_gripper_sequence")
 
-    reg = FallbackRegistry()
-    reg.register(EmergencyStop())
-    reg.register(HoldPosition())
-    build_escalation_chain(reg)
-
     container = ListContainer(
         [
             BoundaryNode(
@@ -118,7 +105,6 @@ def make_l2_gripper_sequence_runtime() -> GuardRuntime:
     return GuardRuntime(
         guards=[guard],
         boundary_containers={"task_gripper_sequence": container},
-        fallback_registry=reg,
         task_config={"task": ["task_gripper_sequence"]},
         config_pool={},
     )
@@ -132,7 +118,7 @@ def assert_l2_decision(
     expected: GuardDecision,
     trace_id: str,
 ) -> None:
-    validated, results, fallback = runtime.validate(
+    validated, results = runtime.validate(
         make_obs(ee=ee),
         make_gripper_action(gripper),
         trace_id,
@@ -143,10 +129,8 @@ def assert_l2_decision(
         assert validated is not None
         assert validated.was_clamped
         assert validated.gripper_action is None
-        assert fallback is None
     else:
         assert validated is not None
-        assert fallback is None
 
 
 def test_pass_through():
@@ -154,10 +138,9 @@ def test_pass_through():
     runtime.start_task("task")
     obs = make_obs()
     action = make_action()
-    validated, results, fallback = runtime.validate(obs, action, "test-trace")
+    validated, results = runtime.validate(obs, action, "test-trace")
     assert validated is not None
     assert not validated.was_clamped
-    assert fallback is None
     assert len(results) == 1
 
 
@@ -166,11 +149,10 @@ def test_clamp_joint_position_limits():
     runtime.start_task("task")
     obs = make_obs()
     action = make_action([3.0, 0.0, 0.0, 0.0, 0.0, 0.0])  # First joint way out
-    validated, results, fallback = runtime.validate(obs, action, "test-trace")
+    validated, results = runtime.validate(obs, action, "test-trace")
     assert validated is not None
     assert validated.was_clamped
     assert validated.target_joint_positions[0] == pytest.approx(1.0)
-    assert fallback is None
 
 
 def test_reject_returns_none():
@@ -190,13 +172,9 @@ def test_reject_returns_none():
     container = SingleNodeContainer(node)
     KG = guard_decorator("L2")(ExecutionGuard)
     g = KG()
-    reg = FallbackRegistry()
-    reg.register(EmergencyStop())
-    build_escalation_chain(reg)
     runtime2 = GuardRuntime(
         guards=[g],
         boundary_containers={"main": container},
-        fallback_registry=reg,
         task_config={"task": ["main"]},
         config_pool={
             "bounds": np.array([[0, 0.5], [0, 0.5], [0, 0.5]]),
@@ -206,9 +184,8 @@ def test_reject_returns_none():
     obs = make_obs(ee=[-1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0])  # Outside workspace
     action = make_action()
     runtime2.start_task("task")
-    validated, results, fallback = runtime2.validate(obs, action, "test-trace")
+    validated, results = runtime2.validate(obs, action, "test-trace")
     assert validated is None
-    assert fallback is not None
 
 
 def test_task_gripper_sequence_phase_advance_contract():
@@ -297,15 +274,11 @@ def test_guard_exception_causes_reject():
     BG = guard_decorator("L2")(BrokenGuard)
     BG._cached_param_names = ["obs", "action"]
     g = BG()
-    reg = FallbackRegistry()
-    reg.register(EmergencyStop())
-    build_escalation_chain(reg)
     node = BoundaryNode("n0", BoundaryConstraint(), fallback="emergency_stop")
     container = SingleNodeContainer(node)
     runtime = GuardRuntime(
         guards=[g],
         boundary_containers={"main": container},
-        fallback_registry=reg,
         task_config={"task": ["main"]},
         config_pool={},
     )
@@ -313,6 +286,5 @@ def test_guard_exception_causes_reject():
     obs = make_obs()
     action = make_action()
     runtime.start_task("task")
-    validated, results, fallback = runtime.validate(obs, action, "test-trace")
+    validated, results = runtime.validate(obs, action, "test-trace")
     assert validated is None  # Exception → FAULT → REJECT → None
-    assert fallback is not None

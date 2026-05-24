@@ -99,7 +99,7 @@ def _l1_intercepted(obs, action) -> bool:
     if _motion_runtime is None:
         _motion_runtime, _ = _build_runtime(motion=True)
     _motion_runtime_cycle += 1
-    _v, results, _fb = _motion_runtime.validate(obs, action, f"scan-{_motion_runtime_cycle}")
+    _v, results = _motion_runtime.validate(obs, action, f"scan-{_motion_runtime_cycle}")
     return any(_is_intercepted(r) for r in results)
 
 
@@ -220,7 +220,7 @@ def scan_l2_collision_distance(trials: int) -> list[dict]:
             ee_pose = np.array([ee_x, 0.0, 0.30, 0, 0, 0, 1], dtype=np.float64)
             obs = _make_obs(joint_positions=_nominal_action(), ee_pose=ee_pose)
             action = ActionProposal(target_joint_positions=_nominal_action())
-            _v, results, _fb = runtime.validate(obs, action, f"l2a-{cid}")
+            _v, results = runtime.validate(obs, action, f"l2a-{cid}")
             cid += 1
             if any(_is_intercepted(r) for r in results):
                 intercepted += 1
@@ -279,7 +279,7 @@ def scan_l2_timeout(trials: int) -> list[dict]:
             runtime._node_start_times[node_id] = fake_start
             obs = _make_obs()
             action = ActionProposal(target_joint_positions=_nominal_action())
-            _v, results, _fb = runtime.validate(obs, action, f"l2b-{cid}")
+            _v, results = runtime.validate(obs, action, f"l2b-{cid}")
             cid += 1
             if any(_is_intercepted(r) for r in results):
                 intercepted += 1

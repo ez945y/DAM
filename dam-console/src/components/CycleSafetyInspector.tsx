@@ -7,6 +7,7 @@ import { useDisplayUnit, type DisplayUnit } from '@/hooks/useDisplayUnit'
 export interface InspectorGuardResult {
   name: string
   layer: string
+  event_class?: string
   decision: string
   reason?: string | null
   latency_ms?: number | null

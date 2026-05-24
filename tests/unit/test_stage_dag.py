@@ -50,9 +50,6 @@ def make_action():
 
 def _make_runtime_with_stages(stages):
     """Build a minimal GuardRuntime with stages (no boundaries/task required)."""
-    from dam.fallback.builtin import EmergencyStop, HoldPosition, SafeRetreat
-    from dam.fallback.chain import build_escalation_chain
-    from dam.fallback.registry import FallbackRegistry
     from dam.runtime.guard_runtime import GuardRuntime
 
     # Collect all guards from stages
@@ -63,16 +60,9 @@ def _make_runtime_with_stages(stages):
     for g in all_guards:
         precompute_injection(g, {})
 
-    fallback_registry = FallbackRegistry()
-    fallback_registry.register(EmergencyStop())
-    fallback_registry.register(HoldPosition())
-    fallback_registry.register(SafeRetreat())
-    build_escalation_chain(fallback_registry)
-
     rt = GuardRuntime(
         guards=all_guards,
         boundary_containers={},
-        fallback_registry=fallback_registry,
         task_config={"default": []},
         always_active=[],
         config_pool={},
@@ -95,7 +85,7 @@ def test_sequential_stage_runs_all_guards():
 
     obs = make_obs()
     action = make_action()
-    validated, results, _ = rt.validate(obs, action, "trace-1")
+    validated, results = rt.validate(obs, action, "trace-1")
 
     assert len(results) == 2
     assert all(r.decision == GuardDecision.PASS for r in results)
@@ -112,7 +102,7 @@ def test_parallel_stage_runs_all_guards():
 
     obs = make_obs()
     action = make_action()
-    validated, results, _ = rt.validate(obs, action, "trace-2")
+    validated, results = rt.validate(obs, action, "trace-2")
 
     assert len(results) == 2
     assert all(r.decision == GuardDecision.PASS for r in results)
@@ -129,7 +119,7 @@ def test_stage_respects_fail_to_reject():
 
     obs = make_obs()
     action = make_action()
-    validated, results, fallback = rt.validate(obs, action, "trace-3")
+    validated, results = rt.validate(obs, action, "trace-3")
 
     # Should get a FAULT result from the raising guard
     fault_results = [r for r in results if r.decision == GuardDecision.FAULT]

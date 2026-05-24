@@ -110,11 +110,9 @@ def create_app(services: ServiceContainer | None = None) -> Any:
     @app.on_event("startup")
     async def _startup() -> None:
         from dam.boundary.builtin_callbacks import register_all as reg_callbacks
-        from dam.fallback.builtin import register_all as reg_fallbacks
         from dam.guard.builtin import register_all as reg_guards
 
         reg_callbacks()
-        reg_fallbacks()
         reg_guards()
 
         if services.telemetry is not None:

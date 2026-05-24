@@ -36,8 +36,8 @@ from fastapi import FastAPI
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+import dam.runtime.contexts  # noqa: F401 - imports builtin fallback Context registrations
 from dam.boundary.builtin_callbacks import register_all
-from dam.fallback.builtin import register_all as register_fallback_classes
 from dam.guard.builtin import register_all as register_guard_classes
 from dam.logging.console import setup_colored_logging
 from dam.runtime.factory import RuntimeFactory
@@ -92,7 +92,6 @@ def _resolve_stackfile() -> str:
 
 def main() -> None:
     register_all()
-    register_fallback_classes()
     register_guard_classes()
 
     stack_path_str = _resolve_stackfile()

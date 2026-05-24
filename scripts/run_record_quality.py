@@ -137,7 +137,7 @@ def _violating_records(rng: np.random.Generator, trials: int) -> list[dict[str, 
 
     def _run(o: Observation, a: ActionProposal) -> list[Any]:
         nonlocal cid
-        _v, results, _fb = rt.validate(o, a, f"rq5-{cid}")
+        _v, results = rt.validate(o, a, f"rq5-{cid}")
         cid += 1
         return list(results)
 

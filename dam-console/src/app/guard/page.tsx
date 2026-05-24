@@ -113,6 +113,16 @@ function normalizeGripperNode(node: ConstraintNodeDef): ConstraintNodeDef {
   return { ...node, params: nextParams }
 }
 
+function fallbackTitle(fallback: FallbackDef): string {
+  const parts = [
+    fallback.description,
+    fallback.severity != null ? `severity ${fallback.severity}` : null,
+    fallback.requires_proposal != null ? `proposal ${fallback.requires_proposal ? 'yes' : 'no'}` : null,
+    fallback.monitors_hardware != null ? `hardware monitor ${fallback.monitors_hardware ? 'yes' : 'no'}` : null,
+  ].filter(Boolean)
+  return parts.join(' | ')
+}
+
 // ── Shared input class ────────────────────────────────────────────────────────
 
 const inputCls =
@@ -274,9 +284,22 @@ function NodeForm({
             className={`w-full ${inputCls}`}
           >
             {fallbackCatalog.map(f => (
-              <option key={f.name} value={f.name} title={f.description || ''}>{f.name}</option>
+              <option key={f.name} value={f.name} title={fallbackTitle(f)}>{f.name}</option>
             ))}
           </select>
+          {(() => {
+            const selected = fallbackCatalog.find(f => f.name === node.fallback)
+            if (!selected) return null
+            const bits = [
+              selected.severity != null ? `sev ${selected.severity}` : null,
+              selected.monitors_hardware != null ? `hw ${selected.monitors_hardware ? 'on' : 'off'}` : null,
+            ].filter(Boolean)
+            return bits.length > 0 ? (
+              <p className="text-[9px] text-dam-muted/70 font-mono truncate" title={fallbackTitle(selected)}>
+                {bits.join(' · ')}
+              </p>
+            ) : null
+          })()}
         </div>
         <div className="space-y-0.5">
           <label htmlFor={`node-${index}-timeout`} className="text-dam-muted text-[10px]">Timeout (sec)</label>

@@ -19,9 +19,6 @@ from dam.boundary.constraint import BoundaryConstraint
 from dam.boundary.node import BoundaryNode
 from dam.boundary.single import SingleNodeContainer
 from dam.decorators import guard as guard_decorator
-from dam.fallback.builtin import EmergencyStop, HoldPosition
-from dam.fallback.chain import build_escalation_chain
-from dam.fallback.registry import FallbackRegistry
 from dam.guard.builtin.motion import MotionGuard
 from dam.runner.lerobot import LeRobotRunner
 from dam.runtime.guard_runtime import GuardRuntime
@@ -50,16 +47,11 @@ def make_runtime():
     """Build a minimal GuardRuntime with MotionGuard for testing."""
     KG = guard_decorator("L2")(MotionGuard)
     g = KG()
-    reg = FallbackRegistry()
-    reg.register(EmergencyStop())
-    reg.register(HoldPosition())
-    build_escalation_chain(reg)
     node = BoundaryNode("n0", BoundaryConstraint(), fallback="hold_position")
     container = SingleNodeContainer(node)
     return GuardRuntime(
         guards=[g],
         boundary_containers={"main": container},
-        fallback_registry=reg,
         task_config={"pick_and_place": ["main"]},
         config_pool={"upper": np.full(6, 5.0), "lower": np.full(6, -5.0)},
     )

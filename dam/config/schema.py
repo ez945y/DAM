@@ -33,15 +33,20 @@ class NodeConfig(BaseModel):
 class FallbackConfig(BaseModel):
     """Stackfile-defined fallback strategy.
 
-    ``type`` references a registered fallback implementation, while the map key
-    is the local strategy name used by boundary nodes. This keeps fallback
-    definitions independent from boundary callbacks.
+    ``type`` references a builtin Context (see ``dam.runtime.contexts``).
+    The map key is the local name used by boundary nodes' ``fallback``
+    field. Optional auto-escalation: when this fallback has been active for
+    ``escalate_after_seconds`` and the trigger hasn't cleared, the runtime
+    pushes the ``escalate_to`` fallback on top of the stack. Useful for
+    ambiguous triggers — e.g. high current is either heavy payload (clears
+    under SlowDown) or collision (won't clear).
     """
 
     model_config = ConfigDict(extra="allow")
     type: str
     params: dict[str, Any] = {}
-    escalates_to: str | None = None
+    escalate_to: str | None = None
+    escalate_after_seconds: float | None = None
 
 
 # Container type normalisation: accept both "single"/"list"/"graph"
@@ -214,8 +219,10 @@ class StackfileConfig(BaseModel):
     tasks: dict[str, TaskConfig] = {}
     safety: SafetyConfig = SafetyConfig()
     # Hierarchical list of active guards (e.g. [{"L0": "ood"}, {"L1": "motion"}, {"L2": "execution"}, {"L3": "hardware"}])
+    # Per-guard entries may carry extra keys ``phase: int`` and ``always: bool``
+    # to override the decorator defaults (see project_runtime_context_state_machine memory).
     # Also supports dict format for builtin registration in Phase 1
-    guards: list[dict[str, str]] | list[str] | dict[str, Any] = []
+    guards: list[dict[str, Any]] | list[str] | dict[str, Any] = []
     # Phase 2+  (all optional)
     hardware: HardwareConfig | None = None
     policy: PolicyConfig | None = None

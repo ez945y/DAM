@@ -41,6 +41,12 @@ pub struct CycleRecordData {
     pub validated_velocities: Option<Vec<f64>>,
     pub was_clamped: bool,
     pub fallback_triggered: Option<String>,
+    #[serde(default = "default_context_name")]
+    pub active_context: String,
+    #[serde(default)]
+    pub context_severity: u32,
+    #[serde(default)]
+    pub context_event: Option<serde_json::Value>,
     pub guard_results: Vec<GuardResultData>,
     pub latency_stages: HashMap<String, f64>,
     pub latency_layers: HashMap<String, f64>,
@@ -69,6 +75,8 @@ pub struct GuardResultData {
     pub cycle_id: u64,
     pub timestamp: f64,
     pub guard_name: String,
+    #[serde(default)]
+    pub event_class: Option<String>,
     pub layer: u32,
     pub decision: u32,
     pub decision_name: String,
@@ -79,6 +87,10 @@ pub struct GuardResultData {
     pub fault_source: Option<String>,
     #[serde(default)]
     pub metadata: serde_json::Value,
+}
+
+fn default_context_name() -> String {
+    "normal".to_string()
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -531,6 +543,9 @@ mod tests {
             validated_velocities: None,
             was_clamped: false,
             fallback_triggered: None,
+            active_context: "normal".to_string(),
+            context_severity: 0,
+            context_event: None,
             guard_results: vec![],
             latency_stages: HashMap::new(),
             latency_layers: HashMap::new(),

@@ -40,7 +40,7 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 try:
-    import proxsuite  # type: ignore[import-not-found]
+    import proxsuite  # type: ignore[import-untyped]
 
     _PROXSUITE_AVAILABLE = True
 except ImportError:

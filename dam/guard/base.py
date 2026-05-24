@@ -28,6 +28,8 @@ class Guard(ABC):
 
     # Set by @dam.guard decorator at class definition time
     _guard_layer: GuardLayer
+    _guard_phase: int | None  # None when always-on
+    _guard_always: bool
     _cached_param_names: list[str]
     _guard_name: str | None = None
 
@@ -44,6 +46,19 @@ class Guard(ABC):
 
     def get_layer(self) -> GuardLayer:
         return self.__class__._guard_layer
+
+    def get_phase(self) -> int | None:
+        """Pipeline phase position, or None if always-on. Instance overrides class."""
+        return self._guard_phase
+
+    def is_always_on(self) -> bool:
+        """True if this guard runs in parallel to all phases (no phase binding)."""
+        return self._guard_always
+
+    def set_phase(self, phase: int | None, *, always: bool) -> None:
+        """Per-instance override (used by stackfile loader). always=True implies phase=None."""
+        self._guard_phase = None if always else phase
+        self._guard_always = always
 
     def get_name(self) -> str:
         return self._guard_name or self.__class__.__name__

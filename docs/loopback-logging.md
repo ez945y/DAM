@@ -64,6 +64,9 @@ Written every cycle. Summarises the decision and latency snapshot.
   "active_task": "move_tcp",
   "active_boundaries": ["workspace_check", "speed_limit"],
   "active_cameras": ["top", "wrist"],
+  "active_context": "normal",
+  "context_severity": 0,
+  "context_event": null,
   "has_violation": false,
   "has_clamp": false,
   "violated_layer_mask": 0,
@@ -86,6 +89,8 @@ Written every cycle. Summarises the decision and latency snapshot.
 - `clamped_layer_mask`: Bitmask for clamps
 - `failure_type`: Failure harvesting class: `ood_only`, `guard_triggered`, `hardware_triggered`, or `null`
 - `failure_tuple`: Structured evidence object used for paper/export analysis
+- `active_context`: current runtime Context (`normal`, `slow_down`, `emergency_stop`, ...)
+- `context_event`: transition payload on cycles that enter/exit/preempt/escalate a Context; `null` otherwise
 - `latency_*`: Pipeline timings (source, policy, guards, sink) from `MetricBus`
 
 ### `/dam/obs` — Sensor observation
@@ -132,7 +137,8 @@ One message per guard per cycle (only if guard is active).
   "cycle_id": 42,
   "timestamp": 1700000000.123,
   "guard_name": "OODGuard",
-  "boundary": "obs_check",
+  "event_class": "perception",
+  "layer": 0,
   "decision": "PASS",
   "is_violation": false,
   "is_clamp": false,
@@ -144,6 +150,28 @@ One message per guard per cycle (only if guard is active).
 **Decision values:** `PASS` | `CLAMP` | `REJECT` | `FAULT`
 
 Use `is_violation=true` to filter rejection-only analysis; use `is_clamp=true` to filter clamp-only.
+
+Guard messages are the same `GuardResult` stream used by aggregation, risk logs,
+replay, and the console. Layer defaults map `event_class` as L0 `perception`,
+L1 `motion`, L2 `task`, and L3 `hardware`.
+
+### `/dam/context_events` — Runtime Context transitions
+
+Sparse channel written only when the active fallback Context changes.
+
+```json
+{
+  "cycle_id": 1260,
+  "event": "preempt",
+  "ctx_name": "emergency_stop",
+  "ctx_severity": 100,
+  "from_ctx_name": "slow_down",
+  "from_ctx_severity": 20,
+  "trigger_guard": "motor_3",
+  "trigger_reason": "temp 82°C > 80°C",
+  "extra": {}
+}
+```
 
 ### `/dam/images/{cam_name}` — Camera frame
 

@@ -72,9 +72,6 @@ def _make_mock_sink():
 def test_stage_dag_pipeline():
     """Full GuardRuntime with 2 stages: step() completes successfully."""
     import dam
-    from dam.fallback.builtin import EmergencyStop, HoldPosition, SafeRetreat
-    from dam.fallback.chain import build_escalation_chain
-    from dam.fallback.registry import FallbackRegistry
     from dam.guard.base import Guard
     from dam.guard.stage import Stage
     from dam.injection.static import precompute_injection
@@ -99,16 +96,9 @@ def test_stage_dag_pipeline():
     stage1 = Stage(name="s1", guards=[g1], parallel=False)
     stage2 = Stage(name="s2", guards=[g2], parallel=False)
 
-    fallback_registry = FallbackRegistry()
-    fallback_registry.register(EmergencyStop())
-    fallback_registry.register(HoldPosition())
-    fallback_registry.register(SafeRetreat())
-    build_escalation_chain(fallback_registry)
-
     rt = GuardRuntime(
         guards=[g1, g2],
         boundary_containers={},
-        fallback_registry=fallback_registry,
         task_config={"default": []},
         always_active=[],
         config_pool={},

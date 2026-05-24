@@ -285,7 +285,7 @@ def iter_replay_through_guards(
         in_pos = _vec(action.target_joint_positions)
         in_vel = _vec(action.target_joint_velocities)
         try:
-            validated, guard_results, _ = runtime.validate(
+            validated, guard_results = runtime.validate(
                 obs, action, trace_id=f"replay-{cid}", now=obs.timestamp
             )
             out_pos = _vec(validated.target_joint_positions) if validated is not None else None

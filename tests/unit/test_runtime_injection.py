@@ -54,7 +54,7 @@ def test_guard_runtime_param_injection(tmp_path):
     action = ActionProposal(target_joint_positions=np.array([0.05] * 6))
 
     # Run a step
-    validated, results, fallback = runtime.validate(obs, action, "test-trace")
+    validated, results = runtime.validate(obs, action, "test-trace")
 
     # Find the result for test_kin
     kin_result = next(r for r in results if r.guard_name == "test_kin")
@@ -62,7 +62,7 @@ def test_guard_runtime_param_injection(tmp_path):
 
     # 2. Action outside injected limits (0.5 > 0.1)
     action_bad = ActionProposal(target_joint_positions=np.array([0.5] * 6))
-    validated_bad, results_bad, fallback_bad = runtime.validate(obs, action_bad, "test-trace")
+    validated_bad, results_bad = runtime.validate(obs, action_bad, "test-trace")
 
     kin_result_bad = next(r for r in results_bad if r.guard_name == "test_kin")
     # MotionGuard returns CLAMP for joint_position_limits
@@ -113,12 +113,11 @@ def test_hardware_callback_params_flow_from_stackfile(tmp_path):
     )
     action = ActionProposal(target_joint_positions=np.zeros(6))
 
-    validated, results, fallback = runtime.validate(obs, action, "test-trace", now=now)
+    validated, results = runtime.validate(obs, action, "test-trace", now=now)
 
     watchdog_result = next(r for r in results if r.guard_name == "hardware_watchdog")
     assert watchdog_result.decision == GuardDecision.PASS
     assert validated is not None
-    assert fallback is None
 
 
 def test_l3_boundaries_receive_separate_metadata(tmp_path, monkeypatch):
@@ -191,7 +190,7 @@ def test_l3_boundaries_receive_separate_metadata(tmp_path, monkeypatch):
     )
     action = ActionProposal(target_joint_positions=np.zeros(6))
 
-    _, results, _ = runtime.validate(obs, action, "test-trace", now=100.0)
+    _, results = runtime.validate(obs, action, "test-trace", now=100.0)
 
     watchdog_result = next(r for r in results if r.guard_name == "hardware_watchdog")
     host_result = next(r for r in results if r.guard_name == "host_health")

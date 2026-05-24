@@ -17,7 +17,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from typing import TYPE_CHECKING, Any, cast
 
-from dam.fallback.base import FallbackContext
 from dam.guard.aggregator import aggregate_decisions
 from dam.guard.pipeline import PER_BOUNDARY_KEY
 from dam.types.action import ValidatedAction
@@ -27,7 +26,6 @@ from dam.types.result import GuardDecision, GuardResult
 if TYPE_CHECKING:
     from dam.boundary.container import BoundaryContainer
     from dam.bus import PipelineMetricBus, RiskController
-    from dam.fallback.registry import FallbackRegistry
     from dam.guard.base import Guard
     from dam.guard.stage import Stage
     from dam.types.action import ActionProposal
@@ -164,8 +162,10 @@ class ExecutionEngine:
 
     Holds three pieces of persistent state:
     - ``_enforcement_mode``: whether to block or merely observe violations
-    - ``_fallback_registry``: maps fallback names to handler callables
     - ``_metric_bus``: shared latency bus (owned by GuardRuntime, shared here)
+    - ``_default_fallback``: legacy fallback name used by validate() when no
+      boundary node carries one. Runtime Context state machine routes via
+      ``node.fallback`` directly; this is kept for back-compat reporting.
 
     All per-cycle data arrives via ``ValidationContext``.
     """
@@ -173,12 +173,10 @@ class ExecutionEngine:
     def __init__(
         self,
         enforcement_mode: EnforcementMode,
-        fallback_registry: FallbackRegistry,
         metric_bus: PipelineMetricBus,
         default_fallback: str = "emergency_stop",
     ) -> None:
         self._enforcement_mode = enforcement_mode
-        self._fallback_registry = fallback_registry
         self._metric_bus = metric_bus
         self._default_fallback = default_fallback
         self._thread_pool: ThreadPoolExecutor | None = None
@@ -204,16 +202,19 @@ class ExecutionEngine:
         trace_id: str,
         ctx: ValidationContext,
         now: float | None = None,
-    ) -> tuple[ValidatedAction | None, list[GuardResult], str | None]:
-        """Run the full guard pipeline and return (validated_action, results, fallback_name).
+    ) -> tuple[ValidatedAction | None, list[GuardResult]]:
+        """Run the full guard pipeline.
 
         Returns:
-            (ValidatedAction, results, None)       — action passed or was clamped
-            (None,           results, fallback_name) — action rejected and fallback fired
+            (ValidatedAction, results) — action passed, was clamped, or
+                MONITOR/LOG_ONLY mode let it through despite a reject.
+            (None, results)            — action rejected and ENFORCE mode in
+                effect. Runtime Context state machine then picks a fallback
+                based on the rejecting boundary's ``node.fallback``.
         """
         if self._enforcement_mode == EnforcementMode.LOG_ONLY:
             ctx.risk_controller.record(was_clamped=False, was_rejected=False)
-            return self._make_validated_action(action), [], None
+            return self._make_validated_action(action), []
 
         runtime_pool = self._build_runtime_pool(obs, action, trace_id, ctx, now)
 
@@ -232,11 +233,28 @@ class ExecutionEngine:
         if aggregated.decision == GuardDecision.CLAMP:
             ctx.risk_controller.record(was_clamped=True, was_rejected=False)
             if self._enforcement_mode != EnforcementMode.ENFORCE:
-                return self._make_validated_action(action), all_results, None
-            return aggregated.clamped_action, all_results, None
+                return self._make_validated_action(action), all_results
+            return aggregated.clamped_action, all_results
 
         ctx.risk_controller.record(was_clamped=False, was_rejected=False)
-        return self._make_validated_action(action), all_results, None
+        return self._make_validated_action(action), all_results
+
+    def run_guard_checks(
+        self,
+        obs: Observation,
+        action: ActionProposal,
+        trace_id: str,
+        ctx: ValidationContext,
+        *,
+        guards: list[Guard] | None = None,
+        stages: list[Stage] | None = None,
+        now: float | None = None,
+    ) -> list[GuardResult]:
+        """Run selected guards without enforcement side effects."""
+        runtime_pool = self._build_runtime_pool(obs, action, trace_id, ctx, now)
+        if stages:
+            return self._run_staged(stages, runtime_pool)
+        return self._run_flat_filtered(guards or [], runtime_pool)
 
     # ── Private pipeline helpers ─────────────────────────────────────────────
 
@@ -281,36 +299,23 @@ class ExecutionEngine:
         all_results: list[GuardResult],
         aggregated: GuardResult,
         ctx: ValidationContext,
-    ) -> tuple[ValidatedAction | None, list[GuardResult], str | None]:
+    ) -> tuple[ValidatedAction | None, list[GuardResult]]:
+        """Record risk + fire on_violation hooks. Fallback execution is owned
+        by the Runtime Context state machine — runtime.step() reads the
+        rejecting boundary's ``node.fallback`` and pushes the matching
+        Context onto its stack. The chassis just surfaces the reject here.
+        """
         ctx.risk_controller.record(was_clamped=False, was_rejected=True)
 
         if self._enforcement_mode != EnforcementMode.ENFORCE:
             # MONITOR / LOG_ONLY — record the violation result but do not mutate
-            # output actions and do not fire violation hooks or fallbacks.
-            return self._make_validated_action(action), all_results, None
+            # output actions and do not fire violation hooks.
+            return self._make_validated_action(action), all_results
 
         for g in ctx.guards:
             g.on_violation(aggregated)
 
-        fallback_name = (
-            ctx.active_containers[0].get_active_node().fallback
-            if ctx.active_containers
-            else self._default_fallback
-        )
-        fallback_ctx = FallbackContext(
-            rejected_proposal=action,
-            guard_result=aggregated,
-            current_node=self._resolve_current_node(ctx),
-            cycle_id=ctx.cycle_id,
-            sink=ctx.sink,
-            runtime=ctx.runtime,
-        )
-        self._fallback_registry.execute_with_escalation(
-            fallback_name,
-            fallback_ctx,
-            bus={"sink": ctx.sink, "runtime": ctx.runtime},
-        )
-        return None, all_results, fallback_name
+        return None, all_results
 
     def _resolve_current_node(self, ctx: ValidationContext) -> Any:
         if ctx.active_containers:
@@ -332,8 +337,51 @@ class ExecutionEngine:
     def _run_flat_filtered(
         self, guards: list[Guard], runtime_pool: dict[str, Any]
     ) -> list[GuardResult]:
-        """Flat guard loop — used when no Stage DAG is configured."""
+        """Phased guard pipeline — used when no Stage DAG is configured.
+
+        Layout (controlled by ``@guard(phase=..., always=...)`` decorator):
+          - phased guards run in ascending phase order; same phase runs in
+            registration order (parallelism within a phase is a later
+            optimisation — see Task #4 follow-up).
+          - between phases, CLAMP results from this phase are merged via
+            ``merge_restrictive`` and the fused action is written back into
+            ``runtime_pool["action"]`` so the next phase sees the cumulative
+            safety chassis output, not the raw policy proposal.
+          - always-on guards run AFTER all phases for now (functionally "always
+            evaluated"). Moving them to a background ThreadPoolExecutor is a
+            latency optimisation deferred until profiling demands it.
+        """
+        phased: list[Guard] = [g for g in guards if not g.is_always_on()]
+        always_on: list[Guard] = [g for g in guards if g.is_always_on()]
+
+        by_phase: dict[int, list[Guard]] = {}
+        for g in phased:
+            phase = g.get_phase()
+            if phase is None:
+                # Defensive: a non-always guard with phase=None falls back to
+                # its layer value so it still has a defined position.
+                phase = g.get_layer().value
+            by_phase.setdefault(phase, []).append(g)
+
         all_results: list[GuardResult] = []
+        for phase_num in sorted(by_phase):
+            phase_results = self._run_guards_sequential(by_phase[phase_num], runtime_pool)
+            all_results.extend(phase_results)
+            self._accumulate_phase_clamps(phase_results, runtime_pool)
+
+        # Always-on guards see the post-phase action — that's the same view a
+        # mid-cycle hardware check would have. Their reject/fault joins the
+        # aggregate at the end (chose B = no mid-cycle preemption, see memory).
+        if always_on:
+            all_results.extend(self._run_guards_sequential(always_on, runtime_pool))
+
+        return all_results
+
+    def _run_guards_sequential(
+        self, guards: list[Guard], runtime_pool: dict[str, Any]
+    ) -> list[GuardResult]:
+        """Run a list of guards in order against the current runtime_pool."""
+        results: list[GuardResult] = []
         for g in guards:
             try:
                 kwargs = dict(g._static_kwargs)
@@ -356,8 +404,32 @@ class ExecutionEngine:
             except Exception as e:
                 result = GuardResult.fault(e, "guard_code", g.get_name(), g.get_layer())
                 logger.error("Guard '%s' raised exception: %s", g.get_name(), e)
-            all_results.append(result)
-        return all_results
+            results.append(result)
+        return results
+
+    @staticmethod
+    def _accumulate_phase_clamps(
+        phase_results: list[GuardResult], runtime_pool: dict[str, Any]
+    ) -> None:
+        """Merge this phase's CLAMP actions into ``runtime_pool["action"]``.
+
+        The merged ValidatedAction becomes the input action for the next phase
+        — callbacks/guards downstream read ``.target_joint_positions`` etc.
+        via duck typing, so swapping ActionProposal for ValidatedAction in the
+        pool is transparent.
+        """
+        clamps = [
+            r
+            for r in phase_results
+            if r.decision == GuardDecision.CLAMP and r.clamped_action is not None
+        ]
+        if not clamps:
+            return
+        merged = cast(ValidatedAction, clamps[0].clamped_action)
+        for r in clamps[1:]:
+            if r.clamped_action is not None:
+                merged = merged.merge_restrictive(r.clamped_action)
+        runtime_pool["action"] = merged
 
     def _run_staged(
         self,

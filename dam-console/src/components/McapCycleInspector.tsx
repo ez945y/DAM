@@ -298,6 +298,7 @@ export function McapCycleInspector({ filename, cycleId, tsNs, fallbackDetail, ov
 
   const totalMs = detail.total_ms || detail.latency?.total_ms || 0
   const cycleStatusLabel = detail.has_violation ? 'REJECT' : detail.has_clamp ? 'CLAMP' : 'PASS'
+  const activeContext = detail.active_context ?? detail.action?.fallback_triggered ?? null
   const layerTags = [
     ...detail.violated_layers.map(layer => ({ layer, tone: 'red' as const })),
     ...detail.clamped_layers.map(layer => ({ layer, tone: 'blue' as const })),
@@ -310,6 +311,7 @@ export function McapCycleInspector({ filename, cycleId, tsNs, fallbackDetail, ov
     latency_ms: g.latency_ms,
     is_violation: g.is_violation,
     is_clamp: g.is_clamp,
+    event_class: g.event_class,
     metadata: g.metadata,
   }))
 
@@ -328,6 +330,11 @@ export function McapCycleInspector({ filename, cycleId, tsNs, fallbackDetail, ov
             {usingFallback && (
               <span className="px-1.5 py-0.5 rounded border text-[9px] font-bold uppercase bg-amber-500/10 border-amber-500/20 text-amber-400">
                 Live
+              </span>
+            )}
+            {activeContext && activeContext !== 'normal' && (
+              <span className="px-1.5 py-0.5 rounded border text-[9px] font-bold uppercase bg-orange-500/10 border-orange-500/20 text-dam-orange">
+                {activeContext}{detail.context_severity != null ? ` · ${detail.context_severity}` : ''}
               </span>
             )}
             <span className={`px-2 py-0.5 rounded border text-[10px] font-bold uppercase ${

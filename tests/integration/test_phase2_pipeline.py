@@ -8,9 +8,6 @@ from dam.boundary.constraint import BoundaryConstraint
 from dam.boundary.node import BoundaryNode
 from dam.boundary.single import SingleNodeContainer
 from dam.decorators import guard as guard_decorator
-from dam.fallback.builtin import EmergencyStop, HoldPosition
-from dam.fallback.chain import build_escalation_chain
-from dam.fallback.registry import FallbackRegistry
 from dam.guard.builtin.execution import ExecutionGuard
 from dam.guard.builtin.motion import MotionGuard
 from dam.runner.lerobot import LeRobotRunner
@@ -43,10 +40,6 @@ def make_runtime_with_guards():
     EG = guard_decorator("L3")(ExecutionGuard)
     kg = KG()
     eg = EG()
-    reg = FallbackRegistry()
-    reg.register(EmergencyStop())
-    reg.register(HoldPosition())
-    build_escalation_chain(reg)
     node = BoundaryNode(
         "n0",
         BoundaryConstraint(
@@ -62,7 +55,6 @@ def make_runtime_with_guards():
     return GuardRuntime(
         guards=[kg, eg],
         boundary_containers={"main": container},
-        fallback_registry=reg,
         task_config={"pick_and_place": ["main"]},
         config_pool={
             "upper": np.full(6, 3.14),

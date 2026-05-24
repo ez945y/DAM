@@ -180,8 +180,11 @@ const DEFAULT_BOUNDARIES: BoundaryDef[] = [
 ]
 
 const DEFAULT_FALLBACKS: FallbackDef[] = [
-  { name: 'emergency_stop', type: 'emergency_stop', params: {}, escalates_to: null },
-  { name: 'hold_position', type: 'hold_position', params: {}, escalates_to: 'emergency_stop' },
+  { name: 'emergency_stop', type: 'emergency_stop', params: {}, escalate_to: null },
+  { name: 'hold_position', type: 'hold_position', params: {}, escalate_to: null },
+  { name: 'wait_and_retry', type: 'wait_and_retry', params: {}, escalate_to: null },
+  { name: 'slow_down', type: 'slow_down', params: {}, escalate_to: null },
+  { name: 'retreat', type: 'retreat', params: {}, escalate_to: null },
 ]
 
 // Helper: opt L1 motion boundaries into the ProxSuite QP fusion strategy.
@@ -488,7 +491,8 @@ const SCHEMA: YamlSection[] = [
       `${indent}fallbacks:`,
       ...defs.flatMap(f => {
         const lines = [`${indent}  ${f.name}:`, `${indent}    type: ${f.type}`]
-        if (f.escalates_to) lines.push(`${indent}    escalates_to: ${f.escalates_to}`)
+        if (f.escalate_to) lines.push(`${indent}    escalate_to: ${f.escalate_to}`)
+        if (f.escalate_after_seconds != null) lines.push(`${indent}    escalate_after_seconds: ${f.escalate_after_seconds}`)
         const params = f.params ?? {}
         if (Object.keys(params).length > 0) {
           lines.push(`${indent}    params:`)
@@ -590,11 +594,13 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
 
     if (section === 'fallbacks') {
       if (line.startsWith('  ') && !line.startsWith('    ')) {
-        currentFallback = { name: trimmed.replaceAll(':', ''), type: '', params: {}, escalates_to: null }
+        currentFallback = { name: trimmed.replaceAll(':', ''), type: '', params: {}, escalate_to: null, escalate_after_seconds: null }
         fallbacks.push(currentFallback)
       } else if (currentFallback && line.startsWith('    ')) {
         if (trimmed.startsWith('type:')) currentFallback.type = trimmed.replaceAll('type:', '').trim()
-        else if (trimmed.startsWith('escalates_to:')) currentFallback.escalates_to = trimmed.replaceAll('escalates_to:', '').trim()
+        else if (trimmed.startsWith('escalate_to:')) currentFallback.escalate_to = trimmed.replaceAll('escalate_to:', '').trim()
+        else if (trimmed.startsWith('escalates_to:')) currentFallback.escalate_to = trimmed.replaceAll('escalates_to:', '').trim()
+        else if (trimmed.startsWith('escalate_after_seconds:')) currentFallback.escalate_after_seconds = Number(trimmed.replaceAll('escalate_after_seconds:', '').trim())
       }
     } else if (section === 'boundaries') {
       if (line.startsWith('  ') && !line.startsWith('    ')) {

@@ -30,20 +30,11 @@ def make_action():
 
 def _make_runtime_with_hardware_guard():
     """Build a GuardRuntime with HardwareGuard and a mock sink with bad status."""
-    from dam.fallback.builtin import EmergencyStop, HoldPosition, SafeRetreat
-    from dam.fallback.chain import build_escalation_chain
-    from dam.fallback.registry import FallbackRegistry
     from dam.runtime.guard_runtime import GuardRuntime
 
     g = HardwareGuard()
     g.set_name("hw")
     precompute_injection(g, {})
-
-    fallback_registry = FallbackRegistry()
-    fallback_registry.register(EmergencyStop())
-    fallback_registry.register(HoldPosition())
-    fallback_registry.register(SafeRetreat())
-    build_escalation_chain(fallback_registry)
 
     from dam.boundary.constraint import BoundaryConstraint
     from dam.boundary.node import BoundaryNode
@@ -54,7 +45,6 @@ def _make_runtime_with_hardware_guard():
         boundary_containers={
             "hw": SingleNodeContainer(BoundaryNode("hwnode", BoundaryConstraint()))
         },
-        fallback_registry=fallback_registry,
         task_config={"default": ["hw"]},
         always_active=[],
         config_pool={},
@@ -78,7 +68,7 @@ def test_hardware_fault_propagates_to_reject():
     )
     action = make_action()
 
-    validated, results, fallback = rt.validate(obs, action, "trace-hw")
+    validated, results = rt.validate(obs, action, "trace-hw")
 
     fault_results = [r for r in results if r.decision == GuardDecision.FAULT]
     assert len(fault_results) >= 1

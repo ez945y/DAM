@@ -11,7 +11,7 @@ import { GuardTable, DEC_CONFIG } from '@/components/GuardTable'
 import { LatencyChart }      from '@/components/LatencyChart'
 import { HardwarePanel }     from '@/components/HardwarePanel'
 import { McapCameraPlayer }  from '@/components/McapCameraPlayer'
-import { Shield, TrendingDown, Timer, Loader, AlertTriangle, Radio } from 'lucide-react'
+import { Shield, TrendingDown, Timer, Loader, AlertTriangle } from 'lucide-react'
 import { PageShell } from '@/components/PageShell'
 
 function formatUptime(sec: number): string {
@@ -137,7 +137,7 @@ export default function DashboardPage() {
   const ctrl = useRuntimeControl()
   const demo = useDemoMode()
   const router = useRouter()
-  const { liveMode, toggleLiveMode } = useLiveMode()
+  const { liveMode, setLiveMode } = useLiveMode()
 
   // Auto-start cycles after demo launch brings the backend online
   useEffect(() => {
@@ -146,7 +146,16 @@ export default function DashboardPage() {
     if (ctrl.status.state === 'idle' || ctrl.status.state === 'stopped') ctrl.start()
   }, [demo.readyToStart, demo.clearReady, ctrl.status.state, ctrl.start])
 
-  const [metricTab, setMetricTab] = useState<'latency' | 'hardware'>('latency')
+  // Three-way toggle for the right-column panel: Cycle Latency / Hardware
+  // both render runtime metrics; "Go Live" switches the same panel to the
+  // camera feed.  The tab is the single source of truth — it drives the
+  // shared ``liveMode`` flag so the underlying WS subscription stays in
+  // sync between this dashboard and the MCAP viewer.
+  type MetricTab = 'latency' | 'hardware' | 'live'
+  const [metricTab, setMetricTab] = useState<MetricTab>(liveMode ? 'live' : 'latency')
+  useEffect(() => {
+    setLiveMode(metricTab === 'live')
+  }, [metricTab, setLiveMode])
 
   // Running-time display
   const [liveSegSec, setLiveSegSec] = useState(0)
@@ -189,20 +198,6 @@ export default function DashboardPage() {
     <PageShell
       title="Dashboard"
       subtitle="Real-time safety monitor & runtime control"
-      headerAction={
-        <button
-          onClick={toggleLiveMode}
-          title={liveMode ? 'Turn off live camera mode' : 'Turn on live camera mode'}
-          className={`flex h-12 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-[10px] font-bold uppercase tracking-wider transition-all ${
-            liveMode
-              ? 'bg-red-500/15 border-red-500/40 text-red-400'
-              : 'bg-dam-surface-2/50 border-dam-border/40 text-dam-muted hover:border-dam-blue/30 hover:text-dam-blue'
-          }`}
-        >
-          <Radio size={11} className={liveMode ? 'animate-pulse' : ''} />
-          {liveMode ? 'Live' : 'Go Live'}
-        </button>
-      }
     >
       {/* Top bar */}
       {(tele.connected && (startupError || ctrl.status.error)) || (!tele.connected && demo.starting) ? (
@@ -291,27 +286,33 @@ export default function DashboardPage() {
         <div className="space-y-4 min-w-0">
           <div className="panel p-4">
             <div className="flex items-center justify-between mb-3">
-              {liveMode ? (
-                <p className="section-label">Live Camera Feed</p>
-              ) : (
-                <div className="flex gap-1 bg-dam-surface-2 border border-dam-border rounded-lg p-0.5">
-                  {(['latency', 'hardware'] as const).map((name) => (
+              <div className="flex gap-1 bg-dam-surface-2 border border-dam-border rounded-lg p-0.5">
+                {(['latency', 'hardware', 'live'] as const).map((name) => {
+                  const label =
+                    name === 'latency' ? 'Cycle Latency' :
+                    name === 'hardware' ? 'Hardware' : 'Go Live'
+                  const active = metricTab === name
+                  // "live" keeps a red accent when active so the active-stream
+                  // state is glanceable; the rest stay blue.  No icons — all
+                  // three tabs share the same text-only shape.
+                  const activeStyle = name === 'live'
+                    ? 'bg-red-500/15 text-red-400 border border-red-500/30'
+                    : 'bg-dam-blue/15 text-dam-blue border border-dam-blue/30'
+                  return (
                     <button
                       key={name}
                       onClick={() => setMetricTab(name)}
                       className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-colors ${
-                        metricTab === name
-                          ? 'bg-dam-blue/15 text-dam-blue border border-dam-blue/30'
-                          : 'text-dam-muted border border-transparent hover:text-dam-text'
+                        active ? activeStyle : 'text-dam-muted border border-transparent hover:text-dam-text'
                       }`}
                     >
-                      {name === 'latency' ? 'Cycle Latency' : 'Hardware'}
+                      {label}
                     </button>
-                  ))}
-                </div>
-              )}
+                  )
+                })}
+              </div>
               <div className="flex items-center gap-2">
-                {!liveMode && metricTab === 'latency' && tele.latestPerf != null && (
+                {metricTab === 'latency' && tele.latestPerf != null && (
                   <SlackIndicator
                     slackMs={tele.latestPerf.slack_ms}
                     deadlineMs={tele.latestPerf.deadline_ms}
@@ -320,7 +321,7 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {liveMode ? (
+            {metricTab === 'live' ? (
               <div className="h-80">
                 <McapCameraPlayer
                   filename=""

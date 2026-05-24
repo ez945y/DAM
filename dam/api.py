@@ -28,13 +28,16 @@ class RunSummary:
 
 
 def _register_builtins() -> None:
-    """Register built-in callbacks, fallbacks, and guards (idempotent)."""
+    """Register built-in callbacks and guards (idempotent).
+
+    Builtin fallback Contexts (HoldPosition/SlowDown/Retreat/WaitAndRetry/
+    EmergencyStop) live in ``dam.runtime.contexts`` and self-register via
+    ``@dam.fallback`` at import time — no explicit registration step needed.
+    """
     from dam.boundary.callbacks import register_all as reg_callbacks
-    from dam.fallback.builtin import register_all as reg_fallbacks
     from dam.guard.builtin import register_all as reg_guards
 
     reg_callbacks()
-    reg_fallbacks()
     reg_guards()
 
 
