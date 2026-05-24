@@ -1,198 +1,78 @@
 # DAM — Detachable Action Monitor
 
-**Modular safety middleware for ML-driven robot control**
+**Safety middleware for ML-driven robot control**
 
-DAM is a real-time safety framework that sits between any machine learning policy and robot hardware. It intercepts every proposed action, evaluates it through a layered guard stack, and either **passes**, **clamps**, or **rejects** it—without modifying your policy weights or hardware drivers.
+DAM sits between a policy and robot hardware. Every proposed action is checked by guard layers before it reaches the actuator, then DAM either **passes**, **clamps**, or **rejects** the action and records what happened.
 
----
-
-## Why DAM?
-
-### The Problem
-
-Deploying learned policies on real robots requires more than good training data. You need:
-- **Hardware safety** — joint limits, velocity bounds, workspace constraints
-- **Semantic understanding** — is this observation in the training distribution?
-- **Task-aware logic** — does this action make sense for the current goal?
-- **Hardware health** — are motors safe? Is temperature normal?
-
-Traditional approaches either bake safety into the policy (rigid, hard to update) or throw everything at a single catch-all check (slow, opaque).
-
-### The Solution
-
-DAM decouples safety from learning. Safety becomes a **modular, swappable stack** you can:
-- ✅ Modify safety rules without retraining the policy
-- ✅ Enable/disable guards independently per task
-- ✅ Hot-reload boundaries while the robot is running
-- ✅ Audit and replay every decision
-- ✅ Swap hardware drivers or policies without recompiling
+Use DAM when you want to change safety rules, task boundaries, or monitoring behavior without retraining the policy or rewriting hardware drivers.
 
 ---
 
-## Core Strengths
+## Start Here
 
-| Feature | Benefit |
-|---------|---------|
-| **4-Layer Guard Stack** | Progressive defense from perception (L0) → hardware health (L3) |
-| **Rust Data Plane** | Deterministic, real-time-safe execution outside the Python GIL |
-| **Stackfile-Driven** | Swap hardware, policies, and safety rules via simple YAML. Zero Python code for tier-1 deployments. |
-| **Hot-Reload Boundaries** | Update safety constraints without stopping the loop |
-| **Fail-to-Reject** | Guard timeouts, crashes, or exceptions → immediate rejection. Safe by default. |
-| **Full Observability** | MCAP buffer captures ±30s of sensor context around every safety event |
-| **Built-in Adapters** | LeRobot (SO-ARM101) and ROS 2 support out of the box |
+| Goal | Go to | Done when |
+|------|-------|-----------|
+| Run DAM without hardware | [Quick Start](getting-started/quickstart.md) | Console opens and example Stackfiles validate |
+| Learn the system step by step | [Learn DAM](learn/index.md) | You can explain pass, clamp, reject, and fallback |
+| Read a Stackfile | [Stackfile Walkthrough](getting-started/stackfile-walkthrough.md) | You can point to hardware, policy, guards, boundaries, and tasks |
+| Monitor a run | [DAM Console](console.md) | You can find the latest guard decision and latency state |
+| Fix first-run issues | [Troubleshooting](getting-started/troubleshooting.md) | You know whether the issue is setup, ports, validation, or task naming |
 
 ---
 
-## Quick Navigation
+## What DAM Checks
 
-<div class="grid cards" markdown>
+DAM organizes safety into four guard layers:
 
-- **New to DAM?**
-  Start with [Learn DAM →](learn/index.md)
+| Layer | Question |
+|-------|----------|
+| L0 OOD | Is the observation familiar enough to trust the policy? |
+| L1 Motion | Are joint limits, velocity limits, and workspace constraints safe? |
+| L2 Task | Does the command fit the active task phase? |
+| L3 Hardware | Is the robot and host environment healthy? |
 
-- **Deploy Your System**
-  Read [Stackfile Guide →](quick-stack.md)
+The most restrictive decision wins: `REJECT` beats `CLAMP`, and `CLAMP` beats `PASS`.
 
-- **Monitor & Control**
-  Use the [DAM Console →](console.md)
-
-- **Integrate via API**
-  Check [Services API →](services-api.md)
-
-- **Deep Dive**
-  See [Full Specification →](DAM_Specification.md)
-
-</div>
+For the deeper model, read [Guard Stack Explained](concepts/guards-explained.md).
 
 ---
 
-## The Guard Stack
+## Typical Workflow
 
-DAM evaluates actions through **4 independent layers**, each with a specific responsibility:
+1. Configure a Stackfile.
+2. Validate it with `dam validate` or `make validate`.
+3. Run DAM with the selected task.
+4. Watch the console for pass, clamp, reject, latency, and risk state.
+5. Use logs and MCAP sessions to inspect safety events.
 
-```
-Policy Output (proposed action)
-    ↓
-[ L0 — OOD Detection ]       ← Is this observation familiar?
-    ↓
-[ L1 — Physical Kinematics ] ← Are joint limits and motion constraints safe?
-    ↓
-[ L2 — Task Execution ]      ← Does this command fit the current task phase?
-    ↓
-[ L3 — Hardware Monitor ]    ← Is the hardware healthy?
-    ↓
-DECISION: Pass / Clamp / Reject
-    ↓
-Hardware Command (or Fallback)
-```
-
-Each layer votes independently. The **most restrictive** decision wins. Layers can be enabled/disabled via Stackfile.
+Start with the no-hardware demo before moving to real robot hardware.
 
 ---
 
-## Typical Use Cases
+## Why Teams Use It
 
-### 🦾 Collaborative Manipulation
-Control a dual-arm robot with learned pick-and-place policies while enforcing workspace bounds, force limits, and emergency stops.
-
-```yaml
-guards:
-  - L1: motion
-    phase: 0
-  - L2: execution
-    phase: 1
-  - L3: hardware
-    always: true
-```
-
-### 🤖 Mobile Manipulation
-Deploy a Diffusion Policy on a mobile base. Keep the base within a geofence while the arm executes learned manipulation.
-
-### 🔬 Research & Development
-Rapidly prototype new policies without waiting for safety certification. DAM handles compliance; you focus on learning.
-
-### 🏭 Sim-to-Real Transfer
-Test policies in simulation, deploy directly to hardware with DAM guardrails. Update boundaries as you learn what works.
+- Safety rules live in versioned configuration.
+- Built-in guard layers can be enabled per task.
+- Fail-to-reject behavior makes guard failures conservative.
+- MCAP loopback logs help replay and audit safety events.
+- LeRobot, ROS 2, and dataset-style workflows can share the same safety model.
 
 ---
 
-## How It Works (30-Second Version)
+## Safety Status
 
-1. **Register adapters** — plug in your hardware (LeRobot, ROS 2, custom) and policy
-2. **Write a Stackfile** — define guards, boundaries, and fallback strategies in YAML
-3. **Start the runtime** — `dam run mystack.yaml --task mytask`
-4. **DAM steps every cycle:**
-   - Read observations from hardware
-   - Propose action from policy
-   - Evaluate through 4-layer guard stack
-   - Clamp/reject if unsafe
-   - Send command to hardware
-   - Log everything to MCAP
-
-5. **Monitor in real-time** — open the DAM Console to watch guard decisions, latencies, and risk levels
+DAM is research and experimental-grade software. It is not certified for safety-critical production use or unsupervised human-collaborative environments. Treat it as a safety research and development tool, validate your Stackfiles carefully, and keep hardware emergency procedures in place.
 
 ---
 
-## Installation & Quickstart
+## Reference
 
-```bash
-git clone https://github.com/ez945y/DAM.git && cd DAM
-make setup   # one-time: venv + Rust extension + npm deps
-make run     # start backend + console (http://localhost:3000)
-```
-
-`make setup` handles everything automatically — Python environment (via `uv`), Rust extension build (via `maturin`), and frontend dependencies (via `npm`). See [Installation →](installation.md) for prerequisites and hardware-specific setup.
-
----
-
-## Safety First
-
-DAM is built on **defense-in-depth** and **fail-safe** principles:
-
-- **Fail-to-Reject** — any timeout, exception, or unexpected behavior in the guard stack results in immediate rejection
-- **Memory Safety** — Rust data plane eliminates memory vulnerabilities
-- **Deterministic Execution** — real-time-friendly, no GIL contention
-- **Layered Verification** — safety is not a single point of failure
-
-**Important:** DAM is currently **research and experimental-grade software**. It is not certified for safety-critical or production use in human-collaborative or high-risk environments. Use at your own risk. We are actively working toward formal verification, worst-case timing analysis, and compliance-oriented documentation.
-
----
-
-## Learn More
-
-| Topic | Where |
-|-------|-------|
-| **Learn DAM step by step** | [Learning Path →](learn/index.md) |
-| **Deploy with Stackfiles** | [Stackfile Guide →](quick-stack.md) |
-| **Monitor your system** | [Console Guide →](console.md) |
-| **Control via API** | [Services API →](services-api.md) |
-| **Guards reference** | [Guards Reference →](guards-reference.md) |
-| **Boundary callbacks** | [Boundary Callbacks →](boundary-callbacks.md) |
-| **Contribute** | [Contributing →](contributing.md) |
-
----
-
-## Community & Support
-
-- 📖 [Full Specification](DAM_Specification.md)
-- 💬 [GitHub Discussions](https://github.com/ez945y/DAM/discussions)
-- 🐛 [Report Issues](https://github.com/ez945y/DAM/issues)
-- ✅ [Contribution Guidelines](contributing.md)
-
----
-
-## Next Steps
-
-Based on your role, here's where to start:
-
-- **I want to get running fast** → [Installation →](installation.md)
-- **I want a guided learning path** → [Learn DAM →](learn/index.md)
-- **I want to deploy a stack** → [Stackfile Guide →](quick-stack.md)
-- **I want to monitor in real-time** → [Console Guide →](console.md)
-- **I'm deploying to hardware** → [Installation — Hardware Support →](installation.md#hardware-support-so-arm101-lerobot)
-
----
-
-**DAM makes advanced robot safety modular, verifiable, and accessible to the embodied AI community.**
-
-*Built for safer embodied AI.*
+| Need | Page |
+|------|------|
+| Install details | [Installation](installation.md) |
+| Full Stackfile fields | [Stackfile Guide](quick-stack.md) |
+| CLI commands | [CLI](cli.md) |
+| Guard catalog | [Guards Reference](guards-reference.md) |
+| Boundary callbacks | [Boundary Callbacks](boundary-callbacks.md) |
+| API details | [Services API](services-api.md) |
+| Architecture reference | [Specification](DAM_Specification.md) |
