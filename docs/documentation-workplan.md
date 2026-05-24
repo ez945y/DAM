@@ -18,12 +18,12 @@ Help a new DAM user go from "what is this?" to "I can run a demo, read a guard d
 
 | Lane | Task | Completion indicator |
 |------|------|----------------------|
-| Learning path | Expose Learn pages in navigation and give newcomers a sequenced path | The nav has a Learning section, and the first page links to install, tutorial, stackfiles, console, and glossary |
-| Quickstart | Make the first run path explicit and testable | A user can identify prerequisites, run command, expected ports, and verification command in under 5 minutes |
-| Stackfile education | Separate "how to use" from full schema detail | The guide opens with a minimal runnable example, then explains common edits before field reference |
-| Console workflow | Teach how to inspect pass, clamp, reject, and latency | The console page answers "what should I click or read after an event?" without requiring API knowledge |
-| Troubleshooting | Add symptom-led fixes | Common setup, validation, port, and task-name issues have short recovery steps |
-| Reference hygiene | Keep deep implementation detail discoverable but secondary | Reference pages are linked after workflows, not used as the main onboarding path |
+| Learning path | Expose Learn pages in navigation and give newcomers a sequenced path | Done: Learning nav and learner landing page are visible |
+| Quickstart | Make the first run path explicit and testable | Done: Quick Start names success signals, expected ports, validation, and troubleshooting |
+| Stackfile education | Separate "how to use" from full schema detail | Done: Stackfile Walkthrough explains the no-hardware demo before the reference guide |
+| Console workflow | Teach how to inspect pass, clamp, reject, and latency | Done: Console overview starts with operator questions and healthy signals |
+| Troubleshooting | Add symptom-led fixes | Done: setup, ports, validation, model startup, and task-name issues have short recovery steps |
+| Reference hygiene | Keep deep implementation detail discoverable but secondary | In progress: strict build passes; internal refactor notes are excluded from the public docs build |
 
 ## Definition Of Done
 
@@ -38,8 +38,8 @@ A documentation improvement is complete when:
 
 ## Current Priority Queue
 
-1. Learning path visibility: add a Learning nav section and a learner landing page.
-2. Quickstart validation: align install/run/validate commands with current Makefile and CLI behavior.
-3. Stackfile guide cleanup: keep the walkthrough beginner-friendly, then decide whether to split `quick-stack.md` further.
-4. Console task flow: show how to use the console during a safety event.
-5. Continue reducing reference noise: split or archive older implementation-heavy pages that are not part of the user learning path.
+1. Keep `mkdocs build --strict` passing as the documentation quality gate.
+2. Split `quick-stack.md` further only if users need a shorter "common edits" page.
+3. Move implementation-heavy reference material out of the first-run learning path.
+4. Add screenshots or short console examples when stable demo artifacts are available.
+5. Continue logging PM checkpoints in `harness/docs/logs/docs_pm_log.jsonl`.

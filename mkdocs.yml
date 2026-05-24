@@ -6,6 +6,10 @@ repo_name: ez945y/DAM
 edit_uri: edit/main/docs/
 exclude_docs: |
   refactor-guard-pipeline.md
+not_in_nav: |
+  DAM_Development_Plan.md
+  DAM_LLM_System_Prompt.md
+  DAM_Specification_zh.md
 
 theme:
   name: material
