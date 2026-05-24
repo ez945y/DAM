@@ -26,6 +26,8 @@ Validate one file first:
 .venv/bin/dam validate examples/stackfiles/demo.yaml
 ```
 
+Expected result: `OK examples/stackfiles/demo.yaml`. If this fails before you edit anything, fix setup before changing Stackfiles.
+
 | Symptom | Likely cause | Try this |
 |---------|--------------|----------|
 | YAML parse error | Indentation, colon, or list syntax issue | Undo the last edit and re-apply it one line at a time |
@@ -61,4 +63,5 @@ Run:
 make validate
 ```
 
-Then use the error text to decide whether the issue is environment setup, Stackfile syntax, or runtime connection.
+Expected result: required dependencies are available, and every example Stackfile reports `OK`.
+Then use any remaining error text to decide whether the issue is environment setup, Stackfile syntax, or runtime connection.
