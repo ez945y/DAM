@@ -35,56 +35,6 @@ except ImportError:
 # Minimum valid MCAP file size: 8-byte opening magic + at least 1 byte
 _MCAP_MAGIC_SIZE = 8
 
-# Rust msgpack format metadata - CycleRecordData array indices.
-# Structure: [cycle_id, obs_timestamp, has_violation, has_clamp, violated_layer_mask,
-#            clamped_layer_mask, active_task, active_boundaries, active_cameras,
-#            obs_joint_positions, obs_channels, action_positions, action_velocities,
-#            validated_positions, validated_velocities, was_clamped, fallback_triggered,
-#            guard_results, latency_stages, latency_layers, latency_guards, image_data,
-#            config_version, failure_type, failure_guard_names, failure_layers,
-#            failure_decisions, failure_reasons, failure_tuple]
-_IDX_CYCLE = 0
-_IDX_OBS_TIMESTAMP = 1
-_IDX_HAS_VIOLATION = 2
-_IDX_HAS_CLAMP = 3
-_IDX_VIOLATED_LAYER_MASK = 4
-_IDX_CLAMPED_LAYER_MASK = 5
-_IDX_ACTIVE_TASK = 6
-_IDX_ACTIVE_BOUNDARIES = 7
-_IDX_ACTIVE_CAMERAS = 8
-_IDX_OBS_JOINT_POSITIONS = 9
-_IDX_OBS_CHANNELS = 10
-_IDX_ACTION_POSITIONS = 11
-_IDX_ACTION_VELOCITIES = 12
-_IDX_VALIDATED_POSITIONS = 13
-_IDX_VALIDATED_VELOCITIES = 14
-_IDX_WAS_CLAMPED = 15
-_IDX_FALLBACK_TRIGGERED = 16
-_IDX_GUARD_RESULTS = 17
-_IDX_LATENCY_STAGES = 18
-_IDX_LATENCY_LAYERS = 19
-_IDX_FAILURE_TYPE = 23
-_IDX_FAILURE_GUARD_NAMES = 24
-_IDX_FAILURE_LAYERS = 25
-_IDX_FAILURE_DECISIONS = 26
-_IDX_FAILURE_REASONS = 27
-_IDX_FAILURE_TUPLE = 28
-
-# GuardResult array indices (within guard_results list)
-# Structure: [cycle_id, timestamp, guard_name, layer, layer_int, decision, reason, latency_ms, is_violation, is_clamp, fault_source]
-_IDX_GR_CYCLE_ID = 0
-_IDX_GR_TIMESTAMP = 1
-_IDX_GR_GUARD_NAME = 2
-_IDX_GR_LAYER = 3
-_IDX_GR_LAYER_INT = 4
-_IDX_GR_DECISION = 5
-_IDX_GR_REASON = 6
-_IDX_GR_LATENCY_MS = 7
-_IDX_GR_IS_VIOLATION = 8
-_IDX_GR_IS_CLAMP = 9
-_IDX_GR_FAULT_SOURCE = 10
-_IDX_GR_METADATA = 11
-
 
 @contextmanager
 def _mcap_open(path: Path) -> Generator[Any, None, None]:
@@ -134,12 +84,20 @@ _DETAIL_TOPICS = {
 _LAYER_TOPICS = {f"/dam/L{i}" for i in range(4)}
 
 
-def _message_get(data: Any, key: str, default: Any = None) -> Any:
-    """Read legacy dict MCAP fields without assuming the decoded shape."""
-    return data.get(key, default) if isinstance(data, dict) else default
+def _decode_msg(data: bytes, encoding: str) -> dict[str, Any] | None:
+    """Decode an MCAP message payload to a dict, regardless of format."""
+    if "msgpack" in encoding and _HAS_MSGPACK:
+        d = _msgpack.unpackb(data, raw=False)
+    elif "json" in encoding:
+        d = json.loads(data)
+    else:
+        return None
+    if isinstance(d, dict):
+        return d
+    return None
 
 
-def _guard_result_from_mapping(data: Any) -> dict[str, Any] | None:
+def _parse_guard_result(data: Any) -> dict[str, Any] | None:
     if not isinstance(data, dict):
         return None
     layer_int = data.get("layer", 0)
@@ -156,29 +114,6 @@ def _guard_result_from_mapping(data: Any) -> dict[str, Any] | None:
         "is_clamp": bool(data.get("is_clamp", False)),
         "fault_source": data.get("fault_source"),
         "metadata": data.get("metadata") if isinstance(data.get("metadata"), dict) else {},
-    }
-
-
-def _guard_result_from_sequence(data: Any) -> dict[str, Any] | None:
-    if not isinstance(data, list | tuple) or len(data) < _IDX_GR_LATENCY_MS + 1:
-        return None
-    layer_int = data[_IDX_GR_LAYER] if len(data) > _IDX_GR_LAYER else 0
-    return {
-        "guard_name": data[_IDX_GR_GUARD_NAME] if len(data) > _IDX_GR_GUARD_NAME else "",
-        "layer": layer_int,
-        "layer_name": f"L{layer_int}",
-        "decision": data[_IDX_GR_LAYER_INT] if len(data) > _IDX_GR_LAYER_INT else 0,
-        "decision_name": data[_IDX_GR_DECISION] if len(data) > _IDX_GR_DECISION else "PASS",
-        "reason": data[_IDX_GR_REASON] if len(data) > _IDX_GR_REASON else "",
-        "latency_ms": data[_IDX_GR_LATENCY_MS] if len(data) > _IDX_GR_LATENCY_MS else None,
-        "is_violation": bool(data[_IDX_GR_IS_VIOLATION])
-        if len(data) > _IDX_GR_IS_VIOLATION
-        else False,
-        "is_clamp": bool(data[_IDX_GR_IS_CLAMP]) if len(data) > _IDX_GR_IS_CLAMP else False,
-        "fault_source": data[_IDX_GR_FAULT_SOURCE] if len(data) > _IDX_GR_FAULT_SOURCE else None,
-        "metadata": data[_IDX_GR_METADATA]
-        if len(data) > _IDX_GR_METADATA and isinstance(data[_IDX_GR_METADATA], dict)
-        else {},
     }
 
 
@@ -447,104 +382,76 @@ class McapSessionService:
         total_cycles = 0
         violation_cycles, clamp_cycles = 0, 0
         first_ts, last_ts = None, None
-        cameras, violated_layers, clamped_layers = set(), set(), set()
+        cameras: set[str] = set()
+        violated_layers: set[str] = set()
+        clamped_layers: set[str] = set()
         failure_types: dict[str, int] = {}
         min_cycle_id, max_cycle_id = None, None
         _got_total_from_summary = False
-        # Track whether SeekingReader succeeded so we know if we need a
-        # fallback image-channel scan for active (non-seekable) sessions.
         _seeking_ok = False
 
         with open(path, "rb") as f:
             try:
-                # Fast path using standard MCAP summary metadata (avoids reading payloads)
                 reader = _make_reader(f)
                 summary = reader.get_summary()
                 if summary and summary.statistics:
                     _seeking_ok = True
                     stats = summary.statistics
-                    # Do NOT use stats.message_start_time / message_end_time here.
-                    # Those timestamps cover ALL topics including /dam/images/* whose
-                    # pre-event frames can go back window_sec (10 s) before the first
-                    # cycle, wildly inflating duration_sec.  Let the second pass over
-                    # /dam/cycle messages set first_ts / last_ts from actual cycle
-                    # timestamps only.
-                    for ch in reader.get_summary().channels.values():
+                    for ch in summary.channels.values():
                         if ch.topic == _TOPIC_CYCLE:
                             total_cycles = stats.channel_message_counts.get(ch.id, 0)
                             _got_total_from_summary = True
                         elif ch.topic.startswith(_TOPIC_IMAGES_PREFIX):
                             cameras.add(ch.topic.split(_TOPIC_IMAGES_PREFIX, 1)[1])
-            except Exception:  # noqa: BLE001 — Fallback to scanning for active or incomplete files
+            except Exception:  # noqa: BLE001
                 pass
 
         with _mcap_open(path) as reader:
-            # Metadata and channels are available as we stream or after header
             for meta in reader.iter_metadata():
                 metadata.update(meta.metadata)
 
-            # Single pass over /dam/cycle for violation/clamp stats.
-            # If the fast path already gave us total_cycles, we skip re-counting it
-            # to avoid doubling the number.
-            import msgpack
-
             for _schema, channel, message in reader.iter_messages(topics=[_TOPIC_CYCLE]):
-                topic = channel.topic
-                if topic == _TOPIC_CYCLE:
-                    try:
-                        d = msgpack.unpackb(message.data, raw=False)
-                        if not isinstance(d, list | tuple) or len(d) < 6:
-                            continue
-                        if not _got_total_from_summary:
-                            total_cycles += 1
-                        ts = d[_IDX_OBS_TIMESTAMP] if len(d) > _IDX_OBS_TIMESTAMP else 0.0
-                        if first_ts is None or ts < first_ts:
-                            first_ts = ts
-                        if last_ts is None or ts > last_ts:
-                            last_ts = ts
-
-                        cid = d[_IDX_CYCLE]
-                        if cid is not None:
-                            if min_cycle_id is None or cid < min_cycle_id:
-                                min_cycle_id = cid
-                            if max_cycle_id is None or cid > max_cycle_id:
-                                max_cycle_id = cid
-
-                        has_violation = (
-                            bool(d[_IDX_HAS_VIOLATION]) if len(d) > _IDX_HAS_VIOLATION else False
-                        )
-                        if has_violation:
-                            violation_cycles += 1
-                            v_mask = (
-                                d[_IDX_VIOLATED_LAYER_MASK]
-                                if len(d) > _IDX_VIOLATED_LAYER_MASK
-                                else 0
-                            )
-                            for i in range(4):
-                                if v_mask & (1 << i):
-                                    violated_layers.add(f"L{i}")
-                        has_clamp = bool(d[_IDX_HAS_CLAMP]) if len(d) > _IDX_HAS_CLAMP else False
-                        if has_clamp:
-                            clamp_cycles += 1
-                            c_mask = (
-                                d[_IDX_CLAMPED_LAYER_MASK]
-                                if len(d) > _IDX_CLAMPED_LAYER_MASK
-                                else 0
-                            )
-                            for i in range(4):
-                                if c_mask & (1 << i):
-                                    clamped_layers.add(f"L{i}")
-                        failure_type = d[_IDX_FAILURE_TYPE] if len(d) > _IDX_FAILURE_TYPE else None
-                        if isinstance(failure_type, str) and failure_type:
-                            failure_types[failure_type] = failure_types.get(failure_type, 0) + 1
-                    except Exception:  # noqa: BLE001
+                if channel.topic != _TOPIC_CYCLE:
+                    continue
+                try:
+                    d = _decode_msg(message.data, channel.message_encoding)
+                    if d is None:
                         continue
+                    if not _got_total_from_summary:
+                        total_cycles += 1
 
-            # Re-read channels after full pass for any missing cameras.
-            # SeekingReader exposes ALL channels via get_summary().
-            # NonSeekingReader.channels only contains channels encountered during
-            # the topic-filtered iteration, so image channels in separate chunks
-            # may be absent — handled by the fallback scan below.
+                    ts = d.get("obs_timestamp", 0.0)
+                    if first_ts is None or ts < first_ts:
+                        first_ts = ts
+                    if last_ts is None or ts > last_ts:
+                        last_ts = ts
+
+                    cid = d.get("cycle_id")
+                    if cid is not None:
+                        if min_cycle_id is None or cid < min_cycle_id:
+                            min_cycle_id = cid
+                        if max_cycle_id is None or cid > max_cycle_id:
+                            max_cycle_id = cid
+
+                    if d.get("has_violation"):
+                        violation_cycles += 1
+                        v_mask = d.get("violated_layer_mask", 0) or 0
+                        for i in range(4):
+                            if v_mask & (1 << i):
+                                violated_layers.add(f"L{i}")
+                    if d.get("has_clamp"):
+                        clamp_cycles += 1
+                        c_mask = d.get("clamped_layer_mask", 0) or 0
+                        for i in range(4):
+                            if c_mask & (1 << i):
+                                clamped_layers.add(f"L{i}")
+
+                    ft = d.get("failure_type")
+                    if isinstance(ft, str) and ft:
+                        failure_types[ft] = failure_types.get(ft, 0) + 1
+                except Exception:  # noqa: BLE001
+                    continue
+
             channels_dict = {}
             if hasattr(reader, "get_summary"):
                 summary = reader.get_summary()
@@ -552,15 +459,10 @@ class McapSessionService:
                     channels_dict = summary.channels
             else:
                 channels_dict = getattr(reader, "channels", {})
-
             for channel in channels_dict.values():
                 if channel.topic.startswith(_TOPIC_IMAGES_PREFIX):
                     cameras.add(channel.topic.split(_TOPIC_IMAGES_PREFIX, 1)[1])
 
-        # Active-session fallback: when the SeekingReader couldn't open the file
-        # (session still being written), NonSeekingReader filtered to /dam/cycle
-        # skips image-only chunks and misses those channel registrations.
-        # Re-scan the file reading all channels to find /dam/images/* topics.
         if not cameras and not _seeking_ok:
             try:
                 with open(path, "rb") as f_scan:
@@ -568,11 +470,11 @@ class McapSessionService:
                     for _, ch, _ in scan_reader.iter_messages():
                         if ch.topic.startswith(_TOPIC_IMAGES_PREFIX):
                             cameras.add(ch.topic.split(_TOPIC_IMAGES_PREFIX, 1)[1])
-            except Exception:  # noqa: BLE001 — partial/corrupted MCAP is non-fatal for listing
+            except Exception:  # noqa: BLE001
                 pass
 
         st = path.stat()
-        res = {
+        return {
             "filename": path.name,
             "size_bytes": st.st_size,
             "size_mb": round(st.st_size / 1024 / 1024, 2),
@@ -591,7 +493,6 @@ class McapSessionService:
                 "max_cycle_id": max_cycle_id,
             },
         }
-        return res
 
     def list_cycles(self, filename: str, since_cycle_id: int | None = None) -> list[dict[str, Any]]:
         path = self._resolve(filename)
@@ -624,44 +525,30 @@ class McapSessionService:
         return full_list
 
     def _index_cycles(self, path: Path) -> list[dict[str, Any]]:
-        cycles = []
+        cycles: list[dict[str, Any]] = []
         try:
-            import msgpack
-
             with _mcap_open(path) as reader:
                 seq = 0
-                for _schema, _channel, message in reader.iter_messages(topics=[_TOPIC_CYCLE]):
+                for _schema, channel, message in reader.iter_messages(topics=[_TOPIC_CYCLE]):
                     try:
-                        d = msgpack.unpackb(message.data, raw=False)
-                        if not isinstance(d, list | tuple) or len(d) < 6:
+                        d = _decode_msg(message.data, channel.message_encoding)
+                        if d is None:
                             continue
+                        v_mask = d.get("violated_layer_mask", 0) or 0
+                        c_mask = d.get("clamped_layer_mask", 0) or 0
                         cycles.append(
                             {
-                                "cycle_id": d[_IDX_CYCLE],
+                                "cycle_id": d.get("cycle_id"),
                                 "seq": seq,
                                 "timestamp_ns": message.log_time,
                                 "timestamp": message.log_time / 1e9,
-                                "has_violation": bool(d[_IDX_HAS_VIOLATION]),
-                                "has_clamp": bool(d[_IDX_HAS_CLAMP]),
-                                "violated_layer_mask": d[_IDX_VIOLATED_LAYER_MASK]
-                                if len(d) > _IDX_VIOLATED_LAYER_MASK
-                                else 0,
-                                "clamped_layer_mask": d[_IDX_CLAMPED_LAYER_MASK]
-                                if len(d) > _IDX_CLAMPED_LAYER_MASK
-                                else 0,
-                                "violated_layers": self._mask_to_layers(
-                                    d[_IDX_VIOLATED_LAYER_MASK]
-                                    if len(d) > _IDX_VIOLATED_LAYER_MASK
-                                    else 0
-                                ),
-                                "clamped_layers": self._mask_to_layers(
-                                    d[_IDX_CLAMPED_LAYER_MASK]
-                                    if len(d) > _IDX_CLAMPED_LAYER_MASK
-                                    else 0
-                                ),
-                                "failure_type": d[_IDX_FAILURE_TYPE]
-                                if len(d) > _IDX_FAILURE_TYPE
-                                else None,
+                                "has_violation": bool(d.get("has_violation")),
+                                "has_clamp": bool(d.get("has_clamp")),
+                                "violated_layer_mask": v_mask,
+                                "clamped_layer_mask": c_mask,
+                                "violated_layers": self._mask_to_layers(v_mask),
+                                "clamped_layers": self._mask_to_layers(c_mask),
+                                "failure_type": d.get("failure_type"),
                             }
                         )
                         seq += 1
@@ -680,9 +567,8 @@ class McapSessionService:
         if not path:
             return None
 
-        # 1. Coordinate target timestamp
         target_ts_ns = ts_ns
-        cycles = []
+        cycles: list[dict[str, Any]] = []
         if target_ts_ns is None:
             cycles = self.list_cycles(filename)
             for c in cycles:
@@ -690,7 +576,6 @@ class McapSessionService:
                     target_ts_ns = c["timestamp_ns"]
                     break
 
-        # Stale index check for active sessions
         if target_ts_ns is None and cycles and cycle_id > cycles[-1]["cycle_id"]:
             m_ns = self._mtime_ns(path)
             if m_ns:
@@ -701,7 +586,6 @@ class McapSessionService:
                         target_ts_ns = c["timestamp_ns"]
                         break
 
-        # 2. Extract detail
         detail: dict[str, Any] = {
             "cycle_id": cycle_id,
             "guard_results": [],
@@ -712,28 +596,15 @@ class McapSessionService:
 
         try:
             with _mcap_open(path) as reader:
-                # Use a tight ±200 ms window: at 15 Hz that's ≤3 cycles before/after,
-                # so we never accidentally read guard results from adjacent cycles.
-                # The old -1 s window was pulling in ~15 cycles of guard messages.
-                _half = 200_000_000  # 200 ms in ns
+                _half = 200_000_000  # ±200 ms
                 msg_iter = reader.iter_messages(
                     start_time=target_ts_ns - _half if target_ts_ns else None,
                     end_time=target_ts_ns + _half if target_ts_ns else None,
                     log_time_order=False,
                 )
                 for _, channel, msg in msg_iter:
-                    try:
-                        encoding = channel.message_encoding
-                        if "msgpack" in encoding and _HAS_MSGPACK:
-                            d = _msgpack.unpackb(msg.data, raw=False)
-                            if not isinstance(d, list | tuple):
-                                continue
-                        else:
-                            continue  # Only support msgpack format
-                    except Exception:  # noqa: BLE001 — malformed message; skip
-                        continue
-
                     topic = channel.topic
+
                     if topic.startswith(_TOPIC_IMAGES_PREFIX):
                         cam_name = topic.split(_TOPIC_IMAGES_PREFIX, 1)[1]
                         detail["cameras"][cam_name] = {
@@ -745,155 +616,71 @@ class McapSessionService:
                     if topic not in _DETAIL_TOPICS:
                         continue
 
-                    msg_cid = d[_IDX_CYCLE]
+                    d = _decode_msg(msg.data, channel.message_encoding)
+                    if d is None:
+                        continue
+
+                    msg_cid = d.get("cycle_id")
                     if msg_cid != cycle_id:
                         continue
 
                     if topic == _TOPIC_CYCLE:
                         found = True
-                        # Rust msgpack format (array, appended fields remain backward-compatible):
-                        # [0]cycle_id [1]obs_timestamp [2]has_violation [3]has_clamp
-                        # [4]violated_layer_mask [5]clamped_layer_mask [6]active_task
-                        # [7]active_boundaries [8]active_cameras [9]obs_joint_positions
-                        # [10]obs_channels [11]action_positions [12]action_velocities
-                        # [13]validated_positions [14]validated_velocities [15]was_clamped
-                        # [16]fallback_triggered [17]guard_results [18]latency_stages
-                        # [19]latency_layers [20]latency_guards [21]image_data
-                        # [22]config_version [23]failure_type ... [28]failure_tuple
-                        arr_len = len(d)
-                        latency_stages = (
-                            d[_IDX_LATENCY_STAGES] if arr_len > _IDX_LATENCY_STAGES else {}
-                        )
-                        latency_layers = (
-                            d[_IDX_LATENCY_LAYERS] if arr_len > _IDX_LATENCY_LAYERS else {}
-                        )
-                        obs_joint_positions = (
-                            d[_IDX_OBS_JOINT_POSITIONS]
-                            if arr_len > _IDX_OBS_JOINT_POSITIONS
-                            else []
-                        )
-                        action_positions = (
-                            d[_IDX_ACTION_POSITIONS] if arr_len > _IDX_ACTION_POSITIONS else []
-                        )
-                        guard_results = (
-                            d[_IDX_GUARD_RESULTS] if arr_len > _IDX_GUARD_RESULTS else []
-                        )
+                        latency_stages = d.get("latency_stages") or {}
+                        latency_layers = d.get("latency_layers") or {}
+                        v_mask = d.get("violated_layer_mask", 0) or 0
+                        c_mask = d.get("clamped_layer_mask", 0) or 0
+                        obs_channels = d.get("obs_channels")
 
                         detail.update(
                             {
                                 "timestamp_ns": msg.log_time,
                                 "timestamp": msg.log_time / 1e9,
-                                "has_violation": bool(d[_IDX_HAS_VIOLATION])
-                                if arr_len > _IDX_HAS_VIOLATION
-                                else False,
-                                "has_clamp": bool(d[_IDX_HAS_CLAMP])
-                                if arr_len > _IDX_HAS_CLAMP
-                                else False,
-                                "violated_layer_mask": d[_IDX_VIOLATED_LAYER_MASK]
-                                if arr_len > _IDX_VIOLATED_LAYER_MASK
-                                else 0,
-                                "clamped_layer_mask": d[_IDX_CLAMPED_LAYER_MASK]
-                                if arr_len > _IDX_CLAMPED_LAYER_MASK
-                                else 0,
-                                "violated_layers": self._mask_to_layers(
-                                    d[_IDX_VIOLATED_LAYER_MASK]
-                                    if arr_len > _IDX_VIOLATED_LAYER_MASK
-                                    else 0
-                                ),
-                                "clamped_layers": self._mask_to_layers(
-                                    d[_IDX_CLAMPED_LAYER_MASK]
-                                    if arr_len > _IDX_CLAMPED_LAYER_MASK
-                                    else 0
-                                ),
-                                "failure_type": d[_IDX_FAILURE_TYPE]
-                                if arr_len > _IDX_FAILURE_TYPE
-                                else None,
-                                "failure_guard_names": d[_IDX_FAILURE_GUARD_NAMES]
-                                if arr_len > _IDX_FAILURE_GUARD_NAMES
-                                else [],
-                                "failure_layers": d[_IDX_FAILURE_LAYERS]
-                                if arr_len > _IDX_FAILURE_LAYERS
-                                else [],
-                                "failure_decisions": d[_IDX_FAILURE_DECISIONS]
-                                if arr_len > _IDX_FAILURE_DECISIONS
-                                else [],
-                                "failure_reasons": d[_IDX_FAILURE_REASONS]
-                                if arr_len > _IDX_FAILURE_REASONS
-                                else [],
-                                "failure_tuple": d[_IDX_FAILURE_TUPLE]
-                                if arr_len > _IDX_FAILURE_TUPLE
-                                else None,
-                                "active_context": _message_get(d, "active_context", "normal"),
-                                "context_severity": _message_get(d, "context_severity", 0),
-                                "context_event": _message_get(d, "context_event"),
-                                "active_task": d[_IDX_ACTIVE_TASK]
-                                if arr_len > _IDX_ACTIVE_TASK
-                                else None,
-                                "active_boundaries": d[_IDX_ACTIVE_BOUNDARIES]
-                                if arr_len > _IDX_ACTIVE_BOUNDARIES
-                                else [],
-                                "active_cameras": d[_IDX_ACTIVE_CAMERAS]
-                                if arr_len > _IDX_ACTIVE_CAMERAS
-                                else [],
-                                "source_ms": latency_stages.get("source", 0.0)
-                                if isinstance(latency_stages, dict)
-                                else 0.0,
-                                "policy_ms": latency_stages.get("policy", 0.0)
-                                if isinstance(latency_stages, dict)
-                                else 0.0,
-                                "guards_ms": latency_stages.get("guards", 0.0)
-                                if isinstance(latency_stages, dict)
-                                else 0.0,
-                                "sink_ms": latency_stages.get("sink", 0.0)
-                                if isinstance(latency_stages, dict)
-                                else 0.0,
-                                "total_ms": latency_stages.get("total", 0.0)
-                                if isinstance(latency_stages, dict)
-                                else 0.0,
+                                "has_violation": bool(d.get("has_violation")),
+                                "has_clamp": bool(d.get("has_clamp")),
+                                "violated_layer_mask": v_mask,
+                                "clamped_layer_mask": c_mask,
+                                "violated_layers": self._mask_to_layers(v_mask),
+                                "clamped_layers": self._mask_to_layers(c_mask),
+                                "failure_type": d.get("failure_type"),
+                                "failure_guard_names": d.get("failure_guard_names", []),
+                                "failure_layers": d.get("failure_layers", []),
+                                "failure_decisions": d.get("failure_decisions", []),
+                                "failure_reasons": d.get("failure_reasons", []),
+                                "failure_tuple": d.get("failure_tuple"),
+                                "active_context": d.get("active_context", "normal"),
+                                "context_severity": d.get("context_severity", 0),
+                                "context_event": d.get("context_event"),
+                                "active_task": d.get("active_task"),
+                                "active_boundaries": d.get("active_boundaries", []),
+                                "active_cameras": d.get("active_cameras", []),
+                                "source_ms": latency_stages.get("source", 0.0),
+                                "context_ms": latency_stages.get("context", 0.0),
+                                "policy_ms": latency_stages.get("policy", 0.0),
+                                "guards_ms": latency_stages.get("guards", 0.0),
+                                "sink_ms": latency_stages.get("sink", 0.0),
+                                "total_ms": latency_stages.get("total", 0.0),
                             }
                         )
+                        obs_jp = d.get("obs_joint_positions", [])
                         detail["observation"] = {
-                            "joint_positions": obs_joint_positions
-                            if isinstance(obs_joint_positions, list)
-                            else [],
-                            **(
-                                d[_IDX_OBS_CHANNELS]
-                                if arr_len > _IDX_OBS_CHANNELS
-                                and isinstance(d[_IDX_OBS_CHANNELS], dict)
-                                else {}
-                            ),
-                            "obs_timestamp": d[_IDX_OBS_TIMESTAMP]
-                            if arr_len > _IDX_OBS_TIMESTAMP
-                            else None,
+                            "joint_positions": obs_jp if isinstance(obs_jp, list) else [],
+                            **(obs_channels if isinstance(obs_channels, dict) else {}),
+                            "obs_timestamp": d.get("obs_timestamp"),
                         }
+                        act_pos = d.get("action_positions", [])
                         detail["action"] = {
-                            "target_positions": action_positions
-                            if isinstance(action_positions, list)
-                            else [],
-                            "target_velocities": d[_IDX_ACTION_VELOCITIES]
-                            if arr_len > _IDX_ACTION_VELOCITIES
-                            and isinstance(d[_IDX_ACTION_VELOCITIES], list)
-                            else None,
-                            "validated_positions": d[_IDX_VALIDATED_POSITIONS]
-                            if arr_len > _IDX_VALIDATED_POSITIONS
-                            and isinstance(d[_IDX_VALIDATED_POSITIONS], list)
-                            else None,
-                            "validated_velocities": d[_IDX_VALIDATED_VELOCITIES]
-                            if arr_len > _IDX_VALIDATED_VELOCITIES
-                            and isinstance(d[_IDX_VALIDATED_VELOCITIES], list)
-                            else None,
-                            "was_clamped": d[_IDX_WAS_CLAMPED]
-                            if arr_len > _IDX_WAS_CLAMPED
-                            else False,
-                            "fallback_triggered": d[_IDX_FALLBACK_TRIGGERED]
-                            if arr_len > _IDX_FALLBACK_TRIGGERED
-                            else None,
+                            "target_positions": act_pos if isinstance(act_pos, list) else [],
+                            "target_velocities": d.get("action_velocities"),
+                            "validated_positions": d.get("validated_positions"),
+                            "validated_velocities": d.get("validated_velocities"),
+                            "was_clamped": d.get("was_clamped", False),
+                            "fallback_triggered": d.get("fallback_triggered"),
                         }
-                        if isinstance(guard_results, list | tuple):
+                        guard_results = d.get("guard_results", [])
+                        if isinstance(guard_results, list):
                             for gr in guard_results:
-                                parsed = _guard_result_from_sequence(
-                                    gr
-                                ) or _guard_result_from_mapping(gr)
+                                parsed = _parse_guard_result(gr)
                                 if parsed is not None:
                                     detail["guard_results"].append(parsed)
                         detail["latency"] = {}
@@ -905,35 +692,33 @@ class McapSessionService:
                             for k, v in latency_layers.items():
                                 detail["latency"][k] = v
                                 detail["latency"][f"{k}_ms"] = v
+
                     elif topic == "/dam/obs":
                         detail["observation"] = {
-                            "joint_positions": _message_get(d, "joint_positions", []),
-                            **(
-                                {
-                                    k: v
-                                    for k, v in d.items()
-                                    if k not in {"cycle_id", "timestamp", "joint_positions"}
-                                }
-                                if isinstance(d, dict)
-                                else {}
-                            ),
-                            "obs_timestamp": _message_get(d, "timestamp"),
+                            "joint_positions": d.get("joint_positions", []),
+                            **{
+                                k: v
+                                for k, v in d.items()
+                                if k not in {"cycle_id", "timestamp", "joint_positions"}
+                            },
+                            "obs_timestamp": d.get("timestamp"),
                         }
                     elif topic == "/dam/action":
                         detail["action"] = {
-                            "target_positions": _message_get(d, "target_positions", []),
-                            "target_velocities": _message_get(d, "target_velocities"),
-                            "validated_positions": _message_get(d, "validated_positions"),
-                            "validated_velocities": _message_get(d, "validated_velocities"),
-                            "was_clamped": bool(_message_get(d, "was_clamped")),
-                            "fallback_triggered": _message_get(d, "fallback_triggered"),
-                            "active_context": _message_get(d, "active_context"),
+                            "target_positions": d.get("target_positions", []),
+                            "target_velocities": d.get("target_velocities"),
+                            "validated_positions": d.get("validated_positions"),
+                            "validated_velocities": d.get("validated_velocities"),
+                            "was_clamped": bool(d.get("was_clamped")),
+                            "fallback_triggered": d.get("fallback_triggered"),
+                            "active_context": d.get("active_context"),
                         }
                     elif topic == "/dam/latency":
                         detail["latency"] = {
-                            k: _message_get(d, k, 0.0)
+                            k: d.get(k, 0.0)
                             for k in (
                                 "source_ms",
+                                "context_ms",
                                 "policy_ms",
                                 "guards_ms",
                                 "sink_ms",
@@ -945,7 +730,7 @@ class McapSessionService:
                             )
                         }
                     elif topic in _LAYER_TOPICS:
-                        parsed = _guard_result_from_mapping(d) or _guard_result_from_sequence(d)
+                        parsed = _parse_guard_result(d)
                         if parsed is not None:
                             detail["guard_results"].append(parsed)
         except (EndOfFile, McapError):
@@ -1056,19 +841,7 @@ class McapSessionService:
                         payload = _msgpack.unpackb(msg.data, raw=False)
                     else:
                         payload = json.loads(msg.data)
-                    # ImageData format from Rust: [camera_name, timestamp, width, height, jpeg_bytes]
-                    # jpeg_bytes is a list of integers, convert to bytes
-                    if isinstance(payload, list) and len(payload) >= 5:
-                        jpeg_data = payload[4]
-                        if isinstance(jpeg_data, list):
-                            # Convert list of integers to bytes
-                            return bytes(jpeg_data)
-                        elif isinstance(jpeg_data, bytes):
-                            return jpeg_data
-                    elif isinstance(payload, dict):
-                        img = payload.get("data")
-                        if img:
-                            return img if isinstance(img, bytes) else base64.b64decode(img)
+                    return self._decode_frame_payload(payload)
         except Exception:  # noqa: BLE001
             pass
         return None
@@ -1092,16 +865,20 @@ class McapSessionService:
     @staticmethod
     def _decode_frame_payload(payload: Any) -> bytes | None:
         """Extract JPEG bytes from a decoded msgpack/JSON image payload."""
-        if isinstance(payload, list) and len(payload) >= 5:
-            jpeg_data = payload[4]
-            if isinstance(jpeg_data, (bytes, bytearray)):
-                return bytes(jpeg_data)
-            if isinstance(jpeg_data, list):
-                return bytes(jpeg_data)
-        elif isinstance(payload, dict):
+        if isinstance(payload, dict):
             img = payload.get("data")
-            if img:
-                return img if isinstance(img, bytes) else base64.b64decode(img)
+        elif isinstance(payload, list) and len(payload) >= 5:
+            img = payload[4]
+        else:
+            return None
+        if img is None:
+            return None
+        if isinstance(img, (bytes, bytearray)):
+            return bytes(img)
+        if isinstance(img, list):
+            return bytes(img)
+        if isinstance(img, str):
+            return base64.b64decode(img)
         return None
 
     def _get_frames_fast(self, filename: str, cam_name: str) -> list[dict[str, Any]]:

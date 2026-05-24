@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { api } from '@/lib/api'
-import type { BoundaryConfig } from '@/lib/types'
+import type { BoundaryConfig, FallbackDef } from '@/lib/types'
 import { Plus, Pencil, Trash2, RotateCcw } from 'lucide-react'
 
 type BoundaryNode = BoundaryConfig['nodes'][number]
@@ -143,6 +143,7 @@ function BoundaryModal({
   const [type, setType] = useState<'single' | 'list' | 'graph'>(initial?.type ?? 'single')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [fallbacks, setFallbacks] = useState<FallbackDef[]>([])
   const firstNode = initial?.nodes?.[0]
   const [node, setNode] = useState<BoundaryNode>(
     firstNode ?? { node_id: 'default', callback: null, fallback: 'emergency_stop', timeout_sec: 1, params: {} }
@@ -150,6 +151,10 @@ function BoundaryModal({
   const params = nodeParams(node)
   const callback = nodeCallback(node)
   const isHardwareWatchdog = name === 'hardware_watchdog' || callback === 'hardware_watchdog'
+
+  useEffect(() => {
+    api.getFallbacks().then(r => setFallbacks(r.fallbacks)).catch(() => {})
+  }, [])
 
   const setParam = (key: string, value: unknown) => {
     setNode(curr => ({ ...curr, params: { ...nodeParams(curr), [key]: value } }))
@@ -199,6 +204,46 @@ function BoundaryModal({
               <option value="list">list</option>
               <option value="graph">graph</option>
             </select>
+          </div>
+          <div>
+            <label htmlFor="boundary-fallback" className="text-dam-muted text-xs uppercase tracking-wider block mb-1">Fallback</label>
+            <select
+              id="boundary-fallback"
+              value={node.fallback ?? 'emergency_stop'}
+              onChange={e => setNode(curr => ({ ...curr, fallback: e.target.value }))}
+              className="w-full bg-dam-surface-2 border border-dam-border rounded px-3 py-1.5 text-dam-text text-sm"
+            >
+              {fallbacks.length > 0
+                ? fallbacks.map(f => (
+                    <option key={f.name} value={f.name}>{f.name}</option>
+                  ))
+                : ['emergency_stop', 'hold_position', 'wait_and_retry', 'slow_down', 'retreat'].map(n => (
+                    <option key={n} value={n}>{n}</option>
+                  ))
+              }
+            </select>
+            {fallbacks.length > 0 && (() => {
+              const sel = fallbacks.find(f => f.name === (node.fallback ?? 'emergency_stop'))
+              if (!sel) return null
+              return (
+                <div className="flex items-center gap-2 mt-1.5">
+                  <span className="text-[10px] text-dam-muted">severity {sel.severity ?? '?'}</span>
+                  {sel.monitors_hardware && (
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-orange-500/10 border border-orange-500/20 text-dam-orange">
+                      HW monitor
+                    </span>
+                  )}
+                  {sel.requires_proposal && (
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-blue-500/10 border border-blue-500/20 text-dam-blue">
+                      proposal
+                    </span>
+                  )}
+                  {sel.description && (
+                    <span className="text-[10px] text-dam-muted/70 truncate">{sel.description}</span>
+                  )}
+                </div>
+              )
+            })()}
           </div>
           {isHardwareWatchdog && (
             <HardwareWatchdogEditor params={params} setParam={setParam} />

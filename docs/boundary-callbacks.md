@@ -16,7 +16,6 @@ boundaries:
     type: single
     nodes:
       - callback: joint_position_limits
-        fallback: emergency_stop
         params:
           upper: [1.8243, 1.7691, 1.6026, 1.8067, 3.0741, 1.7453]
           lower: [-1.8243, -1.7691, -1.6026, -1.8067, -3.0741, 0]

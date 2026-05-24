@@ -28,6 +28,20 @@ def _array_or_none(value: Any) -> Any:
     return np.asarray(value, dtype=float) if isinstance(value, list) else None
 
 
+# Legacy Rust writers encoded CycleRecordData as positional msgpack arrays.
+# Current writers use named msgpack maps; keep the old map only for replaying
+# historical sessions.
+_IDX_CYCLE = 0
+_IDX_OBS_TIMESTAMP = 1
+_IDX_HAS_VIOLATION = 2
+_IDX_HAS_CLAMP = 3
+_IDX_ACTIVE_TASK = 6
+_IDX_OBS_JOINT_POSITIONS = 9
+_IDX_OBS_CHANNELS = 10
+_IDX_ACTION_POSITIONS = 11
+_IDX_ACTION_VELOCITIES = 12
+
+
 def iter_replay_through_guards(
     mcap_path: str,
     stack_path: str,
@@ -67,22 +81,6 @@ def iter_replay_through_guards(
     action_by_cycle: dict[int, dict[str, Any]] = {}
     recorded: dict[int, str] = {}
     task_name: str | None = None
-
-    # The Rust writer serialises CycleRecordData as a *positional* msgpack
-    # array (rmp_serde::to_vec). Reuse the canonical index map the MCAP
-    # session reader uses so replay stays in lock-step with the on-disk
-    # format. The legacy Python writer emitted JSON maps — accept both.
-    from dam.services.mcap_sessions import (
-        _IDX_ACTION_POSITIONS,
-        _IDX_ACTION_VELOCITIES,
-        _IDX_ACTIVE_TASK,
-        _IDX_CYCLE,
-        _IDX_HAS_CLAMP,
-        _IDX_HAS_VIOLATION,
-        _IDX_OBS_CHANNELS,
-        _IDX_OBS_JOINT_POSITIONS,
-        _IDX_OBS_TIMESTAMP,
-    )
 
     def _decode(data: Any) -> Any:
         try:

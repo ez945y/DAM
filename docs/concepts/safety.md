@@ -49,12 +49,18 @@ The policy was trained on a distribution of observations (e.g., arm configuratio
 **Typical configuration:**
 ```yaml
 guards:
-  builtin:
-    ood:
-      enabled: true
-      params:
-        nn_threshold: 0.5        # max allowed NN distance
-        reconstruction_threshold: 0.05
+  - L0: ood
+    phase: 0
+
+boundaries:
+  ood_welford:
+    layer: L0
+    type: single
+    nodes:
+      - callback: ood_welford
+        fallback: hold_position
+        params:
+          z_threshold: 3.0
 ```
 
 ---
@@ -74,14 +80,25 @@ L1 is the most mature layer. It enforces hard kinematic and dynamic constraints.
 **Example:**
 ```yaml
 guards:
-  builtin:
-    motion:
-      enabled: true
-      upper_limits: [1.57, 1.57, 1.57, 1.57, 1.57, 0.08]
-      lower_limits: [-1.57, -1.57, -1.57, -1.57, -1.57, 0.0]
-      max_velocity: [1.5, 1.5, 1.5, 1.5, 1.5, 0.5]
-      max_acceleration: [3.0, 3.0, 3.0, 3.0, 3.0, 1.0]
-      bounds: [[-0.5, 0.5], [-0.1, 0.6], [0.0, 1.5]]
+  - L1: motion
+    phase: 0
+
+boundaries:
+  joint_position_limits:
+    layer: L1
+    type: single
+    nodes:
+      - callback: joint_position_limits
+        params:
+          upper: [1.57, 1.57, 1.57, 1.57, 1.57, 0.08]
+          lower: [-1.57, -1.57, -1.57, -1.57, -1.57, 0.0]
+  joint_velocity_limit:
+    layer: L1
+    type: single
+    nodes:
+      - callback: joint_velocity_limit
+        params:
+          max_velocities: [1.5, 1.5, 1.5, 1.5, 1.5, 0.5]
 ```
 
 **Behavior:**
@@ -286,15 +303,14 @@ Always enable multiple guards. Don't rely on a single layer.
 
 ```yaml
 guards:
-  builtin:
-    ood:
-      enabled: true
-    motion:
-      enabled: true
-    execution:
-      enabled: true
-    hardware:
-      enabled: true
+  - L0: ood
+    phase: 0
+  - L1: motion
+    phase: 0
+  - L2: execution
+    phase: 1
+  - L3: hardware
+    always: true
 ```
 
 ### 2. Tight Boundaries
@@ -338,7 +354,7 @@ runtime.inject_rejection_for_testing()  # Force next N cycles to test fallbacks
 Always validate your Stackfile before loading:
 
 ```bash
-dam validate --stack mystack.yaml
+dam validate mystack.yaml
 ```
 
 ---

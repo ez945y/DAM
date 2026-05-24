@@ -76,8 +76,8 @@ describe('defaultConfig', () => {
     const cfg = defaultConfig('quick_start')
     expect(cfg.adapter).toBe('simulation')
     expect(cfg.enforcement_mode).toBe('monitor')
-    expect(cfg.tasks[0].boundaries).toHaveLength(6)
-    expect(cfg.tasks[0].boundaries).toContain('task_gripper_sequence')
+    expect(cfg.tasks[0].boundaries).toHaveLength(5)
+    expect(cfg.tasks[0].boundaries).toContain('workspace')
     expect(cfg.tasks[0].boundaries).toContain('hardware_watchdog')
     expect(cfg.tasks[0].boundaries).toContain('host_health')
   })
@@ -154,6 +154,31 @@ describe('generateYaml', () => {
     expect(yaml).not.toContain('lower_limits:')
     expect(yaml).not.toContain('ood_model_path:')
     expect(yaml).not.toContain('nn_threshold:')
+  })
+
+  it('includes fallbacks block with severity and type', () => {
+    const cfg = defaultConfig('quick_start')
+    const yaml = generateYaml(cfg)
+    expect(yaml).toContain('fallbacks:')
+    expect(yaml).toContain('emergency_stop:')
+    expect(yaml).toContain('type: emergency_stop')
+    expect(yaml).toContain('severity: 100')
+    expect(yaml).toContain('hold_position:')
+    expect(yaml).toContain('severity: 80')
+    expect(yaml).toContain('slow_down:')
+    expect(yaml).toContain('requires_proposal: true')
+  })
+
+  it('roundtrips fallbacks through generate → parse', () => {
+    const cfg = defaultConfig('so101_act')
+    const yaml = generateYaml(cfg)
+    const parsed = parseConfigFromYaml(yaml)
+    expect(parsed.fallbacks).toHaveLength(5)
+    const estop = parsed.fallbacks!.find((f: any) => f.name === 'emergency_stop')
+    expect(estop).toBeDefined()
+    expect(estop!.severity).toBe(100)
+    const slow = parsed.fallbacks!.find((f: any) => f.name === 'slow_down')
+    expect(slow!.requires_proposal).toBe(true)
   })
 
   it('includes all 4 builtin guards in list format', () => {

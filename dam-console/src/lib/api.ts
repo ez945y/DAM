@@ -340,6 +340,7 @@ export interface McapCycleDetail {
   active_boundaries: string[]
   // Latency (from /dam/cycle quick access)
   source_ms: number
+  context_ms: number
   policy_ms: number
   guards_ms: number
   sink_ms: number

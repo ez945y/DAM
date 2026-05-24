@@ -17,7 +17,7 @@ A software interface that connects DAM to external hardware or policies. Example
 ## B
 
 **Boundary**
-A task-specific safety envelope that constrains robot motion. Defined in Stackfile with constraints like max speed, workspace bounds, force limits, and callbacks. Enforced by the L3 guard.
+A task-specific safety envelope that constrains robot behavior. Defined in a Stackfile and attached to a guard layer such as L0, L1, L2, or L3.
 
 **Boundary Container**
 A data structure holding boundary nodes. Three types: **Single** (one static node), **List** (sequential phases), **Graph** (arbitrary DAG).
@@ -33,7 +33,7 @@ A single safety configuration within a container. Contains constraints, fallback
 An action adjustment to satisfy constraints without rejection. Example: if proposed velocity exceeds limit, DAM scales all joints down proportionally. Most restrictive decision wins; clamped actions still execute.
 
 **Callback**
-A user-provided Python function registered with `@dam.callback` that evaluates custom constraints. Called by L3 guard. Must return `True` (pass) or `False` (reject).
+A registered function that evaluates a named boundary rule. Built-in callbacks cover common checks; custom callbacks are optional and should be introduced after the Stackfile workflow is clear.
 
 **Constraint**
 A safety rule within a boundary node. Types: max_speed, bounds (workspace), max_force_n, max_velocity (per-joint), upper_limits, lower_limits, callback.
@@ -72,7 +72,7 @@ The sequence in which L3 constraint checks are performed: max_speed â†’ bounds â
 Core safety principle: any guard exception, timeout, or unexpected behavior results in immediate action rejection. No graceful degradation into unsafe execution.
 
 **Fallback**
-A recovery strategy executed when a constraint is violated. Types: **hold_position** (stop and stay put), **safe_retreat** (low-speed retreat), **emergency_stop** (immediate halt).
+A recovery strategy executed when a constraint is violated. Common types include **hold_position** (stop and stay put), **retreat** (low-speed retreat), **slow_down**, **wait_and_retry**, and **emergency_stop** (immediate halt).
 
 **Fallback Registry**
 A data structure mapping fallback names to implementations. Supports fallback escalation chains.

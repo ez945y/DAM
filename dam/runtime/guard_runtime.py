@@ -510,6 +510,8 @@ class GuardRuntime:
         from dam.boundary.callbacks._registry import normalize_unit_params
 
         for bname, bcfg in new_config.boundaries.items():
+            if bcfg.type == "list":
+                continue
             for ncfg in bcfg.nodes:
                 # Normalise per-node: degrees→radians once, strip use_degrees
                 # so the hot path never sees a unit flag.
@@ -941,6 +943,8 @@ class GuardRuntime:
                     break
                 self._pop_context()
 
+        t_ctx = time.monotonic()
+
         # ── Action proposal (skipped when active Context doesn't need it) ──
         action: ActionProposal | None = (
             self._policy.predict(obs) if self._active_context.requires_proposal else None
@@ -1011,7 +1015,8 @@ class GuardRuntime:
         # Deliberately placed after all guard execution so the MetricBus holds
         # a complete picture before commit_cycle() finalises the layer history.
         _src_ms = (t_obs - t_start) * 1000.0
-        _policy_ms = (t_policy - t_obs) * 1000.0
+        _ctx_ms = (t_ctx - t_obs) * 1000.0
+        _policy_ms = (t_policy - t_ctx) * 1000.0
         _guard_ms = (t_validate - t_policy) * 1000.0
         _sink_ms = (t_sink - t_validate) * 1000.0
         _total_ms = (t_sink - t_start) * 1000.0
@@ -1020,6 +1025,7 @@ class GuardRuntime:
         for _source_name, _source_ms in source_latencies.items():
             self._metric_bus.push_stage(f"source.{_source_name}", _source_ms)
         self._metric_bus.push_stage("obs_bus", _obs_bus_ms)
+        self._metric_bus.push_stage("context", _ctx_ms)
         self._metric_bus.push_stage("policy", _policy_ms)
         self._metric_bus.push_stage("guards", _guard_ms)
         self._metric_bus.push_stage("sink", _sink_ms)
@@ -1071,7 +1077,8 @@ class GuardRuntime:
             fallback_triggered=fallback_triggered,
             latency_ms={
                 "obs": (t_obs - t_start) * 1000,
-                "policy": (t_policy - t_obs) * 1000,
+                "context": (t_ctx - t_obs) * 1000,
+                "policy": (t_policy - t_ctx) * 1000,
                 "validate": (t_validate - t_policy) * 1000,
                 "sink": (t_sink - t_validate) * 1000,
                 "total": (t_sink - t_start) * 1000,

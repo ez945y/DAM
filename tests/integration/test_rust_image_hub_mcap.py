@@ -90,7 +90,8 @@ def test_rust_image_hub_writes_and_reader_returns_all_cameras(
                 cycle = decoded
             elif channel.topic.startswith("/dam/images/"):
                 cam = channel.topic.rsplit("/", 1)[1]
-                image_payloads[cam] = bytes(decoded[4])
+                img_data = decoded.get("data") if isinstance(decoded, dict) else decoded[4]
+                image_payloads[cam] = bytes(img_data)
 
     assert set(f"/dam/images/{cam}" for cam in cameras).issubset(topics)
     assert set(image_payloads) == set(cameras)
@@ -98,7 +99,8 @@ def test_rust_image_hub_writes_and_reader_returns_all_cameras(
         cam: f"jpeg-{cam}".encode() for cam in cameras
     }
     assert cycle is not None
-    assert cycle[8] == list(cameras)
+    active_cams = cycle.get("active_cameras") if isinstance(cycle, dict) else cycle[8]
+    assert active_cams == list(cameras)
 
     service = McapSessionService(str(tmp_path))
     detail = service.get_cycle_detail(path.name, 42)
@@ -220,7 +222,9 @@ def test_rust_image_hub_does_not_write_frames_before_recording_cursor(tmp_path: 
         for _schema, channel, message in make_reader(f).iter_messages():
             if channel.topic.startswith("/dam/images/"):
                 decoded = msgpack.unpackb(message.data, raw=False)
-                payloads.append(bytes(decoded[4]))
+                payloads.append(
+                    bytes(decoded.get("data") if isinstance(decoded, dict) else decoded[4])
+                )
 
     assert payloads == [b"after-start"]
 
@@ -280,7 +284,9 @@ def test_rust_image_hub_streams_new_frames_across_cycles(tmp_path: Path) -> None
         for _schema, channel, message in make_reader(f).iter_messages():
             if channel.topic.startswith("/dam/images/"):
                 decoded = msgpack.unpackb(message.data, raw=False)
-                payloads_by_topic.setdefault(channel.topic, []).append(bytes(decoded[4]))
+                payloads_by_topic.setdefault(channel.topic, []).append(
+                    bytes(decoded.get("data") if isinstance(decoded, dict) else decoded[4])
+                )
 
     assert payloads_by_topic == {
         "/dam/images/top": [b"top-1", b"top-2"],
@@ -342,7 +348,9 @@ def test_rust_image_hub_flushes_tail_frames_on_stop(tmp_path: Path) -> None:
         for _schema, channel, message in make_reader(f).iter_messages():
             if channel.topic.startswith("/dam/images/"):
                 decoded = msgpack.unpackb(message.data, raw=False)
-                payloads_by_topic.setdefault(channel.topic, []).append(bytes(decoded[4]))
+                payloads_by_topic.setdefault(channel.topic, []).append(
+                    bytes(decoded.get("data") if isinstance(decoded, dict) else decoded[4])
+                )
 
     assert payloads_by_topic == {
         "/dam/images/top": [b"top-cycle", b"top-tail"],

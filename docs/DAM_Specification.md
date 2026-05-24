@@ -889,14 +889,16 @@ simulation:
   scene: assets/pick_and_place.usd
   lookahead_steps: 10              # injected into L1 via config_pool
 
-# ── Custom Guards ─────────────────────────────────────────────────────────
-# Special guards: registered in Python via @dam.guard(layer="L3").
-# Core guards (motion, workspace, etc.) are defined in boundaries below.
+# ── Guards ────────────────────────────────────────────────────────────────
 guards:
-  custom:
-    - class: GraspForceGuard
-      params:
-        max_force_n: 15.0
+  - L0: ood
+    phase: 0
+  - L1: motion
+    phase: 0
+  - L2: execution
+    phase: 1
+  - L3: hardware
+    always: true
 
 # ── Global Safety & Runtime ───────────────────────────────────────────────
 safety:
@@ -913,8 +915,6 @@ boundaries:
       - node_id: default
         max_speed: 0.8
         callback: workspace
-        timeout_sec: 1
-        fallback: emergency_stop
         params:
           bounds: [[-0.4, 0.4], [-0.4, 0.4], [0.02, 0.6]]
 
@@ -924,8 +924,6 @@ boundaries:
       - node_id: default
         max_speed: 0.8
         callback: joint_position_limits
-        timeout_sec: 1
-        fallback: emergency_stop
         params:
           upper: [2.9, 2.9, 2.9, 2.9, 2.9, 2.9]
           lower: [-2.9, -2.9, -2.9, -2.9, -2.9, -2.9]
@@ -1041,13 +1039,17 @@ class SimPreflightGuard(Guard):
               ) -> GuardResult: ...
 ```
 
-Declare in Stackfile under `guards.custom`:
+Declare in Stackfile as a boundary with its callback:
 ```yaml
-guards:
-  custom:
-    - class: GraspForceGuard
-      params:
-        max_force_n: 15.0
+boundaries:
+  grasp_force:
+    layer: L3
+    type: single
+    nodes:
+      - callback: grasp_force_guard
+        fallback: emergency_stop
+        params:
+          max_force_n: 15.0
 ```
 
 ---

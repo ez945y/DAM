@@ -123,13 +123,17 @@ dam:
   version: "1"
 
 guards:
-  builtin:
-    motion: { ... }      # L2 config
-    ood: { ... }         # L0 config
+  - L0: ood
+    phase: 0
+  - L1: motion
+    phase: 0
+  - L2: execution
+    phase: 1
+  - L3: hardware
+    always: true
 
 boundaries:
-  containers:
-    reach: { ... }       # Task boundary
+  workspace: { ... }     # Motion boundary
 
 tasks:
   my_task: { ... }       # Task definition
@@ -150,20 +154,22 @@ dam:
   version: "1"
 
 guards:
-  builtin:
-    motion:
-      enabled: true
-      upper_limits: [1.57, 1.57, 1.57]
-      lower_limits: [-1.57, -1.57, -1.57]
+  - L1: motion
+    phase: 0
+  - L2: execution
+    phase: 1
+  - L3: hardware
+    always: true
 
 boundaries:
-  always_active: default
-  containers:
-    default:
-      type: single
-      nodes:
-        - node_id: default
-          constraint: {}
+  joint_position_limits:
+    layer: L1
+    type: single
+    nodes:
+      - callback: joint_position_limits
+        params:
+          upper: [1.57, 1.57, 1.57]
+          lower: [-1.57, -1.57, -1.57]
 
 tasks:
   demo:
@@ -178,29 +184,36 @@ Enable L0 (OOD detection):
 
 ```yaml
 guards:
-  builtin:
-    ood:
-      enabled: true
-      params:
-        nn_threshold: 0.5
-    motion:
-      enabled: true
-      upper_limits: [...]
+  - L0: ood
+    phase: 0
+  - L1: motion
+    phase: 0
+  - L2: execution
+    phase: 1
+  - L3: hardware
+    always: true
 ```
 
 ### 2.4 Adding Constraints
 
-Add velocity and workspace limits:
+Add velocity and workspace limits as boundaries:
 
 ```yaml
-guards:
-  builtin:
-    motion:
-      enabled: true
-      upper_limits: [1.57, 1.57, 1.57]
-      lower_limits: [-1.57, -1.57, -1.57]
-      max_velocity: [1.5, 1.5, 1.5]
-      bounds: [[-0.5, 0.5], [-0.5, 0.5], [0.0, 1.5]]
+boundaries:
+  joint_velocity_limit:
+    layer: L1
+    type: single
+    nodes:
+      - callback: joint_velocity_limit
+        params:
+          max_velocities: [1.5, 1.5, 1.5]
+  workspace:
+    layer: L1
+    type: single
+    nodes:
+      - callback: workspace
+        params:
+          bounds: [[-0.5, 0.5], [-0.5, 0.5], [0.0, 1.5]]
 ```
 
 ### 2.5 Task Boundaries
@@ -232,7 +245,7 @@ Create `tutorial_stackfile.yaml` with:
 ### Exercise 2.2: Validate It
 
 ```bash
-dam validate --stack tutorial_stackfile.yaml
+dam validate tutorial_stackfile.yaml
 ```
 
 Should print: `✓ Stackfile is valid`
@@ -386,7 +399,7 @@ runner.run()
 
 Before deploying to hardware:
 
-- [ ] Validate Stackfile: `dam validate --stack mystack.yaml`
+- [ ] Validate Stackfile: `dam validate mystack.yaml`
 - [ ] Test in simulation: `python run_sim.py` (no errors, no rejections)
 - [ ] Test with loose constraints: bounds ±50cm, max_speed = 1.0
 - [ ] Test with tight constraints: gradually decrease bounds
@@ -415,27 +428,33 @@ policy:
   model_id: lerobot/aloha-2-mobile-aloha/2024-07-29
 
 guards:
-  builtin:
-    motion:
-      enabled: true
-      upper_limits: [1.57, 1.57, 1.57, 1.57, 1.57, 0.08]
-      lower_limits: [-1.57, -1.57, -1.57, -1.57, -1.57, 0.0]
-      max_velocity: [1.0, 1.0, 1.0, 1.0, 1.0, 0.3]
+  - L1: motion
+    phase: 0
+  - L2: execution
+    phase: 1
+  - L3: hardware
+    always: true
 
 boundaries:
-  always_active: safe_zone
-  containers:
-    safe_zone:
-      type: single
-      nodes:
-        - node_id: safe
-          constraint:
-            max_speed: 0.3
-            bounds: [[-0.35, 0.35], [-0.05, 0.45], [0.01, 0.40]]
+  joint_position_limits:
+    layer: L1
+    type: single
+    nodes:
+      - callback: joint_position_limits
+        params:
+          upper: [1.57, 1.57, 1.57, 1.57, 1.57, 0.08]
+          lower: [-1.57, -1.57, -1.57, -1.57, -1.57, 0.0]
+  workspace:
+    layer: L1
+    type: single
+    nodes:
+      - callback: workspace
+        params:
+          bounds: [[-0.35, 0.35], [-0.05, 0.45], [0.01, 0.40]]
 
 tasks:
   pick_and_place:
-    boundaries: [safe_zone]
+    boundaries: [joint_position_limits, workspace]
 ```
 
 Deploy:

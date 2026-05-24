@@ -505,7 +505,7 @@ tasks:
 ### Validate Stackfile
 
 ```bash
-dam validate --stack mystack.yaml
+dam validate mystack.yaml
 ```
 
 ### Inspect Active Boundaries

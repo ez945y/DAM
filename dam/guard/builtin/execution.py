@@ -62,6 +62,7 @@ class ExecutionGuard(Guard):
         for container in active_containers:
             node = container.get_active_node()
             constraint = node.constraint
+            boundary_name = getattr(container, "_runtime_boundary_name", None) or name
 
             # 1. callback check
             if constraint.callback:
@@ -69,7 +70,7 @@ class ExecutionGuard(Guard):
                     containers=[container],
                     base_kwargs={"obs": obs, "action": action},
                     expected_layer="L2",
-                    guard_name=name,
+                    guard_name=boundary_name,
                     guard_layer=layer,
                     violation_decision=GuardDecision.REJECT,
                     fault_source="guard_code",
@@ -86,12 +87,13 @@ class ExecutionGuard(Guard):
                 if start_time is not None:
                     elapsed = time.monotonic() - start_time
                     if elapsed > node.timeout_sec:
+                        reject_name = boundary_name or name
                         return GuardResult.reject(
                             reason=(
                                 f"node '{node.node_id}' timed out "
                                 f"({elapsed:.3f}s > {node.timeout_sec}s)"
                             ),
-                            guard_name=name,
+                            guard_name=reject_name,
                             layer=layer,
                         )
 

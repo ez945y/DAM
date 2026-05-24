@@ -203,8 +203,8 @@ export interface ConstraintNodeDef {
   // All constraint parameters (bounds, max_speed, …) live in params.
   params: Record<string, any>
   callback: string | null
-  fallback: string
-  timeout_sec: number | null
+  fallback?: string | null
+  timeout_sec?: number | null
 }
 
 export interface BoundaryDef {

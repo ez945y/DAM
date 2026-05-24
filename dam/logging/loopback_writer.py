@@ -484,7 +484,18 @@ class _WriterSession:
             "cycle_id": {"type": "integer"},
             "timestamp": {"type": "number"},
         }
-        for key in ("source", "policy", "guards", "sink", "total", "L0", "L1", "L2", "L3"):
+        for key in (
+            "source",
+            "context",
+            "policy",
+            "guards",
+            "sink",
+            "total",
+            "L0",
+            "L1",
+            "L2",
+            "L3",
+        ):
             latency_props[f"{key}_ms"] = {"type": "number"}
         sid = self._reg_schema("dam.Latency", latency_props)
         self._reg_channel("/dam/latency", sid, user_data={"unit": "ms"})
@@ -918,7 +929,7 @@ class LoopbackWriter:
             "cycle_id": rec.cycle_id,
             "timestamp": rec.obs_timestamp,
         }
-        for key in ("source", "policy", "guards", "sink", "total"):
+        for key in ("source", "context", "policy", "guards", "sink", "total"):
             latency_msg[f"{key}_ms"] = rec.latency_stages.get(key, 0.0)
         for key in ("L0", "L1", "L2", "L3"):
             latency_msg[f"{key}_ms"] = rec.latency_layers.get(key, 0.0)

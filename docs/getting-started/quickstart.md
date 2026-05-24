@@ -45,6 +45,20 @@ Open your browser:
 
 You'll see live telemetry: cycles, risk levels, guard decisions, latencies.
 
+## Validate A Demo Stack
+
+Before editing a robot configuration, validate one known-good Stackfile:
+
+```bash
+make validate
+```
+
+Expected result: every file under `examples/stackfiles/` reports `OK`. If you want to inspect one stack, run:
+
+```bash
+.venv/bin/dam inspect examples/stackfiles/demo.yaml
+```
+
 ---
 
 ## Run Tests
@@ -97,6 +111,7 @@ make help     # Show all available targets
 ## Next Steps
 
 - **Learn the concepts** → [Architecture Overview](../concepts/architecture.md)
+- **Follow the guided path** → [Learn DAM](../learn/index.md)
 - **Understand guards** → [Guard Stack Explained](../concepts/guards-explained.md)
 - **Design boundaries** → [Boundary System](../concepts/boundaries.md)
 - **Full learning path** → [Complete Tutorial](../learn/tutorial.md)

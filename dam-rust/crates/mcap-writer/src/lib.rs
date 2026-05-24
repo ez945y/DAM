@@ -99,6 +99,7 @@ pub struct ImageData {
     pub timestamp: f64,
     pub width: u32,
     pub height: u32,
+    #[serde(with = "serde_bytes")]
     pub data: Vec<u8>,
 }
 
@@ -447,7 +448,7 @@ fn process_cycle<W: std::io::Write + std::io::Seek>(
     let log_time = (record.obs_timestamp * 1_000_000_000.0) as u64;
 
     let cycle_bytes =
-        rmp_serde::to_vec(record).map_err(|e| format!("Serialization failed: {}", e))?;
+        rmp_serde::to_vec_named(record).map_err(|e| format!("Serialization failed: {}", e))?;
 
     // Register schema and channel for /dam/cycle
     let cycle_schema_id = mcap
@@ -500,8 +501,8 @@ fn write_images<W: std::io::Write + std::io::Seek>(
                 )
                 .map_err(|e| format!("Failed to add image channel: {}", e))?;
 
-            let img_bytes =
-                rmp_serde::to_vec(img).map_err(|e| format!("Failed to serialize image: {}", e))?;
+            let img_bytes = rmp_serde::to_vec_named(img)
+                .map_err(|e| format!("Failed to serialize image: {}", e))?;
             let img_log_time = (img.timestamp * 1_000_000_000.0) as u64;
 
             mcap.write_to_known_channel(

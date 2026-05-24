@@ -38,18 +38,39 @@ safety:
 fallbacks:
   emergency_stop:
     type: emergency_stop
+    severity: 100
   hold_position:
     type: hold_position
-    escalates_to: emergency_stop
-  safe_retreat:
-    type: safe_retreat
-    escalates_to: hold_position
+    severity: 80
+    escalate_to: emergency_stop
+  retreat:
+    type: retreat
+    severity: 60
+    escalate_to: hold_position
+    params:
+      duration_seconds: 3.0
+      arrival_tol: 0.01
+  slow_down:
+    type: slow_down
+    severity: 40
+    requires_proposal: true
+    params:
+      scale: 0.5
+  wait_and_retry:
+    type: wait_and_retry
+    severity: 20
+    params:
+      wait_seconds: 1.0
 
 guards:
   - L0: ood
+    phase: 0
   - L1: motion
+    phase: 0
   - L2: execution
+    phase: 1
   - L3: hardware
+    always: true
 
 boundaries:
   joint_position_limits:
@@ -57,7 +78,6 @@ boundaries:
     type: single
     nodes:
       - callback: joint_position_limits
-        fallback: emergency_stop
         params:
           upper: [1.8243, 1.7691, 1.6026, 1.8067, 3.0741, 1.7453]
           lower: [-1.8243, -1.7691, -1.6026, -1.8067, -3.0741, 0]
@@ -66,8 +86,6 @@ boundaries:
     type: single
     nodes:
       - callback: joint_velocity_limit
-        timeout_sec: 1
-        fallback: hold_position
         params:
           max_velocities: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5]
   workspace:
@@ -75,8 +93,6 @@ boundaries:
     type: single
     nodes:
       - callback: workspace
-        timeout_sec: 1
-        fallback: hold_position
         params:
           bounds: [[-0.4, 0.4], [-0.4, 0.4], [0.02, 0.6]]
   cartesian_velocity_limit:
@@ -95,7 +111,7 @@ boundaries:
     nodes:
       - callback: keep_out_zone
         timeout_sec: 1
-        fallback: safe_retreat
+        fallback: retreat
         params:
           # Operator-side no-go volume (metres, base frame).
           boxes:

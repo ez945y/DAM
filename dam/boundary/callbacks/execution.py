@@ -183,12 +183,6 @@ def task_gripper_command_guard(
     bname = "task_gripper_command_guard"
     if action is None or action.gripper_action is None:
         return CallbackResult.ok(bname)
-    if obs.end_effector_pose is None:
-        return _clamp_gripper(
-            bname=bname,
-            action=action,
-            reason="missing end-effector pose for gripper task gate",
-        )
 
     gripper = float(action.gripper_action)
     if not np.isfinite(gripper):
@@ -196,14 +190,6 @@ def task_gripper_command_guard(
             bname=bname,
             action=action,
             reason="non-finite gripper action",
-        )
-
-    ee_pos = np.asarray(obs.end_effector_pose[:3], dtype=np.float64)
-    if not _all_finite(ee_pos):
-        return _clamp_gripper(
-            bname=bname,
-            action=action,
-            reason="non-finite end-effector position",
         )
 
     command: str | None = None
@@ -244,6 +230,29 @@ def task_gripper_command_guard(
             reason=f"gripper {command} command does not match allowed command '{expected}'",
             command=command,
             allowed_command=expected,
+        )
+
+    # Zone check requires end-effector pose from FK.
+    # Without a zone, the command-type check above is sufficient.
+    if expected_zone is None:
+        return CallbackResult.ok(
+            bname,
+            metadata={"gripper_command": command, "allowed_command": expected},
+        )
+
+    if obs.end_effector_pose is None:
+        return _clamp_gripper(
+            bname=bname,
+            action=action,
+            reason="missing end-effector pose for gripper zone check",
+        )
+
+    ee_pos = np.asarray(obs.end_effector_pose[:3], dtype=np.float64)
+    if not _all_finite(ee_pos):
+        return _clamp_gripper(
+            bname=bname,
+            action=action,
+            reason="non-finite end-effector position",
         )
 
     if _in_box(ee_pos, expected_zone):

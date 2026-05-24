@@ -187,22 +187,22 @@ policy:
   model_id: lerobot/aloha-2-mobile-aloha/2024-07-29
 
 guards:
-  builtin:
-    motion:
-      enabled: true
-      upper_limits: [1.57, 1.57, 1.57, ...]
-      lower_limits: [-1.57, -1.57, -1.57, ...]
-      max_velocity: [1.5, 1.5, 1.5, ...]
+  - L1: motion
+    phase: 0
+  - L2: execution
+    phase: 1
+  - L3: hardware
+    always: true
 
 boundaries:
-  always_active: default
-  containers:
-    default:
-      type: single
-      nodes:
-        - node_id: default
-          constraint:
-            max_speed: 0.3
+  joint_position_limits:
+    layer: L1
+    type: single
+    nodes:
+      - callback: joint_position_limits
+        params:
+          upper: [1.57, 1.57, 1.57, ...]
+          lower: [-1.57, -1.57, -1.57, ...]
 
 tasks:
   pick_and_place:

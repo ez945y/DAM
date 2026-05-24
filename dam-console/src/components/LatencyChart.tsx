@@ -9,17 +9,18 @@ import type { PerfSnapshot } from '@/lib/types'
 // ── Colour palette ────────────────────────────────────────────────────────
 const STAGE_COLORS: Record<string, string> = {
   source:  '#6366F1',   // indigo
+  context: '#A855F7',   // purple
   policy:  '#F59E0B',   // amber
   guards:  '#10B981',   // emerald
   sink:    '#3B82F6',   // blue
 }
 const STAGE_LABELS: Record<string, string> = {
-  source: 'Source', policy: 'Policy', guards: 'Guards', sink: 'Sink',
+  source: 'Source', context: 'Context', policy: 'Policy', guards: 'Guards', sink: 'Sink',
 }
-const STAGE_ORDER = ['source', 'policy', 'guards', 'sink'] as const
+const STAGE_ORDER = ['source', 'context', 'policy', 'guards', 'sink'] as const
 
 const EMPTY_PERF: PerfSnapshot = {
-  stages: { source: 0, policy: 0, guards: 0, sink: 0, total: 0 },
+  stages: { source: 0, context: 0, policy: 0, guards: 0, sink: 0, total: 0 },
   layers: { L1: 0, L3: 0 },
   guards: {},
   deadline_ms: 0,

@@ -15,26 +15,32 @@ dam:
   version: "1"
 
 guards:
-  - L2: motion
+  - L1: motion
+    phase: 0
+  - L2: execution
+    phase: 1
+  - L3: hardware
+    always: true
 
 safety:
-  always_active: default_limits
+  control_frequency_hz: 30
+  enforcement_mode: enforce
 
 boundaries:
-  default_limits:
+  joint_position_limits:
+    layer: L1
     type: single
     nodes:
-      - node_id: picking
+      - callback: joint_position_limits
         params:
           upper: [1.57, 1.57, 1.57, 1.57, 1.57, 0.08]
           lower: [-1.57, -1.57, -1.57, -1.57, -1.57, 0.0]
-          max_velocity: [1.5, 1.5, 1.5, 1.5, 1.5, 0.5]
 ```
 
 To run it:
 
 ```bash
-dam run --stack my_stackfile.yaml --task default
+dam run my_stackfile.yaml --task default
 ```
 
 Or in Python:
@@ -475,7 +481,7 @@ Only static config-pool parameters (guard limits, boundary constraints) are relo
 Validate a Stackfile against the schema without running the control loop:
 
 ```bash
-dam validate --stack my_stackfile.yaml
+dam validate my_stackfile.yaml
 ```
 
 CI automatically validates all Stackfiles under `examples/stackfiles/` on every push.

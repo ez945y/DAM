@@ -494,6 +494,7 @@ function LatencySummary({ latency = {}, totalMs }: { latency?: Record<string, nu
   const total = totalMs ?? latency.total ?? latency.total_ms ?? 0
   const rows = [
     ['source', latency.source ?? latency.source_ms ?? latency.obs ?? 0],
+    ['context', latency.context ?? latency.context_ms ?? 0],
     ['policy', latency.policy ?? latency.policy_ms ?? 0],
     ['guards', latency.guards ?? latency.guards_ms ?? latency.validate ?? 0],
     ['sink', latency.sink ?? latency.sink_ms ?? 0],

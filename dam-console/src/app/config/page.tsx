@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { RefreshCw, Plus, Trash2, Usb, Settings2 } from 'lucide-react'
 import { TEMPLATES, defaultConfig, generateYaml, parseConfigFromYaml } from '@/lib/templates'
 import type { DamConfig, CameraConfig } from '@/lib/templates'
-import type { EnforcementMode, UsbDeviceInfo } from '@/lib/types'
+import type { EnforcementMode, UsbDeviceInfo, FallbackDef } from '@/lib/types'
 import { api, scanUsbDevices, listPresets, type PresetEntry } from '@/lib/api'
 import { useStackfileLibrary } from '@/hooks/useStackfileLibrary'
 import { StackfileLibraryBar } from '@/components/StackfileLibraryBar'
@@ -242,12 +242,17 @@ export default function ConfigPage() {
     setRestartError(null)
     setRestartOk(false)
     try {
-      await api.restart(cfg.adapter ?? 'simulation', yaml)
-      // HTTP response only confirms the restart was accepted.
-      // Keep restarting=true — wait for WS system_status to confirm ready/error.
-      restartWaitingRef.current = true
+      const res = await api.restart(cfg.adapter ?? 'simulation', yaml) as { ok?: boolean; method?: string }
+      if (res?.method === 'hot-restart') {
+        // Backend confirmed hot-restart — wait for WS ready event.
+        restartWaitingRef.current = true
+      } else {
+        // Cold-start or no backend — YAML was saved, don't wait for WS.
+        setRestarting(false)
+        setRestartOk(true)
+        setTimeout(() => setRestartOk(false), 5000)
+      }
     } catch (e) {
-      // HTTP-level failure (network unreachable, etc.) — give immediate feedback.
       setRestartError(e instanceof Error ? e.message : String(e))
       setRestarting(false)
     }
@@ -653,6 +658,124 @@ export default function ConfigPage() {
               onChange={e => set('controlFrequencyHz', Number(e.target.value))}
               className={`w-full ${inputCls}`}
             />
+          </div>
+        </div>
+
+        <div className="pt-3 border-t border-dam-border/60 mt-3 space-y-3">
+          <p className="text-dam-muted text-[10px] uppercase tracking-widest">Fallback Contexts</p>
+          {(cfg.fallbacks ?? []).length === 0 ? (
+            <p className="text-dam-muted text-xs italic">No fallbacks defined. Select a template to populate defaults.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {(cfg.fallbacks ?? []).map((f, i) => {
+                const params = f.params ?? {}
+                const paramKeys = Object.keys(params)
+                const setFallbackParam = (key: string, value: unknown) => {
+                  const next = [...(cfg.fallbacks ?? [])]
+                  next[i] = { ...next[i], params: { ...params, [key]: value } }
+                  set('fallbacks', next)
+                }
+                return (
+                <div key={f.name} className="bg-dam-surface-2 border border-dam-border rounded-lg px-3 py-2 space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs text-dam-text font-semibold min-w-[10rem]">{f.name}</span>
+                    <span className="text-[10px] text-dam-muted">sev {f.severity ?? '?'}</span>
+                    {f.requires_proposal && (
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-blue-500/10 border border-blue-500/20 text-dam-blue">proposal</span>
+                    )}
+                    {f.monitors_hardware && (
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-orange-500/10 border border-orange-500/20 text-dam-orange">HW</span>
+                    )}
+                    <div className="ml-auto flex items-center gap-1.5">
+                      <span className="text-[10px] text-dam-muted">escalate</span>
+                      <select
+                        value={f.escalate_to ?? ''}
+                        onChange={e => {
+                          const next = [...(cfg.fallbacks ?? [])]
+                          next[i] = { ...next[i], escalate_to: e.target.value || null }
+                          set('fallbacks', next)
+                        }}
+                        className="bg-dam-surface border border-dam-border rounded px-1.5 py-0.5 text-[10px] text-dam-text"
+                      >
+                        <option value="">none</option>
+                        {(cfg.fallbacks ?? []).filter(o => o.name !== f.name && (o.severity ?? 0) > (f.severity ?? 0)).map(o => (
+                          <option key={o.name} value={o.name}>{o.name} (sev {o.severity})</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  {paramKeys.length > 0 && (
+                    <div className="flex items-center gap-3 pl-2 border-l-2 border-dam-border/40">
+                      {paramKeys.map(key => (
+                        <label key={key} className="flex items-center gap-1">
+                          <span className="text-[10px] text-dam-muted">{key}</span>
+                          <input
+                            type="number"
+                            step="any"
+                            value={Number(params[key] ?? 0)}
+                            onChange={e => setFallbackParam(key, Number(e.target.value))}
+                            className="w-16 bg-dam-surface border border-dam-border rounded px-1.5 py-0.5 text-[10px] text-dam-text font-mono"
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="pt-3 border-t border-dam-border/60 mt-3 space-y-3">
+          <p className="text-dam-muted text-[10px] uppercase tracking-widest">Guard Routing</p>
+          <p className="text-dam-muted text-[10px]">
+            Override when each guard runs during fallback contexts. <strong>always</strong>: run in every context (including fallbacks). <strong>phase</strong>: only run in contexts at or above this phase.
+          </p>
+          <div className="space-y-1.5">
+            {(['ood', 'motion', 'execution', 'hardware'] as const).map(gid => {
+              const layer = { ood: 'L0', motion: 'L1', execution: 'L2', hardware: 'L3' }[gid]
+              const defaults: Record<string, { phase?: number; always?: boolean }> = {
+                ood: { phase: 0 }, motion: { phase: 0 }, execution: { phase: 1 }, hardware: { always: true },
+              }
+              const routing = cfg.guardRouting?.[gid] ?? defaults[gid] ?? {}
+              return (
+                <div key={gid} className="flex items-center gap-3 bg-dam-surface-2 border border-dam-border rounded-lg px-3 py-2">
+                  <span className="font-mono text-xs text-dam-text font-semibold w-8">{layer}</span>
+                  <span className="text-xs text-dam-muted w-20">{gid}</span>
+                  <label className="flex items-center gap-1">
+                    <span className="text-[10px] text-dam-muted">phase</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={3}
+                      value={routing.phase ?? ''}
+                      placeholder="—"
+                      onChange={e => {
+                        const val = e.target.value ? Number(e.target.value) : undefined
+                        const next = { ...(cfg.guardRouting ?? {}), [gid]: { ...routing, phase: val } }
+                        if (val == null) delete next[gid]!.phase
+                        set('guardRouting', next)
+                      }}
+                      className="w-12 bg-dam-surface border border-dam-border rounded px-1.5 py-0.5 text-[10px] text-dam-text font-mono text-center"
+                    />
+                  </label>
+                  <label className="flex items-center gap-1.5">
+                    <input
+                      type="checkbox"
+                      checked={routing.always ?? false}
+                      onChange={e => {
+                        const next = { ...(cfg.guardRouting ?? {}), [gid]: { ...routing, always: e.target.checked || undefined } }
+                        if (!e.target.checked) delete next[gid]!.always
+                        set('guardRouting', next)
+                      }}
+                      className="h-3.5 w-3.5 accent-dam-blue"
+                    />
+                    <span className="text-[10px] text-dam-muted">always</span>
+                  </label>
+                </div>
+              )
+            })}
           </div>
         </div>
       </Section>

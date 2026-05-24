@@ -113,11 +113,18 @@ Place in `dam/guard/builtin/` for built-in guards or anywhere for custom ones.
 Add to Stackfile:
 ```yaml
 guards:
-  custom:
-    - class: mypackage.MyGuard
-      layer: L2
-      params:
-        my_param: 0.5
+  - L2: execution
+    phase: 1
+
+boundaries:
+  my_guard:
+    layer: L2
+    type: single
+    nodes:
+      - callback: my_guard
+        fallback: hold_position
+        params:
+          my_param: 0.5
 ```
 
 ---

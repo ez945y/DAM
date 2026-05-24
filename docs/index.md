@@ -48,7 +48,7 @@ DAM decouples safety from learning. Safety becomes a **modular, swappable stack*
 <div class="grid cards" markdown>
 
 - **New to DAM?**
-  Start with [Getting Started →](installation.md)
+  Start with [Learn DAM →](learn/index.md)
 
 - **Deploy Your System**
   Read [Stackfile Guide →](quick-stack.md)
@@ -97,13 +97,12 @@ Control a dual-arm robot with learned pick-and-place policies while enforcing wo
 
 ```yaml
 guards:
-  builtin:
-    motion:
-      enabled: true
-      upper_limits: [1.57, 1.57, 1.57, ...]
-      max_force_n: 50.0
-    execution:
-      enabled: true
+  - L1: motion
+    phase: 0
+  - L2: execution
+    phase: 1
+  - L3: hardware
+    always: true
 ```
 
 ### 🤖 Mobile Manipulation
@@ -121,7 +120,7 @@ Test policies in simulation, deploy directly to hardware with DAM guardrails. Up
 
 1. **Register adapters** — plug in your hardware (LeRobot, ROS 2, custom) and policy
 2. **Write a Stackfile** — define guards, boundaries, and fallback strategies in YAML
-3. **Start the runtime** — `dam run --stack mystack.yaml --task mytask`
+3. **Start the runtime** — `dam run mystack.yaml --task mytask`
 4. **DAM steps every cycle:**
    - Read observations from hardware
    - Propose action from policy
@@ -163,6 +162,7 @@ DAM is built on **defense-in-depth** and **fail-safe** principles:
 
 | Topic | Where |
 |-------|-------|
+| **Learn DAM step by step** | [Learning Path →](learn/index.md) |
 | **Deploy with Stackfiles** | [Stackfile Guide →](quick-stack.md) |
 | **Monitor your system** | [Console Guide →](console.md) |
 | **Control via API** | [Services API →](services-api.md) |
@@ -186,6 +186,7 @@ DAM is built on **defense-in-depth** and **fail-safe** principles:
 Based on your role, here's where to start:
 
 - **I want to get running fast** → [Installation →](installation.md)
+- **I want a guided learning path** → [Learn DAM →](learn/index.md)
 - **I want to deploy a stack** → [Stackfile Guide →](quick-stack.md)
 - **I want to monitor in real-time** → [Console Guide →](console.md)
 - **I'm deploying to hardware** → [Installation — Hardware Support →](installation.md#hardware-support-so-arm101-lerobot)

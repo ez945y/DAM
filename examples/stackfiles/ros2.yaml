@@ -36,13 +36,36 @@ safety:
 fallbacks:
   emergency_stop:
     type: emergency_stop
+    severity: 100
   hold_position:
     type: hold_position
-    escalates_to: emergency_stop
+    severity: 80
+    escalate_to: emergency_stop
+  retreat:
+    type: retreat
+    severity: 60
+    params:
+      duration_seconds: 3.0
+      arrival_tol: 0.01
+  slow_down:
+    type: slow_down
+    severity: 40
+    requires_proposal: true
+    params:
+      scale: 0.5
+  wait_and_retry:
+    type: wait_and_retry
+    severity: 20
+    params:
+      wait_seconds: 1.0
 
 guards:
   - L1: motion
+    phase: 0
+  - L2: execution
+    phase: 1
   - L3: hardware
+    always: true
 
 boundaries: {}
 

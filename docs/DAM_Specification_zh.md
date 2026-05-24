@@ -859,14 +859,16 @@ simulation:
   scene: assets/pick_and_place.usd
   lookahead_steps: 10              # 通過 config_pool 注入 L1
 
-# ── 守衛容器 (Custom Guards) ────────────────────────────────────────────────
-# 特殊守衛：需在 Python 端通過 @dam.guard(layer="L3") 註冊。
-# 核心守衛（運動學、工作空間等）請見下方 boundaries 區塊。
+# ── 守衛 (Guards) ──────────────────────────────────────────────────────────
 guards:
-  custom:
-    - class: GraspForceGuard
-      params:
-        max_force_n: 15.0
+  - L0: ood
+    phase: 0
+  - L1: motion
+    phase: 0
+  - L2: execution
+    phase: 1
+  - L3: hardware
+    always: true
 
 # ── 安全與運行時全局設定 ────────────────────────────────────────────────────────
 safety:
@@ -883,8 +885,6 @@ boundaries:
       - node_id: default
         max_speed: 0.8
         callback: workspace
-        timeout_sec: 1
-        fallback: emergency_stop
         params:
           bounds: [[-0.4, 0.4], [-0.4, 0.4], [0.02, 0.6]]
 
@@ -894,8 +894,6 @@ boundaries:
       - node_id: default
         max_speed: 0.8
         callback: joint_position_limits
-        timeout_sec: 1
-        fallback: emergency_stop
         params:
           upper: [2.9, 2.9, 2.9, 2.9, 2.9, 2.9]
           lower: [-2.9, -2.9, -2.9, -2.9, -2.9, -2.9]
@@ -1011,13 +1009,17 @@ class SimPreflightGuard(Guard):
               ) -> GuardResult: ...
 ```
 
-在 Stackfile `guards.custom` 中聲明：
+在 Stackfile 中以 boundary 聲明：
 ```yaml
-guards:
-  custom:
-    - class: GraspForceGuard
-      params:
-        max_force_n: 15.0
+boundaries:
+  grasp_force:
+    layer: L3
+    type: single
+    nodes:
+      - callback: grasp_force_guard
+        fallback: emergency_stop
+        params:
+          max_force_n: 15.0
 ```
 
 ## 8. 執行管線 (Pipeline)

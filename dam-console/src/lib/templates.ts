@@ -51,6 +51,7 @@ export interface DamConfig {
   enforcement_mode: EnforcementMode
   fallbacks: FallbackDef[]
   guardsEnabled: Partial<Record<'ood' | 'motion' | 'execution' | 'hardware', boolean>>
+  guardRouting: Partial<Record<'ood' | 'motion' | 'execution' | 'hardware', { phase?: number; always?: boolean }>>
   tasks: TaskDef[]
   boundaries: BoundaryDef[]
   loopback?: LoopbackConfig
@@ -131,26 +132,19 @@ const SO101_MAX_VELOCITIES = Array(6).fill(SO101_USE_DEGREES ? Number((1.5 * 180
 const LEFT_PICK_ZONE = [[-0.175, -0.025], [-0.075, 0.075], [0.075, 0.225]]
 const RIGHT_PLACE_ZONE = [[0.025, 0.175], [-0.075, 0.075], [0.075, 0.225]]
 
-const DEFAULT_BOUNDARIES: BoundaryDef[] = [
+// L1 + L3 boundaries: safe for all adapters including simulation replay
+const BASE_BOUNDARIES: BoundaryDef[] = [
   {
     name: 'workspace', layer: 'L1', type: 'single',
-    nodes: [{ node_id: 'default', params: { bounds: [[-0.4, 0.4], [-0.4, 0.4], [0.02, 0.6]] }, callback: 'workspace', fallback: 'emergency_stop', timeout_sec: 1 }]
+    nodes: [{ node_id: 'default', params: { bounds: [[-0.4, 0.4], [-0.4, 0.4], [0.02, 0.6]] }, callback: 'workspace' }]
   },
   {
     name: 'joint_position_limits', layer: 'L1', type: 'single',
-    nodes: [{ node_id: 'default', params: { upper: SO101_UPPER, lower: SO101_LOWER, use_degrees: SO101_USE_DEGREES }, callback: 'joint_position_limits', fallback: 'emergency_stop', timeout_sec: null }]
+    nodes: [{ node_id: 'default', params: { upper: SO101_UPPER, lower: SO101_LOWER, use_degrees: SO101_USE_DEGREES }, callback: 'joint_position_limits' }]
   },
   {
     name: 'joint_velocity_limit', layer: 'L1', type: 'single',
-    nodes: [{ node_id: 'default', params: { max_velocities: SO101_MAX_VELOCITIES, use_degrees: SO101_USE_DEGREES }, callback: 'joint_velocity_limit', fallback: 'emergency_stop', timeout_sec: 1 }]
-  },
-  {
-    name: 'task_gripper_sequence', layer: 'L2', type: 'list',
-    nodes: [
-      { node_id: 'pick_left', params: { allowed_command: 'close', zone: LEFT_PICK_ZONE }, callback: 'task_gripper_command_guard', fallback: 'hold_position', timeout_sec: null },
-      { node_id: 'transfer_left_to_right', params: { allowed_command: 'none' }, callback: 'task_gripper_command_guard', fallback: 'hold_position', timeout_sec: null },
-      { node_id: 'place_right', params: { allowed_command: 'open', zone: RIGHT_PLACE_ZONE }, callback: 'task_gripper_command_guard', fallback: 'hold_position', timeout_sec: null },
-    ],
+    nodes: [{ node_id: 'default', params: { max_velocities: SO101_MAX_VELOCITIES, use_degrees: SO101_USE_DEGREES }, callback: 'joint_velocity_limit' }]
   },
   {
     name: 'hardware_watchdog', layer: 'L3', type: 'single',
@@ -179,12 +173,24 @@ const DEFAULT_BOUNDARIES: BoundaryDef[] = [
   },
 ]
 
+// L2 task-level gripper sequence: only for real hardware with known task flow
+const GRIPPER_SEQUENCE_BOUNDARY: BoundaryDef = {
+  name: 'task_gripper_sequence', layer: 'L2', type: 'list',
+  nodes: [
+    { node_id: 'pick_left', params: { allowed_command: 'close', zone: LEFT_PICK_ZONE }, callback: 'task_gripper_command_guard', fallback: 'hold_position', timeout_sec: null },
+    { node_id: 'transfer_left_to_right', params: { allowed_command: 'none' }, callback: 'task_gripper_command_guard', fallback: 'hold_position', timeout_sec: null },
+    { node_id: 'place_right', params: { allowed_command: 'open', zone: RIGHT_PLACE_ZONE }, callback: 'task_gripper_command_guard', fallback: 'hold_position', timeout_sec: null },
+  ],
+}
+
+const DEFAULT_BOUNDARIES: BoundaryDef[] = [...BASE_BOUNDARIES, GRIPPER_SEQUENCE_BOUNDARY]
+
 const DEFAULT_FALLBACKS: FallbackDef[] = [
-  { name: 'emergency_stop', type: 'emergency_stop', params: {}, escalate_to: null },
-  { name: 'hold_position', type: 'hold_position', params: {}, escalate_to: null },
-  { name: 'wait_and_retry', type: 'wait_and_retry', params: {}, escalate_to: null },
-  { name: 'slow_down', type: 'slow_down', params: {}, escalate_to: null },
-  { name: 'retreat', type: 'retreat', params: {}, escalate_to: null },
+  { name: 'emergency_stop', type: 'emergency_stop', severity: 100, requires_proposal: false, monitors_hardware: false, description: 'Immediate full stop. Highest severity.', params: {}, escalate_to: null },
+  { name: 'hold_position', type: 'hold_position', severity: 80, requires_proposal: false, monitors_hardware: false, description: 'Hold current joint positions until trigger clears.', params: {}, escalate_to: null },
+  { name: 'retreat', type: 'retreat', severity: 60, requires_proposal: false, monitors_hardware: false, description: 'Retract along the last safe trajectory segment.', params: { duration_seconds: 3.0, arrival_tol: 0.01 }, escalate_to: null },
+  { name: 'slow_down', type: 'slow_down', severity: 40, requires_proposal: true, monitors_hardware: false, description: 'Scale action magnitude while monitoring trigger.', params: { scale: 0.5 }, escalate_to: null },
+  { name: 'wait_and_retry', type: 'wait_and_retry', severity: 20, requires_proposal: false, monitors_hardware: false, description: 'Pause and re-check the trigger after a delay.', params: { wait_seconds: 1.0 }, escalate_to: null },
 ]
 
 // Helper: opt L1 motion boundaries into the ProxSuite QP fusion strategy.
@@ -215,8 +221,9 @@ export const TEMPLATES: TemplatePreset[] = [
       simulation_dataset_repo_id: 'MikeChenYZ/soarm-fmb-v2', simulation_episode: 0,
       policy: { type: 'act', pretrained_path: 'MikeChenYZ/act-soarm-fmb-v2', device: 'cpu' },
       joints: SO101_JOINTS, controlFrequencyHz: 30, enforcement_mode: 'monitor',
-      tasks: [{ id: 'demo', name: 'demo', description: 'Full demo', boundaries: DEFAULT_BOUNDARIES.map(b => b.name) }],
-      boundaries: DEFAULT_BOUNDARIES,
+      fallbacks: DEFAULT_FALLBACKS,
+      tasks: [{ id: 'demo', name: 'demo', description: 'Full demo', boundaries: BASE_BOUNDARIES.map(b => b.name) }],
+      boundaries: BASE_BOUNDARIES,
       loopback: {
         backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10,
         rotate_mb: 500, rotate_minutes: 60, max_queue_depth: 64, capture_images_on_clamp: true,
@@ -235,6 +242,7 @@ export const TEMPLATES: TemplatePreset[] = [
       observation_channels: SO101_HEALTH_CHANNELS,
       policy: { type: 'act', pretrained_path: 'MikeChenYZ/act-soarm-fmb-v2', device: 'mps' },
       joints: SO101_JOINTS, controlFrequencyHz: 30, enforcement_mode: 'enforce',
+      fallbacks: DEFAULT_FALLBACKS,
       tasks: [{ id: 'soarm101', name: 'soarm101', description: 'Default task', boundaries: ['workspace', 'joint_position_limits', 'joint_velocity_limit', 'task_gripper_sequence', 'hardware_watchdog', 'host_health'] }],
       boundaries: DEFAULT_BOUNDARIES,
       loopback: {
@@ -255,6 +263,7 @@ export const TEMPLATES: TemplatePreset[] = [
       observation_channels: SO101_HEALTH_CHANNELS,
       policy: { type: 'act', pretrained_path: 'MikeChenYZ/act-soarm-fmb-v2', device: 'mps' },
       joints: SO101_JOINTS, controlFrequencyHz: 30, enforcement_mode: 'enforce',
+      fallbacks: DEFAULT_FALLBACKS,
       tasks: [{ id: 'soarm101', name: 'soarm101', description: 'QP-protected motion',
         boundaries: ['workspace', 'joint_position_limits', 'joint_velocity_limit', 'task_gripper_sequence', 'hardware_watchdog', 'host_health'] }],
       boundaries: withQpSolver(DEFAULT_BOUNDARIES),
@@ -275,6 +284,7 @@ export const TEMPLATES: TemplatePreset[] = [
       observation_channels: ['effort', 'wrench'],
       policy: { type: 'act', pretrained_path: '', device: 'cpu' },
       controlFrequencyHz: 30, enforcement_mode: 'monitor',
+      fallbacks: DEFAULT_FALLBACKS,
       tasks: [{ id: 'default', name: 'default', description: 'Default task', boundaries: [] }],
       boundaries: [],
       loopback: {
@@ -294,7 +304,7 @@ export function defaultConfig(templateId = ''): DamConfig {
     ros2JointTopic: '/joint_states', ros2CmdTopic: '/joint_commands',
     policy: { type: 'noop', pretrained_path: '', device: 'cpu' },
     joints: SO101_JOINTS, controlFrequencyHz: 30, enforcement_mode: 'monitor',
-    fallbacks: DEFAULT_FALLBACKS, guardsEnabled: {}, tasks: [], boundaries: [],
+    fallbacks: DEFAULT_FALLBACKS, guardsEnabled: {}, guardRouting: {}, tasks: [], boundaries: [],
   }
   if (!preset) return base
   // Apply preset but keep identity anonymous (stateless)
@@ -367,7 +377,7 @@ function boundaryLines(b: BoundaryDef): string[] {
     lines.push(isDefault ? `    - callback: ${node.callback ?? 'null'}` : `    - node_id: ${node.node_id}`)
     if (!isDefault && node.callback) lines.push(`      callback: ${node.callback}`)
     if (node.timeout_sec != null) lines.push(`      timeout_sec: ${node.timeout_sec}`)
-    lines.push(`      fallback: ${node.fallback}`)
+    if (node.fallback) lines.push(`      fallback: ${node.fallback}`)
     if (node.params && Object.keys(node.params).length > 0) {
       lines.push('      params:')
       for (const [k, v] of Object.entries(node.params)) {
@@ -401,10 +411,22 @@ const MAIN_SOURCE_NAME: Record<DamConfig['adapter'], string> = {
   simulation: 'main',
 }
 
+const GUARD_DEFAULT_ROUTING: Record<string, { phase?: number; always?: boolean }> = {
+  ood:       { phase: 0 },
+  motion:    { phase: 0 },
+  execution: { phase: 1 },
+  hardware:  { always: true },
+}
+
 function guardLines(cfg: DamConfig): string[][] {
   return (['ood', 'motion', 'execution', 'hardware'] as const).map(gid => {
     const layer = GUARD_LAYER[gid]
-    return cfg.guardsEnabled?.[gid] === false ? [`${layer}: ${gid}`, 'enabled: false'] : [`${layer}: ${gid}`]
+    const lines = [`${layer}: ${gid}`]
+    if (cfg.guardsEnabled?.[gid] === false) lines.push('enabled: false')
+    const routing = cfg.guardRouting?.[gid] ?? GUARD_DEFAULT_ROUTING[gid] ?? {}
+    if (routing.always) lines.push(`always: ${routing.always}`)
+    else if (routing.phase != null) lines.push(`phase: ${routing.phase}`)
+    return lines
   })
 }
 
@@ -491,6 +513,9 @@ const SCHEMA: YamlSection[] = [
       `${indent}fallbacks:`,
       ...defs.flatMap(f => {
         const lines = [`${indent}  ${f.name}:`, `${indent}    type: ${f.type}`]
+        if (f.severity != null) lines.push(`${indent}    severity: ${f.severity}`)
+        if (f.requires_proposal) lines.push(`${indent}    requires_proposal: true`)
+        if (f.monitors_hardware) lines.push(`${indent}    monitors_hardware: true`)
         if (f.escalate_to) lines.push(`${indent}    escalate_to: ${f.escalate_to}`)
         if (f.escalate_after_seconds != null) lines.push(`${indent}    escalate_after_seconds: ${f.escalate_after_seconds}`)
         const params = f.params ?? {}
@@ -572,14 +597,25 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
   if (mode) result.enforcement_mode = mode as EnforcementMode
 
   const guardsEnabled: any = {}
+  const guardRouting: any = {}
   for (const id of ['ood', 'motion', 'execution', 'hardware']) {
     const enMatch = new RegExp(`${id}:[\\s\\S]*?enabled:\\s*(true|false)`, 'i').exec(yaml)
     if (enMatch) guardsEnabled[id] = enMatch[1].toLowerCase() === 'true'
+    const phaseMatch = new RegExp(`${id}:[\\s\\S]*?phase:\\s*(\\d+)`, 'i').exec(yaml)
+    const alwaysMatch = new RegExp(`${id}:[\\s\\S]*?always:\\s*(true|false)`, 'i').exec(yaml)
+    if (phaseMatch || alwaysMatch) {
+      const entry: any = {}
+      if (phaseMatch) entry.phase = Number(phaseMatch[1])
+      if (alwaysMatch) entry.always = alwaysMatch[1].toLowerCase() === 'true'
+      guardRouting[id] = entry
+    }
   }
   result.guardsEnabled = guardsEnabled
+  if (Object.keys(guardRouting).length > 0) result.guardRouting = guardRouting
 
   const lines = yaml.split('\n'); let section: 'none' | 'boundaries' | 'tasks' | 'fallbacks' = 'none';
   let currentBoundary: any = null; let currentNode: any = null; let currentFallback: any = null
+  let inFallbackParams = false
   const boundaries: any[] = []; const tasks: any[] = []; const fallbacks: any[] = [];
 
   for (let i = 0; i < lines.length; i++) {
@@ -596,8 +632,19 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
       if (line.startsWith('  ') && !line.startsWith('    ')) {
         currentFallback = { name: trimmed.replaceAll(':', ''), type: '', params: {}, escalate_to: null, escalate_after_seconds: null }
         fallbacks.push(currentFallback)
+        inFallbackParams = false
+      } else if (currentFallback && line.startsWith('      ') && inFallbackParams) {
+        const colonIdx = trimmed.indexOf(':'); if (colonIdx !== -1) {
+          const key = trimmed.substring(0, colonIdx).trim(); const valRaw = trimmed.substring(colonIdx + 1).trim()
+          if (key && valRaw) { try { currentFallback.params[key] = JSON.parse(valRaw) } catch { currentFallback.params[key] = valRaw } }
+        }
       } else if (currentFallback && line.startsWith('    ')) {
-        if (trimmed.startsWith('type:')) currentFallback.type = trimmed.replaceAll('type:', '').trim()
+        inFallbackParams = false
+        if (trimmed === 'params:') { inFallbackParams = true }
+        else if (trimmed.startsWith('type:')) currentFallback.type = trimmed.replaceAll('type:', '').trim()
+        else if (trimmed.startsWith('severity:')) currentFallback.severity = Number(trimmed.replaceAll('severity:', '').trim())
+        else if (trimmed.startsWith('requires_proposal:')) currentFallback.requires_proposal = trimmed.replaceAll('requires_proposal:', '').trim() === 'true'
+        else if (trimmed.startsWith('monitors_hardware:')) currentFallback.monitors_hardware = trimmed.replaceAll('monitors_hardware:', '').trim() === 'true'
         else if (trimmed.startsWith('escalate_to:')) currentFallback.escalate_to = trimmed.replaceAll('escalate_to:', '').trim()
         else if (trimmed.startsWith('escalates_to:')) currentFallback.escalate_to = trimmed.replaceAll('escalates_to:', '').trim()
         else if (trimmed.startsWith('escalate_after_seconds:')) currentFallback.escalate_after_seconds = Number(trimmed.replaceAll('escalate_after_seconds:', '').trim())
@@ -613,7 +660,7 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
         else if (trimmed.startsWith('nodes:')) { /* skip header */ }
         else if (trimmed.startsWith('- node_id:') || trimmed.startsWith('- callback:')) {
           const isNodeId = trimmed.startsWith('- node_id:');
-          currentNode = { node_id: isNodeId ? trimmed.replaceAll('- node_id:', '').trim() : 'default', params: {}, callback: isNodeId ? null : trimmed.replaceAll('- callback:', '').trim(), fallback: 'emergency_stop', timeout_sec: 1 };
+          currentNode = { node_id: isNodeId ? trimmed.replaceAll('- node_id:', '').trim() : 'default', params: {}, callback: isNodeId ? null : trimmed.replaceAll('- callback:', '').trim(), fallback: null, timeout_sec: null };
           currentBoundary.nodes.push(currentNode);
         } else if (currentNode) {
           if (trimmed.startsWith('callback:')) currentNode.callback = trimmed.replaceAll('callback:', '').trim()

@@ -48,9 +48,14 @@ nav:
     - v0.5.0: release-notes-0.5.0.md
     - v0.4.0: release-notes-0.4.0.md
   - Getting Started:
+    - Quick Start: getting-started/quickstart.md
     - Installation: installation.md
     - Stackfile Guide: quick-stack.md
     - CLI: cli.md
+  - Learning:
+    - Start Here: learn/index.md
+    - Complete Tutorial: learn/tutorial.md
+    - Glossary: learn/glossary.md
   - Reference:
     - Library API: library-api.md
     - Guards: guards-reference.md
@@ -63,7 +68,9 @@ nav:
   - Console:
     - Overview: console.md
     - API Reference: services-api.md
-  - Contributing: contributing.md
+  - Contributing:
+    - Guide: contributing.md
+    - Documentation Workplan: documentation-workplan.md
 
 plugins:
   - search:

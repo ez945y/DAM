@@ -158,6 +158,7 @@ const DECISION_STYLE: Record<string, string> = {
 
 const STAGE_COLORS: Record<string, string> = {
   source_ms:  '#6366F1',
+  context_ms: '#A855F7',
   policy_ms:  '#F59E0B',
   guards_ms:  '#10B981',
   sink_ms:    '#3B82F6',

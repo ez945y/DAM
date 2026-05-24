@@ -279,8 +279,8 @@ function NodeForm({
           <label htmlFor={`node-${index}-fallback`} className="text-dam-muted text-[10px]">Fallback</label>
           <select
             id={`node-${index}-fallback`}
-            value={node.fallback}
-            onChange={e => onChange({ ...node, fallback: e.target.value })}
+            value={node.fallback ?? ''}
+            onChange={e => onChange({ ...node, fallback: e.target.value || null })}
             className={`w-full ${inputCls}`}
           >
             {fallbackCatalog.map(f => (

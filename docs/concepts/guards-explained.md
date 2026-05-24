@@ -71,14 +71,18 @@ If no memory bank is trained:
 
 ```yaml
 guards:
-  builtin:
-    ood:
-      enabled: true
-      params:
-        nn_threshold: 0.5              # Memory bank distance threshold
-        z_threshold: 3.0               # Z-score threshold for Welford
-        ood_model_path: models/extractor.pt
-        bank_path: models/bank.npy
+  - L0: ood
+    phase: 0
+
+boundaries:
+  ood_welford:
+    layer: L0
+    type: single
+    nodes:
+      - callback: ood_welford
+        fallback: hold_position
+        params:
+          z_threshold: 3.0
 ```
 
 ### When to Use
@@ -126,14 +130,23 @@ Before commanding hardware, a future DAM extension may run a quick physics simul
 ### Configuration (when available)
 
 ```yaml
+# Future extension — not part of the current L0–L3 runtime.
 guards:
-  builtin:
-    preflight_sim:
-      enabled: true
-      simulator: mujoco              # or pybullet
-      forward_time_ms: 250
-      collision_check: true
-      joint_limit_check: true
+  - L1: motion
+    phase: 0
+
+boundaries:
+  preflight_sim:
+    layer: L1
+    type: single
+    nodes:
+      - callback: preflight_sim
+        fallback: hold_position
+        params:
+          simulator: mujoco            # or pybullet
+          forward_time_ms: 250
+          collision_check: true
+          joint_limit_check: true
 ```
 
 ### Guarantees & Limitations
@@ -159,21 +172,29 @@ This is the most important and mature layer. It prevents kinematic and dynamic v
 
 #### 1. Joint Position Limits
 ```yaml
-guards:
-  builtin:
-    motion:
-      upper_limits: [1.57, 1.57, 1.57, 1.57, 1.57, 0.08]
-      lower_limits: [-1.57, -1.57, -1.57, -1.57, -1.57, 0.0]
+boundaries:
+  joint_position_limits:
+    layer: L1
+    type: single
+    nodes:
+      - callback: joint_position_limits
+        params:
+          upper: [1.57, 1.57, 1.57, 1.57, 1.57, 0.08]
+          lower: [-1.57, -1.57, -1.57, -1.57, -1.57, 0.0]
 ```
 
 **Behavior:** Clamp proposed joint position to `[lower, upper]`.
 
 #### 2. Velocity Limits
 ```yaml
-guards:
-  builtin:
-    motion:
-      max_velocity: [1.5, 1.5, 1.5, 1.5, 1.5, 0.5]
+boundaries:
+  joint_velocity_limit:
+    layer: L1
+    type: single
+    nodes:
+      - callback: joint_velocity_limit
+        params:
+          max_velocities: [1.5, 1.5, 1.5, 1.5, 1.5, 0.5]
 ```
 
 **Behavior:** If any joint velocity exceeds limit, scale **all** velocities by the same ratio.
@@ -190,10 +211,15 @@ executed_velocities = [1.0, 0.25, 0.25]  # All scaled by 0.5
 
 #### 3. Acceleration Limits
 ```yaml
-guards:
-  builtin:
-    motion:
-      max_acceleration: [3.0, 3.0, 3.0, 3.0, 3.0, 1.0]
+boundaries:
+  joint_acceleration_limit:
+    layer: L1
+    type: single
+    nodes:
+      - callback: joint_acceleration_limit
+        fallback: hold_position
+        params:
+          max_accelerations: [3.0, 3.0, 3.0, 3.0, 3.0, 1.0]
 ```
 
 **Behavior:** If implied acceleration would exceed limit, scale target velocity down.
@@ -213,14 +239,14 @@ target_velocity = current_velocity + (max_accel * dt)
 
 #### 4. Workspace Bounds
 ```yaml
-guards:
-  builtin:
-    motion:
-      bounds: [
-        [-0.5, 0.5],     # x: -0.5 to 0.5 meters
-        [-0.1, 0.6],     # y: -0.1 to 0.6 meters
-        [0.0, 1.5]       # z: 0.0 to 1.5 meters
-      ]
+boundaries:
+  workspace:
+    layer: L1
+    type: single
+    nodes:
+      - callback: workspace
+        params:
+          bounds: [[-0.5, 0.5], [-0.1, 0.6], [0.0, 1.5]]
 ```
 
 **Behavior:** Compute end-effector position. If outside bounds → **REJECT** (cannot clamp without knowing which joints to move).
@@ -229,26 +255,32 @@ guards:
 
 ```yaml
 guards:
-  builtin:
-    motion:
-      enabled: true
+  - L1: motion
+    phase: 0
 
-      # Joint limits (required)
-      upper_limits: [1.57, 1.57, 1.57, 1.57, 1.57, 0.08]
-      lower_limits: [-1.57, -1.57, -1.57, -1.57, -1.57, 0.0]
-
-      # Velocity limits (optional)
-      max_velocity: [1.5, 1.5, 1.5, 1.5, 1.5, 0.5]
-
-      # Acceleration limits (optional)
-      max_acceleration: [3.0, 3.0, 3.0, 3.0, 3.0, 1.0]
-
-      # Workspace bounds (optional)
-      bounds: [[-0.5, 0.5], [-0.1, 0.6], [0.0, 1.5]]
-
-      # Phase 2 features
-      params:
-        velocity_scale: 1.0  # Runtime scale factor
+boundaries:
+  joint_position_limits:
+    layer: L1
+    type: single
+    nodes:
+      - callback: joint_position_limits
+        params:
+          upper: [1.57, 1.57, 1.57, 1.57, 1.57, 0.08]
+          lower: [-1.57, -1.57, -1.57, -1.57, -1.57, 0.0]
+  joint_velocity_limit:
+    layer: L1
+    type: single
+    nodes:
+      - callback: joint_velocity_limit
+        params:
+          max_velocities: [1.5, 1.5, 1.5, 1.5, 1.5, 0.5]
+  workspace:
+    layer: L1
+    type: single
+    nodes:
+      - callback: workspace
+        params:
+          bounds: [[-0.5, 0.5], [-0.1, 0.6], [0.0, 1.5]]
 ```
 
 ### Decision Table
@@ -390,13 +422,20 @@ class MySink:
 
 ```yaml
 guards:
-  builtin:
-    hardware:
-      enabled: true
-      params:
-        max_temp_celsius: 60.0
-        require_watchdog: true
-        require_connected: true
+  - L3: hardware
+    always: true
+
+boundaries:
+  hardware_watchdog:
+    layer: L3
+    type: single
+    nodes:
+      - callback: hardware_watchdog
+        timeout_sec: 0.5
+        fallback: emergency_stop
+        params:
+          max_temperature_c: 60.0
+          max_staleness_ms: 1000
 ```
 
 ### Guarantees
@@ -418,17 +457,14 @@ Enable **all** guards. Let them work together.
 
 ```yaml
 guards:
-  builtin:
-    ood:
-      enabled: true
-    motion:
-      enabled: true
-      upper_limits: [...]
-      max_velocity: [...]
-    execution:
-      enabled: true
-    hardware:
-      enabled: true
+  - L0: ood
+    phase: 0
+  - L1: motion
+    phase: 0
+  - L2: execution
+    phase: 1
+  - L3: hardware
+    always: true
 ```
 
 **Benefit:** Multiple layers catch different failure modes.
@@ -440,17 +476,14 @@ Disable less relevant guards to speed up execution.
 
 ```yaml
 guards:
-  builtin:
-    ood:
-      enabled: false            # Skip if OOD is rare
-    motion:
-      enabled: true
-      # Loosen limits as you gain confidence
-      max_velocity: [2.0, 2.0, 2.0, ...]
-    execution:
-      enabled: true
-    hardware:
-      enabled: true
+  - L0: ood
+    enabled: false              # Skip if OOD is rare
+  - L1: motion
+    phase: 0
+  - L2: execution
+    phase: 1
+  - L3: hardware
+    always: true
 ```
 
 **Benefit:** Faster control loop.
@@ -477,57 +510,77 @@ guards:
 
 ```yaml
 guards:
-  builtin:
-    ood:
-      enabled: true
-    motion:
-      enabled: true
-      upper_limits: [1.57, 1.57, 1.57, 1.57, 1.57, 0.08]
-      lower_limits: [-1.57, -1.57, -1.57, -1.57, -1.57, 0.0]
-      max_velocity: [2.0, 2.0, 2.0, 2.0, 2.0, 1.0]
-    execution:
-      enabled: true
-    hardware:
-      enabled: false  # No hardware to monitor
+  - L0: ood
+    phase: 0
+  - L1: motion
+    phase: 0
+  - L2: execution
+    phase: 1
+  - L3: hardware
+    enabled: false              # No hardware to monitor
 ```
 
 ### Hardware Deployment (Conservative)
 
 ```yaml
 guards:
-  builtin:
-    ood:
-      enabled: true
-    motion:
-      enabled: true
-      upper_limits: [1.57, 1.57, 1.57, 1.57, 1.57, 0.08]
-      lower_limits: [-1.57, -1.57, -1.57, -1.57, -1.57, 0.0]
-      max_velocity: [1.0, 1.0, 1.0, 1.0, 1.0, 0.3]
-      bounds: [[-0.3, 0.3], [0.1, 0.5], [0.0, 1.0]]
-    execution:
-      enabled: true
-    hardware:
-      enabled: true  # Monitor motor temp, watchdog, etc.
+  - L0: ood
+    phase: 0
+  - L1: motion
+    phase: 0
+  - L2: execution
+    phase: 1
+  - L3: hardware
+    always: true
+
+boundaries:
+  joint_position_limits:
+    layer: L1
+    type: single
+    nodes:
+      - callback: joint_position_limits
+        params:
+          upper: [1.57, 1.57, 1.57, 1.57, 1.57, 0.08]
+          lower: [-1.57, -1.57, -1.57, -1.57, -1.57, 0.0]
+  joint_velocity_limit:
+    layer: L1
+    type: single
+    nodes:
+      - callback: joint_velocity_limit
+        params:
+          max_velocities: [1.0, 1.0, 1.0, 1.0, 1.0, 0.3]
+  workspace:
+    layer: L1
+    type: single
+    nodes:
+      - callback: workspace
+        params:
+          bounds: [[-0.3, 0.3], [0.1, 0.5], [0.0, 1.0]]
+  hardware_watchdog:
+    layer: L3
+    type: single
+    nodes:
+      - callback: hardware_watchdog
+        timeout_sec: 0.5
+        fallback: emergency_stop
+        params:
+          max_staleness_ms: 1000
+          monitor_temperature: true
+          max_temperature_c: 80
 ```
 
 ### Multi-Robot Deployment (Heterogeneous)
 
 ```yaml
 guards:
-  builtin:
-    ood:
-      enabled: true
-      params:
-        ood_model_path: models/policy_distribution.pt
-    motion:
-      enabled: true
-      # Looser limits for experienced robots
-      params:
-        velocity_scale: 1.2
-    execution:
-      enabled: true
-    hardware:
-      enabled: true
+  - L0: ood
+    phase: 0
+  - L1: motion
+    phase: 0
+  - L2: execution
+    phase: 1
+  - L3: hardware
+    always: true
 ```
 
 ---
