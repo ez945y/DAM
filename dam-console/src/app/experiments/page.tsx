@@ -529,8 +529,8 @@ function ExperimentCard({
               <p className="metric-value text-sm text-dam-text">{result.rows.length}</p>
             </div>
           </div>
-          <RowPreview result={result} />
           {exp.id === "l0-calibration" && result.summary && <L0CalibrationSummary summary={result.summary} />}
+          {exp.id !== "l0-calibration" && <RowPreview result={result} />}
           {exp.id === "latency-bench" && <LatencyGroupedBarChart rows={result.rows} />}
           {previewArtifacts.length > 0 && (
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
