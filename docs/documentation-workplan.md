@@ -22,7 +22,7 @@ Help a new DAM user go from "what is this?" to "I can run a demo, read a guard d
 | Quickstart | Make the first run path explicit and testable | A user can identify prerequisites, run command, expected ports, and verification command in under 5 minutes |
 | Stackfile education | Separate "how to use" from full schema detail | The guide opens with a minimal runnable example, then explains common edits before field reference |
 | Console workflow | Teach how to inspect pass, clamp, reject, and latency | The console page answers "what should I click or read after an event?" without requiring API knowledge |
-| Troubleshooting | Add symptom-led fixes | Common setup, validation, port, and hardware issues have short recovery steps |
+| Troubleshooting | Add symptom-led fixes | Common setup, validation, port, and task-name issues have short recovery steps |
 | Reference hygiene | Keep deep implementation detail discoverable but secondary | Reference pages are linked after workflows, not used as the main onboarding path |
 
 ## Definition Of Done
@@ -42,4 +42,4 @@ A documentation improvement is complete when:
 2. Quickstart validation: align install/run/validate commands with current Makefile and CLI behavior.
 3. Stackfile guide cleanup: keep the walkthrough beginner-friendly, then decide whether to split `quick-stack.md` further.
 4. Console task flow: show how to use the console during a safety event.
-5. Glossary correction pass: align layer ownership, callback naming, and fallback names with current code.
+5. Continue reducing reference noise: split or archive older implementation-heavy pages that are not part of the user learning path.

@@ -53,6 +53,7 @@ nav:
     - Quick Start: getting-started/quickstart.md
     - Stackfile Walkthrough: getting-started/stackfile-walkthrough.md
     - Installation: installation.md
+    - Troubleshooting: getting-started/troubleshooting.md
     - Stackfile Guide: quick-stack.md
     - CLI: cli.md
   - Learning:

@@ -11,6 +11,7 @@ Use this path when you are new to DAM or teaching it to someone else. The goal i
 | Understand the mental model | [Complete Tutorial](tutorial.md) | You can explain pass, clamp, reject, and fallback in your own words |
 | Configure a deployment | [Stackfile Walkthrough](../getting-started/stackfile-walkthrough.md) | You can validate an example Stackfile and point to the active boundaries |
 | Watch a run | [Console Overview](../console.md) | You can find guard decisions, latency, and the active task |
+| Fix a blocked first run | [Troubleshooting](../getting-started/troubleshooting.md) | You can identify whether the issue is setup, ports, validation, or task naming |
 | Look up terms | [Glossary](glossary.md) | You can resolve unfamiliar DAM vocabulary without reading source code |
 
 ## Recommended Learning Order

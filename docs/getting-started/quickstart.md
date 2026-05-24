@@ -144,6 +144,7 @@ make help     # Show all available targets
 
 - **Follow the guided path** → [Learn DAM](../learn/index.md)
 - **Read a Stackfile step by step** → [Stackfile Walkthrough](stackfile-walkthrough.md)
+- **Fix first-run issues** → [Troubleshooting](troubleshooting.md)
 - **Learn the concepts** → [Architecture Overview](../concepts/architecture.md)
 - **Understand guards** → [Guard Stack Explained](../concepts/guards-explained.md)
 - **Design boundaries** → [Boundary System](../concepts/boundaries.md)

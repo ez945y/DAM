@@ -62,7 +62,7 @@ The outcome of guard evaluation: **PASS** (execute action), **CLAMP** (adjust ac
 A fallback strategy that immediately halts all motion and activates the hardware emergency stop circuit if available.
 
 **Evaluation Order**
-The sequence in which L3 constraint checks are performed: max_speed → bounds → max_force_n → callback → timeout_sec. Stops at first failure.
+The sequence in which active guard layers and their boundary callbacks are evaluated for a cycle. Users usually only need the final rule: the most restrictive decision wins.
 
 ---
 
@@ -81,7 +81,7 @@ A data structure mapping fallback names to implementations. Supports fallback es
 A neural network (typically pretrained ResNet) that encodes observations into a low-dimensional vector for OOD detection. Trained during the L0 guard setup phase.
 
 **Forward Kinematics (FK)**
-Computing end-effector position/orientation from joint angles. Used by L2 and L3 guards to verify workspace bounds.
+Computing end-effector position/orientation from joint angles. Used by motion and task checks when workspace or end-effector constraints are configured.
 
 ---
 
@@ -266,7 +266,7 @@ Guard layer enforcing task-specific boundary constraints: max speed, workspace b
 Real-time data logged by DAM: cycle time, risk level, guard decisions, latencies. Streamed via WebSocket and queryable via REST API.
 
 **Timeout**
-Maximum time a boundary node can be active. If exceeded, L3 rejects all actions, forcing transition to next node or fallback.
+Maximum time a boundary node or guard check can be active. If exceeded, DAM rejects the action under fail-to-reject semantics and triggers the configured fallback path.
 
 ---
 
@@ -292,7 +292,7 @@ A timeout mechanism ensuring the control loop executes within budget. If cycle t
 An online statistical method for OOD detection. Maintains running mean and variance; rejects if any dimension's z-score exceeds threshold.
 
 **Workspace Bounds**
-3D spatial constraints (x, y, z ranges in meters) that the end-effector cannot leave. Enforced by L2 (rejection) and L3 (rejection) guards.
+3D spatial constraints (x, y, z ranges in meters) that the end-effector cannot leave. Commonly enforced by L1 motion boundaries and, for task-specific zones, L2 task boundaries.
 
 ---
 
