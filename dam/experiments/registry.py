@@ -314,45 +314,26 @@ def _run_latency_bench(params: dict[str, Any], outdir: Path) -> ExperimentResult
 
 
 def _run_l0_calibration(params: dict[str, Any], outdir: Path) -> ExperimentResult:
-    import numpy as np
+    from scripts import run_l0_calibration as cal
 
-    n = int(params.get("samples", 240))
+    train_samples = int(params.get("train_samples", 200))
+    eval_samples = int(params.get("eval_samples", 120))
+    n_thresholds = int(params.get("n_thresholds", 40))
     seed = int(params.get("seed", 42))
-    rng = np.random.default_rng(seed)
     outdir.mkdir(parents=True, exist_ok=True)
     started = time.perf_counter()
 
-    normal = rng.normal(18.0, 3.0, n)
-    legal = rng.normal(22.0, 4.0, n // 2)
-    ood = rng.normal(34.0, 6.0, n)
-    thresholds = np.linspace(
-        float(min(normal.min(), ood.min())), float(max(normal.max(), ood.max())), 50
-    )
-    rows: list[dict[str, Any]] = []
-    best = {"threshold": 0.0, "eer_gap": 1.0, "fpr": 0.0, "fnr": 0.0}
-    for tau in thresholds:
-        fpr = float(np.mean(normal > tau))
-        fnr = float(np.mean(ood <= tau))
-        legal_fpr = float(np.mean(legal > tau))
-        gap = abs(fpr - fnr)
-        if gap < best["eer_gap"]:
-            best = {"threshold": float(tau), "eer_gap": gap, "fpr": fpr, "fnr": fnr}
-        rows.append(
-            {
-                "threshold": float(tau),
-                "fpr": fpr,
-                "fnr": fnr,
-                "legal_variation_fpr": legal_fpr,
-            }
-        )
-    _write_csv(rows, outdir / "results.csv")
+    rows, summary = cal.run_calibration(train_samples, eval_samples, n_thresholds, seed)
+    cal.write_csv(rows, outdir / "results.csv")
+    cal.plot_results(rows, outdir)
+
     plot_rows = [{"series": "FPR", "threshold": r["threshold"], "rate": r["fpr"]} for r in rows] + [
         {"series": "FNR", "threshold": r["threshold"], "rate": r["fnr"]} for r in rows
     ]
     _write_line_svg(
         plot_rows,
         outdir / "l0_calibration.svg",
-        title="RQ1 L0 Calibration Error Rates",
+        title="RQ1 L0 OOD Calibration — Real Guard Pipeline",
         series_key="series",
         x_key="threshold",
         y_key="rate",
@@ -363,14 +344,10 @@ def _run_l0_calibration(params: dict[str, Any], outdir: Path) -> ExperimentResul
         elapsed_sec=time.perf_counter() - started,
         outdir=str(outdir),
         rows=_numeric_rows(rows),
-        summary={
-            "eer_threshold": best["threshold"],
-            "eer": (best["fpr"] + best["fnr"]) / 2.0,
-            "legal_variation_fpr_at_eer": min(
-                rows, key=lambda r: abs(r["threshold"] - best["threshold"])
-            )["legal_variation_fpr"],
-        },
-        artifacts=_artifact_paths(outdir, ("results.csv", "l0_calibration.svg")),
+        summary=summary,
+        artifacts=_artifact_paths(
+            outdir, ("results.csv", "l0_calibration.svg", "l0_calibration.png")
+        ),
     )
 
 
@@ -460,15 +437,22 @@ _EXPERIMENTS: dict[
     "l0-calibration": (
         ExperimentDef(
             id="l0-calibration",
-            title="L0 Calibration",
+            title="L0 OOD Calibration",
             rq="RQ1",
-            description="Computes threshold/FPR/FNR curves for perception anomaly calibration.",
+            description=(
+                "Trains a real OODGuard (memory_bank) on normal observations, "
+                "then evaluates FPR/FNR across nn_threshold values on normal, "
+                "legal-variation, and OOD populations using the production "
+                "callback pipeline."
+            ),
             default_params={
-                "samples": 240,
+                "train_samples": 200,
+                "eval_samples": 120,
+                "n_thresholds": 40,
                 "seed": 42,
                 "outdir": "data/experiments/l0_calibration",
             },
-            outputs=("results.csv", "l0_calibration.svg"),
+            outputs=("results.csv", "l0_calibration.svg", "l0_calibration.png"),
         ),
         _run_l0_calibration,
     ),
