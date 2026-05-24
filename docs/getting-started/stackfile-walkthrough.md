@@ -93,7 +93,7 @@ You do not need these on the first pass:
 - MCAP channel schema details
 - Full service API payloads
 
-Use [Stackfile Guide](../quick-stack.md) when you need the full field reference.
+Use [Common Stackfile Edits](common-stackfile-edits.md) when you are ready to make safe changes. Use [Stackfile Guide](../quick-stack.md) when you need the full field reference.
 
 ## When To Move To Real Hardware
 
