@@ -109,7 +109,7 @@ Key differences:
 | `enforcement_mode: monitor` | `enforcement_mode: enforce` |
 | Task name: `demo` | Task name: `soarm101` |
 
-Use the hardware file only after you have a connected SO-ARM101, correct serial port, camera indexes, and a device setting that matches your machine.
+Use the hardware file only after you have a connected SO-ARM101, correct serial port, camera indexes, and a device setting that matches your machine. Follow [Hardware Readiness](hardware-readiness.md) before running physical hardware.
 
 ```bash
 .venv/bin/dam inspect examples/stackfiles/test.yaml

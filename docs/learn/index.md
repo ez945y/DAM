@@ -12,6 +12,7 @@ Use this path when you are new to DAM or teaching it to someone else. The goal i
 | Configure a deployment | [Stackfile Walkthrough](../getting-started/stackfile-walkthrough.md) | You can validate an example Stackfile and point to the active boundaries |
 | Make a safe config change | [Common Stackfile Edits](../getting-started/common-stackfile-edits.md) | You can change one boundary or mode and validate before running |
 | Watch a run | [Console Walkthrough](../getting-started/console-walkthrough.md) | You can find guard decisions, latency, and the active task |
+| Prepare for hardware | [Hardware Readiness](../getting-started/hardware-readiness.md) | You can verify port, camera, task, boundaries, and stop procedure |
 | Fix a blocked first run | [Troubleshooting](../getting-started/troubleshooting.md) | You can identify whether the issue is setup, ports, validation, or task naming |
 | Look up terms | [Glossary](glossary.md) | You can resolve unfamiliar DAM vocabulary without reading source code |
 
