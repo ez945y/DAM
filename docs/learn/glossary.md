@@ -202,11 +202,6 @@ The ML model (PyTorch, Diffusion Policy, ACT, etc.) that proposes actions given 
 **Policy Adapter**
 Software interface wrapping the policy. Implements `step(obs) → action` method.
 
-**Simulation Lookahead**
-Future optional checker that may simulate actions before execution using a physics engine. Not part of the current built-in L0-L3 runtime stack.
-
----
-
 ## R
 
 **Reject**

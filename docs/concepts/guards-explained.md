@@ -14,7 +14,7 @@ If you are learning DAM for the first time, read in this order:
 4. Layer 3 Hardware Monitoring
 5. Layer 0 OOD Detection
 
-Skip optional or future-looking sections until you can already explain pass, clamp, reject, and fallback from a Stackfile.
+Use this page after you can already validate a Stackfile and identify pass, clamp, reject, and fallback decisions.
 
 ---
 
