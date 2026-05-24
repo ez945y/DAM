@@ -36,7 +36,7 @@ Reference for all DAM-specific terms, categorized by architectural role and sort
 | **Runner** | DAM entry-point class. Wraps `PolicyAdapter.predict()` and the guard stack; exposes `step(obs)` / `run()` loop. Users instantiate Runner with a Stackfile path. |
 | **Stackfile** | The primary YAML configuration file for a DAM deployment. Declares hardware wiring, guard profiles, simulation config, and static parameters. |
 | **Control Plane** | The Python layer: guard logic, boundary evaluation, adapter orchestration, and policy/simulator interfaces. |
-| **Data Plane** | The Rust layer: high-performance buses, RiskController, and hardware I/O. Bypasses Python GIL for deterministic throughput. |
+| **Data Plane** | The Rust layer: high-performance buses, RiskController, and hardware I/O. Bypasses Python GIL for more predictable throughput. |
 | **Task** | The primary runtime entity. Has a name, an associated `BoundaryContainer`, and a lifecycle (`start` / `stop`). One process may run multiple tasks. |
 
 ### 2. Execution Pipeline
@@ -384,7 +384,7 @@ Two separate injection pools supply parameters to guards and callbacks:
 | Pool | Source | Updated | Example keys |
 | :--- | :--- | :--- | :--- |
 | **Runtime Pool** | Rust ObservationBus / cycle pump | Every cycle | `obs`, `action`, `node_bus`, `cycle_id`, `trace_id`, `timestamp` |
-| **Config Pool** | YAML Stackfile `params:` block | At load / hot-reload only | `upper_limits`, `max_velocity`, `force_threshold`, any user-defined param |
+| **Config Pool** | YAML Stackfile `params:` block | At load / hot-reload only | `upper`, `lower`, `max_velocities`, `force_threshold`, any user-defined param |
 
 Config Pool values are static between hot-reloads. The framework pre-splits each guard's parameter list at startup so the per-cycle hot path only touches runtime keys:
 
@@ -910,20 +910,18 @@ safety:
 # Note: each node references a registered 'callback' template and 'fallback' strategy.
 boundaries:
   workspace:
+    layer: L1
     type: single
     nodes:
-      - node_id: default
-        max_speed: 0.8
-        callback: workspace
+      - callback: workspace
         params:
           bounds: [[-0.4, 0.4], [-0.4, 0.4], [0.02, 0.6]]
 
   joint_position_limits:
+    layer: L1
     type: single
     nodes:
-      - node_id: default
-        max_speed: 0.8
-        callback: joint_position_limits
+      - callback: joint_position_limits
         params:
           upper: [2.9, 2.9, 2.9, 2.9, 2.9, 2.9]
           lower: [-2.9, -2.9, -2.9, -2.9, -2.9, -2.9]
@@ -1391,7 +1389,7 @@ All external packages DAM consumes, organised by role. Versions are minimum requ
 | :--- | :--- |
 | Foxglove Studio | MCAP visualisation for loopback snapshots and violation replays |
 | `dam validate` CLI | Stackfile schema check before deployment |
-| `dam replay --mcap` | Replay a saved violation context through the guard pipeline offline |
+| `dam replay <session>.mcap` | Summarise a saved loopback session offline |
 
 ---
 
@@ -1499,7 +1497,7 @@ All functions that must be implemented, grouped by module. **Bold** = must exist
 | `StackfileLoader.hot_reload(path)` | Double-buffer swap; called by file watcher |
 | `dam run <stackfile> --task <task> [--profile <name>] [--mode <mode>]` | Main entry point |
 | `dam validate <stackfile>` | Schema + registration check; no hardware connection |
-| `dam replay --mcap --stack` | Replay violation context through guard pipeline offline |
+| `dam replay <session>.mcap` | Summarise a saved loopback session offline |
 
 ### 11.8 Testing Utilities (Phase 1)
 
