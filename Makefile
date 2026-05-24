@@ -13,7 +13,7 @@
 #   make ci-import         ← build Rust + import
 #   make ci-stackfile     ← validate stackfile
 #
-.PHONY: setup setup-lerobot ros dev run docs test test-py test-rs test-ui lint build-rs clean help dam validate ci-lint ci-syntax ci-import ci-stackfile _kill_port
+.PHONY: setup setup-lerobot ros dev run docs docs-check test test-py test-rs test-ui lint build-rs clean help dam validate ci-lint ci-syntax ci-import ci-stackfile _kill_port
 
 # Ensure scripts are executable before every target that uses them
 _chmod:
@@ -54,6 +54,9 @@ docs:   ## Preview documentation locally at http://127.0.0.1:8002/DAM/
 	@export PATH="$$HOME/.local/bin:$$HOME/.cargo/bin:/opt/homebrew/bin:$$PATH"; \
 	 uv pip install --python .venv/bin/python mkdocs mkdocs-material pymdown-extensions --quiet
 	@.venv/bin/mkdocs serve --dev-addr 127.0.0.1:8002
+
+docs-check:   ## Run documentation quality checks (strict MkDocs + onboarding patterns)
+	@python harness/docs/check_docs.py
 
 test: _chmod   ## Run all tests + linters (Python, Rust, frontend)
 	@bash scripts/test.sh

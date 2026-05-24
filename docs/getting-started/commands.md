@@ -29,7 +29,7 @@ Use this page when you know what you want to do and just need the command.
 | Python tests only | `make test-py` |
 | Rust tests only | `make test-rs` |
 | Frontend tests only | `make test-ui` |
-| Documentation quality gate | `python harness/docs/check_docs.py` |
+| Documentation quality gate | `make docs-check` |
 
 ## Diagnostics
 

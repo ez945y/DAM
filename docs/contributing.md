@@ -62,7 +62,7 @@ make test
 For documentation-only changes, run the lightweight docs gate:
 
 ```bash
-python harness/docs/check_docs.py
+make docs-check
 ```
 
 This builds MkDocs in strict mode and checks for onboarding command patterns that should not return, such as old `--stack` syntax.

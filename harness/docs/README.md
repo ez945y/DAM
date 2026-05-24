@@ -21,7 +21,7 @@ Keep entries short and outcome-oriented so reviews stay cheap.
 Use `check_docs.py` before committing documentation changes:
 
 ```bash
-python harness/docs/check_docs.py
+make docs-check
 ```
 
 It runs `mkdocs build --strict` and scans documentation pages for command patterns and overconfident safety language that have caused onboarding mistakes, such as old `--stack` syntax, assuming every Stackfile has a `default` task, or claiming safety-critical deployment readiness.
