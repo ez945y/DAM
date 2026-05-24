@@ -136,8 +136,8 @@ Enforces joint position limits, velocity limits, and acceleration limits. Clamps
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enabled` | bool | `true` | Enable/disable this guard |
-| `upper_limits` | list[float] | required | Joint upper limits [rad], one per joint |
-| `lower_limits` | list[float] | required | Joint lower limits [rad], one per joint |
+| `upper` | list[float] | required | Joint upper limits [rad], one per joint |
+| `lower` | list[float] | required | Joint lower limits [rad], one per joint |
 | `max_velocities` | list[float] | `null` | Per-joint velocity limits [rad/s] |
 | `max_acceleration` | list[float] | `null` | Per-joint acceleration limits [rad/s²] |
 | `bounds` | list[list[float]] | `null` | `[[xmin, xmax], [ymin, ymax], [zmin, zmax]]` in metres |
@@ -276,8 +276,8 @@ boundaries:
 | `max_speed` | float | Maximum joint velocity norm [rad/s] |
 | `max_velocities` | list[float] | Per-joint velocity limit [rad/s] |
 | `bounds` | list[list[float]] | `[[xmin, xmax], [ymin, ymax], [zmin, zmax]]` [m] |
-| `upper_limits` | list[float] | Per-joint position upper limit [rad] |
-| `lower_limits` | list[float] | Per-joint position lower limit [rad] |
+| `upper` | list[float] | Per-joint position upper limit [rad] |
+| `lower` | list[float] | Per-joint position lower limit [rad] |
 | `max_force_n` | float | Maximum force norm [N] |
 
 ### Fallback strategies (per node)

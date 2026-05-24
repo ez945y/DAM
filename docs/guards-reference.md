@@ -65,19 +65,19 @@ Enforces joint limits, velocity limits, workspace bounds, and acceleration limit
 **Decision logic:**
 
 1. Workspace bounds → **REJECT** if end-effector outside bounds
-2. Joint limits → **CLAMP** positions to `[lower_limits, upper_limits]`
-3. Velocity limits → **CLAMP** velocity vector to `max_velocity`
+2. Joint limits → **CLAMP** positions to configured `lower` and `upper` values
+3. Velocity limits → **CLAMP** velocity vector to `max_velocities`
 4. Acceleration limits → **CLAMP** velocity to respect `max_acceleration`
 
-**Config pool keys:**
+**Common Stackfile callback params:**
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `upper_limits` | ndarray | Per-joint upper limits [rad] |
-| `lower_limits` | ndarray | Per-joint lower limits [rad] |
-| `max_velocity` | ndarray | Per-joint max velocity [rad/s] |
-| `max_acceleration` | ndarray | Per-joint max acceleration [rad/s²] |
-| `bounds` | ndarray (3,2) | XYZ workspace bounds [[min,max], ...] |
+| `upper` | list[float] | Per-joint upper limits [rad] for `joint_position_limits` |
+| `lower` | list[float] | Per-joint lower limits [rad] for `joint_position_limits` |
+| `max_velocities` | list[float] | Per-joint max velocity [rad/s] for `joint_velocity_limit` |
+| `max_acceleration` | list[float] | Per-joint max acceleration [rad/s²] |
+| `bounds` | list[list[float]] | XYZ workspace bounds [[min,max], ...] for `workspace` |
 
 ---
 

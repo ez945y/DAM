@@ -1,7 +1,7 @@
 # Boundary Callbacks
 
-Built-in check functions for `BoundaryConstraint.callback`.
-These are ready-to-use callbacks that the `ExecutionGuard` evaluates each cycle.
+Built-in check functions referenced by Stackfile boundary nodes.
+These are ready-to-use callbacks that guard layers evaluate each cycle.
 
 ---
 
@@ -177,19 +177,16 @@ boundaries:
     layer: L2
     type: list
     nodes:
-      - node_id: pick_left
-        callback: task_gripper_command_guard
+      - callback: task_gripper_command_guard
         fallback: hold_position
         params:
           allowed_command: close
           zone: [[-0.175, -0.025], [-0.075, 0.075], [0.075, 0.225]]
-      - node_id: transfer_left_to_right
-        callback: task_gripper_command_guard
+      - callback: task_gripper_command_guard
         fallback: hold_position
         params:
           allowed_command: none
-      - node_id: place_right
-        callback: task_gripper_command_guard
+      - callback: task_gripper_command_guard
         fallback: hold_position
         params:
           allowed_command: open
