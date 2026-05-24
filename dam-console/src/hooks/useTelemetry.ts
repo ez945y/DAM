@@ -320,9 +320,15 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
           let hasFault = false
           const logEntries: LogEntry[] = []
           const logNow = Date.now()
-          if (cycle.guard_statuses.length > 0) gGuardMapVer++
+          if (cycle.guard_statuses.length > 0) {
+            gGuardMapVer++
+            const fresh: Record<string, any> = {}
+            for (const g of cycle.guard_statuses) {
+              fresh[g.name] = g
+            }
+            gGuardMap = fresh
+          }
           for (const g of cycle.guard_statuses) {
-            gGuardMap[g.name] = g
             if (g.decision === 'FAULT' || g.decision === 'REJECT' || g.decision === 'CLAMP') {
               if (g.decision === 'FAULT') hasFault = true
               const key = `${g.name}:${g.decision}`
