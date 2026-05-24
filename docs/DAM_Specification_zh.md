@@ -375,7 +375,7 @@ Python 在每週期恰好有三個點與數據平面交互：
 | 池 | 來源 | 更新頻率 | 示例鍵 |
 | :--- | :--- | :--- | :--- |
 | **運行時池** | Rust ObservationBus / 週期泵 | 每週期 | `obs`, `action`, `node_bus`, `cycle_id`, `trace_id`, `timestamp` |
-| **配置池** | YAML Stackfile `params:` 區塊 | 加載/熱重載時 | `upper_limits`, `max_velocity`, `force_threshold` 等 |
+| **配置池** | YAML Stackfile `params:` 區塊 | 加載/熱重載時 | `upper`, `lower`, `max_velocities`, `force_threshold` 等 |
 
 在**啟動 / 熱重載**時，框架對每個守衛執行一次預分割，而非在每個週期合併兩個池：
 
@@ -880,20 +880,18 @@ safety:
 # 註解：每個 node 引用註冊名為 'callback' 的模板與註冊名為 'fallback' 的策略。
 boundaries:
   workspace:
+    layer: L1
     type: single
     nodes:
-      - node_id: default
-        max_speed: 0.8
-        callback: workspace
+      - callback: workspace
         params:
           bounds: [[-0.4, 0.4], [-0.4, 0.4], [0.02, 0.6]]
 
   joint_position_limits:
+    layer: L1
     type: single
     nodes:
-      - node_id: default
-        max_speed: 0.8
-        callback: joint_position_limits
+      - callback: joint_position_limits
         params:
           upper: [2.9, 2.9, 2.9, 2.9, 2.9, 2.9]
           lower: [-2.9, -2.9, -2.9, -2.9, -2.9, -2.9]
@@ -1159,7 +1157,7 @@ L1 守衛運行在獨立線程上，使用當前觀測值、提議動作以及 `
 | `StackfileLoader.validate(path)` | 僅執行試運行驗證；用於 `dam validate` |
 | `dam run <stackfile> --task <task>` | 系統主入口點 |
 | `dam validate <stackfile>` | 部署前 Schema + 註冊檢查；不連接硬體 |
-| `dam replay --mcap --stack` | 離線重放違規上下文進行管線調試 |
+| `dam replay <session>.mcap` | 離線摘要 loopback session |
 
 ### 11.8 測試工具集 (Phase 1)
 
