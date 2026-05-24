@@ -211,7 +211,7 @@ Guard decision forbidding action execution. Hardware is not commanded; a fallbac
 A fallback strategy moving the robot at low speed along a predefined safe path away from the error condition.
 
 **Risk Controller**
-A Phase 2 feature that aggregates risk levels across a time window and triggers escalation (e.g., hold → retreat → e-stop) when risk exceeds thresholds.
+A component that aggregates risk levels across a time window and can trigger escalation, such as hold → retreat → e-stop, when risk exceeds configured thresholds.
 
 **Risk Level**
 A telemetry metric indicating severity: NORMAL → ELEVATED → CRITICAL → EMERGENCY. Computed from guard decisions and latency.
