@@ -234,7 +234,7 @@ When designing guards:
 - Set conservative defaults if uncertain
 - Guard timeouts → REJECT (watchdog enforces this)
 
-This is how DAM provides safety guarantees.
+This is how DAM keeps guard failures conservative in the safety model.
 
 ---
 

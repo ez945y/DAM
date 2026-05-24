@@ -106,7 +106,7 @@ boundaries:
 - ✅ Graceful degradation (rejects instead of guessing on unfamiliar states)
 - ❌ NOT a substitute for good training data (train on diverse data first)
 
-### Guarantees & Limitations
+### Behavior & Limitations
 
 | Aspect | Status |
 |--------|--------|
@@ -163,7 +163,7 @@ boundaries:
           joint_limit_check: true
 ```
 
-### Guarantees & Limitations
+### Behavior & Limitations
 
 | Aspect | Status |
 |--------|--------|
@@ -586,6 +586,6 @@ guards:
 ## Next Steps
 
 - **Configure boundaries** → [Boundary System](boundaries.md)
-- **Learn about safety guarantees** → [Safety Guarantees](safety.md)
+- **Learn about the safety model** → [Safety Model](safety.md)
 - **Deploy with Stackfiles** → [Quick Start Guide](../quick-stack.md)
 - **Dive deeper** → [Full Specification](../DAM_Specification.md)

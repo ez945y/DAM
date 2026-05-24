@@ -633,7 +633,7 @@ After completing this tutorial, you can:
 ## Next Steps
 
 - **Prepare for real hardware** → [Hardware Readiness](../getting-started/hardware-readiness.md)
-- **Advanced safety** → [Safety Guarantees](../concepts/safety.md)
+- **Advanced safety** → [Safety Model](../concepts/safety.md)
 - **Deep dive into guards** → [Guard Stack Explained](../concepts/guards-explained.md)
 - **Troubleshoot** → [Troubleshooting](../getting-started/troubleshooting.md)
 - **Look up terms** → [Glossary](glossary.md)

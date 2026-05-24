@@ -233,8 +233,8 @@ The main DAM execution engine (`GuardRuntime`). Orchestrates sources, policy, gu
 
 **Safe Retreat** (See **Retreat**)
 
-**Safety Guarantee**
-A safety property DAM is designed to enforce when the relevant guards and boundaries are configured correctly. See [Safety Guarantees](../concepts/safety.md) for limitations and required assumptions.
+**Safety Model**
+The conditions, assumptions, and limits that describe how DAM is designed to behave when guards and boundaries are configured correctly. See [Safety Model](../concepts/safety.md) before using hardware.
 
 **Sensor**
 Hardware device providing observations: encoders (joint position), IMUs, force/torque sensors, cameras. Read by sources.
@@ -286,7 +286,7 @@ Constraints on joint rotation speed (rad/s). Enforced by L1 guard via proportion
 ## W
 
 **Watchdog**
-A timeout mechanism ensuring the control loop executes within budget. If cycle time exceeds budget, watchdog triggers rejection. Keeps system real-time safe.
+A timeout mechanism for detecting when the control loop exceeds its configured budget. If cycle time exceeds budget, watchdog behavior should trigger rejection or escalation according to configuration.
 
 **Welford Z-Score**
 An online statistical method for OOD detection. Maintains running mean and variance; rejects if any dimension's z-score exceeds threshold.
@@ -307,4 +307,4 @@ An online statistical method for OOD detection. Maintains running mean and varia
 - [Architecture Overview](../concepts/architecture.md) — System design
 - [Guard Stack Explained](../concepts/guards-explained.md) — Detailed guard behavior
 - [Boundary System](../concepts/boundaries.md) — Task configuration
-- [Safety Guarantees](../concepts/safety.md) — Safety promises and limitations
+- [Safety Model](../concepts/safety.md) — Safety assumptions and limitations

@@ -74,7 +74,7 @@ for _ in range(n_cycles):
 The data plane runs the real-time critical path: observation assembly, guard evaluation, and action dispatch.
 
 ```
-Rust Layer (Real-time safe)
+Rust Layer (runtime path)
 ├── ObservationBus       — Zero-copy observation multiplexing
 ├── ActionBus            — Proposed → validated action pipeline
 ├── WatchdogTimer        — Per-cycle timeout enforcement
@@ -290,6 +290,6 @@ Only **static** configuration (guard limits, boundary constraints) reloads. Guar
 ## Next Steps
 
 - **Understand the guards** → [Guard Stack Explained](guards-explained.md)
-- **Learn about safety** → [Safety Guarantees](safety.md)
+- **Learn about safety** → [Safety Model](safety.md)
 - **Configure boundaries** → [Boundary System](boundaries.md)
 - **Read a Stackfile** → [Stackfile Walkthrough](../getting-started/stackfile-walkthrough.md)
