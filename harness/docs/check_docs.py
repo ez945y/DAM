@@ -40,6 +40,11 @@ LEARNER_STACKFILE_FILES = {
     Path("docs/quick-stack.md"),
     Path("docs/learn/tutorial.md"),
     Path("docs/concepts/boundaries.md"),
+    Path("docs/concepts/architecture.md"),
+    Path("docs/concepts/guards-explained.md"),
+    Path("docs/concepts/safety.md"),
+    Path("docs/boundary-callbacks.md"),
+    Path("docs/guards-reference.md"),
 }
 
 LEARNER_FORBIDDEN_PATTERNS = {
@@ -47,6 +52,9 @@ LEARNER_FORBIDDEN_PATTERNS = {
     r"\bconstraint:": "Use current Stackfile nodes with callback and params, not constraint examples.",
     r"\bsafe_retreat\b": "Use the built-in retreat fallback name.",
     r"BoundaryConstraint": "Avoid low-level boundary internals in learner-facing Stackfile docs.",
+    r"\bupper_limits\b": "Use the Stackfile callback param upper in user-facing examples.",
+    r"\blower_limits\b": "Use the Stackfile callback param lower in user-facing examples.",
+    r"\bmax_velocity\b": "Use the Stackfile callback param max_velocities in user-facing examples.",
 }
 
 
