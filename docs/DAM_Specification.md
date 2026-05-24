@@ -1537,7 +1537,7 @@ def test_motion_guard_clamps_over_limit():
     guard = MotionGuard()
     obs = MockObservation(joint_positions=[0.0]*6)
     action = MockActionProposal(target_joint_positions=[2.0, 0, 0, 0, 0, 0])  # exceeds 1.5
-    assert_clamps(guard, obs, action, upper_limits=[1.5]*6, lower_limits=[-1.5]*6)
+    assert_clamps(guard, obs, action, upper=[1.5]*6, lower=[-1.5]*6)
 
 def test_motion_guard_rejects_workspace_breach():
     guard = MotionGuard()
@@ -1556,7 +1556,7 @@ KNOWN_VIOLATIONS = [
         "obs":    MockObservation(joint_positions=[0]*6),
         "action": MockActionProposal(target_joint_positions=[3.0]+[0]*5),
         "guard":  MotionGuard,
-        "config": {"upper_limits": [1.5]*6, "lower_limits": [-1.5]*6},
+        "config": {"upper": [1.5]*6, "lower": [-1.5]*6},
         "expected": Decision.CLAMP,
     },
     {
