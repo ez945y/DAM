@@ -24,6 +24,9 @@ FORBIDDEN_PATTERNS = {
     r"dam run --stack": "Use positional Stackfile paths: dam run <stackfile>.",
     r"dam validate --stack": "Use positional Stackfile paths: dam validate <stackfile>.",
     r"dam run my_stackfile\.yaml --task default": "Avoid implying every Stackfile has a default task.",
+    r"ready to deploy safety-critical": "Avoid claiming safety-critical deployment readiness.",
+    r"production-ready Stackfiles": "Prefer validated or deployment-oriented Stackfiles.",
+    r"Fully implemented and production-ready": "Avoid production-readiness claims in research-grade docs.",
 }
 
 
