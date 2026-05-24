@@ -13,7 +13,7 @@
 #   make ci-import         ← build Rust + import
 #   make ci-stackfile     ← validate stackfile
 #
-.PHONY: setup setup-lerobot ros dev run docs docs-check test test-py test-rs test-ui lint format build-rs clean help dam validate ci-lint ci-syntax ci-import ci-stackfile _kill_port
+.PHONY: setup setup-lerobot ros dev build run docs docs-check test test-py test-rs test-ui lint format build-rs clean help dam validate ci-lint ci-syntax ci-import ci-stackfile _kill_port
 
 # Ensure scripts are executable before every target that uses them
 _chmod:
@@ -23,14 +23,22 @@ _kill_port:
 	@echo "Checking for processes on port 8080..."
 	@lsof -ti:8080 | xargs kill -9 2>/dev/null || true
 
-setup: _chmod   ## First-time setup: venv + Rust + npm + pre-commit hooks
+setup: _chmod   ## First-time setup: venv + Rust + npm + pre-commit hooks + build frontend
 	@bash scripts/setup.sh
+	@$(MAKE) build
 
 setup-lerobot: _chmod   ## Setup with lerobot hardware support (SO-ARM101 + cameras)
 	@bash scripts/setup.sh --lerobot
 
 ros: _chmod   ## Setup with ROS2 support (transforms3d; install the ROS2 distro separately)
 	@bash scripts/setup.sh --ros
+
+build: _chmod   ## Build frontend (Next.js production) + copy static assets
+	@echo "Building frontend (Next.js production)..."
+	@cd dam-console && npm run build
+	@cp -r dam-console/public dam-console/.next/standalone/public 2>/dev/null || true
+	@cp -r dam-console/.next/static dam-console/.next/standalone/.next/static 2>/dev/null || true
+	@echo "Frontend build complete."
 
 build-rs: _chmod   ## Rebuild Rust extension only (dam_rs via maturin)
 	@bash scripts/setup.sh --rust-only
@@ -47,7 +55,7 @@ _DYLD_PREFIX   := $(if $(_AV_DYLIB_DIR),DYLD_LIBRARY_PATH="$(_AV_DYLIB_DIR):$$DY
 dev: _chmod _kill_port  ## Dev mode: hot-reload backend + Next.js dev server
 	@$(_DYLD_PREFIX)BACKEND_SCRIPT=scripts/dam_host.py bash scripts/run.sh
 
-run: _chmod _kill_port  ## Production mode: build frontend (static) + start backend
+run: _chmod _kill_port build  ## Production mode: build frontend + start backend
 	@$(_DYLD_PREFIX)bash scripts/run_prod.sh
 
 docs:   ## Preview documentation locally at http://127.0.0.1:8002/DAM/

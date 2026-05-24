@@ -89,26 +89,12 @@ info "Starting backend (scripts/dam_host.py) on :8080…"
 _child_pids+=($!)
 BACKEND_PID=$!
 
-# ── Build frontend (concurrently) ──────────────────────────────────────────────
-# Build / runtime output is mirrored to log files so failures are debuggable
-# instead of disappearing into /dev/null (which historically masked TypeScript
-# errors and made `make run` look like it was hanging on the backend).
-FRONTEND_BUILD_LOG="/tmp/dam-frontend-build.log"
 FRONTEND_RUN_LOG="/tmp/dam-frontend-run.log"
-BACKEND_LOG_NOTE="/tmp/dam-backend.log"
-info "Building frontend (Next.js production build) while backend warms up…"
-info "  build log → ${FRONTEND_BUILD_LOG}"
-if ! (cd dam-console && npm run build) > "$FRONTEND_BUILD_LOG" 2>&1; then
-    echo -e "${RED}[run] ✗ Frontend build FAILED — last 40 lines of ${FRONTEND_BUILD_LOG}:${NC}" >&2
-    tail -n 40 "$FRONTEND_BUILD_LOG" >&2 || true
-    die "npm run build failed. Full log: ${FRONTEND_BUILD_LOG}"
-fi
 
-# standalone output needs static assets copied in manually
-info "Finalizing frontend bundle…"
-cp -r dam-console/public dam-console/.next/standalone/public 2>/dev/null || true
-cp -r dam-console/.next/static dam-console/.next/standalone/.next/static 2>/dev/null || true
-ok "Frontend build complete"
+# ── Ensure frontend is built ──────────────────────────────────────────────────
+if [[ ! -d dam-console/.next/standalone ]]; then
+    die "Frontend not built. Run: make build"
+fi
 
 # ── Start production frontend ──────────────────────────────────────────────────
 info "Starting frontend (Next.js standalone) on :3000…"
