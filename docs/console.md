@@ -36,6 +36,8 @@ For frontend development, run the API and console separately from the repo root 
 | Is the loop too slow? | Cycle latency panel | Total latency below the configured budget |
 | What should I inspect after an event? | MCAP Sessions | The cycle, guard result, and nearby context |
 
+For a guided first pass, use [Console Walkthrough](getting-started/console-walkthrough.md).
+
 ---
 
 ## Pages

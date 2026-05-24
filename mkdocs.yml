@@ -57,6 +57,7 @@ nav:
     - Quick Start: getting-started/quickstart.md
     - Stackfile Walkthrough: getting-started/stackfile-walkthrough.md
     - Common Stackfile Edits: getting-started/common-stackfile-edits.md
+    - Console Walkthrough: getting-started/console-walkthrough.md
     - Installation: installation.md
     - Troubleshooting: getting-started/troubleshooting.md
     - Stackfile Guide: quick-stack.md
