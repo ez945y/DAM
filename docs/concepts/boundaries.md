@@ -1,32 +1,35 @@
 # Boundary System
 
-**Boundaries** define the **safety envelope** for task execution. They are task-specific constraints that L2 (Task Execution guard) enforces. This document explains how boundaries work, how to design them, and common patterns.
+**Boundaries** define named safety rules in a Stackfile. A boundary attaches to a guard layer such as L0, L1, L2, or L3, names the callback to run, and provides the parameters for that check.
+
+---
+
+## First-Read Path
+
+If you are new to DAM, start with [Stackfile Walkthrough](../getting-started/stackfile-walkthrough.md) and [Common Stackfile Edits](../getting-started/common-stackfile-edits.md). Use this page after you understand how a task activates named boundaries.
 
 ---
 
 ## What Are Boundaries?
 
-Boundaries are YAML-defined safety regions that constrain robot motion during specific tasks.
+Boundaries are YAML-defined checks that constrain robot behavior during specific tasks or always-on safety monitoring.
 
 ```yaml
 boundaries:
-  pick_and_place:
-    type: list
+  workspace:
+    layer: L1
+    type: single
     nodes:
-      - node_id: reach
-        constraint:
-          max_speed: 0.3
-          bounds: [[-0.35, 0.35], [-0.05, 0.45], [0.01, 0.40]]
-        fallback: hold_position
-        timeout_sec: 15.0
-      - node_id: grasp
-        constraint:
-          max_speed: 0.08
-        fallback: hold_position
-        timeout_sec: 8.0
+      - callback: workspace
+        params:
+          bounds: [[-0.4000, 0.4000], [-0.4000, 0.4000], [0.0200, 0.6000]]
+
+tasks:
+  demo:
+    boundaries: [workspace]
 ```
 
-**Key idea:** Instead of hard-coding task logic in your policy, you **parameterize** it in a Stackfile. This lets you:
+**Key idea:** Instead of hard-coding safety checks in your policy, you **parameterize** them in a Stackfile. This lets you:
 - ✅ Update constraints without retraining
 - ✅ Enable/disable task phases dynamically
 - ✅ Hot-reload on a running robot
