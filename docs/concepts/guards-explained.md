@@ -4,6 +4,20 @@ The **guard stack** is the heart of DAM. Four independent layers evaluate every 
 
 ---
 
+## First-Read Path
+
+If you are learning DAM for the first time, read in this order:
+
+1. Guard Stack Flow
+2. Layer 1 Motion Safety
+3. Layer 2 Task Execution
+4. Layer 3 Hardware Monitoring
+5. Layer 0 OOD Detection
+
+Skip optional or future-looking sections until you can already explain pass, clamp, reject, and fallback from a Stackfile.
+
+---
+
 ## The Guard Stack Flow
 
 ```
