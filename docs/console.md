@@ -143,7 +143,7 @@ The console subscribes to the live telemetry stream to provide real-time visual 
 
 Each control cycle, the console receives:
 *   **State Updates**: JSON metadata including guard decisions, risk levels, and latency metrics.
-*   **High-Speed Video**: Zero-latency binary image frames for all active cameras.
+*   **Image Frames**: Low-latency binary image frames for active cameras when image streaming is enabled.
 
 For low-level message formats and telemetry wiring, see [Services API → Telemetry](services-api.md#ws-wstelemetry).
 
