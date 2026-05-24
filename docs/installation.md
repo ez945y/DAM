@@ -56,10 +56,11 @@ For physical robot hardware, use the lerobot variant:
 
 ```bash
 make setup-lerobot   # adds lerobot + cv2 hardware extras
-make run
 ```
 
 Running `make setup` after `make setup-lerobot` will preserve the hardware extras — it detects lerobot in the existing venv and keeps it.
+
+After installing hardware extras, complete the no-hardware [Quick Start](getting-started/quickstart.md) first. Move to [Hardware Readiness](getting-started/hardware-readiness.md) only when validation, inspection, and console checks are familiar.
 
 ---
 
@@ -88,6 +89,9 @@ After setup completes, verify the installation:
 # Rust extension
 .venv/bin/python -c "import dam_rs; print('Rust data plane OK')"
 
+# Runtime dependency check
+.venv/bin/dam doctor
+
 # Run the test suite
 make test
 ```
@@ -96,4 +100,7 @@ Expected results:
 
 - The Python package command prints the installed DAM version, such as `0.5.0`.
 - The Rust extension command prints `Rust data plane OK`.
+- `dam doctor` reports required components as available; optional hardware packages may warn unless installed.
 - `make test` ends with `All checks passed.`
+
+Next, continue with [Quick Start](getting-started/quickstart.md).
