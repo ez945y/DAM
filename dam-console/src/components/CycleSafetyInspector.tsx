@@ -518,6 +518,39 @@ function LatencySummary({ latency = {}, totalMs }: { latency?: Record<string, nu
   )
 }
 
+const CATEGORY_ORDER: Record<string, number> = { perception: 0, motion: 1, task: 2, hardware: 3 }
+
+function GroupedGuardCards({ guards, displayUnit }: { guards: InspectorGuardResult[]; displayUnit: DisplayUnit }) {
+  const groups = useMemo(() => {
+    const map = new Map<string, InspectorGuardResult[]>()
+    for (const g of guards) {
+      const cat = g.event_class || LAYER_TO_EVENT_CLASS_MAP[g.layer] || g.layer
+      if (!map.has(cat)) map.set(cat, [])
+      map.get(cat)!.push(g)
+    }
+    return [...map.entries()].sort(
+      (a, b) => (CATEGORY_ORDER[a[0]] ?? 99) - (CATEGORY_ORDER[b[0]] ?? 99)
+    )
+  }, [guards])
+
+  if (groups.length <= 1) {
+    return <>{guards.map((g, i) => <GuardCard key={`${g.layer}-${g.name}-${i}`} guard={g} displayUnit={displayUnit} />)}</>
+  }
+
+  return (
+    <>
+      {groups.map(([cat, items]) => (
+        <div key={cat} className="space-y-1.5">
+          <p className="text-[9px] uppercase tracking-widest text-dam-muted/70 font-bold pt-1">{cat}</p>
+          {items.map((g, i) => <GuardCard key={`${g.layer}-${g.name}-${i}`} guard={g} displayUnit={displayUnit} />)}
+        </div>
+      ))}
+    </>
+  )
+}
+
+const LAYER_TO_EVENT_CLASS_MAP: Record<string, string> = { L0: 'perception', L1: 'motion', L2: 'task', L3: 'hardware' }
+
 export function CycleSafetyInspector({ guards, latency, totalMs, failure, observation, action, mode = 'mcap', chrome = 'card', displayUnit }: CycleSafetyInspectorProps) {
   const ctxUnit = useDisplayUnit()
   const unit: DisplayUnit = displayUnit ?? ctxUnit
@@ -594,7 +627,9 @@ export function CycleSafetyInspector({ guards, latency, totalMs, failure, observ
         )}
         {tab === 'guards' && (
           <div className="space-y-2">
-            {displayGuards.length === 0 ? <p className="text-xs text-dam-muted">No guard results recorded.</p> : displayGuards.map((g, i) => <GuardCard key={`${g.layer}-${g.name}-${i}`} guard={g} displayUnit={unit} />)}
+            {displayGuards.length === 0
+              ? <p className="text-xs text-dam-muted">No guard results recorded.</p>
+              : <GroupedGuardCards guards={displayGuards} displayUnit={unit} />}
           </div>
         )}
         {tab === 'io' && (
