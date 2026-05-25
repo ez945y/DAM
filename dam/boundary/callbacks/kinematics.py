@@ -320,11 +320,13 @@ def workspace(
     # workspace box into a control-affine CBF constraint; supply it when a
     # dynamics context is available, else only the box (aggregator skips CBF).
     J_linear = _ee_linear_jacobian(obs, dynamics)
+    q_full = np.asarray(obs.joint_positions, dtype=np.float64)
+    nq = J_linear.shape[1] if J_linear is not None else len(q_full)
     qp_meta = MotionQPConstraint(
         workspace_bounds=b.copy(),
         cbf_gamma=cbf_gamma,
         ee_pos=ee_pos.copy(),
-        q=np.asarray(obs.joint_positions, dtype=np.float64).copy(),
+        q=q_full[:nq].copy(),
         J_linear=J_linear,
         slack_weight=float(slack_weight),
     )
