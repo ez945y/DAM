@@ -300,6 +300,10 @@ class TestRegisterAll:
             "Consecutive"
             in by_name["ood_detector"]["params"]["temporal_smoothing_frames"]["description"]
         )
+        assert by_name["ood_detector"]["params"]["nll_sigma"]["default"] == 3.0
+        assert by_name["ood_detector"]["params"]["z_threshold"]["default"] == 5.0
+        assert "ood_context" not in by_name["ood_detector"]["params"]
+        assert not {"ood_welford", "ood_memory_bank", "ood_normalizing_flow"} & set(by_name)
 
 
 # ── Fake pinocchio-like dynamics context ──────────────────────────────────────

@@ -33,6 +33,7 @@ _CALLBACKS: dict[str, Callable[..., Any]] = {}
 
 _RUNTIME_ONLY_PARAMS = {
     "obs",
+    "ood_context",
     "action",
     "dt",
     "now",

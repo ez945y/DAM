@@ -1,8 +1,8 @@
-"""Experiment — L0 Real-NVP NLL Comparison (RQ1).
+"""Experiment — L0 ``ood_detector`` Real-NVP NLL Comparison (RQ1).
 
-Trains a real L0 OODGuard with the ``normalizing_flow`` (Real-NVP) backend on
-normal SO-ARM observations, then feeds three held-out observation sequences into
-the trained model and records per-frame Negative Log-Likelihood (NLL):
+Fits the Real-NVP backend used by the runtime ``ood_detector`` boundary on
+normal SO-ARM observations, then feeds three held-out observation sequences
+through the same feature/backend contract and records per-frame NLL:
 
 * normal test set: ``MikeChenYZ/soarm-fmb-v2``
 * legal-variation test set: ``MikeChenYZ/eval_soarm_fmb``
@@ -518,6 +518,7 @@ def _export_runtime_bundle(
         raise RuntimeError("Runtime export requires a persisted Real-NVP flow checkpoint.")
 
     stackfile_params: dict[str, object] = {
+        "backend": "normalizing_flow",
         "ood_model_path": str(model_path),
         "nll_sigma": 0,
         "nll_threshold": round(float(eer_threshold), 4),
@@ -532,6 +533,7 @@ def _export_runtime_bundle(
         if feature_config.get("vision_camera"):
             stackfile_params["vision_camera"] = feature_config["vision_camera"]
     metadata = {
+        "callback": "ood_detector",
         "backend": "normalizing_flow",
         "flow_path": str(flow_path),
         "feature_config": feature_config,
@@ -1144,6 +1146,7 @@ def run_calibration(
         )
 
     summary: dict = {
+        "callback": "ood_detector",
         "backend": "normalizing_flow",
         "model": "Real-NVP",
         "feature_sources": ["observation.state"]

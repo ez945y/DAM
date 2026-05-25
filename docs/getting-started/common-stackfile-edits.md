@@ -27,10 +27,10 @@ Find:
 ```yaml
 tasks:
   demo:
-    boundaries: [ood_welford, workspace, joint_position_limits, joint_velocity_limit, hardware_watchdog, host_health]
+    boundaries: [ood_detector, workspace, joint_position_limits, joint_velocity_limit, hardware_watchdog, host_health]
 ```
 
-To temporarily focus on motion checks, remove `ood_welford` from the copied file:
+To temporarily focus on motion checks, remove `ood_detector` from the copied file:
 
 ```yaml
 tasks:

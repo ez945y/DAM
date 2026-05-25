@@ -28,11 +28,13 @@ def test_experiment_registry_covers_all_thesis_rqs(tmp_path: Path, monkeypatch) 
                 }
             ],
             {
+                "callback": "ood_detector",
+                "backend": "normalizing_flow",
                 "dataset_stats": {
                     "normal_test": {"median": 1.0},
                     "legal_variation": {"median": 1.5},
                     "abnormal_a": {"median": 3.0},
-                }
+                },
             },
         )
 

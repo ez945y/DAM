@@ -21,6 +21,25 @@
 
 ## 會話記錄
 
+### Session 2026-05-25 #4 (Unified L0 OOD Boundary Authoring)
+
+- **本輪目標**: 將 Guard 編輯器中四個近似 L0 OOD callback 收斂成一個可理解的設定入口
+- **已完成**:
+  - L0 OOD boundary 只暴露 `ood_detector`；三種算法改為 `backend` 參數，不再註冊為額外 callback
+  - `ood_detector` 透傳 `normalizing_flow`/`memory_bank`/`welford` 所需參數，包含 vision fusion、`nll_sigma` 與 `z_threshold`
+  - 修正 Real-NVP 只提供 model/flow bundle、沒有 memory bank 時統一入口不載入模型的問題
+  - 前端以 backend selector 切換對應參數欄位；新建與訓練預設使用 Real-NVP
+  - RQ1 runtime bundle、範例 Stackfile 與 L0 文件統一改用 `callback: ood_detector` + `backend`
+- **執行過的驗證**:
+  - `.venv/bin/python -m pytest tests/unit/ -x -q` — 580 passed
+  - `.venv/bin/python -m pytest tests/unit/test_ood_callbacks.py tests/unit/test_builtin_callbacks.py tests/safety/test_ood_regression.py -q` — 66 passed
+  - `cd dam-console && npm test -- --runInBand` — 100 passed
+  - `cd dam-console && npm run build` — passed（保留既有 Turbopack NFT warning）
+  - `.venv/bin/dam validate examples/stackfiles/demo.yaml examples/stackfiles/test.yaml examples/stackfiles/so101_qp.yaml` — 3/3 valid
+  - `.venv/bin/python scripts/check_docs.py` — passed
+- **介面決策**:
+  - 不保留 `ood_welford` / `ood_memory_bank` / `ood_normalizing_flow` Stackfile callback；既有檔案需改成 `ood_detector` 並設定 `backend`
+
 ### Session 2026-05-25 #3 (Read-only MCAP Incident Triage)
 
 - **本輪目標**: 將實機「不動／被擋」排查整理成 agent 可安全重複使用的唯讀工具

@@ -27,9 +27,6 @@ from dam.boundary.callbacks import (
     joint_velocity_limit,
     keep_out_zone,
     ood_detector,
-    ood_memory_bank,
-    ood_normalizing_flow,
-    ood_welford,
     orientation_limit,
     register_all,
     task_gripper_command_guard,
@@ -48,20 +45,10 @@ from dam.boundary.callbacks._helpers import (
     _resolve_ee_translation,
 )
 
-# Module-level OOD guard cache lived here historically; some tests clear it
-# via ``builtin_callbacks._ood_guard_cache``.  Re-export the same objects so
-# in-place mutation (``.clear()``) still reaches the real cache.
-from dam.boundary.callbacks.perception import (
-    _ood_cache_lock,
-    _ood_guard_cache,
-)
-
 __all__ = [
     "_CALLBACKS",
     "_CATALOG",
     "_get_ee_pose",
-    "_ood_cache_lock",
-    "_ood_guard_cache",
     "_point_in_polygon",
     "_quat_to_rotmat",
     "_read_channel",
@@ -83,9 +70,6 @@ __all__ = [
     "joint_velocity_limit",
     "keep_out_zone",
     "ood_detector",
-    "ood_memory_bank",
-    "ood_normalizing_flow",
-    "ood_welford",
     "orientation_limit",
     "register_all",
     "task_gripper_command_guard",

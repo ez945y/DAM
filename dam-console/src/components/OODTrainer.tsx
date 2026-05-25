@@ -14,7 +14,7 @@ export function OODTrainer({
   onSelectMeta?: (path: string, meta: { backend?: string; bank_path?: string }) => void
 }) {
   const [repoId, setRepoId] = useState('MikeChenYZ/soarm-fmb-v2')
-  const [backend, setBackend] = useState('memory_bank')
+  const [backend, setBackend] = useState('normalizing_flow')
   const [outputName, setOutputName] = useState('ood_model')
   const [visionModel, setVisionModel] = useState('')
   const [visionWeight, setVisionWeight] = useState(0.3)

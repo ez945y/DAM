@@ -121,7 +121,7 @@ function L0CalibrationSummary({ summary }: { summary: Record<string, unknown> })
     return (
       <div className="space-y-3">
         <div className="bg-dam-surface-2 border border-dam-border rounded-lg px-3 py-2 flex flex-wrap items-center gap-3 text-[11px]">
-          <span className="font-mono text-dam-accent">Real-NVP</span>
+          <span className="font-mono text-dam-accent">ood_detector / Real-NVP</span>
           <span className="text-dam-muted font-mono">{thresholdMethod} threshold={nllThreshold.toFixed(4)}</span>
           {auroc !== null && <span className="text-dam-muted font-mono">AUROC={auroc.toFixed(4)}</span>}
           {calibrationEer !== null && <span className="text-dam-muted font-mono">EER={calibrationEer.toFixed(4)}</span>}
@@ -152,6 +152,8 @@ function L0CalibrationSummary({ summary }: { summary: Record<string, unknown> })
           <div className="bg-dam-surface-2 border border-dam-border rounded-lg px-3 py-2 text-[11px]">
             <p className="section-label mb-1">Stackfile Model</p>
             <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono">
+              <span className="text-dam-text">callback: ood_detector</span>
+              <span className="text-dam-muted">backend: normalizing_flow</span>
               <span className="text-dam-text">ood_model_path: {runtimeModelPath}</span>
               <span className="text-dam-muted">nll_sigma: 0</span>
               <span className="text-dam-muted">nll_threshold: {nllThreshold.toFixed(4)}</span>

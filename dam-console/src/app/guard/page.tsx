@@ -102,7 +102,12 @@ function defaultParamsForCallback(callback: string | null, meta?: BoundaryCallba
   Object.entries(meta.params).forEach(([pName, pMeta]) => {
     if (pMeta.has_default && pMeta.default != null) params[pName] = pMeta.default
   })
+  if (callback === 'ood_detector') params.backend = 'normalizing_flow'
   return params
+}
+
+function oodBackendForNode(node: ConstraintNodeDef): string {
+  return String(node.params?.backend ?? 'normalizing_flow')
 }
 
 function normalizeGripperNode(node: ConstraintNodeDef): ConstraintNodeDef {
@@ -190,6 +195,7 @@ function NodeForm({
   const hasBounds = !!bounds
   const isOod = !!node.callback?.startsWith('ood_')
   const callbackParamMeta = callbackCatalog.find(c => c.name === node.callback)?.params ?? {}
+  const oodBackend = oodBackendForNode(node)
   const paramTitle = (name: string) => callbackParamMeta[name]?.description || undefined
   const paramLabelCls = (name: string) =>
     `text-dam-muted cursor-help ${paramTitle(name) ? 'underline decoration-dotted underline-offset-2' : ''}`
@@ -264,10 +270,10 @@ function NodeForm({
                 if (group.length === 0) return null
                 return (
                   <optgroup key={layer} label={`${layer} Layer`} className="bg-dam-surface-3 font-semibold text-dam-blue">
-                    {group.map(cb => (
-                      <option key={cb.name} value={cb.name} className="bg-dam-surface-2 text-dam-text font-normal">
-                        {cb.name}
-                      </option>
+                      {group.map(cb => (
+                        <option key={cb.name} value={cb.name} className="bg-dam-surface-2 text-dam-text font-normal">
+                          {cb.name}
+                        </option>
                     ))}
                   </optgroup>
                 )
@@ -540,69 +546,102 @@ function NodeForm({
                     const next: Record<string, unknown> = { ...node.params, ood_model_path: path }
                     if (meta.bank_path) next.bank_path = meta.bank_path
                     if (meta.backend) next.backend = meta.backend
-                    onChange({ ...node, params: next })
+                    onChange({ ...node, callback: 'ood_detector', params: next })
                   }}
                 />
               </div>
 
-        {/* OOD Parameters with tooltips */}
-        <div className="grid grid-cols-2 gap-3 mt-4">
-                 <div className="space-y-1">
-                    <label
-                      htmlFor={`node-${index}-nn-threshold`}
-                      className="text-dam-muted text-[9px] uppercase font-bold tracking-tight px-1 flex justify-between cursor-help group"
-                      title="Sensitivity (NN): Nearest Neighbor threshold. Measures the 'Similarity' between current state and memory bank samples. Range: 0.5 - 5.0. Lower is stricter."
-                    >
-                      <span className="flex items-center gap-1 underline decoration-dotted underline-offset-2 group-hover:text-dam-blue transition-colors">Sensitivity (NN) <Info size={8} /></span>
-                      <span className="opacity-40 italic">0.5 - 5.0</span>
-                    </label>
+              <div className="grid grid-cols-2 gap-3 mt-4">
+                <label className="space-y-1">
+                  <span className="text-dam-muted text-[9px] uppercase font-bold px-1">Scoring Backend</span>
+                  <select
+                    value={oodBackend}
+                    onChange={e => onChange({
+                      ...node,
+                      callback: 'ood_detector',
+                      params: { ...node.params, backend: e.target.value },
+                    })}
+                    className={`w-full ${inputCls} h-9 rounded-lg`}
+                  >
+                    <option value="normalizing_flow">Real-NVP (NLL)</option>
+                    <option value="memory_bank">Memory Bank (NN)</option>
+                    <option value="welford">Welford (online)</option>
+                  </select>
+                </label>
+
+                {oodBackend === 'memory_bank' && (
+                  <label className="space-y-1">
+                    <span className="text-dam-muted text-[9px] uppercase font-bold px-1 flex gap-1 items-center" title="Nearest-neighbour distance threshold. Lower is stricter.">
+                      NN Threshold <Info size={8} />
+                    </span>
                     <input
-                      id={`node-${index}-nn-threshold`}
                       type="number"
                       step="0.1"
                       value={node.params.nn_threshold ?? 2}
                       onChange={e => onChange({ ...node, params: { ...node.params, nn_threshold: Number(e.target.value) } })}
                       className={`w-full ${inputCls} h-9 rounded-lg`}
                     />
-                 </div>
-                 <div className="space-y-1">
-                    <label
-                      htmlFor={`node-${index}-nll-threshold`}
-                      className="text-dam-muted text-[9px] uppercase font-bold tracking-tight px-1 flex justify-between cursor-help group"
-                      title="Density (NLL): Negative Log-Likelihood threshold. Measures the 'Probability Floor'. Higher is more tolerant (allows low prob), lower is stricter. Range: 3.0 - 15.0."
-                    >
-                      <span className="flex items-center gap-1 underline decoration-dotted underline-offset-2 group-hover:text-dam-blue transition-colors">Density (NLL) <Info size={8} /></span>
-                      <span className="opacity-40 italic">3.0 - 15.0</span>
-                    </label>
+                  </label>
+                )}
+
+                {oodBackend === 'welford' && (
+                  <label className="space-y-1">
+                    <span className="text-dam-muted text-[9px] uppercase font-bold px-1 flex gap-1 items-center" title="Online z-score threshold. Lower is stricter.">
+                      Z Threshold <Info size={8} />
+                    </span>
                     <input
-                      id={`node-${index}-nll-threshold`}
                       type="number"
-                      step="0.5"
-                      value={node.params.nll_threshold ?? 5}
-                      onChange={e => onChange({ ...node, params: { ...node.params, nll_threshold: Number(e.target.value) } })}
+                      step="0.1"
+                      value={node.params.z_threshold ?? 5}
+                      onChange={e => onChange({ ...node, params: { ...node.params, z_threshold: Number(e.target.value) } })}
                       className={`w-full ${inputCls} h-9 rounded-lg`}
                     />
-                 </div>
-                 <div className="space-y-1">
-                    <label
-                      htmlFor={`node-${index}-temporal-smoothing`}
-                      className="text-dam-muted text-[9px] uppercase font-bold tracking-tight px-1 flex justify-between cursor-help group"
-                      title="Temporal smoothing: require this many consecutive OOD frames before the boundary rejects. Use this to absorb lighting, shadow, and brief occlusion false positives."
-                    >
-                      <span className="flex items-center gap-1 underline decoration-dotted underline-offset-2 group-hover:text-dam-blue transition-colors">Temporal Frames <Info size={8} /></span>
-                      <span className="opacity-40 italic">1+</span>
+                  </label>
+                )}
+
+                {oodBackend === 'normalizing_flow' && (
+                  <>
+                    <label className="space-y-1">
+                      <span className="text-dam-muted text-[9px] uppercase font-bold px-1 flex gap-1 items-center" title="Threshold = training mean NLL + sigma times standard deviation. Set to 0 to use a calibrated direct NLL threshold.">
+                        NLL Sigma <Info size={8} />
+                      </span>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={node.params.nll_sigma ?? 3}
+                        onChange={e => onChange({ ...node, params: { ...node.params, nll_sigma: Number(e.target.value) } })}
+                        className={`w-full ${inputCls} h-9 rounded-lg`}
+                      />
                     </label>
-                    <input
-                      id={`node-${index}-temporal-smoothing`}
-                      type="number"
-                      min="1"
-                      step="1"
-                      value={node.params.temporal_smoothing_frames ?? 3}
-                      onChange={e => onChange({ ...node, params: { ...node.params, temporal_smoothing_frames: Math.max(1, Number(e.target.value) || 1) } })}
-                      className={`w-full ${inputCls} h-9 rounded-lg`}
-                    />
-                 </div>
-        </div>
+                    <label className="space-y-1">
+                      <span className="text-dam-muted text-[9px] uppercase font-bold px-1 flex gap-1 items-center" title="Direct NLL decision threshold used when NLL sigma is 0 or training statistics are unavailable.">
+                        NLL Threshold <Info size={8} />
+                      </span>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={node.params.nll_threshold ?? 5}
+                        onChange={e => onChange({ ...node, params: { ...node.params, nll_threshold: Number(e.target.value) } })}
+                        className={`w-full ${inputCls} h-9 rounded-lg`}
+                      />
+                    </label>
+                  </>
+                )}
+
+                <label className="space-y-1">
+                  <span className="text-dam-muted text-[9px] uppercase font-bold px-1 flex gap-1 items-center" title="Require consecutive OOD frames before rejection.">
+                    Temporal Frames <Info size={8} />
+                  </span>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={node.params.temporal_smoothing_frames ?? 3}
+                    onChange={e => onChange({ ...node, params: { ...node.params, temporal_smoothing_frames: Math.max(1, Number(e.target.value) || 1) } })}
+                    className={`w-full ${inputCls} h-9 rounded-lg`}
+                  />
+                </label>
+              </div>
             </div>
           )
         }

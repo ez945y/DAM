@@ -829,7 +829,7 @@ class OODGuard(Guard):
         from dam.boundary.callbacks.ood import _key
         from dam.guard.ood_backend import MemoryBankBackend, RealNVPFlowBackend
 
-        callback_name = self._CALLBACK_BY_KIND.get(self._kind, "ood_welford")
+        callback_name = "ood_detector"
         if self._kind is OODBackendKind.MEMORY_BANK and self._bank.is_trained:
             key = _key(callback_name, "", "", "memory_bank")
             self._ood_context._backends[key] = MemoryBankBackend(bank=self._bank)
@@ -886,12 +886,6 @@ class OODGuard(Guard):
 
     # ── check() ──────────────────────────────────────────────────────────────
 
-    _CALLBACK_BY_KIND: dict[OODBackendKind, str] = {
-        OODBackendKind.NORMALIZING_FLOW: "ood_normalizing_flow",
-        OODBackendKind.MEMORY_BANK: "ood_memory_bank",
-        OODBackendKind.WELFORD: "ood_welford",
-    }
-
     def _ensure_callbacks_registered(self) -> None:
         """Lazy-register OOD callbacks so users who instantiate OODGuard
         directly (tests, scripts) don't need to know about register_all().
@@ -907,6 +901,7 @@ class OODGuard(Guard):
         self,
         *,
         nn_threshold: float,
+        z_threshold: float,
         nll_sigma: float,
         nll_threshold: float,
         ood_model_path: str | None,
@@ -916,16 +911,16 @@ class OODGuard(Guard):
         vision_weight: float = 0.3,
         vision_camera: str | None = None,
     ) -> Any:
-        """Synthesize a SingleNodeContainer wired to the callback matching
-        ``self._kind``. Used when no stackfile-provided container is active
-        so ``check()`` always runs the single callback pipeline."""
+        """Synthesize a SingleNodeContainer wired to unified OOD callback."""
         from dam.boundary.constraint import BoundaryConstraint
         from dam.boundary.node import BoundaryNode
         from dam.boundary.single import SingleNodeContainer
 
-        callback_name = self._CALLBACK_BY_KIND.get(self._kind, "ood_welford")
+        callback_name = "ood_detector"
         params: dict[str, Any] = {
+            "backend": self._kind.value,
             "nn_threshold": nn_threshold,
+            "z_threshold": z_threshold,
             "nll_sigma": nll_sigma,
             "nll_threshold": nll_threshold,
             "device": device,
@@ -978,6 +973,7 @@ class OODGuard(Guard):
         )
         container = self._build_default_container(
             nn_threshold=2.0,
+            z_threshold=5.0,
             nll_sigma=3.0,
             nll_threshold=5.0,
             ood_model_path=ood_model_path,
@@ -1007,6 +1003,7 @@ class OODGuard(Guard):
         obs: Observation,
         active_containers: list[Any] | None = None,
         nn_threshold: float = 2.0,
+        z_threshold: float = 5.0,
         nll_sigma: float = 3.0,
         nll_threshold: float = 5.0,
         ood_model_path: str | None = None,
@@ -1021,11 +1018,12 @@ class OODGuard(Guard):
         name = self.get_name()
 
         # Single execution path: stackfile-provided containers when present,
-        # otherwise a synthesized one wired to the callback matching
-        # ``self._kind``. Either way the L0 callback pipeline does the work.
+        # otherwise a synthesized unified OOD node configured with this
+        # guard's backend. Either way the L0 callback pipeline does the work.
         containers = active_containers or [
             self._build_default_container(
                 nn_threshold=nn_threshold,
+                z_threshold=z_threshold,
                 nll_sigma=nll_sigma,
                 nll_threshold=nll_threshold,
                 ood_model_path=ood_model_path,

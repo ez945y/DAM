@@ -348,8 +348,8 @@ describe('generateYaml', () => {
   it('does not include OOD boundary in the default so101_act Stackfile', () => {
     const cfg = defaultConfig('so101_act')
     const yaml = generateYaml(cfg)
-    expect(yaml).not.toContain('ood_welford:')
-    expect(yaml).not.toContain('callback: ood_welford')
+    expect(yaml).not.toContain('ood_detector:')
+    expect(yaml).not.toContain('callback: ood_detector')
   })
 
   it('disabled guard appears as enabled: false in guards section', () => {
@@ -366,13 +366,13 @@ describe('generateYaml', () => {
     cfg.boundaries = [
       ...cfg.boundaries,
       {
-        name: 'ood_memory_bank',
+        name: 'ood_detector',
         layer: 'L0',
         type: 'single',
         nodes: [{
           node_id: 'default',
-          callback: 'ood_memory_bank',
-          params: { ood_model_path: '/models/ood.pt', nn_threshold: 0.4, bank_path: '/models/ood_bank.npz' },
+          callback: 'ood_detector',
+          params: { backend: 'memory_bank', ood_model_path: '/models/ood.pt', nn_threshold: 0.4, bank_path: '/models/ood_bank.npz' },
           fallback: 'emergency_stop',
           timeout_sec: null,
         }],
@@ -380,10 +380,10 @@ describe('generateYaml', () => {
     ]
     const yaml = generateYaml(cfg)
     // OOD params appear in boundaries, NOT in guards section
-    expect(yaml).toContain('ood_memory_bank')
+    expect(yaml).toContain('ood_detector')
+    expect(yaml).toContain('backend: memory_bank')
     expect(yaml).toContain('/models/ood.pt')
     expect(yaml).toContain('nn_threshold')
-    expect(yaml).not.toContain('backend: memory_bank')
     // Verify it is in the boundaries block (before tasks block)
     const guardsEnd = yaml.indexOf('\nboundaries:')
     const oodParamPos = yaml.indexOf('ood_model_path')

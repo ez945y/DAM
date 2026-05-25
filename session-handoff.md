@@ -1,6 +1,6 @@
 # session-handoff.md — 會話交接摘要
 
-> 最後更新: 2026-05-25 19:20
+> 最後更新: 2026-05-25 19:37
 
 ## 當前已驗證
 
@@ -13,7 +13,9 @@
 - Vision RQ1 only evaluates frames that actually have attached images; missing-image zero padding is no longer mixed into its evaluation set.
 - Dataset/model cache hit behavior is verified with a repeated smoke run and keyed by feature configuration.
 - Frontend RQ1 result card displays signal provenance and refreshes immediately after a completed run.
-- Unit tests: 553 passed; frontend build and docs check passed.
+- L0 surface is unified as `ood_detector` with a selectable backend; new UI-created OOD boundaries default to Real-NVP and old algorithm callback names are no longer registered.
+- Unified `ood_detector` now forwards vision, NLL sigma, Welford threshold and device parameters, and loads a Real-NVP runtime bundle without requiring an unrelated memory-bank path.
+- Unit tests: 580 passed; frontend tests/build and docs check passed.
 
 ## 未驗證 / 待確認
 
@@ -30,6 +32,7 @@
 |--------|------|
 | current delivery | Read-only MCAP triage CLI, safe joint diagnostic default, agent/docs guidance |
 | current delivery | RQ1 public backend refactor, deterministic cache identity, honest UI feature provenance, vision frame filtering |
+| current delivery | Unified L0 OOD boundary and RQ1 export with Real-NVP default |
 
 ## 下一步最佳動作
 

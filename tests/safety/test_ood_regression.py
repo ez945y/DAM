@@ -14,17 +14,20 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from dam.boundary.builtin_callbacks import ood_detector, register_all
+from dam.boundary.builtin_callbacks import ood_detector as _ood_detector
+from dam.boundary.builtin_callbacks import register_all
 from dam.boundary.constraint import BoundaryConstraint
 from dam.boundary.node import BoundaryNode
 from dam.boundary.single import SingleNodeContainer
 from dam.decorators import guard as guard_decorator
 from dam.guard.builtin.ood import OODGuard
+from dam.guard.ood_context import OODContext
 from dam.registry.callback import CallbackRegistry
 from dam.runtime.guard_runtime import GuardRuntime
 from dam.testing.mocks import MockPolicyAdapter, MockSinkAdapter, MockSourceAdapter
 from dam.types.action import ActionProposal
 from dam.types.observation import Observation
+from dam.types.result import GuardDecision
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -36,6 +39,19 @@ def _obs(positions=None) -> Observation:
         joint_positions=pos,
         joint_velocities=np.zeros(6),
         end_effector_pose=np.array([0.1, 0.1, 0.3, 0.0, 0.0, 0.0, 1.0]),
+    )
+
+
+_ood_contexts: dict[tuple[str, str], OODContext] = {}
+
+
+def ood_detector(*, obs: Observation, backend: str = "welford", **kwargs) -> bool:
+    """Exercise the single registered callback with durable per-model context."""
+    key = (backend, str(kwargs.get("ood_model_path", "")))
+    ctx = _ood_contexts.setdefault(key, OODContext.default())
+    return (
+        _ood_detector(obs=obs, ood_context=ctx, backend=backend, **kwargs).decision
+        == GuardDecision.PASS
     )
 
 
@@ -72,9 +88,7 @@ class TestOodWarmup:
         """First 30 calls must all return True (pass) regardless of content."""
         obs = _obs([0.1] * 6)
         # Use a fresh guard instance via a fresh cache key
-        import dam.boundary.builtin_callbacks as bc
-
-        bc._ood_guard_cache.clear()
+        _ood_contexts.clear()
 
         for i in range(30):
             result = ood_detector(obs=obs, backend="welford", ood_model_path="__test__")
@@ -82,9 +96,7 @@ class TestOodWarmup:
 
     def test_warmup_passes_extreme_observations(self):
         """Even extreme values must pass during the 30-sample warmup window."""
-        import dam.boundary.builtin_callbacks as bc
-
-        bc._ood_guard_cache.clear()
+        _ood_contexts.clear()
 
         extreme_obs = _obs([999.0] * 6)
         for i in range(30):
@@ -102,11 +114,9 @@ class TestOodPostWarmup:
 
     @pytest.fixture(autouse=True)
     def _fresh_cache(self):
-        import dam.boundary.builtin_callbacks as bc
-
-        bc._ood_guard_cache.clear()
+        _ood_contexts.clear()
         yield
-        bc._ood_guard_cache.clear()
+        _ood_contexts.clear()
 
     def _train_welford(self, n: int = 40, positions=None) -> None:
         """Feed n identical observations to push past the warmup window."""
@@ -136,34 +146,40 @@ class TestOodPostWarmup:
 
     def test_extreme_outlier_requires_configured_consecutive_frames(self):
         """Temporal smoothing suppresses isolated OOD false positives."""
-        self._train_welford(n=50, positions=[0.0] * 6)
+        register_all()
+        guard = OODGuard(backend="welford")
+        container = SingleNodeContainer(
+            BoundaryNode(
+                "ood",
+                BoundaryConstraint(callback="ood_detector", params={"backend": "welford"}),
+            )
+        )
+        for _ in range(50):
+            guard.check(obs=_obs([0.0] * 6), active_containers=[container])
         extreme_obs = _obs([1e6] * 6)
         assert (
-            ood_detector(
+            guard.check(
                 obs=extreme_obs,
-                backend="welford",
-                ood_model_path="__pw__",
+                active_containers=[container],
                 temporal_smoothing_frames=3,
-            )
-            is True
+            ).decision
+            == GuardDecision.PASS
         )
         assert (
-            ood_detector(
+            guard.check(
                 obs=extreme_obs,
-                backend="welford",
-                ood_model_path="__pw__",
+                active_containers=[container],
                 temporal_smoothing_frames=3,
-            )
-            is True
+            ).decision
+            == GuardDecision.PASS
         )
         assert (
-            ood_detector(
+            guard.check(
                 obs=extreme_obs,
-                backend="welford",
-                ood_model_path="__pw__",
+                active_containers=[container],
                 temporal_smoothing_frames=3,
-            )
-            is False
+            ).decision
+            == GuardDecision.REJECT
         )
 
 
@@ -175,11 +191,9 @@ class TestOodInMonitorPipeline:
 
     @pytest.fixture(autouse=True)
     def _fresh_cache(self):
-        import dam.boundary.builtin_callbacks as bc
-
-        bc._ood_guard_cache.clear()
+        _ood_contexts.clear()
         yield
-        bc._ood_guard_cache.clear()
+        _ood_contexts.clear()
 
     def _make_ood_runtime(self, enforcement_mode: str = "monitor") -> GuardRuntime:
         """Build a minimal runtime with only the OOD guard."""

@@ -7,12 +7,7 @@ from typing import Any
 
 import numpy as np
 
-from dam.boundary.callbacks.ood import (
-    _key,
-    ood_memory_bank,
-    ood_normalizing_flow,
-    ood_welford,
-)
+from dam.boundary.callbacks.ood import _key, ood_detector
 from dam.guard.builtin.ood import OODGuard
 from dam.guard.ood_context import OODContext
 from dam.types.observation import Observation
@@ -53,55 +48,52 @@ class _Container:
         return self._node
 
 
-# ── ood_welford callback ──────────────────────────────────────────────────────
+# ── unified OOD callback ──────────────────────────────────────────────────────
 
 
-def test_ood_welford_callback_warmup_then_reject() -> None:
+def test_ood_detector_welford_backend_warmup_then_reject() -> None:
     ctx = OODContext.default()
     for _ in range(30):
-        r = ood_welford(obs=_obs([0.01] * 6), ood_context=ctx)
+        r = ood_detector(obs=_obs([0.01] * 6), ood_context=ctx, backend="welford")
         assert r.decision == GuardDecision.PASS
         assert r.metadata["backend"] == "welford"
-    r = ood_welford(obs=_obs([100.0] * 6), ood_context=ctx)
+    r = ood_detector(obs=_obs([100.0] * 6), ood_context=ctx, backend="welford")
     assert r.decision == GuardDecision.REJECT
     assert "score" in r.metadata and "threshold" in r.metadata
 
 
-# ── ood_memory_bank callback ──────────────────────────────────────────────────
-
-
-def test_ood_memory_bank_callback_falls_back_to_welford_when_untrained() -> None:
+def test_ood_detector_memory_bank_falls_back_to_welford_when_untrained() -> None:
     ctx = OODContext.default()
     # No trained bank → behaves like Welford warm-up (PASS during warm-up).
-    r = ood_memory_bank(obs=_obs([0.1] * 6), ood_context=ctx, nn_threshold=2.0)
+    r = ood_detector(obs=_obs([0.1] * 6), ood_context=ctx, backend="memory_bank", nn_threshold=2.0)
     assert r.decision == GuardDecision.PASS
     assert r.metadata["backend"] == "welford"
 
 
-def test_ood_memory_bank_callback_uses_bank_when_trained() -> None:
+def test_ood_detector_memory_bank_uses_bank_when_trained() -> None:
     ctx = OODContext.default()
     # Train the bank under the same key the callback resolves to (no path args).
-    key = _key("ood_memory_bank", "", "", "memory_bank")
+    key = _key("ood_detector", "", "", "memory_bank")
     backend = ctx.get_backend(kind="memory_bank", key=key)
     rng = np.random.RandomState(0)
     vectors = rng.randn(40, _EMBED_DIM).astype(np.float32)
     vectors /= np.linalg.norm(vectors, axis=1, keepdims=True)
     backend.train(vectors)
 
-    r = ood_memory_bank(obs=_obs([0.1] * 6), ood_context=ctx, nn_threshold=10.0)
+    r = ood_detector(obs=_obs([0.1] * 6), ood_context=ctx, backend="memory_bank", nn_threshold=10.0)
     assert r.decision == GuardDecision.PASS
     assert r.metadata["backend"] == "memory_bank"
     # An impossibly tight threshold flags everything as OOD.
-    r2 = ood_memory_bank(obs=_obs([0.1] * 6), ood_context=ctx, nn_threshold=-1.0)
+    r2 = ood_detector(
+        obs=_obs([0.1] * 6), ood_context=ctx, backend="memory_bank", nn_threshold=-1.0
+    )
     assert r2.decision == GuardDecision.REJECT
 
 
 def test_builtin_callbacks_exports_l0_ood_callbacks() -> None:
     from dam.boundary import builtin_callbacks
 
-    assert builtin_callbacks.ood_welford is ood_welford
-    assert builtin_callbacks.ood_memory_bank is ood_memory_bank
-    assert builtin_callbacks.ood_normalizing_flow is ood_normalizing_flow
+    assert builtin_callbacks.ood_detector is ood_detector
 
 
 # ── OODGuard pipeline path ────────────────────────────────────────────────────
@@ -112,7 +104,7 @@ def test_ood_guard_runs_l0_callback_pipeline() -> None:
 
     register_all()
     g = OODGuard()
-    container = _Container("ood", callback="ood_welford")
+    container = _Container("ood", callback="ood_detector", params={"backend": "welford"})
     # Warm-up frames pass through the callback pipeline.
     for _ in range(30):
         result = g.check(obs=_obs([0.01] * 6), active_containers=[container])
@@ -123,8 +115,8 @@ def test_ood_guard_runs_l0_callback_pipeline() -> None:
 
 def test_ood_guard_synthesizes_default_container_without_l0_callback() -> None:
     """No active containers → check() synthesizes a default SingleNodeContainer
-    wired to the callback matching the guard's backend kind (memory_bank →
-    ood_memory_bank, which falls back to welford warm-up when untrained)."""
+    wired to ood_detector with the guard backend (memory_bank falls back to
+    welford warm-up when untrained)."""
     g = OODGuard()
     for _ in range(30):
         assert g.check(obs=_obs([0.01] * 6)).decision == GuardDecision.PASS
@@ -142,7 +134,7 @@ def test_ood_guard_default_path_handles_missing_model_files() -> None:
         bank_path="/tmp/missing-bank.npz",
     )
     assert result.decision == GuardDecision.PASS
-    # Welford under the *path-keyed* fallback inside the memory_bank callback.
+    # Welford under the path-keyed fallback inside the configured detector.
     assert any(
         backend.diagnostics().get("welford_samples", 0) >= 1
         for backend in g._ood_context._backends.values()
@@ -154,7 +146,7 @@ def test_ood_guard_pipeline_respects_temporal_smoothing() -> None:
 
     register_all()
     g = OODGuard()
-    container = _Container("ood", callback="ood_welford")
+    container = _Container("ood", callback="ood_detector", params={"backend": "welford"})
     for _ in range(30):
         g.check(obs=_obs([0.01] * 6), active_containers=[container])
     a = g.check(obs=_obs([100.0] * 6), active_containers=[container], temporal_smoothing_frames=2)

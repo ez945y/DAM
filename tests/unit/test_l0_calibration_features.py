@@ -220,11 +220,11 @@ def test_export_runtime_bundle_matches_stackfile_model_convention(tmp_path) -> N
     assert (tmp_path / "ood_model.pt").read_bytes() == b"extractor"
     assert (tmp_path / "ood_model_flow.pt").read_bytes() == b"flow"
     assert result["runtime_flow_path"] == str(tmp_path / "ood_model_flow.pt")
-    assert (
-        json.loads((tmp_path / "ood_model.json").read_text())["stackfile_params"]
-        == result["stackfile_params"]
-    )
+    metadata = json.loads((tmp_path / "ood_model.json").read_text())
+    assert metadata["callback"] == "ood_detector"
+    assert metadata["stackfile_params"] == result["stackfile_params"]
     assert result["stackfile_params"] == {
+        "backend": "normalizing_flow",
         "ood_model_path": str(tmp_path / "ood_model.pt"),
         "nll_sigma": 0,
         "nll_threshold": -12.3457,

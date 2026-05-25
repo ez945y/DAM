@@ -107,9 +107,10 @@ boundaries:
     layer: L0
     type: single
     nodes:
-      - callback: ood_normalizing_flow
+      - callback: ood_detector
         fallback: hold_position
         params:
+          backend: normalizing_flow
           ood_model_path: data/ood_models/ood_model.pt
           nll_sigma: 0
           nll_threshold: -524.3279  # EER threshold from exported RQ1 bundle.

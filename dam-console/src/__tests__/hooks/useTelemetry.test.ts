@@ -124,7 +124,7 @@ describe('useTelemetry', () => {
   })
 
   it('drops stale boundaries from guardMap after reconnect with a smaller list', async () => {
-    // Regression: Apply & Restart used to leave old boundaries (e.g. ood_welford)
+    // Regression: Apply & Restart used to leave old boundaries (e.g. ood_detector)
     // visible on the home page because the listBoundaries handler only added
     // entries — never removed them.  The fix wholesale-replaces gGuardMap on
     // every onopen.
@@ -132,7 +132,7 @@ describe('useTelemetry', () => {
       // First connection: two boundaries.
       .mockResolvedValueOnce({
         boundaries: [
-          { name: 'ood_welford', layer: 'L0', type: 'single', nodes: [{ node_id: 'd', constraint: 'ood' }] } as any,
+          { name: 'ood_detector', layer: 'L0', type: 'single', nodes: [{ node_id: 'd', constraint: 'ood' }] } as any,
           { name: 'workspace',  layer: 'L1', type: 'single', nodes: [{ node_id: 'd', constraint: 'ws'  }] } as any,
         ],
       })
@@ -148,7 +148,7 @@ describe('useTelemetry', () => {
     await act(async () => { jest.runOnlyPendingTimers(); await Promise.resolve() })
     await act(async () => { await Promise.resolve() })
 
-    expect(Object.keys(result.current.guardMap).sort()).toEqual(['ood_welford', 'workspace'])
+    expect(Object.keys(result.current.guardMap).sort()).toEqual(['ood_detector', 'workspace'])
 
     // Simulate a backend restart: socket closes, reconnect fires onopen again,
     // listBoundaries now returns a shorter list.
@@ -159,7 +159,7 @@ describe('useTelemetry', () => {
     await act(async () => { await Promise.resolve() })
 
     expect(Object.keys(result.current.guardMap)).toEqual(['workspace'])
-    expect(result.current.guardMap['ood_welford']).toBeUndefined()
+    expect(result.current.guardMap['ood_detector']).toBeUndefined()
 
     stub.mockRestore()
   })

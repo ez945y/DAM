@@ -1628,8 +1628,8 @@ class GuardRuntime:
         # Every guard dispatches through the boundary-callback pipeline, so the
         # callback name is always kept on the constraint.  (OODGuard used to be
         # the exception — model-driven, name dropped — but it now also supports
-        # an L0 callback path via ood_welford / ood_memory_bank /
-        # ood_normalizing_flow, falling back to its own detector when no
+        # an L0 callback path via ood_detector with a configured backend,
+        # falling back to its own detector when no
         # callback is wired.)
         from dam.boundary.callbacks._registry import normalize_unit_params
         from dam.boundary.constraint import BoundaryConstraint

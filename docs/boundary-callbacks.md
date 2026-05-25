@@ -38,7 +38,7 @@ guard layer** — the sections below mirror it exactly:
 
 | Module | Layer | Callbacks |
 |---|---|---|
-| `callbacks/perception.py` | L0 | `ood_detector` |
+| `callbacks/ood.py` | L0 | `ood_detector` (choose backend with `params.backend`) |
 | `callbacks/kinematics.py` | L1 | joint / workspace / Cartesian / keep-out / orientation / geofence |
 | `callbacks/execution.py` | L2 | task speed / task workspace / gripper clear / gripper command guard |
 | `callbacks/hardware.py` | L3 | watchdog, temperature / current / voltage / force |
@@ -52,16 +52,20 @@ needed — `register_all()` discovers it automatically (no list to maintain).
 
 ### `ood_detector`
 
-Out-of-distribution boundary callback — wraps OODGuard.
-Return False if the observation is flagged as out-of-distribution.
+Unified out-of-distribution boundary callback. Choose the detector through
+`backend`; the console and new Stackfiles use `backend: normalizing_flow`
+(Real-NVP) by default.
 
 | Param | Default | Description |
 |---|---|---|
 | `ood_model_path` | `""` | Path to the OOD model |
 | `bank_path` | `""` | Path to the memory bank |
 | `nn_threshold` | `2.0` | Nearest-neighbour threshold |
+| `z_threshold` | `5.0` | Online Welford z-score threshold |
+| `nll_sigma` | `3.0` | Real-NVP threshold multiplier (`mean + sigma * std`) |
 | `nll_threshold` | `5.0` | NLL threshold (set via EER calibration) |
-| `backend` | `"memory_bank"` | OOD backend |
+| `backend` | `"normalizing_flow"` | `normalizing_flow` (Real-NVP), `memory_bank`, or `welford` |
+| `device` | `"cpu"` | Inference device |
 | `temporal_smoothing_frames` | `3` | Consecutive abnormal frames required before REJECT |
 | `vision_model` | `""` | HuggingFace vision backbone (`mobilenet_v3_small`, `mobilenet_v3_large`) |
 | `vision_weight` | `0.3` | Weight of vision features in fused embedding (0.0–1.0) |

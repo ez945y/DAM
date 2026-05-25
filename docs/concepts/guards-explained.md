@@ -89,13 +89,14 @@ guards:
     phase: 0
 
 boundaries:
-  ood_welford:
+  ood_detector:
     layer: L0
     type: single
     nodes:
-      - callback: ood_welford
+      - callback: ood_detector
         fallback: hold_position
         params:
+          backend: welford
           z_threshold: 3.0
 ```
 
