@@ -4,10 +4,18 @@ Stackfiles expose one OOD boundary, ``ood_detector``.  The ``backend`` param
 selects the scoring strategy (Real-NVP, memory bank, or online Welford) while
 the callback keeps one shared feature/context path for deployment and RQ1
 runtime export.
+
+All backends share a single ``sigma`` sensitivity parameter: how many standard
+deviations from the training distribution a score may drift before it is
+flagged as OOD.  When a calibrated threshold is embedded in the model bundle
+(RQ1 / EER), it overrides the sigma-derived value automatically.
 """
 
 from __future__ import annotations
 
+import json
+import logging
+from pathlib import Path
 from typing import Any
 
 from dam.boundary.callbacks._registry import boundary_callback
@@ -16,11 +24,27 @@ from dam.guard.ood_context import OODContext
 from dam.guard.pipeline import CallbackResult
 from dam.types.observation import Observation
 
-_WELFORD_Z_THRESHOLD = 5.0
+_DEFAULT_SIGMA = 3.0
+_logger = logging.getLogger(__name__)
 
 
 def _key(name: str, model_path: str, bank_path: str, backend: str) -> str:
     return f"{name}|{backend}|{model_path}|{bank_path}"
+
+
+def _load_calibrated_threshold(model_path: str) -> float | None:
+    """Read RQ1/EER calibrated threshold from the model bundle metadata."""
+    meta_path = Path(model_path).with_suffix(".json")
+    if not meta_path.is_file():
+        return None
+    try:
+        meta = json.loads(meta_path.read_text())
+        sp = meta.get("stackfile_params", {})
+        if sp.get("nll_sigma", -1) == 0 and "nll_threshold" in sp:
+            return float(sp["nll_threshold"])
+    except Exception:  # noqa: BLE001
+        pass
+    return None
 
 
 def _welford_verdict(
@@ -29,23 +53,24 @@ def _welford_verdict(
     ood_context: OODContext,
     obs: Observation,
     key: str,
-    z_threshold: float,
+    sigma: float,
     warmup: int,
 ) -> CallbackResult:
     w = ood_context.get_backend(kind=OODBackendKind.WELFORD, key=key, warmup=warmup)
     raw = ood_context.raw_features(obs)
     score = w.score(raw)
+    threshold = w.threshold(sigma)  # type: ignore[attr-defined]
     in_warmup = w.in_warmup  # type: ignore[attr-defined]
     meta: dict[str, Any] = {
         "score": score,
-        "threshold": z_threshold,
+        "threshold": threshold,
         "backend": "welford",
         "warmup": in_warmup,
     }
-    if not in_warmup and score > z_threshold:
+    if not in_warmup and score > threshold:
         return CallbackResult.violate(
             bname,
-            f"OOD z-score={score:.2f} > threshold={z_threshold:.2f} (Welford)",
+            f"OOD z-score={score:.2f} > threshold={threshold:.2f} (Welford)",
             metadata=meta,
         )
     w.observe(raw)  # type: ignore[attr-defined]
@@ -60,10 +85,7 @@ def _welford_verdict(
         "backend": "OOD backend: normalizing_flow (Real-NVP), memory_bank, or welford.",
         "ood_model_path": "Path to the trained OOD feature/model artifact.",
         "bank_path": "Path to memory-bank calibration vectors when using memory_bank.",
-        "nn_threshold": "Nearest-neighbour distance threshold for memory_bank.",
-        "z_threshold": "Z-score threshold for online Welford.",
-        "nll_sigma": "Real-NVP threshold multiplier: training mean NLL plus sigma times standard deviation.",
-        "nll_threshold": "Direct Real-NVP negative log-likelihood threshold.",
+        "sigma": "Unified sensitivity: standard deviations from training mean before OOD rejection.",
         "device": "Device used by the OOD backend, such as cpu, cuda, or mps.",
         "warmup": "Number of Welford warm-up observations before online rejection.",
         "vision_model": "Optional pretrained vision model fused with robot-state features.",
@@ -79,10 +101,12 @@ def ood_detector(
     backend: str = "normalizing_flow",
     ood_model_path: str = "",
     bank_path: str = "",
-    nn_threshold: float = 2.0,
-    z_threshold: float = _WELFORD_Z_THRESHOLD,
-    nll_sigma: float = 3.0,
-    nll_threshold: float = 5.0,
+    sigma: float = _DEFAULT_SIGMA,
+    # Legacy params — migrated to sigma; kept for stackfile backward compat.
+    nn_threshold: float | None = None,
+    z_threshold: float | None = None,
+    nll_sigma: float | None = None,
+    nll_threshold: float | None = None,
     device: str = "cpu",
     warmup: int = 30,
     vision_model: str = "",
@@ -92,6 +116,15 @@ def ood_detector(
 ) -> CallbackResult:
     """Score one observation using the configured OOD backend."""
     del temporal_smoothing_frames  # Applied by OODGuard after callback aggregation.
+
+    # Resolve effective sigma from legacy params when sigma is at default.
+    effective_sigma = sigma
+    if sigma == _DEFAULT_SIGMA:
+        if nll_sigma is not None and nll_sigma > 0:
+            effective_sigma = nll_sigma
+        elif z_threshold is not None:
+            effective_sigma = z_threshold
+
     bname = "ood_detector"
     try:
         kind = OODBackendKind.from_value(backend)
@@ -101,7 +134,7 @@ def ood_detector(
                 ood_context=ood_context,
                 obs=obs,
                 key=_key(bname, ood_model_path, bank_path, kind.value),
-                z_threshold=z_threshold,
+                sigma=effective_sigma,
                 warmup=warmup,
             )
 
@@ -125,20 +158,38 @@ def ood_detector(
                 ood_context=ood_context,
                 obs=obs,
                 key=f"{key}::welford",
-                z_threshold=z_threshold,
+                sigma=effective_sigma,
                 warmup=warmup,
             )
 
         score = detector.score(ood_context.features(obs))
+
+        # Calibrated threshold from RQ1 bundle overrides sigma-derived value.
+        calibrated = None
+        if kind is OODBackendKind.NORMALIZING_FLOW and ood_model_path:
+            if nll_sigma is not None and nll_sigma <= 0 and nll_threshold is not None:
+                calibrated = nll_threshold
+            else:
+                calibrated = _load_calibrated_threshold(ood_model_path)
+
         if kind is OODBackendKind.MEMORY_BANK:
-            threshold = nn_threshold
-            reason = f"OOD nn_distance={score:.4f} > threshold={threshold:.4f}"
+            if nn_threshold is not None:
+                threshold = nn_threshold
+            else:
+                threshold = detector.threshold(effective_sigma)  # type: ignore[attr-defined]
         else:
             threshold = detector.threshold(  # type: ignore[attr-defined]
-                nll_sigma=nll_sigma, nll_threshold=nll_threshold
+                effective_sigma, calibrated_threshold=calibrated
             )
-            reason = f"OOD nll={score:.4f} > threshold={threshold:.4f}"
-        meta = {"score": score, "threshold": threshold, "backend": kind.value}
+
+        reason = f"OOD score={score:.4f} > threshold={threshold:.4f} ({kind.value})"
+        meta: dict[str, Any] = {
+            "score": score,
+            "threshold": threshold,
+            "backend": kind.value,
+        }
+        if calibrated is not None:
+            meta["calibrated"] = True
         if score > threshold:
             return CallbackResult.violate(bname, reason, metadata=meta)
         return CallbackResult.ok(bname, metadata=meta)

@@ -11,7 +11,7 @@ export function OODTrainer({
   selectedPath?: string,
   onSelect?: (path: string) => void
   /** Called with the full model metadata when a model is selected. */
-  onSelectMeta?: (path: string, meta: { backend?: string; bank_path?: string }) => void
+  onSelectMeta?: (path: string, meta: { backend?: string; bank_path?: string; stackfile_params?: Record<string, unknown> }) => void
 }) {
   const [repoId, setRepoId] = useState('MikeChenYZ/soarm-fmb-v2')
   const [backend, setBackend] = useState('normalizing_flow')
@@ -179,6 +179,7 @@ export function OODTrainer({
                     onSelectMeta?.(m.path, {
                       backend: m.metadata?.backend,
                       bank_path: m.metadata?.bank_path,
+                      stackfile_params: m.metadata?.stackfile_params,
                     });
                   }}
                   className={`relative flex flex-col gap-2.5 p-3 rounded-xl border transition-all cursor-pointer group select-none text-left ${

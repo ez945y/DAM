@@ -126,6 +126,9 @@ class WelfordBackend:
             return 0.0
         return self._w.z_score_max(np.asarray(features, dtype=np.float64))
 
+    def threshold(self, sigma: float) -> float:
+        return sigma
+
     def observe(self, features: np.ndarray) -> None:
         self._w.update(np.asarray(features, dtype=np.float64))
 
@@ -167,6 +170,8 @@ class MemoryBankBackend:
         from dam.guard.builtin.ood import MemoryBank
 
         self._bank: MemoryBank = bank or MemoryBank()
+        self.mean_train_dist: float | None = None
+        self.std_train_dist: float | None = None
 
     def is_ready(self) -> bool:
         return self._bank.is_trained
@@ -175,7 +180,17 @@ class MemoryBankBackend:
         return self._bank.nearest_distance(np.asarray(features, dtype=np.float32))
 
     def train(self, features: np.ndarray) -> None:
-        self._bank.train(np.asarray(features, dtype=np.float32))
+        arr = np.asarray(features, dtype=np.float32)
+        self._bank.train(arr)
+        if self._bank.is_trained and arr.ndim == 2 and arr.shape[0] > 1:
+            dists = np.array([self._bank.nearest_distance(row) for row in arr], dtype=np.float64)
+            self.mean_train_dist = float(np.mean(dists))
+            self.std_train_dist = float(np.std(dists))
+
+    def threshold(self, sigma: float) -> float:
+        if self.mean_train_dist is not None and self.std_train_dist is not None:
+            return self.mean_train_dist + sigma * self.std_train_dist
+        return sigma
 
     def diagnostics(self) -> dict[str, Any]:
         return {
@@ -185,6 +200,8 @@ class MemoryBankBackend:
                 int(self._bank._vectors.shape[1]) if self._bank._vectors is not None else None
             ),
             "bank_backend": self._bank._backend,  # noqa: SLF001 — diagnostics surface
+            "mean_train_dist": self.mean_train_dist,
+            "std_train_dist": self.std_train_dist,
         }
 
     def save(self, path: str | Path) -> None:
@@ -245,18 +262,18 @@ class RealNVPFlowBackend:
         self.mean_train_nll = float(np.mean(train_nlls))
         self.std_train_nll = float(np.std(train_nlls))
 
-    def threshold(self, *, nll_sigma: float, nll_threshold: float) -> float:
+    def threshold(self, sigma: float, calibrated_threshold: float | None = None) -> float:
         """Effective cutoff.
 
-        When nll_sigma <= 0, uses nll_threshold directly (EER-calibrated mode).
-        When nll_sigma > 0 and training stats exist, uses mean + σ·std.
-        Otherwise falls back to nll_threshold.
+        When *calibrated_threshold* is provided (from RQ1 / EER), uses it
+        directly.  Otherwise uses mean + σ·std from training statistics.
+        Falls back to *sigma* as a raw value when no stats are available.
         """
-        if nll_sigma <= 0:
-            return nll_threshold
+        if calibrated_threshold is not None:
+            return calibrated_threshold
         if self.mean_train_nll is not None and self.std_train_nll is not None:
-            return self.mean_train_nll + nll_sigma * self.std_train_nll
-        return nll_threshold
+            return self.mean_train_nll + sigma * self.std_train_nll
+        return sigma
 
     def diagnostics(self) -> dict[str, Any]:
         return {

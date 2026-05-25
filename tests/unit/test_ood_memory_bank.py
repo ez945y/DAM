@@ -176,7 +176,7 @@ class TestOODGuard:
         ood_obs = _obs([1000.0] * 6)
         result = g.check(ood_obs, nn_threshold=0.01)  # tight threshold
         assert result.decision == GuardDecision.REJECT
-        assert "nn_distance" in result.reason
+        assert "memory_bank" in result.reason
 
     def test_train_empty_list_no_crash(self):
         g = _make_guard()

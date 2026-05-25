@@ -93,6 +93,10 @@ def test_memory_bank_train_score_ready() -> None:
     far = b.score(-vectors[0])
     assert near < far
     assert b.diagnostics()["bank_size"] == 50
+    # Training computes distance statistics for unified sigma threshold.
+    assert b.mean_train_dist is not None
+    assert b.std_train_dist is not None
+    assert b.threshold(3.0) == pytest.approx(b.mean_train_dist + 3.0 * b.std_train_dist)
 
 
 def test_memory_bank_scores_fused_vision_embeddings() -> None:
@@ -119,11 +123,16 @@ def test_flow_backend_unfitted_score_zero_not_ready() -> None:
 
 def test_flow_backend_threshold_prefers_training_stats() -> None:
     b = RealNVPFlowBackend()
-    # No training stats → direct nll_threshold.
-    assert b.threshold(nll_sigma=3.0, nll_threshold=5.0) == 5.0
+    # No training stats → sigma used as raw fallback.
+    assert b.threshold(3.0) == 3.0
+    # Calibrated threshold overrides everything.
+    assert b.threshold(3.0, calibrated_threshold=5.0) == 5.0
     b.mean_train_nll = 10.0
     b.std_train_nll = 2.0
-    assert b.threshold(nll_sigma=3.0, nll_threshold=5.0) == pytest.approx(16.0)
+    # With training stats: mean + sigma * std.
+    assert b.threshold(3.0) == pytest.approx(16.0)
+    # Calibrated still wins even with training stats.
+    assert b.threshold(3.0, calibrated_threshold=5.0) == 5.0
 
 
 def test_flow_backend_train_and_score(tmp_path) -> None:
