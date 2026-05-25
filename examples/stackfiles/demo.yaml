@@ -100,13 +100,40 @@ boundaries:
         fallback: emergency_stop
         params:
           max_staleness_ms: 1000
+  temperature_limit:
+    layer: L3
+    type: single
+    nodes:
+      - callback: temperature_limit
+        warn_frames: 5
+        fallback: slow_down
+        params:
+          max_temperature_c: 55.0
+  current_limit:
+    layer: L3
+    type: single
+    nodes:
+      - callback: current_limit
+        warn_frames: 3
+        fallback: hold_position
+        params:
+          max_current_a: 1.5
+  voltage_limit:
+    layer: L3
+    type: single
+    nodes:
+      - callback: voltage_limit
+        fallback: emergency_stop
+        params:
+          min_voltage_v: 6.0
+          max_voltage_v: 8.5
   host_health:
     layer: L3
     type: single
     nodes:
       - callback: host_health_limit
         timeout_sec: 0.5
-        fallback: emergency_stop
+        fallback: slow_down
         params:
           max_cpu_percent: 99.0
           max_memory_percent: 98.0
@@ -117,7 +144,16 @@ boundaries:
 tasks:
   demo:
     description: "Full demo"
-    boundaries: [ood_detector, workspace, joint_position_limits, joint_velocity_limit, hardware_watchdog, host_health]
+    boundaries:
+      - ood_detector
+      - workspace
+      - joint_position_limits
+      - joint_velocity_limit
+      - hardware_watchdog
+      - temperature_limit
+      - current_limit
+      - voltage_limit
+      - host_health
 
 loopback:
   backend: mcap

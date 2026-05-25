@@ -713,12 +713,16 @@ class GuardRuntime:
         Both sources are injected into ``obs.metadata`` at the observation
         phase — adapter-provided motor readings and the built-in host health
         source — so this method is a pure pass-through with no I/O.
+
+        Returns a flat dict with top-level keys from the adapter's
+        ``hardware_status`` (temperatures, currents, voltages, …) plus
+        ``host_health`` from the built-in source.
         """
         snapshot: dict[str, Any] = {}
 
         hw_status = obs.metadata.get("hardware_status")
-        if hw_status:
-            snapshot["guards"] = {"hardware_watchdog": hw_status}
+        if hw_status and isinstance(hw_status, dict):
+            snapshot.update(hw_status)
 
         host = obs.metadata.get("host_health")
         if host:

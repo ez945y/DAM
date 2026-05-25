@@ -49,6 +49,7 @@ def _to_array(x: Any, *, name: str) -> np.ndarray:
 @boundary_callback(
     name="joint_velocity_limit",
     layer="L1",
+    category="kinematics",
     description="Clamps the action's joint velocities to ±max_velocities (radians/sec).",
     params={
         "max_velocities": "Per-joint max velocity. Radians/sec by default unless use_degrees is true.",
@@ -166,6 +167,7 @@ def joint_velocity_limit(
 @boundary_callback(
     name="joint_position_limits",
     layer="L1",
+    category="kinematics",
     description="Clamps the action's joint positions into [lower, upper] (radians).",
     params={
         "upper": "Per-joint upper position limits. Radians by default unless use_degrees is true.",
@@ -246,6 +248,7 @@ def joint_position_limits(
 @boundary_callback(
     name="workspace",
     layer="L1",
+    category="kinematics",
     description="Halts motion when the end-effector is outside the workspace box.",
     params={
         "bounds": "Axis-aligned allowed EE box: [[xmin,xmax],[ymin,ymax],[zmin,zmax]] in metres.",
@@ -370,6 +373,7 @@ def _ee_linear_jacobian(obs: Observation, dynamics: Any | None) -> np.ndarray | 
 @boundary_callback(
     name="check_velocity_smooth",
     layer="L1",
+    category="kinematics",
     description="Rejects if the joint velocity norm exceeds a jerk threshold.",
     params={
         "max_jerk_norm": "Maximum allowed joint velocity norm used as a simple smoothness threshold."
@@ -386,6 +390,7 @@ def check_velocity_smooth(*, obs: Observation, max_jerk_norm: float = 10.0) -> b
 @boundary_callback(
     name="check_joints_not_moving",
     layer="L1",
+    category="kinematics",
     description="Rejects if any joint velocity exceeds a near-zero threshold.",
     params={
         "max_speed_rad_s": "Maximum absolute joint speed still treated as stationary, in rad/s."
@@ -401,6 +406,7 @@ def check_joints_not_moving(*, obs: Observation, max_speed_rad_s: float = 0.01) 
 @boundary_callback(
     name="cartesian_velocity_limit",
     layer="L1",
+    category="kinematics",
     description="Caps end-effector Cartesian speed (linear m/s, angular rad/s).",
     params={
         "max_linear_speed": "Maximum end-effector linear speed in m/s.",
@@ -451,6 +457,7 @@ def cartesian_velocity_limit(
 @boundary_callback(
     name="keep_out_zone",
     layer="L1",
+    category="kinematics",
     description="Rejects if the end-effector enters a keep-out box or sphere.",
     params={
         "boxes": "Keep-out boxes as a list of [[xmin,xmax],[ymin,ymax],[zmin,zmax]] regions.",
@@ -490,6 +497,7 @@ def keep_out_zone(
 @boundary_callback(
     name="orientation_limit",
     layer="L1",
+    category="kinematics",
     description="Rejects if end-effector tilt from a reference axis exceeds a limit (deg).",
     params={
         "max_tilt_deg": "Maximum allowed tool tilt from the reference axis, in degrees.",
@@ -537,6 +545,7 @@ def orientation_limit(
 @boundary_callback(
     name="base_geofence",
     layer="L1",
+    category="kinematics",
     description="Rejects if the mobile base leaves a geofence box or polygon.",
     params={
         "bounds": "Allowed base x/y box: [[xmin,xmax],[ymin,ymax]] in metres.",

@@ -89,8 +89,14 @@ export interface HostHealth {
 export interface HostHardwareSnapshot {
   /** Hoisted for the typed CPU/mem/temp/GPU tiles when a host_health guard ran. */
   host_health?: HostHealth
-  /** Flexible: JSON-safe metadata of every L3 / hardware guard, keyed by guard name. */
-  guards?: Record<string, Record<string, unknown>>
+  /** Per-motor temperature readings keyed by motor name (°C). */
+  temperatures?: Record<string, number | null>
+  /** Per-motor current readings keyed by motor name (A). */
+  currents?: Record<string, number | null>
+  /** Per-motor voltage readings keyed by motor name (V). */
+  voltages?: Record<string, number | null>
+  /** Any additional adapter-provided hardware fields. */
+  [key: string]: unknown
 }
 
 export interface RiskEvent {

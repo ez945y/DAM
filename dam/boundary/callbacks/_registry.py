@@ -50,6 +50,7 @@ def boundary_callback(
     *,
     name: str,
     layer: str,
+    category: str = "",
     description: str = "",
     params: Mapping[str, str] | None = None,
     unit_params: tuple[str, ...] | list[str] | None = None,
@@ -106,6 +107,7 @@ def boundary_callback(
 
         fn._cb_name = name  # type: ignore[attr-defined]
         fn._cb_layer = layer  # type: ignore[attr-defined]
+        fn._cb_category = category  # type: ignore[attr-defined]
         fn._cb_description = description or (doc.split("\n")[0] if doc else "")  # type: ignore[attr-defined]
         fn._cb_unit_params = unit_params_tuple  # type: ignore[attr-defined]
 
@@ -113,6 +115,7 @@ def boundary_callback(
             {
                 "name": name,
                 "layer": layer,
+                "category": category,
                 "description": fn._cb_description,
                 "params": params_meta,
                 "unit_params": list(unit_params_tuple),

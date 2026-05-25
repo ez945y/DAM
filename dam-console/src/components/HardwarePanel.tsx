@@ -99,15 +99,6 @@ function fmt(v: unknown): string {
   return String(v)
 }
 
-function prettyKey(key: string): string {
-  return key.replaceAll('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-}
-
-function isHostHealthGuardName(name: string): boolean {
-  const normalized = name.toLowerCase()
-  return normalized === 'host_health' || normalized === 'host_health_limit'
-}
-
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value != null && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -189,63 +180,6 @@ function HardwareReadingsTable({
   )
 }
 
-function ScalarGrid({ entries }: { entries: Array<readonly [string, unknown]> }) {
-  if (entries.length === 0) return null
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-3 gap-1.5">
-      {entries.map(([k, v]) => (
-        <div key={k} className="flex items-center justify-between gap-3 rounded-md border border-dam-border/30 bg-dam-surface-2/60 px-2 py-1.5 min-w-0">
-          <span className="text-[10px] text-dam-muted truncate" title={k}>{prettyKey(k)}</span>
-          <span className="font-mono text-[11px] text-dam-text/90 truncate text-right" title={fmt(v)}>{fmt(v)}</span>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-/** Flexible renderer for arbitrary hardware-guard metadata. */
-function MetaTree({ value, depth = 0 }: { value: unknown; depth?: number }) {
-  if (value == null || typeof value !== 'object') {
-    return <span className="font-mono text-[11px] text-dam-text/90 break-all">{fmt(value)}</span>
-  }
-  const record = asRecord(value)
-  const entries = Array.isArray(value)
-    ? value.map((v, i) => [String(i), v] as const)
-    : Object.entries(record ?? {})
-  if (entries.length === 0) return <span className="text-[10px] text-dam-muted/50">—</span>
-
-  const readingGroups = record
-    ? ['temperatures', 'currents', 'voltages']
-        .filter((key) => record[key] != null)
-        .map((key) => [key, record[key]] as const)
-    : []
-  const scalarEntries = entries.filter(([, v]) => v == null || typeof v !== 'object')
-  const nestedEntries = entries.filter(([k, v]) =>
-    v != null && typeof v === 'object' && !readingGroups.some(([rk]) => rk === k)
-  )
-
-  return (
-    <div className={depth > 0 ? 'pl-2 border-l border-dam-border/30 space-y-2 min-w-0' : 'space-y-2 min-w-0'}>
-      {readingGroups.length > 0 && (
-        <HardwareReadingsTable
-          temperatures={record?.temperatures}
-          currents={record?.currents}
-          voltages={record?.voltages}
-        />
-      )}
-      <ScalarGrid entries={scalarEntries} />
-      {nestedEntries.map(([k, v]) => (
-        <div key={k} className="space-y-1.5 min-w-0">
-          <div className="text-[10px] text-dam-muted uppercase tracking-wider truncate" title={k}>
-            {prettyKey(k)}
-          </div>
-          <MetaTree value={v} depth={depth + 1} />
-        </div>
-      ))}
-    </div>
-  )
-}
-
 /**
  * Built-in host + hardware health panel. Renders typed host_health tiles plus a
  * flexible view of every L3 / hardware guard's metadata (hardware_watchdog
@@ -260,19 +194,8 @@ export function HardwarePanel({
   taskLive: boolean
 }) {
   const hh = hardware?.host_health
-  const guards: Record<string, Record<string, unknown>> = Object.fromEntries(
-    Object.entries(hardware?.guards ?? {})
-      .filter(([name]) => !isHostHealthGuardName(name))
-      .map(([name, meta]) => {
-        const filtered = Object.fromEntries(
-          Object.entries(meta ?? {}).filter(([key]) => key !== 'host_health')
-        )
-        return [name, filtered]
-      })
-      .filter(([, meta]) => Object.keys(meta).length > 0)
-  )
-  const guardNames = Object.keys(guards)
-  const hasData = !!hh || guardNames.length > 0
+  const hasMotorData = !!(hardware?.temperatures || hardware?.currents || hardware?.voltages)
+  const hasData = !!hh || hasMotorData
 
   return (
     <div className={`space-y-3 transition-opacity ${hasData && taskLive ? '' : 'opacity-60'}`}>
@@ -287,24 +210,21 @@ export function HardwarePanel({
         </div>
       )}
       <HostHealthTiles hh={hh ?? {}} />
-      {guardNames.map((name) => (
-        <div key={name} className="bg-dam-surface-1 border border-dam-border/50 rounded-lg p-3">
-          <div className="flex items-center gap-1.5 mb-2">
-            <HardDrive size={12} className="text-dam-muted" />
-            <span className="text-[10px] text-dam-muted uppercase tracking-wider">{name}</span>
-          </div>
-          <MetaTree value={guards[name]} />
+      <div className="bg-dam-surface-1 border border-dam-border/50 rounded-lg p-3">
+        <div className="flex items-center gap-1.5 mb-2">
+          <HardDrive size={12} className="text-dam-muted" />
+          <span className="text-[10px] text-dam-muted uppercase tracking-wider">Motor readings</span>
         </div>
-      ))}
-      {guardNames.length === 0 && (
-        <div className="bg-dam-surface-1 border border-dam-border/50 rounded-lg p-3">
-          <div className="flex items-center gap-1.5 mb-2">
-            <HardDrive size={12} className="text-dam-muted" />
-            <span className="text-[10px] text-dam-muted uppercase tracking-wider">hardware_watchdog</span>
-          </div>
+        {hasMotorData ? (
+          <HardwareReadingsTable
+            temperatures={hardware?.temperatures}
+            currents={hardware?.currents}
+            voltages={hardware?.voltages}
+          />
+        ) : (
           <HardwareReadingsTable temperatures={{ J1: null }} currents={{ J1: null }} voltages={{ J1: null }} />
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }

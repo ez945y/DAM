@@ -79,6 +79,7 @@ def _serialise_cycle(
             {
                 "name": gr.guard_name,
                 "layer": f"L{layer_val}" if layer_val is not None else str(gr.layer),
+                "event_class": gr.resolved_event_class,
                 "decision": gr.decision.name,
                 "reason": gr.reason,
             }

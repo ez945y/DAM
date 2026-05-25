@@ -22,6 +22,7 @@ from dam.types.observation import Observation
 @boundary_callback(
     name="task_joint_speed_limit",
     layer="L2",
+    category="execution",
     description="Rejects if the joint velocity norm exceeds a task-level max_speed.",
     params={
         "max_speed": "Maximum whole-arm joint velocity norm for this task section (radians/sec).",
@@ -57,6 +58,7 @@ def task_joint_speed_limit(
 @boundary_callback(
     name="task_workspace_bounds",
     layer="L2",
+    category="execution",
     description="Rejects if the end-effector position leaves a task workspace box.",
     params={
         "bounds": "Task-local allowed EE box: [[xmin,xmax],[ymin,ymax],[zmin,zmax]] in metres."
@@ -90,6 +92,7 @@ def task_workspace_bounds(
 @boundary_callback(
     name="check_gripper_clear",
     layer="L2",
+    category="execution",
     description="Rejects if the gripper appears closed when it should be open.",
     params={"min_gripper_opening_m": "Minimum gripper opening still considered clear, in metres."},
 )
@@ -149,6 +152,7 @@ def _suppress_gripper(action: ActionProposal) -> ValidatedAction:
 @boundary_callback(
     name="task_gripper_command_guard",
     layer="L2",
+    category="execution",
     description=(
         "Clamps gripper open/close commands that are incompatible with the active task node rule."
     ),

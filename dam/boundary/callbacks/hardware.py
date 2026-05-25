@@ -122,6 +122,7 @@ def collect_host_health(*, ttl_sec: float = 1.0) -> dict[str, Any]:
 @boundary_callback(
     name="hardware_watchdog",
     layer="L3",
+    category="hardware",
     description="Safety check for observation staleness.",
     params={
         "max_staleness_ms": "Maximum age of the latest observation before hardware_watchdog treats it as stale."
@@ -148,6 +149,7 @@ def hardware_watchdog(
 @boundary_callback(
     name="temperature_limit",
     layer="L3",
+    category="hardware",
     description="Rejects if any motor temperature exceeds threshold (°C).",
     params={
         "max_temperature_c": "Maximum motor temperature in Celsius.",
@@ -174,6 +176,7 @@ def temperature_limit(
 @boundary_callback(
     name="current_limit",
     layer="L3",
+    category="hardware",
     description="Rejects if any motor current exceeds threshold (A).",
     params={
         "max_current_a": "Maximum absolute motor current in amps.",
@@ -201,6 +204,7 @@ def current_limit(
 @boundary_callback(
     name="voltage_limit",
     layer="L3",
+    category="hardware",
     description="Rejects if supply voltage is outside safe band (V).",
     params={
         "min_voltage_v": "Minimum allowed supply voltage.",
@@ -229,6 +233,7 @@ def voltage_limit(
 @boundary_callback(
     name="force_limit",
     layer="L3",
+    category="hardware",
     description="Rejects if force magnitude exceeds threshold (N).",
     params={
         "max_force_n": "Maximum allowed force magnitude in Newtons.",
@@ -261,6 +266,7 @@ def force_limit(
 @boundary_callback(
     name="check_force_torque_safe",
     layer="L3",
+    category="hardware",
     description="Rejects if force or torque magnitude exceeds thresholds.",
     params={
         "max_force_n": "Maximum allowed force magnitude in Newtons.",
@@ -281,6 +287,7 @@ def check_force_torque_safe(
 @boundary_callback(
     name="host_health_limit",
     layer="L3",
+    category="host",
     description="Faults if host CPU/GPU/memory/temperature crosses configured limits.",
     params={
         "max_cpu_percent": "Host CPU usage percentage above which host_health_limit faults.",

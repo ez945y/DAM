@@ -18,14 +18,14 @@ def _require_control(svc: RuntimeControlService | None) -> RuntimeControlService
     return svc  # type: ignore[return-value]
 
 
-def _group_callbacks_by_layer(all_cbs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _group_callbacks(all_cbs: list[dict[str, Any]], key: str = "layer") -> list[dict[str, Any]]:
     groups: dict[str, list[dict[str, Any]]] = {}
     for cb in all_cbs:
-        layer = cb.get("layer", "L2")
-        if layer not in groups:
-            groups[layer] = []
-        groups[layer].append(cb)
-    return [{"layer": k, "callbacks": groups[k]} for k in sorted(groups.keys())]
+        val = cb.get(key, "")
+        if val not in groups:
+            groups[val] = []
+        groups[val].append(cb)
+    return [{key: k, "callbacks": groups[k]} for k in sorted(groups.keys())]
 
 
 def create_control_router(control: RuntimeControlService | None) -> APIRouter:
@@ -41,13 +41,16 @@ def create_control_router(control: RuntimeControlService | None) -> APIRouter:
         return {"status": "ok"}
 
     @router.get("/api/catalog/callbacks")
-    async def get_callback_catalog(grouped: Annotated[bool, Query()] = False) -> Any:
+    async def get_callback_catalog(
+        grouped: Annotated[bool, Query()] = False,
+        group_by: Annotated[str, Query()] = "layer",
+    ) -> Any:
         from dam.boundary.builtin_callbacks import get_catalog
 
         all_cbs = get_catalog()
         if not grouped:
             return {"callbacks": all_cbs}
-        return {"groups": _group_callbacks_by_layer(all_cbs)}
+        return {"groups": _group_callbacks(all_cbs, key=group_by)}
 
     @router.get("/api/catalog/guards")
     async def get_guard_catalog() -> Any:

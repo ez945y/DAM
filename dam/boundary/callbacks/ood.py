@@ -80,6 +80,7 @@ def _welford_verdict(
 @boundary_callback(
     name="ood_detector",
     layer="L0",
+    category="anomaly",
     description="Out-of-distribution boundary with a selectable scoring backend.",
     params={
         "backend": "OOD backend: normalizing_flow (Real-NVP), memory_bank, or welford.",

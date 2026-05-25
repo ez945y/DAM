@@ -145,19 +145,16 @@ class TestTelemetryService:
         result = _make_cycle_result(43)
         result.hardware_snapshot = {
             "host_health": {"cpu_percent": 12.5, "memory_percent": 44.0},
-            "guards": {
-                "hardware_watchdog": {
-                    "temperature": [31.2, 33.0],
-                    "current": [0.1, 0.2],
-                    "voltage": [7.4, 7.5],
-                }
-            },
+            "temperatures": {"m1": 31.2, "m2": 33.0},
+            "currents": {"m1": 0.1, "m2": 0.2},
+            "voltages": {"m1": 7.4, "m2": 7.5},
         }
 
         d = _serialise_cycle(result)
 
         assert d["hardware"]["host_health"]["cpu_percent"] == 12.5
-        assert d["hardware"]["guards"]["hardware_watchdog"]["current"] == [0.1, 0.2]
+        assert d["hardware"]["temperatures"]["m1"] == 31.2
+        assert d["hardware"]["currents"]["m2"] == 0.2
 
     def test_serialise_cycle_no_hardware_when_snapshot_is_none(self):
         result = _make_cycle_result(44)
