@@ -219,7 +219,11 @@ class RealNVPFlowBackend:
         return self._flow.neg_log_prob(np.asarray(features, dtype=np.float32))
 
     def train(
-        self, features: np.ndarray, epochs: int | None = None, lr: float | None = None
+        self,
+        features: np.ndarray,
+        epochs: int | None = None,
+        lr: float | None = None,
+        verbose: bool = False,
     ) -> None:
         from dam.guard.builtin.ood import _FLOW_EPOCHS, _FLOW_LR, RealNVPFlow
 
@@ -232,6 +236,7 @@ class RealNVPFlowBackend:
             vectors,
             epochs=_FLOW_EPOCHS if epochs is None else epochs,
             lr=_FLOW_LR if lr is None else lr,
+            verbose=verbose,
         )
         train_nlls = self._flow.neg_log_prob_batch(vectors)
         self.mean_train_nll = float(np.mean(train_nlls))

@@ -101,6 +101,14 @@ function L0CalibrationSummary({ summary }: { summary: Record<string, unknown> })
   const abnormalDetection = asNumber(summary.abnormal_a_detection_rate_at_threshold);
   const trainObsNll = asNumber(summary.train_observations);
   const compareMethods = summary.compare_ood_methods === true;
+  const featureSources = Array.isArray(summary.feature_sources)
+    ? summary.feature_sources.map(String)
+    : [];
+  const ignoredFields = Array.isArray(summary.not_consumed_fields)
+    ? summary.not_consumed_fields.map(String)
+    : [];
+  const visionFrames = summary.vision_frames_attached as Record<string, number> | null | undefined;
+  const visionCandidates = summary.vision_candidate_frames as Record<string, number> | null | undefined;
 
   if (nllThreshold !== null && datasetStats) {
     return (
@@ -111,6 +119,25 @@ function L0CalibrationSummary({ summary }: { summary: Record<string, unknown> })
           {trainObsNll !== null && <span className="text-dam-muted">{trainObsNll.toLocaleString()} train obs</span>}
           {compareMethods && <span className="text-dam-blue font-mono">method comparison enabled</span>}
         </div>
+
+        {featureSources.length > 0 && (
+          <div className="bg-dam-surface-2 border border-dam-border rounded-lg px-3 py-2 text-[11px]">
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              <span className="text-dam-muted">Signals</span>
+              <span className="font-mono text-dam-text">{featureSources.join(" + ")}</span>
+              {ignoredFields.length > 0 && (
+                <span className="font-mono text-amber-400">not scored: {ignoredFields.join(", ")}</span>
+              )}
+            </div>
+            {visionFrames && visionCandidates && (
+              <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 font-mono text-dam-muted">
+                {Object.entries(visionFrames).map(([dataset, frames]) => (
+                  <span key={dataset}>{dataset}: {frames}/{visionCandidates[dataset] ?? frames} image frames</span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
           <div className="bg-dam-surface-2 border border-dam-border rounded-lg px-3 py-2">

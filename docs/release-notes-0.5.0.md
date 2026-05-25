@@ -11,7 +11,9 @@ host/robot hardware view on the dashboard.
 - RQ1–RQ5 are exposed as native runners (`dam.experiments`) usable from the
   console, the `dam experiment` CLI, and `POST /api/experiments/{id}/run`.
   Each run writes `results.csv` plus an SVG (and PNG where applicable)
-  artifact, served by `GET /api/experiments/artifact`.
+  artifact, served by `GET /api/experiments/artifact`. RQ1 uses a PNG preview
+  because NLL values can be negative and are not represented correctly by the
+  earlier SVG median-bar preview.
 - **RQ3 (Normal-Use False Trigger Study)** and **RQ5 (Failure Record
   Quality)** are now *real measurements*. They were placeholder constants;
   they now drive the real L0–L2/L3 guard stack:
@@ -30,11 +32,12 @@ host/robot hardware view on the dashboard.
   `realtime=true` option, then embed the plot directly in the result card. The
   measurement window starts at action proposal receipt and ends at the
   validated action decision, excluding image preprocessing and policy
-  inference. RQ1 (L0 calibration) trains the L0 Real-NVP model on normal
+  inference. RQ1 (L0 calibration) is an offline evaluation harness over the
+  shared DAM L0 feature and OOD backend APIs: it trains Real-NVP on normal
   SO-ARM observations, then compares per-frame NLL across normal,
-  legal-variation, and abnormal-A HuggingFace test datasets. RQ1 can
-  optionally compare Welford, MemoryBank, and Real-NVP OOD scoring on the same
-  three datasets.
+  legal-variation, and abnormal-A HuggingFace datasets. RQ1 can optionally
+  compare Welford, MemoryBank, and Real-NVP scoring on the same features, and
+  can fuse pretrained image embeddings when a vision model is selected.
 
 ## Event Taxonomy
 

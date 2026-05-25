@@ -31,8 +31,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np
 
-from dam.guard.builtin.ood import MemoryBank, OODGuard, RealNVPFlow
-from dam.injection.static import precompute_injection
+from dam.guard.builtin.ood import OODGuard
+from dam.guard.ood_backend import MemoryBankBackend, OODBackend, RealNVPFlowBackend, WelfordBackend
+from dam.guard.ood_context import OODContext
 from dam.types.observation import Observation
 from dam.types.result import GuardDecision
 
@@ -311,29 +312,53 @@ def _flatten_episode_obs(
 
 
 def _vectors_for_observations(
-    guard: OODGuard, labelled_obs: list[tuple[int, int, Observation]]
+    context: OODContext, labelled_obs: list[tuple[int, int, Observation]]
 ) -> np.ndarray:
-    vectors = np.stack([guard._ood_context.features(obs) for _, _, obs in labelled_obs], axis=0)
+    vectors = np.stack([context.features(obs) for _, _, obs in labelled_obs], axis=0)
     return vectors
 
 
-def _real_nvp_nll_for_vectors(guard: OODGuard, vectors: np.ndarray) -> np.ndarray:
-    if guard._flow is None or not guard._flow.is_fitted:
+def _score_backend(backend: OODBackend, vectors: np.ndarray) -> np.ndarray:
+    return np.asarray([backend.score(vector) for vector in vectors], dtype=np.float32)
+
+
+def _real_nvp_nll_for_vectors(backend: RealNVPFlowBackend, vectors: np.ndarray) -> np.ndarray:
+    if not backend.is_ready():
         raise RuntimeError("Real-NVP flow was not fitted; install torch and retry RQ1.")
-    return guard._flow.neg_log_prob_batch(vectors)
+    return _score_backend(backend, vectors)
 
 
 def _memory_bank_scores(train_vectors: np.ndarray, eval_vectors: np.ndarray) -> np.ndarray:
-    bank = MemoryBank()
-    bank.train(train_vectors)
-    return np.array([bank.nearest_distance(z) for z in eval_vectors], dtype=np.float32)
+    backend = MemoryBankBackend()
+    backend.train(train_vectors)
+    return _score_backend(backend, eval_vectors)
 
 
 def _welford_scores(train_vectors: np.ndarray, eval_vectors: np.ndarray) -> np.ndarray:
-    mean = np.mean(train_vectors, axis=0)
-    std = np.std(train_vectors, axis=0, ddof=1) if len(train_vectors) > 1 else np.ones_like(mean)
-    std = np.sqrt(np.square(std) + 1e-9)
-    return np.max(np.abs(eval_vectors - mean) / std, axis=1).astype(np.float32)
+    backend = WelfordBackend()
+    backend.train(train_vectors)
+    return _score_backend(backend, eval_vectors)
+
+
+def _temporal_sequence_scores(
+    labelled_obs: list[tuple[int, int, Observation]],
+) -> np.ndarray:
+    """Return per-frame joint speed magnitude, resetting at episode boundaries.
+
+    This is an explicit trajectory diagnostic and is not silently appended to
+    the Real-NVP feature vector. A frame-level OOD score and a motion jump are
+    distinct measurements and should remain distinguishable in RQ1 output.
+    """
+    scores = np.zeros(len(labelled_obs), dtype=np.float32)
+    previous: tuple[int, Observation] | None = None
+    for index, (episode_index, _frame_index, obs) in enumerate(labelled_obs):
+        if previous is not None and previous[0] == episode_index:
+            dt = float(obs.timestamp) - float(previous[1].timestamp)
+            if dt > 0:
+                delta = np.asarray(obs.joint_positions) - np.asarray(previous[1].joint_positions)
+                scores[index] = float(np.linalg.norm(delta) / dt)
+        previous = (episode_index, obs)
+    return scores
 
 
 def _vectors_fingerprint(vectors: np.ndarray) -> str:
@@ -354,6 +379,7 @@ def _flow_cache_path(
     max_observations_per_dataset: int | None,
     flow_epochs: int,
     train_vectors: np.ndarray,
+    feature_config: dict[str, object],
 ) -> Path:
     key = _cache_key(
         {
@@ -361,6 +387,7 @@ def _flow_cache_path(
             "normal_repo_id": normal_repo_id,
             "max_observations_per_dataset": max_observations_per_dataset,
             "flow_epochs": flow_epochs,
+            "feature_config": feature_config,
             "train_shape": train_vectors.shape,
             "train_fingerprint": _vectors_fingerprint(train_vectors),
         }
@@ -369,13 +396,14 @@ def _flow_cache_path(
 
 
 def _fit_or_load_real_nvp(
-    guard: OODGuard,
+    backend: RealNVPFlowBackend,
     train_vectors: np.ndarray,
     *,
     cache_dir: str | Path | None,
     normal_repo_id: str,
     max_observations_per_dataset: int | None,
     flow_epochs: int,
+    feature_config: dict[str, object],
 ) -> tuple[float, float, bool]:
     flow_path: Path | None = None
     if cache_dir:
@@ -385,31 +413,27 @@ def _fit_or_load_real_nvp(
             max_observations_per_dataset=max_observations_per_dataset,
             flow_epochs=flow_epochs,
             train_vectors=train_vectors,
+            feature_config=feature_config,
         )
         if flow_path.is_file():
             print(f"  Real-NVP model cache hit: {flow_path}", flush=True)
-            guard._flow = RealNVPFlow(device=guard._device)
-            mean_nll, std_nll = guard._flow.load(str(flow_path), device=guard._device)
-            guard._mean_train_nll = mean_nll
-            guard._std_train_nll = std_nll
-            guard._install_trained_backend_into_context()
-            return float(mean_nll or 0.0), float(std_nll or 0.0), True
+            backend.load(flow_path)
+            return (
+                float(backend.mean_train_nll or 0.0),
+                float(backend.std_train_nll or 0.0),
+                True,
+            )
 
     print(
         f"  Training Real-NVP on {len(train_vectors)} normal frames for {flow_epochs} epochs...",
         flush=True,
     )
-    guard._flow = RealNVPFlow(dim=train_vectors.shape[1], device=guard._device)
-    guard._flow.fit(train_vectors, epochs=flow_epochs, verbose=True)
-    train_nlls = guard._flow.neg_log_prob_batch(train_vectors)
-    mean_nll = float(np.mean(train_nlls))
-    std_nll = float(np.std(train_nlls))
-    guard._mean_train_nll = mean_nll
-    guard._std_train_nll = std_nll
-    guard._install_trained_backend_into_context()
+    backend.train(train_vectors, epochs=flow_epochs, verbose=True)
+    mean_nll = float(backend.mean_train_nll or 0.0)
+    std_nll = float(backend.std_train_nll or 0.0)
     if flow_path is not None:
         flow_path.parent.mkdir(parents=True, exist_ok=True)
-        guard._flow.save(str(flow_path), mean_train_nll=mean_nll, std_train_nll=std_nll)
+        backend.save(flow_path)
         print(f"  Real-NVP model cache saved: {flow_path}", flush=True)
     return mean_nll, std_nll, False
 
@@ -469,7 +493,7 @@ def _attach_vision_frames(
     camera: str,
     subsample: int,
     label: str,
-) -> None:
+) -> int:
     """Load video frames and attach them to Observation objects in-place.
 
     Since Observation is frozen, we replace items in obs_list with new instances.
@@ -510,6 +534,7 @@ def _attach_vision_frames(
 
     n_with_images = sum(1 for o in obs_list if o.images is not None)
     print(f"    Attached images to {n_with_images}/{len(obs_list)} observations")
+    return n_with_images
 
 
 def _attach_vision_frames_labelled(
@@ -520,7 +545,7 @@ def _attach_vision_frames_labelled(
     camera: str,
     subsample: int,
     label: str,
-) -> None:
+) -> int:
     """Attach video frames to labelled observation tuples."""
     from dam.guard.lerobot_video_loader import LeRobotVideoLoader
 
@@ -555,6 +580,7 @@ def _attach_vision_frames_labelled(
             n_attached += 1
 
     print(f"    Attached images to {n_attached}/{len(labelled)} observations")
+    return n_attached
 
 
 # ── Main calibration ────────────────────────────────────────────────────────
@@ -629,13 +655,21 @@ def run_calibration(
         f"legal_variation={len(legal_labelled)}, abnormal_a={len(anomaly_labelled)}"
     )
 
-    # --- Vision feature extraction setup ---
+    vision_frames: dict[str, int] | None = None
+    vision_candidates: dict[str, int] | None = None
+
+    # Vision mode evaluates only observations with an actual video frame. It
+    # must not compare image embeddings against zero-padded "missing image" rows.
     if vision_model:
         print(f"  Vision model: {vision_model} (weight={vision_weight}, camera={vision_camera})")
-        from dam.guard.lerobot_video_loader import LeRobotVideoLoader
-        from dam.guard.ood_context import OODContext
-
-        _attach_vision_frames(
+        vision_candidates = {
+            "train": len(train_obs),
+            "normal_test": len(normal_labelled),
+            "legal_variation": len(legal_labelled),
+            "abnormal_a": len(anomaly_labelled),
+        }
+        vision_frames = {}
+        vision_frames["train"] = _attach_vision_frames(
             normal_repo_id,
             train_eps,
             normal_by_episode,
@@ -644,7 +678,7 @@ def run_calibration(
             vision_subsample,
             "train",
         )
-        _attach_vision_frames_labelled(
+        vision_frames["normal_test"] = _attach_vision_frames_labelled(
             normal_repo_id,
             normal_test_eps,
             normal_by_episode,
@@ -653,7 +687,7 @@ def run_calibration(
             vision_subsample,
             "normal_test",
         )
-        _attach_vision_frames_labelled(
+        vision_frames["legal_variation"] = _attach_vision_frames_labelled(
             legal_repo_id,
             sorted(legal_by_episode.keys()),
             legal_by_episode,
@@ -662,7 +696,7 @@ def run_calibration(
             vision_subsample,
             "legal_variation",
         )
-        _attach_vision_frames_labelled(
+        vision_frames["abnormal_a"] = _attach_vision_frames_labelled(
             anomaly_repo_id,
             sorted(anomaly_by_episode.keys()),
             anomaly_by_episode,
@@ -671,23 +705,52 @@ def run_calibration(
             vision_subsample,
             "abnormal_a",
         )
+        train_obs = [obs for obs in train_obs if obs.images]
+        normal_labelled = [row for row in normal_labelled if row[2].images]
+        legal_labelled = [row for row in legal_labelled if row[2].images]
+        anomaly_labelled = [row for row in anomaly_labelled if row[2].images]
+        if not all((train_obs, normal_labelled, legal_labelled, anomaly_labelled)):
+            raise DatasetLoadError(
+                "Vision RQ1 requested, but one or more datasets provided no matching video "
+                "frames. Check the camera name and the dataset video assets."
+            )
+        print(
+            "  Vision scoring frames: "
+            + ", ".join(f"{name}={count}" for name, count in vision_frames.items()),
+            flush=True,
+        )
 
-    guard = OODGuard(backend="normalizing_flow")
-    precompute_injection(guard, {})
+    # FeatureExtractor contains an untrained projection; make the experiment
+    # deterministic so equal inputs resolve to the same cached flow model.
+    try:
+        import torch
 
-    # Configure vision on the guard's OOD context
+        torch.manual_seed(seed)
+    except ImportError:
+        pass
+    context = OODContext()
     if vision_model:
-        guard._ood_context.configure_vision(vision_model, vision_weight, device="cpu")
+        context.configure_vision(vision_model, vision_weight, device="cpu")
 
     print("  Extracting train embeddings...", flush=True)
-    train_vectors = np.stack([guard._ood_context.features(obs) for obs in train_obs], axis=0)
+    train_vectors = np.stack([context.features(obs) for obs in train_obs], axis=0)
+    flow_backend = RealNVPFlowBackend(device="cpu")
+    feature_config: dict[str, object] = {
+        "state": "observation.state",
+        "feature_seed": seed,
+        "vision_model": vision_model,
+        "vision_weight": vision_weight if vision_model else None,
+        "vision_camera": vision_camera if vision_model else None,
+        "vision_subsample": vision_subsample if vision_model else None,
+    }
     train_mean, train_std, model_cache_hit = _fit_or_load_real_nvp(
-        guard,
+        flow_backend,
         train_vectors,
         cache_dir=cache_dir,
         normal_repo_id=normal_repo_id,
         max_observations_per_dataset=max_observations_per_dataset,
         flow_epochs=flow_epochs,
+        feature_config=feature_config,
     )
     print(
         f"  Trained Real-NVP: mean_train_nll={train_mean} std_train_nll={train_std} "
@@ -697,9 +760,9 @@ def run_calibration(
 
     print("  Extracting eval embeddings...", flush=True)
     eval_vectors = {
-        "normal_test": _vectors_for_observations(guard, normal_labelled),
-        "legal_variation": _vectors_for_observations(guard, legal_labelled),
-        "abnormal_a": _vectors_for_observations(guard, anomaly_labelled),
+        "normal_test": _vectors_for_observations(context, normal_labelled),
+        "legal_variation": _vectors_for_observations(context, legal_labelled),
+        "abnormal_a": _vectors_for_observations(context, anomaly_labelled),
     }
     labelled_sets = {
         "normal_test": (normal_repo_id, normal_labelled),
@@ -711,7 +774,7 @@ def run_calibration(
     method_score_names = {"real_nvp": "nll"}
     for dataset, vectors in eval_vectors.items():
         print(f"  Scoring real_nvp/{dataset} ({len(vectors)} frames)...", flush=True)
-        method_scores["real_nvp"][dataset] = _real_nvp_nll_for_vectors(guard, vectors)
+        method_scores["real_nvp"][dataset] = _real_nvp_nll_for_vectors(flow_backend, vectors)
 
     if compare_ood_methods:
         method_scores["memory_bank"] = {}
@@ -771,6 +834,10 @@ def run_calibration(
         }
         for method, dataset_scores in method_scores.items()
     }
+    trajectory_stats = {
+        dataset: _summarise_scores(_temporal_sequence_scores(labelled_obs))
+        for dataset, (_repo_id, labelled_obs) in labelled_sets.items()
+    }
 
     for name, values in stats.items():
         print(
@@ -781,6 +848,18 @@ def run_calibration(
     summary: dict = {
         "backend": "normalizing_flow",
         "model": "Real-NVP",
+        "feature_sources": ["observation.state"]
+        + ([f"image:{vision_model}"] if vision_model else []),
+        "feature_config": feature_config,
+        "not_consumed_fields": ["action"],
+        "trajectory_diagnostic": "joint_speed_magnitude_only_not_model_input",
+        "trajectory_stats": trajectory_stats,
+        "vision_model": vision_model,
+        "vision_weight": vision_weight if vision_model else None,
+        "vision_camera": vision_camera if vision_model else None,
+        "vision_subsample": vision_subsample if vision_model else None,
+        "vision_frames_attached": vision_frames,
+        "vision_candidate_frames": vision_candidates,
         "normal_repo_id": normal_repo_id,
         "legal_repo_id": legal_repo_id,
         "anomaly_repo_id": anomaly_repo_id,
@@ -850,7 +929,7 @@ def plot_results(rows: list[dict], outdir: Path) -> None:
         labels = [name for name, values in groups.items() if values]
         data = [groups[name] for name in labels]
         if data:
-            ax.boxplot(data, labels=labels, showfliers=False)
+            ax.boxplot(data, tick_labels=labels, showfliers=False)
         score_name = str(method_rows[0].get("score_name", "score")) if method_rows else "score"
         ax.set_ylabel(score_name)
         ax.set_title(f"{method} by dataset")

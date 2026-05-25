@@ -7,8 +7,8 @@ DAM Python environment plus `matplotlib` for plots.
 All five are exposed through one registry (`dam.experiments`) and can be run
 from three entry points:
 
-- **Console** — the *Experiments* page (`run` / `artifacts` tabs); SVG/PNG
-  preview inline, CSV via `GET /api/experiments/artifact`.
+- **Console** — the *Experiments* page (`run` / `artifacts` tabs); PNG
+  previews and result statistics are shown inline.
 - **CLI** — `dam experiment list` and `dam experiment run <id> [flags]`.
 - **HTTP** — `GET /api/experiments`, `POST /api/experiments/{id}/run`.
 
@@ -20,12 +20,12 @@ from three entry points:
 | RQ4 | `latency-bench` | Guard runtime latency under 10/20/50 Hz budgets | Isolated Guard profiling |
 | RQ5 | `failure-record-quality` | Completeness/classification/diversity of harvested failure records | Real violating-scenario runs |
 
-RQ1, RQ3, and RQ5 are real measurements driven by the live guard stack and the
-shared production classifier — they are not hardcoded. RQ1 trains the L0
-Real-NVP model on normal observations, then compares per-frame NLL across the
-normal test set, legal-variation test set, and abnormal-A test set. An optional
-RQ1 flag can also score the same three datasets with Welford z-score,
-MemoryBank nearest-neighbor distance, and Real-NVP NLL for method comparison.
+RQ3 and RQ5 drive the live guard stack and shared production classifier. RQ1 is
+an offline L0 evaluation harness: it uses DAM's `OODContext` feature path and
+public OOD backends to train Real-NVP on normal observations, then compares
+per-frame NLL across the normal test set, legal-variation test set, and
+abnormal-A test set. An optional RQ1 flag also scores the same features with
+Welford z-score and MemoryBank nearest-neighbor distance.
 
 RQ4 is an isolated Guard profiling experiment. It measures the safety-monitoring
 path from receiving an action proposal to outputting the validated action, and
@@ -46,6 +46,7 @@ make setup                    # or: pip install -e .
 ```bash
 python scripts/run_l0_calibration.py
 python scripts/run_l0_calibration.py --compare-ood-methods
+python scripts/run_l0_calibration.py --vision-model mobilenet_v3_large
 dam experiment run l0-calibration --compare-ood-methods
 ```
 
@@ -60,6 +61,13 @@ make the simple SVG bar chart misleading. RQ1 also uses a local cache for
 HuggingFace observations and the trained Real-NVP flow under
 `data/experiments/l0_calibration/cache`; pass `--no-cache` to force a full
 reload/retrain.
+
+Default RQ1 features are derived from `observation.state`; the dataset
+`action` column is not currently model input and is reported as such in the
+console summary. When `--vision-model` is set, RQ1 loads video frames and
+fuses pretrained image embeddings with state features. With subsampling, only
+frames that actually carry an image are scored, and the console reports the
+attached/available frame count.
 
 `nll_sigma` controls the Real-NVP decision threshold:
 `threshold = training_NLL_mean + nll_sigma * training_NLL_std`. Larger values

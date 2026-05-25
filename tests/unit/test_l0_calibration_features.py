@@ -78,3 +78,25 @@ def test_temporal_sequence_scores_reset_at_episode_boundaries() -> None:
     assert scores[2] == 0.0
     assert scores[1] > 0.0
     assert scores[3] > 0.0
+
+
+def test_flow_cache_key_includes_feature_configuration(tmp_path) -> None:
+    vectors = np.zeros((3, 128), dtype=np.float32)
+    state_only = cal._flow_cache_path(
+        tmp_path,
+        normal_repo_id="normal",
+        max_observations_per_dataset=3,
+        flow_epochs=1,
+        train_vectors=vectors,
+        feature_config={"state": "observation.state", "vision_model": None},
+    )
+    with_vision = cal._flow_cache_path(
+        tmp_path,
+        normal_repo_id="normal",
+        max_observations_per_dataset=3,
+        flow_epochs=1,
+        train_vectors=vectors,
+        feature_config={"state": "observation.state", "vision_model": "mobilenet_v3_small"},
+    )
+
+    assert state_only != with_vision

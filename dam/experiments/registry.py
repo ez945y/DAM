@@ -468,9 +468,9 @@ _EXPERIMENTS: dict[
             title="L0 OOD Calibration",
             rq="RQ1",
             description=(
-                "Trains L0 OODGuard (Real-NVP) on normal HuggingFace lerobot "
-                "observations, then compares per-frame NLL for normal, "
-                "legal-variation, and abnormal-A test datasets."
+                "Evaluates DAM L0 features with Real-NVP trained on normal "
+                "HuggingFace lerobot observations, then compares per-frame "
+                "NLL for normal, legal-variation, and abnormal-A datasets."
             ),
             default_params={
                 "normal_repo_id": "MikeChenYZ/soarm-fmb-v2",

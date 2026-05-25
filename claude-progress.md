@@ -10,15 +10,68 @@
 
 ## 當前最高優先級未完成功能
 
-1. **機器人微振盪**：模型輸出高頻方向翻轉（~60% cycles 有 sign change），幅度 <1° 所以 guard PASS，但肉眼抖動明顯。這不是 guard pipeline 問題，是模型輸出問題。可能需要 action smoothing / EMA filter。
-2. **Guard Status 前端驗證**：fix 已 commit 但需要重建前端 (`cd dam-console && npm run build`) 才生效。用戶尚未確認。
-3. **MCAP 回讀 Risk Log**：用戶提到想從 MCAP 讀取歷史 risk data，尚未實作。
+1. **Vision OOD 閾值校準**：Vision fusion 跨場景分離力極好（abnormal detection=100%），但 mean+3σ 閾值策略過於保守導致 FPR 過高。需改用 percentile-based 閾值或 normal_test 校準。
+2. **機器人微振盪**：模型輸出高頻方向翻轉（~60% cycles 有 sign change），幅度 <1° 所以 guard PASS，但肉眼抖動明顯。這不是 guard pipeline 問題，是模型輸出問題。可能需要 action smoothing / EMA filter。
+3. **Guard Status 前端驗證**：fix 已 commit 但需要重建前端 (`cd dam-console && npm run build`) 才生效。用戶尚未確認。
+4. **MCAP 回讀 Risk Log**：用戶提到想從 MCAP 讀取歷史 risk data，尚未實作。
 
 ## 當前 blocker
 
 無
 
 ## 會話記錄
+
+### Session 2026-05-25 #2 (RQ1 Pipeline Cleanup)
+
+- **本輪目標**: 將 RQ1 從混用私有 guard state 的實驗腳本整理成可追蹤、可重現的 offline evaluation pipeline
+- **已完成**:
+  - RQ1 改用 `OODContext` + 公開 `RealNVPFlowBackend` / `MemoryBankBackend` / `WelfordBackend`
+  - Real-NVP backend 保留 verbose training progress；runner 不再直接操作 `_flow`
+  - Feature seed 與 vision configuration 納入 flow cache key；實測第二次 run 命中 dataset + model cache
+  - Vision subsampling 改為只評估真正有 image frame 的 observation，避免零向量混入 vision 結果
+  - Summary/UI 顯示實際輸入 signal、未計分的 `action` 與 vision frame attachment counts
+  - 補齊 trajectory diagnostic implementation 與 cache configuration test
+  - 文檔改為準確描述 RQ1 是共享 DAM feature/backend API 的 offline harness
+- **執行過的驗證**:
+  - `.venv/bin/python -m pytest tests/unit/ -x -q` — 553 passed
+  - `.venv/bin/ruff check scripts/run_l0_calibration.py dam/guard/ood_backend.py dam/experiments/registry.py tests/unit/test_l0_calibration_features.py` — passed
+  - `cd dam-console && npm run build` — passed
+  - `.venv/bin/python scripts/check_docs.py` — passed
+  - RQ1 state-only UI smoke run (1 epoch, full cached datasets) — summary refreshed and explicitly reported `not scored: action`; abnormal detection=3.7%, confirming this configuration is not adequate
+  - RQ1 cache smoke run (60 observations, 1 epoch, repeated invocation) — second run reported model and dataset cache hits
+- **已知風險或未解決問題**:
+  - `action` 尚未作為 Real-NVP feature input；recover-failure 的同場景異常不能依靠目前 state-only 路徑解決
+  - State-only full-dataset smoke run 的異常 detection 很低，不能作為可部署結果
+  - Vision threshold calibration 仍需以有效 validation split 調整
+- **下一步**:
+  - 定義並實作 `state + action + temporal` RQ1 feature mode，使用 held-out validation 校準 threshold，再與 vision-fused mode 對照
+
+### Session 2026-05-25 #1 (Vision Feature Extraction Integration)
+
+- **本輪目標**: 整合 HuggingFace pretrained vision feature extractor 到 L0 OOD guard pipeline
+- **已完成**:
+  - VisionFeatureExtractor: MobileNetV3 large/small backbone, HW/C→embedding 萃取
+  - LeRobotVideoLoader: mp4 video decode for lerobot v3 datasets (PyAV)
+  - OODContext fusion: configure_vision() + 256-dim fused features (joint+vision weighted)
+  - Boundary callbacks: vision_model/vision_weight 參數支援
+  - Frontend: OODTrainer 加入 Vision Model 選擇器 + Weight 滑桿
+  - Backend: trainer service + router 透傳 vision params
+  - Calibration script: --vision-model/--vision-weight/--vision-camera CLI
+  - RQ1 實驗驗證: cross-scene (feeding-nuts vs fmb-v2) abnormal detection=100%
+  - Unit tests: 11 tests (VisionFeatureExtractor + OODContext vision integration)
+- **執行過的驗證**:
+  - `pytest tests/unit/ -x` — 550 passed (1 pre-existing failure excluded)
+  - `npx jest --ci` — 99/99 passed
+  - `npx tsc --noEmit --skipLibCheck` — no errors
+  - RQ1 calibration with vision: abnormal detection rate = 1.0
+- **已記錄證據**: commits `f93eb81`, `384d982`
+- **已知風險或未解決問題**:
+  - FPR 過高 (87% normal, 99% legal): 閾值策略 (mean+3σ) 不適合 256-dim fused space. 特徵分離實際上很好 (normal median=-505.8 vs abnormal median=-436.4, gap=69 NLL units), 問題在於 calibration 策略太保守
+  - 同場景不同動作的視覺區分力低（如預期）— vision 是輔助信號不是主力
+  - Theia model 支援已寫但未驗證（需 transformers 套件）
+- **下一步**:
+  - 改善閾值校準策略（percentile-based 或 normal_test calibration）
+  - 文檔更新（使用者可見行為改變）
 
 ### Session 2026-05-24 #1 (live preview + guard status + risk log)
 
