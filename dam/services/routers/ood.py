@@ -107,6 +107,8 @@ async def _execute_training(ood_trainer: Any, body: dict[str, Any]) -> Any:
                 output_name=body.get("output_name", "ood_model"),
                 flow_epochs=body.get("flow_epochs", 50),
                 flow_lr=body.get("flow_lr", 1e-3),
+                vision_model=body.get("vision_model"),
+                vision_weight=body.get("vision_weight", 0.3),
             ),
         )
     except ImportError as e:
@@ -129,6 +131,8 @@ async def _run_training_job(
                 output_name=msg.get("output_name", "ood_model"),
                 flow_epochs=msg.get("flow_epochs", 50),
                 flow_lr=msg.get("flow_lr", 1e-3),
+                vision_model=msg.get("vision_model"),
+                vision_weight=msg.get("vision_weight", 0.3),
                 progress_callback=_make_progress_cb(task_id, loop),
                 cancel_event=cancel_event,
             ),

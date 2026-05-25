@@ -733,6 +733,8 @@ class OODGuard(Guard):
     ood_model_path  str    None           — path to saved extractor / flow (.pt)
     bank_path       str    None           — path to MemoryBank vectors (.npy)
     temporal_smoothing_frames int 1       — consecutive OOD frames required before REJECT
+    vision_model    str    None           — HuggingFace vision model (e.g. "mobilenet_v3_large")
+    vision_weight   float  0.3            — weight of vision features in fused embedding (0-1)
     """
 
     expected_decisions = frozenset({GuardDecision.PASS, GuardDecision.REJECT, GuardDecision.FAULT})
@@ -907,6 +909,8 @@ class OODGuard(Guard):
         ood_model_path: str | None,
         bank_path: str | None,
         device: str,
+        vision_model: str | None = None,
+        vision_weight: float = 0.3,
     ) -> Any:
         """Synthesize a SingleNodeContainer wired to the callback matching
         ``self._kind``. Used when no stackfile-provided container is active
@@ -926,6 +930,9 @@ class OODGuard(Guard):
             params["ood_model_path"] = ood_model_path
         if bank_path:
             params["bank_path"] = bank_path
+        if vision_model:
+            params["vision_model"] = vision_model
+            params["vision_weight"] = vision_weight
         node = BoundaryNode(
             node_id=f"ood_default/{callback_name}",
             constraint=BoundaryConstraint(callback=callback_name, params=params),
@@ -1000,6 +1007,8 @@ class OODGuard(Guard):
         bank_path: str | None = None,
         device: str = "cpu",
         temporal_smoothing_frames: int = 1,
+        vision_model: str | None = None,
+        vision_weight: float = 0.3,
     ) -> GuardResult:
         layer = self.get_layer()
         name = self.get_name()
@@ -1015,6 +1024,8 @@ class OODGuard(Guard):
                 ood_model_path=ood_model_path,
                 bank_path=bank_path,
                 device=device,
+                vision_model=vision_model,
+                vision_weight=vision_weight,
             )
         ]
         if not active_containers:

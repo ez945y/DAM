@@ -340,6 +340,10 @@ def _run_l0_calibration(params: dict[str, Any], outdir: Path) -> ExperimentResul
     compare_ood_methods = _as_bool(params.get("compare_ood_methods", False))
     cache_dir = params.get("cache_dir", "data/experiments/l0_calibration/cache")
     cache_dir = str(cache_dir) if cache_dir else None
+    vision_model = params.get("vision_model") or None
+    vision_weight = float(params.get("vision_weight", 0.3))
+    vision_camera = str(params.get("vision_camera", "top"))
+    vision_subsample = int(params.get("vision_subsample", 30))
     outdir.mkdir(parents=True, exist_ok=True)
     started = time.perf_counter()
 
@@ -356,6 +360,10 @@ def _run_l0_calibration(params: dict[str, Any], outdir: Path) -> ExperimentResul
         nll_sigma=nll_sigma,
         compare_ood_methods=compare_ood_methods,
         cache_dir=cache_dir,
+        vision_model=vision_model,
+        vision_weight=vision_weight,
+        vision_camera=vision_camera,
+        vision_subsample=vision_subsample,
     )
     cal.write_csv(rows, outdir / "results.csv")
     cal.plot_results(rows, outdir)
@@ -472,6 +480,10 @@ _EXPERIMENTS: dict[
                 "nll_sigma": 3.0,
                 "compare_ood_methods": False,
                 "cache_dir": "data/experiments/l0_calibration/cache",
+                "vision_model": None,
+                "vision_weight": 0.3,
+                "vision_camera": "top",
+                "vision_subsample": 30,
                 "seed": 42,
                 "outdir": "data/experiments/l0_calibration",
             },

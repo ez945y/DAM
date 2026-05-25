@@ -107,8 +107,16 @@ module = [
     "rclpy.*",
     "torch",
     "torch.*",
+    "torchvision",
+    "torchvision.*",
+    "transformers",
+    "transformers.*",
     "cv2",
     "cv2.*",
+    "pyarrow",
+    "pyarrow.*",
+    "av",
+    "av.*",
     "dam_rs",      # Rust extension built locally via maturin
     "mcap",
     "mcap.*",
@@ -165,6 +173,8 @@ module = [
     "dam.adapter.lerobot.source",
     "dam.adapter.lerobot.adapter",
     "dam.adapter.lerobot.builder",
+    "dam.guard.vision_feature_extractor",
+    "dam.guard.lerobot_video_loader",
 ]
 ignore_errors = true
 

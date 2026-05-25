@@ -38,6 +38,8 @@ class OODTrainerService:
         output_name: str = "ood_model",
         flow_epochs: int = 50,
         flow_lr: float = 1e-3,
+        vision_model: str | None = None,
+        vision_weight: float = 0.3,
         progress_callback: Any | None = None,
         cancel_event: Any | None = None,
     ) -> dict[str, Any]:
@@ -116,6 +118,12 @@ class OODTrainerService:
             )
 
         guard = OODGuard(backend=backend)
+        if vision_model:
+            guard._ood_context.configure_vision(
+                vision_model=vision_model, vision_weight=vision_weight
+            )
+            if progress_callback:
+                progress_callback(f"Vision enabled: {vision_model} (weight={vision_weight})")
         if cancel_event and cancel_event.is_set():
             return {"status": "cancelled"}
 
@@ -144,6 +152,8 @@ class OODTrainerService:
             "flow_lr": flow_lr if backend == "normalizing_flow" else 0,
             "mean_train_nll": guard._mean_train_nll,
             "std_train_nll": guard._std_train_nll,
+            "vision_model": vision_model,
+            "vision_weight": vision_weight if vision_model else 0,
             "timestamp": time.time(),
         }
         meta_path = self.data_dir / f"{output_name}.json"

@@ -16,6 +16,8 @@ export function OODTrainer({
   const [repoId, setRepoId] = useState('MikeChenYZ/soarm-fmb-v2')
   const [backend, setBackend] = useState('memory_bank')
   const [outputName, setOutputName] = useState('ood_model')
+  const [visionModel, setVisionModel] = useState('')
+  const [visionWeight, setVisionWeight] = useState(0.3)
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
@@ -105,6 +107,7 @@ export function OODTrainer({
       output_name: outputName,
       flow_epochs: epochs,
       flow_lr: lr,
+      ...(visionModel ? { vision_model: visionModel, vision_weight: visionWeight } : {}),
     }))
   }
 
@@ -287,6 +290,39 @@ export function OODTrainer({
                 </select>
               </div>
             </div>
+
+            <div className="space-y-1.5">
+              <label htmlFor="ood-vision" className="text-[9px] text-dam-muted font-bold uppercase tracking-tighter ml-1">Vision Feature Model</label>
+              <div className="relative">
+                <Settings2 className="absolute left-2.5 top-1/2 -translate-y-1/2 text-dam-muted" size={12} />
+                <select
+                  id="ood-vision"
+                  value={visionModel}
+                  onChange={(e) => setVisionModel(e.target.value)}
+                  className={`${inputCls} pl-8 h-9 rounded-lg !bg-dam-surface-3/80 appearance-none`}
+                >
+                  <option value="">None (Joint Only)</option>
+                  <option value="mobilenet_v3_small">MobileNet V3 Small</option>
+                  <option value="mobilenet_v3_large">MobileNet V3 Large</option>
+                </select>
+              </div>
+            </div>
+
+            {visionModel && (
+              <div className="space-y-1.5">
+                <label htmlFor="ood-vision-weight" className="text-[9px] text-dam-muted font-bold uppercase tracking-tighter ml-1">Vision Weight ({(visionWeight * 100).toFixed(0)}%)</label>
+                <input
+                  id="ood-vision-weight"
+                  type="range"
+                  min="0"
+                  max="0.8"
+                  step="0.05"
+                  value={visionWeight}
+                  onChange={(e) => setVisionWeight(parseFloat(e.target.value))}
+                  className="w-full h-9 accent-dam-blue"
+                />
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-between gap-4 pt-2 relative z-10">

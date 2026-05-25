@@ -113,6 +113,8 @@ def ood_welford(
         "bank_path": "Path to the memory bank of normal features.",
         "device": "Device used by the OOD backend, such as cpu, cuda, or mps.",
         "warmup": "Number of fallback Welford warm-up observations when the backend is not ready.",
+        "vision_model": "Optional HuggingFace vision model for image feature extraction (e.g. mobilenet_v3_large).",
+        "vision_weight": "Weight of vision features in the fused embedding (0.0-1.0, default 0.3).",
     },
 )
 def ood_memory_bank(
@@ -124,9 +126,13 @@ def ood_memory_bank(
     bank_path: str = "",
     device: str = "cpu",
     warmup: int = 30,
+    vision_model: str = "",
+    vision_weight: float = 0.3,
 ) -> CallbackResult:
     bname = "ood_memory_bank"
     try:
+        if vision_model:
+            ood_context.configure_vision(vision_model, vision_weight, device)
         key = _key(bname, ood_model_path, bank_path, "memory_bank")
         backend = ood_context.get_backend(kind=OODBackendKind.MEMORY_BANK, key=key, device=device)
         ood_context.load_backend(
@@ -171,6 +177,8 @@ def ood_memory_bank(
         "bank_path": "Path to saved OOD calibration data.",
         "device": "Device used by the OOD backend, such as cpu, cuda, or mps.",
         "warmup": "Number of fallback Welford warm-up observations when the backend is not ready.",
+        "vision_model": "Optional HuggingFace vision model for image feature extraction (e.g. mobilenet_v3_large).",
+        "vision_weight": "Weight of vision features in the fused embedding (0.0-1.0, default 0.3).",
     },
 )
 def ood_normalizing_flow(
@@ -183,9 +191,13 @@ def ood_normalizing_flow(
     bank_path: str = "",
     device: str = "cpu",
     warmup: int = 30,
+    vision_model: str = "",
+    vision_weight: float = 0.3,
 ) -> CallbackResult:
     bname = "ood_normalizing_flow"
     try:
+        if vision_model:
+            ood_context.configure_vision(vision_model, vision_weight, device)
         key = _key(bname, ood_model_path, bank_path, "normalizing_flow")
         backend = ood_context.get_backend(
             kind=OODBackendKind.NORMALIZING_FLOW, key=key, device=device

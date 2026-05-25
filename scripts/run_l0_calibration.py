@@ -313,7 +313,7 @@ def _flatten_episode_obs(
 def _vectors_for_observations(
     guard: OODGuard, labelled_obs: list[tuple[int, int, Observation]]
 ) -> np.ndarray:
-    vectors = np.stack([guard._extractor.extract(obs) for _, _, obs in labelled_obs], axis=0)
+    vectors = np.stack([guard._ood_context.features(obs) for _, _, obs in labelled_obs], axis=0)
     return vectors
 
 
@@ -458,6 +458,105 @@ def _build_nll_rows(
     return rows
 
 
+# ── Vision frame loading helpers ──────────────────────────────────────────────
+
+
+def _attach_vision_frames(
+    repo_id: str,
+    episode_ids: list[int],
+    by_episode: dict[int, list[Observation]],
+    obs_list: list[Observation],
+    camera: str,
+    subsample: int,
+    label: str,
+) -> None:
+    """Load video frames and attach them to Observation objects in-place.
+
+    Since Observation is frozen, we replace items in obs_list with new instances.
+    Only loads every Nth frame (subsample) to keep memory/time reasonable.
+    """
+    from dam.guard.lerobot_video_loader import LeRobotVideoLoader
+
+    print(f"  Loading {label} video frames ({repo_id}, camera={camera})...", flush=True)
+    loader = LeRobotVideoLoader(repo_id, camera=camera)
+
+    obs_idx = 0
+    for ep_id in episode_ids:
+        ep_obs = by_episode.get(ep_id, [])
+        try:
+            frames = loader.load_episode_frames(ep_id, subsample=subsample)
+        except Exception as exc:
+            print(f"    Warning: could not load video for episode {ep_id}: {exc}")
+            obs_idx += len(ep_obs)
+            continue
+
+        for frame_idx, obs in enumerate(ep_obs):
+            if obs_idx >= len(obs_list):
+                break
+            video_frame_idx = frame_idx // subsample
+            if video_frame_idx < len(frames) and frame_idx % subsample == 0:
+                new_obs = Observation(
+                    timestamp=obs.timestamp,
+                    joint_positions=obs.joint_positions,
+                    joint_velocities=obs.joint_velocities,
+                    end_effector_pose=obs.end_effector_pose,
+                    force_torque=obs.force_torque,
+                    images={camera: frames[video_frame_idx]},
+                    channels=obs.channels,
+                    metadata=obs.metadata,
+                )
+                obs_list[obs_idx] = new_obs
+            obs_idx += 1
+
+    n_with_images = sum(1 for o in obs_list if o.images is not None)
+    print(f"    Attached images to {n_with_images}/{len(obs_list)} observations")
+
+
+def _attach_vision_frames_labelled(
+    repo_id: str,
+    episode_ids: list[int],
+    by_episode: dict[int, list[Observation]],
+    labelled: list[tuple[int, int, Observation]],
+    camera: str,
+    subsample: int,
+    label: str,
+) -> None:
+    """Attach video frames to labelled observation tuples."""
+    from dam.guard.lerobot_video_loader import LeRobotVideoLoader
+
+    print(f"  Loading {label} video frames ({repo_id}, camera={camera})...", flush=True)
+    loader = LeRobotVideoLoader(repo_id, camera=camera)
+
+    frames_by_episode: dict[int, list[np.ndarray]] = {}
+    for ep_id in episode_ids:
+        try:
+            frames_by_episode[ep_id] = loader.load_episode_frames(ep_id, subsample=subsample)
+        except Exception as exc:
+            print(f"    Warning: could not load video for episode {ep_id}: {exc}")
+
+    n_attached = 0
+    for i, (ep, frame_idx, obs) in enumerate(labelled):
+        frames = frames_by_episode.get(ep)
+        if frames is None:
+            continue
+        video_frame_idx = frame_idx // subsample
+        if video_frame_idx < len(frames) and frame_idx % subsample == 0:
+            new_obs = Observation(
+                timestamp=obs.timestamp,
+                joint_positions=obs.joint_positions,
+                joint_velocities=obs.joint_velocities,
+                end_effector_pose=obs.end_effector_pose,
+                force_torque=obs.force_torque,
+                images={camera: frames[video_frame_idx]},
+                channels=obs.channels,
+                metadata=obs.metadata,
+            )
+            labelled[i] = (ep, frame_idx, new_obs)
+            n_attached += 1
+
+    print(f"    Attached images to {n_attached}/{len(labelled)} observations")
+
+
 # ── Main calibration ────────────────────────────────────────────────────────
 
 
@@ -474,6 +573,10 @@ def run_calibration(
     nll_sigma: float = 3.0,
     compare_ood_methods: bool = False,
     cache_dir: str | None = _DEFAULT_CACHE_DIR,
+    vision_model: str | None = None,
+    vision_weight: float = 0.3,
+    vision_camera: str = "top",
+    vision_subsample: int = 30,
 ) -> tuple[list[dict], dict]:
     rng = np.random.default_rng(seed)
     del ood_samples_per_scenario, n_thresholds, sessions_dir
@@ -526,10 +629,58 @@ def run_calibration(
         f"legal_variation={len(legal_labelled)}, abnormal_a={len(anomaly_labelled)}"
     )
 
+    # --- Vision feature extraction setup ---
+    if vision_model:
+        print(f"  Vision model: {vision_model} (weight={vision_weight}, camera={vision_camera})")
+        from dam.guard.lerobot_video_loader import LeRobotVideoLoader
+        from dam.guard.ood_context import OODContext
+
+        _attach_vision_frames(
+            normal_repo_id,
+            train_eps,
+            normal_by_episode,
+            train_obs,
+            vision_camera,
+            vision_subsample,
+            "train",
+        )
+        _attach_vision_frames_labelled(
+            normal_repo_id,
+            normal_test_eps,
+            normal_by_episode,
+            normal_labelled,
+            vision_camera,
+            vision_subsample,
+            "normal_test",
+        )
+        _attach_vision_frames_labelled(
+            legal_repo_id,
+            sorted(legal_by_episode.keys()),
+            legal_by_episode,
+            legal_labelled,
+            vision_camera,
+            vision_subsample,
+            "legal_variation",
+        )
+        _attach_vision_frames_labelled(
+            anomaly_repo_id,
+            sorted(anomaly_by_episode.keys()),
+            anomaly_by_episode,
+            anomaly_labelled,
+            vision_camera,
+            vision_subsample,
+            "abnormal_a",
+        )
+
     guard = OODGuard(backend="normalizing_flow")
     precompute_injection(guard, {})
+
+    # Configure vision on the guard's OOD context
+    if vision_model:
+        guard._ood_context.configure_vision(vision_model, vision_weight, device="cpu")
+
     print("  Extracting train embeddings...", flush=True)
-    train_vectors = np.stack([guard._extractor.extract(obs) for obs in train_obs], axis=0)
+    train_vectors = np.stack([guard._ood_context.features(obs) for obs in train_obs], axis=0)
     train_mean, train_std, model_cache_hit = _fit_or_load_real_nvp(
         guard,
         train_vectors,
@@ -766,6 +917,30 @@ def main() -> None:
         help="Also score Welford and MemoryBank alongside the default Real-NVP NLL.",
     )
     parser.add_argument("--max-observations-per-dataset", type=int, default=None)
+    parser.add_argument(
+        "--vision-model",
+        type=str,
+        default=None,
+        help="HuggingFace vision model for image feature extraction (e.g. mobilenet_v3_large).",
+    )
+    parser.add_argument(
+        "--vision-weight",
+        type=float,
+        default=0.3,
+        help="Weight of vision features in fused embedding (0.0-1.0).",
+    )
+    parser.add_argument(
+        "--vision-camera",
+        type=str,
+        default="top",
+        help="Camera name to use for vision (top or wrist).",
+    )
+    parser.add_argument(
+        "--vision-subsample",
+        type=int,
+        default=30,
+        help="Load every Nth video frame (30 = 1 per second at 30fps).",
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--outdir", type=str, default="data/experiments/l0_calibration")
     args = parser.parse_args()
@@ -786,6 +961,10 @@ def main() -> None:
         nll_sigma=args.nll_sigma,
         compare_ood_methods=args.compare_ood_methods,
         cache_dir=None if args.no_cache else args.cache_dir,
+        vision_model=args.vision_model,
+        vision_weight=args.vision_weight,
+        vision_camera=args.vision_camera,
+        vision_subsample=args.vision_subsample,
     )
     write_csv(rows, outdir / "results.csv")
     plot_results(rows, outdir)
