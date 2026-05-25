@@ -14,7 +14,7 @@ const BADGE_COLOR: Record<string, string> = {
 
 export function TemplateGallery({ templates, selected, onSelect }: Props) {
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+    <div className="grid grid-cols-2 lg:grid-cols-4 items-start gap-3">
       {templates.map(t => {
         const active = selected === t.id
         return (

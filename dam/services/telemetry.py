@@ -33,6 +33,7 @@ import time
 from collections import deque
 from typing import TYPE_CHECKING, Any
 
+from dam.services.serialization import serialise_cycle_io
 from dam.types.risk import CycleResult
 
 if TYPE_CHECKING:
@@ -110,6 +111,11 @@ def _serialise_cycle(
     # guards responsible only for pass/fault decisions.
     if result.hardware_snapshot:
         event["hardware"] = result.hardware_snapshot
+    observation, action = serialise_cycle_io(result)
+    if observation is not None:
+        event["observation"] = observation
+    if action is not None:
+        event["action"] = action
     if camera_jpegs:
         # We send camera names so the frontend knows how many binary payloads to expect.
         event["active_cameras"] = list(camera_jpegs.keys())

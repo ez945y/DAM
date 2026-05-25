@@ -70,6 +70,9 @@ export interface CycleEvent {
    * reports health metadata (e.g. `host_health`, hardware_watchdog) ran.
    */
   hardware?: HostHardwareSnapshot
+  /** Shared detail payload used by the live inspector and Risk Log. */
+  observation?: Record<string, unknown> | null
+  action?: Record<string, unknown> | null
 }
 
 export interface HostHealth {
@@ -105,6 +108,7 @@ export interface RiskEvent {
   cycle_id: number
   trace_id: string
   risk_level: RiskLevel
+  outcome: 'reject' | 'clamp' | 'pass'
   was_clamped: boolean
   was_rejected: boolean
   fallback_triggered: string | null
@@ -120,6 +124,9 @@ export interface RiskEvent {
   failure_decisions?: string[]
   failure_reasons?: string[]
   failure_tuple?: Record<string, unknown> | null
+  observation?: Record<string, unknown> | null
+  action?: Record<string, unknown> | null
+  hardware?: HostHardwareSnapshot | null
 }
 
 export interface RiskLogStats {
@@ -163,6 +170,7 @@ export interface BoundaryConfig {
     node_id: string
     fallback?: string
     timeout_sec?: number | null
+    warn_frames?: number | null
     callback?: string | null
     params?: Record<string, unknown>
     constraint?: Record<string, unknown>

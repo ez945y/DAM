@@ -67,12 +67,88 @@ guards:
   - L3: hardware
     always: true
 
-boundaries: {}
+boundaries:
+  workspace:
+    layer: L1
+    type: single
+    nodes:
+      - callback: workspace
+        params:
+          bounds: [[-0.4, 0.4], [-0.4, 0.4], [0.02, 0.6]]
+  joint_position_limits:
+    layer: L1
+    type: single
+    nodes:
+      - callback: joint_position_limits
+        params:
+          upper: [1.8243, 1.7691, 1.6026, 1.8067, 3.0741, 1.7453]
+          lower: [-1.8243, -1.7691, -1.6026, -1.8067, -3.0741, 0]
+  joint_velocity_limit:
+    layer: L1
+    type: single
+    nodes:
+      - callback: joint_velocity_limit
+        params:
+          max_velocities: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5]
+  task_joint_speed_limit:
+    layer: L2
+    type: single
+    nodes:
+      - callback: task_joint_speed_limit
+        warn_frames: 3
+        fallback: hold_position
+        params:
+          max_speed: 3.0
+  hardware_watchdog:
+    layer: L3
+    type: single
+    nodes:
+      - callback: hardware_watchdog
+        warn_frames: 3
+        fallback: emergency_stop
+        params:
+          max_staleness_ms: 1000
+  temperature_limit:
+    layer: L3
+    type: single
+    nodes:
+      - callback: temperature_limit
+        warn_frames: 5
+        fallback: slow_down
+        params:
+          max_temperature_c: 55
+  current_limit:
+    layer: L3
+    type: single
+    nodes:
+      - callback: current_limit
+        warn_frames: 3
+        fallback: hold_position
+        params:
+          max_current_a: 1.5
+  voltage_limit:
+    layer: L3
+    type: single
+    nodes:
+      - callback: voltage_limit
+        warn_frames: 3
+        fallback: emergency_stop
+        params:
+          min_voltage_v: 10.0
+          max_voltage_v: 13.0
 
 tasks:
   default:
     description: "Default task"
-    boundaries: []
+    boundaries:
+      - workspace
+      - joint_position_limits
+      - joint_velocity_limit
+      - task_joint_speed_limit
+      - hardware_watchdog
+      - temperature_limit
+      - current_limit
+      - voltage_limit
 
 loopback:
   backend: mcap

@@ -505,11 +505,19 @@ boundaries:
     nodes:
       - callback: hardware_watchdog
         timeout_sec: 0.5
+        warn_frames: 3
         fallback: emergency_stop
         params:
           max_staleness_ms: 1000
-          monitor_temperature: true
-          max_temperature_c: 80
+  temperature_limit:
+    layer: L3
+    type: single
+    nodes:
+      - callback: temperature_limit
+        warn_frames: 5
+        fallback: slow_down
+        params:
+          max_temperature_c: 55
 ```
 
 ### Multi-Robot Deployment (Heterogeneous)

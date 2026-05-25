@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from dam.types.action import ActionProposal, ValidatedAction
+    from dam.types.observation import Observation
     from dam.types.result import GuardResult
 
 
@@ -32,3 +33,4 @@ class CycleResult:
     active_boundaries: list[str] = field(default_factory=list)
     mcap_filename: str | None = None
     hardware_snapshot: dict[str, Any] | None = None
+    observation: Observation | None = None

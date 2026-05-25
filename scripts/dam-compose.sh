@@ -22,11 +22,11 @@
 # Examples
 # --------
 #   # Start LeRobot service with USB devices from Stackfile
-#   ./scripts/dam-compose.sh --stackfile examples/stackfiles/so101_act_pick_place.yaml \
+#   ./scripts/dam-compose.sh --stackfile examples/stackfiles/so101.yaml \
 #       -- --profile lerobot up -d api-lerobot
 #
 #   # Preview override YAML without running compose
-#   ./scripts/dam-compose.sh --stackfile examples/stackfiles/so101_act_pick_place.yaml --dry-run
+#   ./scripts/dam-compose.sh --stackfile examples/stackfiles/so101.yaml --dry-run
 #
 # Stackfile hardware.usb_devices format
 # ---------------------------------------

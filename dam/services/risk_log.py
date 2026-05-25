@@ -11,7 +11,7 @@ from typing import Any
 import msgspec
 
 from dam.runtime.failure_classify import classify_failure, select_failure_results
-from dam.services.serialization import msgspec_enc_hook
+from dam.services.serialization import msgspec_enc_hook, serialise_cycle_io
 
 
 class RiskEvent(msgspec.Struct):
@@ -22,6 +22,7 @@ class RiskEvent(msgspec.Struct):
     cycle_id: int
     trace_id: str
     risk_level: str  # RiskLevel.name
+    outcome: str  # Canonical lowercase value: reject, clamp, or pass.
     was_clamped: bool
     was_rejected: bool
     fallback_triggered: str | None
@@ -35,6 +36,9 @@ class RiskEvent(msgspec.Struct):
     failure_decisions: list[str] = []
     failure_reasons: list[str] = []
     failure_tuple: dict[str, Any] | None = None
+    observation: dict[str, Any] | None = None
+    action: dict[str, Any] | None = None
+    hardware: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to a JSON-safe dict for API responses.
@@ -103,6 +107,17 @@ class RiskLogService:
         ]
         failure_results = select_failure_results(result.guard_results)
         failure_type = classify_failure(failure_results)
+        decisions = {
+            gr.decision.name for gr in result.guard_results if hasattr(gr.decision, "name")
+        }
+        outcome = (
+            "reject"
+            if decisions.intersection({"REJECT", "FAULT"}) or result.was_rejected
+            else "clamp"
+            if "CLAMP" in decisions or result.was_clamped
+            else "pass"
+        )
+        observation, action = serialise_cycle_io(result)
         event = RiskEvent(
             event_id=self._next_id,
             timestamp=time.time(),
@@ -111,6 +126,7 @@ class RiskLogService:
             risk_level=result.risk_level.name
             if hasattr(result.risk_level, "name")
             else str(result.risk_level),
+            outcome=outcome,
             was_clamped=result.was_clamped,
             was_rejected=result.was_rejected,
             fallback_triggered=result.fallback_triggered,
@@ -142,6 +158,9 @@ class RiskLogService:
             }
             if failure_type is not None
             else None,
+            observation=observation,
+            action=action,
+            hardware=result.hardware_snapshot,
         )
         with self._lock:
             self._next_id += 1
@@ -160,6 +179,7 @@ class RiskLogService:
         rejected_only: bool = False,
         clamped_only: bool = False,
         failure_type: str | None = None,
+        outcome: str | None = None,
         limit: int = 500,
     ) -> list[RiskEvent]:
         """Filter events.
@@ -168,8 +188,9 @@ class RiskLogService:
             since:          Unix timestamp lower bound (inclusive).
             until:          Unix timestamp upper bound (inclusive).
             min_risk_level: Minimum risk level name ("NORMAL","ELEVATED","CRITICAL","EMERGENCY").
-            rejected_only:  Return only rejected cycles.
-            clamped_only:   Return only clamped cycles.
+            rejected_only:  Backward-compatible alias for outcome="reject".
+            clamped_only:   Backward-compatible alias for outcome="clamp".
+            outcome:        Canonical result filter ("reject" or "clamp").
             limit:          Maximum number of events to return (newest first).
         """
         _level_map = {
@@ -191,11 +212,13 @@ class RiskLogService:
                 continue
             if _level_map.get(ev.risk_level, 0) < min_level_int:
                 continue
-            if rejected_only and not ev.was_rejected:
+            if rejected_only and ev.outcome != "reject":
                 continue
-            if clamped_only and not ev.was_clamped:
+            if clamped_only and ev.outcome != "clamp":
                 continue
             if failure_type and ev.failure_type != failure_type:
+                continue
+            if outcome and ev.outcome != outcome.lower():
                 continue
             results.append(ev)
             if len(results) >= limit:
@@ -230,6 +253,7 @@ class RiskLogService:
             "cycle_id",
             "trace_id",
             "risk_level",
+            "outcome",
             "was_clamped",
             "was_rejected",
             "fallback_triggered",
@@ -245,6 +269,7 @@ class RiskLogService:
                     "cycle_id": ev.cycle_id,
                     "trace_id": ev.trace_id,
                     "risk_level": ev.risk_level,
+                    "outcome": ev.outcome,
                     "was_clamped": ev.was_clamped,
                     "was_rejected": ev.was_rejected,
                     "fallback_triggered": ev.fallback_triggered or "",
@@ -266,8 +291,8 @@ class RiskLogService:
                 "by_risk_level": {},
                 "avg_latency_ms": None,
             }
-        rejected = sum(1 for e in events if e.was_rejected)
-        clamped = sum(1 for e in events if e.was_clamped)
+        rejected = sum(1 for e in events if e.outcome == "reject")
+        clamped = sum(1 for e in events if e.outcome == "clamp")
         by_level: dict[str, int] = {}
         latencies = []
         for e in events:

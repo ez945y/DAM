@@ -58,6 +58,7 @@ export interface DamConfig {
   loopback?: LoopbackConfig
   simulation_dataset_repo_id?: string
   simulation_episode?: number
+  dataset_replay_to_hardware?: boolean
   observation_channels: string[]
   /** Optional override map: channel name → ROS2/MCAP topic.  Empty / missing
    *  entries fall back to the adapter's default topic for that channel. */
@@ -133,7 +134,7 @@ const SO101_MAX_VELOCITIES = Array(6).fill(SO101_USE_DEGREES ? Number((1.5 * 180
 const LEFT_PICK_ZONE = [[-0.175, -0.025], [-0.075, 0.075], [0.075, 0.225]]
 const RIGHT_PLACE_ZONE = [[0.025, 0.175], [-0.075, 0.075], [0.075, 0.225]]
 
-// L1 + L3 boundaries: safe for all adapters including simulation replay
+// Shared L1 + L3 baseline. Sensors unavailable on a given adapter pass cleanly.
 const BASE_BOUNDARIES: BoundaryDef[] = [
   {
     name: 'workspace', layer: 'L1', type: 'single',
@@ -153,26 +154,35 @@ const BASE_BOUNDARIES: BoundaryDef[] = [
       node_id: 'default',
       params: {
         max_staleness_ms: 1000,
-        monitor_temperature: true,
-        max_temperature_c: 80,
-        monitor_current: true,
-        max_current_a: 3,
-        monitor_voltage: true,
-        min_voltage_v: 10,
-        max_voltage_v: 13,
-        consecutive_fault_frames: 3,
-        peak_action: 'warn',
       },
       callback: 'hardware_watchdog',
       fallback: 'emergency_stop',
       timeout_sec: 0.5,
+      warn_frames: 3,
     }]
   },
   {
+    name: 'temperature_limit', layer: 'L3', type: 'single',
+    nodes: [{ node_id: 'default', params: { max_temperature_c: 55 }, callback: 'temperature_limit', fallback: 'slow_down', timeout_sec: null, warn_frames: 5 }]
+  },
+  {
+    name: 'current_limit', layer: 'L3', type: 'single',
+    nodes: [{ node_id: 'default', params: { max_current_a: 1.5 }, callback: 'current_limit', fallback: 'hold_position', timeout_sec: null, warn_frames: 3 }]
+  },
+  {
+    name: 'voltage_limit', layer: 'L3', type: 'single',
+    nodes: [{ node_id: 'default', params: { min_voltage_v: 10, max_voltage_v: 13 }, callback: 'voltage_limit', fallback: 'emergency_stop', timeout_sec: null, warn_frames: 3 }]
+  },
+  {
     name: 'host_health', layer: 'L3', type: 'single',
-    nodes: [{ node_id: 'default', params: { max_cpu_percent: 99, max_memory_percent: 98, max_temperature_c: 95, max_gpu_percent: 99, max_gpu_temperature_c: 95 }, callback: 'host_health_limit', fallback: 'emergency_stop', timeout_sec: 0.5 }]
+    nodes: [{ node_id: 'default', params: { max_cpu_percent: 99, max_memory_percent: 98, max_temperature_c: 95, max_gpu_percent: 99, max_gpu_temperature_c: 95 }, callback: 'host_health_limit', fallback: 'emergency_stop', timeout_sec: 0.5, warn_frames: 3 }]
   },
 ]
+
+const TASK_SPEED_BOUNDARY: BoundaryDef = {
+  name: 'task_joint_speed_limit', layer: 'L2', type: 'single',
+  nodes: [{ node_id: 'default', params: { max_speed: 3 }, callback: 'task_joint_speed_limit', fallback: 'hold_position', timeout_sec: null, warn_frames: 3 }],
+}
 
 // L2 task-level gripper sequence: only for real hardware with known task flow
 const GRIPPER_SEQUENCE_BOUNDARY: BoundaryDef = {
@@ -184,7 +194,14 @@ const GRIPPER_SEQUENCE_BOUNDARY: BoundaryDef = {
   ],
 }
 
-const DEFAULT_BOUNDARIES: BoundaryDef[] = [...BASE_BOUNDARIES, GRIPPER_SEQUENCE_BOUNDARY]
+const LAYER_ORDER: Record<string, number> = { L0: 0, L1: 1, L2: 2, L3: 3 }
+
+function orderBoundaries(boundaries: BoundaryDef[]): BoundaryDef[] {
+  return [...boundaries].sort((a, b) => (LAYER_ORDER[a.layer] ?? 99) - (LAYER_ORDER[b.layer] ?? 99))
+}
+
+const DEFAULT_BOUNDARIES: BoundaryDef[] = orderBoundaries([...BASE_BOUNDARIES, TASK_SPEED_BOUNDARY, GRIPPER_SEQUENCE_BOUNDARY])
+const REPLAY_BOUNDARIES: BoundaryDef[] = orderBoundaries([...BASE_BOUNDARIES, TASK_SPEED_BOUNDARY])
 
 const DEFAULT_FALLBACKS: FallbackDef[] = [
   { name: 'emergency_stop', type: 'emergency_stop', severity: 100, requires_proposal: false, monitors_hardware: false, description: 'Immediate full stop. Highest severity.', params: {}, escalate_to: null },
@@ -223,8 +240,8 @@ export const TEMPLATES: TemplatePreset[] = [
       policy: { type: 'act', pretrained_path: 'MikeChenYZ/act-soarm-fmb-v2', device: 'cpu' },
       joints: SO101_JOINTS, controlFrequencyHz: 30, enforcement_mode: 'monitor',
       fallbacks: DEFAULT_FALLBACKS,
-      tasks: [{ id: 'demo', name: 'demo', description: 'Full demo', boundaries: BASE_BOUNDARIES.map(b => b.name) }],
-      boundaries: BASE_BOUNDARIES,
+      tasks: [{ id: 'demo', name: 'demo', description: 'Full demo', boundaries: REPLAY_BOUNDARIES.map(b => b.name) }],
+      boundaries: REPLAY_BOUNDARIES,
       loopback: {
         backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10,
         rotate_mb: 500, rotate_minutes: 60, max_queue_depth: 64, capture_images_on_clamp: true,
@@ -232,9 +249,33 @@ export const TEMPLATES: TemplatePreset[] = [
     },
   },
   {
-    id: 'so101_act',
+    id: 'dataset_replay_check',
+    label: 'Dataset Replay · Check',
+    description: 'Replay a recorded dataset through guards and output validated actions to real hardware. Multi-camera MCAP recording.',
+    badge: 'Replay',
+    config: {
+      hardware_preset: 'so101_follower', adapter: 'lerobot', lerobot_port: '/dev/tty.usbmodem5AA90244141',
+      lerobot_robot_type: 'so101_follower', lerobot_robot_id: 'my_awesome_follower_arm', lerobot_cameras: SO101_CAMERAS,
+      lerobot_degrees_mode: true,
+      simulation_dataset_repo_id: 'MikeChenYZ/soarm-fmb-v2', simulation_episode: 0,
+      dataset_replay_to_hardware: true,
+      observation_channels: SO101_HEALTH_CHANNELS,
+      policy: { type: 'noop', pretrained_path: '', device: 'cpu' },
+      joints: SO101_JOINTS, controlFrequencyHz: 30, enforcement_mode: 'enforce',
+      fallbacks: DEFAULT_FALLBACKS,
+      tasks: [{ id: 'replay_check', name: 'replay_check', description: 'Guard-checked dataset replay to hardware',
+        boundaries: REPLAY_BOUNDARIES.map(b => b.name) }],
+      boundaries: REPLAY_BOUNDARIES,
+      loopback: {
+        backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10,
+        rotate_mb: 500, rotate_minutes: 60, max_queue_depth: 64, capture_images_on_clamp: true,
+      },
+    },
+  },
+  {
+    id: 'so101',
     label: 'SO-101 · ACT',
-    description: 'SO-ARM101 follower arm with ACT policy.',
+    description: 'SO-ARM101 ACT policy with built-in L1 safety filtering.',
     badge: 'LeRobot',
     config: {
       hardware_preset: 'so101_follower', adapter: 'lerobot', lerobot_port: '/dev/tty.usbmodem5AA90244141',
@@ -244,29 +285,8 @@ export const TEMPLATES: TemplatePreset[] = [
       policy: { type: 'act', pretrained_path: 'MikeChenYZ/act-soarm-fmb-v2', device: 'mps' },
       joints: SO101_JOINTS, controlFrequencyHz: 30, enforcement_mode: 'enforce',
       fallbacks: DEFAULT_FALLBACKS,
-      tasks: [{ id: 'soarm101', name: 'soarm101', description: 'Default task', boundaries: ['workspace', 'joint_position_limits', 'joint_velocity_limit', 'task_gripper_sequence', 'hardware_watchdog', 'host_health'] }],
-      boundaries: DEFAULT_BOUNDARIES,
-      loopback: {
-        backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10,
-        rotate_mb: 500, rotate_minutes: 60, max_queue_depth: 64, capture_images_on_clamp: true,
-      },
-    },
-  },
-  {
-    id: 'so101_act_qp',
-    label: 'SO-101 · ACT + QP',
-    description: 'SO-ARM101 ACT policy with ProxSuite QP safety filter at L1.',
-    badge: 'LeRobot',
-    config: {
-      hardware_preset: 'so101_follower', adapter: 'lerobot', lerobot_port: '/dev/tty.usbmodem5AA90244141',
-      lerobot_robot_type: 'so101_follower', lerobot_robot_id: 'my_awesome_follower_arm', lerobot_cameras: SO101_CAMERAS,
-      lerobot_degrees_mode: true,
-      observation_channels: SO101_HEALTH_CHANNELS,
-      policy: { type: 'act', pretrained_path: 'MikeChenYZ/act-soarm-fmb-v2', device: 'mps' },
-      joints: SO101_JOINTS, controlFrequencyHz: 30, enforcement_mode: 'enforce',
-      fallbacks: DEFAULT_FALLBACKS,
-      tasks: [{ id: 'soarm101', name: 'soarm101', description: 'QP-protected motion',
-        boundaries: ['workspace', 'joint_position_limits', 'joint_velocity_limit', 'task_gripper_sequence', 'hardware_watchdog', 'host_health'] }],
+      tasks: [{ id: 'soarm101', name: 'soarm101', description: 'Safety-filtered motion',
+        boundaries: DEFAULT_BOUNDARIES.map(b => b.name) }],
       boundaries: withQpSolver(DEFAULT_BOUNDARIES),
       loopback: {
         backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10,
@@ -286,8 +306,8 @@ export const TEMPLATES: TemplatePreset[] = [
       policy: { type: 'act', pretrained_path: '', device: 'cpu' },
       controlFrequencyHz: 30, enforcement_mode: 'monitor',
       fallbacks: DEFAULT_FALLBACKS,
-      tasks: [{ id: 'default', name: 'default', description: 'Default task', boundaries: [] }],
-      boundaries: [],
+      tasks: [{ id: 'default', name: 'default', description: 'Default task', boundaries: REPLAY_BOUNDARIES.map(b => b.name) }],
+      boundaries: REPLAY_BOUNDARIES,
       loopback: {
         backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10,
         rotate_mb: 500, rotate_minutes: 60, max_queue_depth: 64, capture_images_on_clamp: true,
@@ -295,6 +315,12 @@ export const TEMPLATES: TemplatePreset[] = [
     },
   },
 ]
+
+function clonePresetConfig(config: Partial<DamConfig>): Partial<DamConfig> {
+  // Presets intentionally contain configuration data only: no functions,
+  // dates, or class instances. JSON cloning is stable in browsers and Jest.
+  return JSON.parse(JSON.stringify(config)) as Partial<DamConfig>
+}
 
 export function defaultConfig(templateId = ''): DamConfig {
   const preset = TEMPLATES.find(t => t.id === templateId)
@@ -308,8 +334,9 @@ export function defaultConfig(templateId = ''): DamConfig {
     fallbacks: DEFAULT_FALLBACKS, guardsEnabled: {}, guardRouting: {}, tasks: [], boundaries: [],
   }
   if (!preset) return base
-  // Apply preset but keep identity anonymous (stateless)
-  return { ...base, ...preset.config, templateId: '' }
+  // Each editor session owns its config; nested boundary edits must not
+  // mutate the reusable preset shown elsewhere in the console.
+  return { ...base, ...clonePresetConfig(preset.config), templateId: '' }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -378,6 +405,7 @@ function boundaryLines(b: BoundaryDef): string[] {
     lines.push(isDefault ? `    - callback: ${node.callback ?? 'null'}` : `    - node_id: ${node.node_id}`)
     if (!isDefault && node.callback) lines.push(`      callback: ${node.callback}`)
     if (node.timeout_sec != null) lines.push(`      timeout_sec: ${node.timeout_sec}`)
+    if (node.warn_frames != null) lines.push(`      warn_frames: ${node.warn_frames}`)
     if (node.fallback) lines.push(`      fallback: ${node.fallback}`)
     if (node.params && Object.keys(node.params).length > 0) {
       lines.push('      params:')
@@ -391,13 +419,14 @@ function boundaryLines(b: BoundaryDef): string[] {
 }
 
 function validBoundaries(cfg: DamConfig): BoundaryDef[] {
-  return cfg.boundaries.filter(b => b.name.trim())
+  return orderBoundaries(cfg.boundaries.filter(b => b.name.trim()))
 }
 
-function taskLines(t: TaskDef, validNames?: Set<string>): string[] {
+function taskLines(t: TaskDef, boundaryOrder?: string[]): string[] {
   const lines: string[] = [`${t.name}:`]
   if (t.description) lines.push(`  description: "${t.description}"`)
-  const refs = validNames ? t.boundaries.filter(name => validNames.has(name)) : t.boundaries
+  const chosen = new Set(t.boundaries)
+  const refs = boundaryOrder ? boundaryOrder.filter(name => chosen.has(name)) : t.boundaries
   lines.push(refs.length > 0 ? `  boundaries: [${refs.join(', ')}]` : '  boundaries: []')
   return lines
 }
@@ -446,6 +475,12 @@ const SCHEMA: YamlSection[] = [
         scalar('episode', cfg => cfg.simulation_episode ?? 0),
         scalar('degrees_mode', () => 'true'),
       ], cfg => cfg.adapter === 'simulation' && !!cfg.simulation_dataset_repo_id),
+      block('replay', [
+        scalar('type', () => 'dataset'),
+        scalar('dataset_repo_id', cfg => cfg.simulation_dataset_repo_id ?? null),
+        scalar('episode', cfg => cfg.simulation_episode ?? 0),
+        scalar('degrees_mode', () => 'true'),
+      ], cfg => cfg.adapter === 'lerobot' && !!cfg.dataset_replay_to_hardware && !!cfg.simulation_dataset_repo_id),
       block(MAIN_SOURCE_NAME.lerobot, [
         scalar('type', () => 'motor'), scalar('port', cfg => cfg.lerobot_port),
         scalar('robot_type', cfg => cfg.lerobot_robot_type || 'so101_follower'),
@@ -539,7 +574,7 @@ const SCHEMA: YamlSection[] = [
   blank,
   custom((cfg, indent) => {
     if (!cfg.tasks.length) return [`${indent}tasks:`, `${indent}  default:`, `${indent}    boundaries: []`]
-    const names = new Set(validBoundaries(cfg).map(b => b.name))
+    const names = validBoundaries(cfg).map(b => b.name)
     return [`${indent}tasks:`, ...cfg.tasks.flatMap(t => taskLines(t, names).map(l => `${indent}  ${l}`))]
   }),
   blank,
@@ -573,7 +608,14 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
     result.adapter = 'lerobot'; result.lerobot_port = getVal(/port:\s*(.*)/);
     result.lerobot_robot_type = getVal(/robot_type:\s*(.*)/) || 'so101_follower';
     result.lerobot_robot_id = getVal(/id:\s*(.*)/); result.lerobot_calibration_path = getVal(/calibration_path:\s*(.*)/) || '';
-    result.lerobot_degrees_mode = (getVal(/degrees_mode:\s*(true|false)/) ?? 'true') === 'true'
+    const motorBlock = /type:\s*(?:motor|lerobot)\s*\n([\s\S]*?)(?=\n\s{4}\w+:\s*\n|\n\s{2}sinks:)/.exec(yaml)?.[1] ?? ''
+    const motorDegrees = /degrees_mode:\s*(true|false)/.exec(motorBlock)?.[1]
+    result.lerobot_degrees_mode = (motorDegrees ?? 'true') === 'true'
+    if (yaml.includes('type: dataset')) {
+      result.dataset_replay_to_hardware = true
+      result.simulation_dataset_repo_id = getVal(/dataset_repo_id:\s*(.*)/) ?? undefined
+      const ep = getVal(/episode:\s*(\d+)/); if (ep != null) result.simulation_episode = Number(ep)
+    }
   } else if (yaml.includes('type: ros2')) {
     result.adapter = 'ros2'
     // New canonical: `topic:` on the source/sink.  Old stackfiles used
@@ -669,6 +711,7 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
           if (trimmed.startsWith('callback:')) currentNode.callback = trimmed.replaceAll('callback:', '').trim()
           else if (trimmed.startsWith('fallback:')) currentNode.fallback = trimmed.replaceAll('fallback:', '').trim()
           else if (trimmed.startsWith('timeout_sec:')) currentNode.timeout_sec = Number(trimmed.replaceAll('timeout_sec:', '').trim())
+          else if (trimmed.startsWith('warn_frames:')) currentNode.warn_frames = Number(trimmed.replaceAll('warn_frames:', '').trim())
           else if (trimmed === 'params:') { /* skip params header */ }
           else {
             const colonIdx = trimmed.indexOf(':'); if (colonIdx !== -1) {

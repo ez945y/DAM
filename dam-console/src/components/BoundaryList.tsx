@@ -19,72 +19,27 @@ function numberParam(params: Record<string, unknown>, key: string, fallback: num
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
 }
 
-function boolParam(params: Record<string, unknown>, key: string, fallback: boolean): boolean {
-  return typeof params[key] === 'boolean' ? params[key] : fallback
-}
-
 function withHardwareDefaults(params: Record<string, unknown>): Record<string, unknown> {
   return {
     max_staleness_ms: 1000,
-    monitor_temperature: true,
-    max_temperature_c: 80,
-    monitor_current: true,
-    max_current_a: 3,
-    monitor_voltage: true,
-    min_voltage_v: 10,
-    max_voltage_v: 13,
-    consecutive_fault_frames: 3,
-    peak_action: 'warn',
     ...params,
   }
 }
 
 function HardwareWatchdogEditor({
   params,
+  warnFrames,
   setParam,
+  setWarnFrames,
 }: {
   params: Record<string, unknown>
+  warnFrames: number
   setParam: (key: string, value: unknown) => void
+  setWarnFrames: (value: number) => void
 }) {
-  const metricRows = [
-    { key: 'temperature', label: 'Temperature', enabled: 'monitor_temperature', threshold: 'max_temperature_c', unit: '°C', fallback: 80 },
-    { key: 'current', label: 'Current', enabled: 'monitor_current', threshold: 'max_current_a', unit: 'A', fallback: 3 },
-    { key: 'voltage_min', label: 'Min voltage', enabled: 'monitor_voltage', threshold: 'min_voltage_v', unit: 'V', fallback: 10 },
-    { key: 'voltage_max', label: 'Max voltage', enabled: 'monitor_voltage', threshold: 'max_voltage_v', unit: 'V', fallback: 13 },
-  ]
-
   return (
     <div className="rounded-lg border border-dam-border bg-dam-surface-2/50 p-3 space-y-3">
-      <div className="grid grid-cols-[1fr_90px_52px] gap-2 text-[10px] uppercase tracking-wider text-dam-muted">
-        <span>Metric</span>
-        <span>Threshold</span>
-        <span>On</span>
-      </div>
-      {metricRows.map(row => (
-        <div key={row.key} className="grid grid-cols-[1fr_90px_52px] gap-2 items-center">
-          <span className="text-xs text-dam-text">{row.label}</span>
-          <label className="flex items-center gap-1 bg-dam-surface border border-dam-border rounded px-2 py-1">
-            <input
-              aria-label={`${row.label} threshold`}
-              type="number"
-              step="0.1"
-              value={numberParam(params, row.threshold, row.fallback)}
-              onChange={e => setParam(row.threshold, Number(e.target.value))}
-              className="w-full bg-transparent text-dam-text text-xs font-mono outline-none"
-            />
-            <span className="text-[10px] text-dam-muted">{row.unit}</span>
-          </label>
-          <input
-            aria-label={`Enable ${row.label}`}
-            type="checkbox"
-            checked={boolParam(params, row.enabled, true)}
-            onChange={e => setParam(row.enabled, e.target.checked)}
-            className="h-4 w-4 accent-dam-blue justify-self-center"
-          />
-        </div>
-      ))}
-
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-dam-border/50">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <label className="space-y-1">
           <span className="text-[10px] uppercase tracking-wider text-dam-muted">Heartbeat</span>
           <div className="flex items-center gap-1 bg-dam-surface border border-dam-border rounded px-2 py-1">
@@ -98,33 +53,21 @@ function HardwareWatchdogEditor({
           </div>
         </label>
         <label className="space-y-1">
-          <span className="text-[10px] uppercase tracking-wider text-dam-muted">Stop After</span>
+          <span className="text-[10px] uppercase tracking-wider text-dam-muted">Fault After</span>
           <div className="flex items-center gap-1 bg-dam-surface border border-dam-border rounded px-2 py-1">
             <input
               type="number"
               min={1}
-              value={numberParam(params, 'consecutive_fault_frames', 3)}
-              onChange={e => setParam('consecutive_fault_frames', Math.max(1, Number(e.target.value)))}
+              value={warnFrames}
+              onChange={e => setWarnFrames(Math.max(1, Number(e.target.value)))}
               className="w-full bg-transparent text-dam-text text-xs font-mono outline-none"
             />
-            <span className="text-[10px] text-dam-muted">frames</span>
+            <span className="text-[10px] text-dam-muted">cycles</span>
           </div>
-        </label>
-        <label className="space-y-1">
-          <span className="text-[10px] uppercase tracking-wider text-dam-muted">Peak Action</span>
-          <select
-            value={String(params.peak_action ?? 'warn')}
-            onChange={e => setParam('peak_action', e.target.value)}
-            className="w-full bg-dam-surface border border-dam-border rounded px-2 py-1 text-dam-text text-xs"
-          >
-            <option value="warn">warn</option>
-            <option value="log">log</option>
-            <option value="record">record</option>
-          </select>
         </label>
       </div>
       <p className="text-[10px] text-dam-muted/80 leading-relaxed">
-        Peaks are recorded as hardware_peak metadata. The robot stops only after the configured consecutive frames; heartbeat loss and hardware error codes still stop immediately.
+        Heartbeat faults are promoted after consecutive violating cycles via the same warn_frames setting used by L2 and L3 Stackfile nodes.
       </p>
     </div>
   )
@@ -246,7 +189,12 @@ function BoundaryModal({
             })()}
           </div>
           {isHardwareWatchdog && (
-            <HardwareWatchdogEditor params={params} setParam={setParam} />
+            <HardwareWatchdogEditor
+              params={params}
+              warnFrames={node.warn_frames ?? 3}
+              setParam={setParam}
+              setWarnFrames={warnFrames => setNode(curr => ({ ...curr, warn_frames: warnFrames }))}
+            />
           )}
         </div>
         {error && <p className="text-dam-red text-xs">{error}</p>}

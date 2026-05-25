@@ -366,7 +366,7 @@ hardware:
 from dam.runner.lerobot import LeRobotRunner
 
 # build_from_stackfile automates registry and adapter construction
-runner = LeRobotRunner.from_stackfile("so101_act_pick_place.yaml")
+runner = LeRobotRunner.from_stackfile("examples/stackfiles/so101.yaml")
 runner.run("pick_and_place")  # runs managed loop until KeyboardInterrupt
 ```
 

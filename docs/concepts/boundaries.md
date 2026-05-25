@@ -566,5 +566,5 @@ mcap cat violations.mcap | jq '.[] | select(.rejecting_guard == "L3")'
 
 See the `examples/stackfiles/` directory in the repository for complete Stackfile examples:
 - `sim_demo.yaml` — Simulation with basic boundaries
-- `so101_act_pick_place.yaml` — SO-ARM101 pick-and-place with multi-phase boundaries
-- `mobile_manipulation.yaml` — Mobile base + arm with integrated safety zones
+- `so101.yaml` — SO-ARM101 hardware operation with multi-phase boundaries
+- `dataset_replay_check.yaml` — Dataset actions validated before real hardware output

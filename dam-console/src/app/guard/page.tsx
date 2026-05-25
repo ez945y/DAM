@@ -112,7 +112,9 @@ function normalizeGripperNode(node: ConstraintNodeDef): ConstraintNodeDef {
   const allowed = inferGripperCommand(node)
   const nextParams: Record<string, unknown> = { allowed_command: allowed }
   if (allowed !== 'none' && node.params?.zone) nextParams.zone = node.params.zone
-  return { ...node, params: nextParams }
+  // A gripper task node is an explicit workflow phase, not a one-second
+  // callback deadline. Runtime advances it when the task progresses.
+  return { ...node, params: nextParams, timeout_sec: null }
 }
 
 function fallbackTitle(fallback: FallbackDef): string {
@@ -1237,8 +1239,13 @@ export default function GuardPage() {
           next.forEach(b => {
              const node = b.nodes[0]
              if (node) {
-               // Fix null timeouts
-               if (node.timeout_sec === null) {
+               // Preserve explicit phase semantics for gripper workflow nodes.
+               if (node.callback === 'task_gripper_command_guard') {
+                 if (node.timeout_sec !== null) {
+                   node.timeout_sec = null
+                   globalChanged = true
+                 }
+               } else if (node.timeout_sec === null) {
                  node.timeout_sec = 1
                  globalChanged = true
                }

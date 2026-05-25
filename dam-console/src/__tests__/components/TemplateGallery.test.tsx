@@ -15,14 +15,14 @@ describe('TemplateGallery', () => {
   })
 
   it('marks selected template with checkmark', () => {
-    render(<TemplateGallery templates={TEMPLATES} selected="so101_act" onSelect={onSelect} />)
+    render(<TemplateGallery templates={TEMPLATES} selected="dataset_replay_check" onSelect={onSelect} />)
     expect(screen.getByText('✓')).toBeInTheDocument()
   })
 
   it('calls onSelect when card clicked', () => {
     render(<TemplateGallery templates={TEMPLATES} selected="simulation" onSelect={onSelect} />)
     fireEvent.click(screen.getByText('SO-101 · ACT'))
-    expect(onSelect).toHaveBeenCalledWith('so101_act')
+    expect(onSelect).toHaveBeenCalledWith('so101')
   })
 
   it('renders badge for each template', () => {
@@ -30,5 +30,10 @@ describe('TemplateGallery', () => {
     expect(screen.getAllByText('LeRobot').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('ROS2').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('Demo').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('aligns preset cards from the top when descriptions differ', () => {
+    const { container } = render(<TemplateGallery templates={TEMPLATES} selected="" onSelect={onSelect} />)
+    expect(container.firstChild).toHaveClass('items-start')
   })
 })

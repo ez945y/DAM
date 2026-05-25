@@ -91,12 +91,22 @@ boundaries:
       - callback: joint_velocity_limit
         params:
           max_velocities: [1.5000, 1.5000, 1.5000, 1.5000, 1.5000, 1.5000]
+  task_joint_speed_limit:
+    layer: L2
+    type: single
+    nodes:
+      - callback: task_joint_speed_limit
+        warn_frames: 3
+        fallback: hold_position
+        params:
+          max_speed: 3.0
   hardware_watchdog:
     layer: L3
     type: single
     nodes:
       - callback: hardware_watchdog
         timeout_sec: 0.5
+        warn_frames: 3
         fallback: emergency_stop
         params:
           max_staleness_ms: 1000
@@ -123,16 +133,18 @@ boundaries:
     type: single
     nodes:
       - callback: voltage_limit
+        warn_frames: 3
         fallback: emergency_stop
         params:
-          min_voltage_v: 6.0
-          max_voltage_v: 8.5
+          min_voltage_v: 10.0
+          max_voltage_v: 13.0
   host_health:
     layer: L3
     type: single
     nodes:
       - callback: host_health_limit
         timeout_sec: 0.5
+        warn_frames: 3
         fallback: slow_down
         params:
           max_cpu_percent: 99.0
@@ -149,6 +161,7 @@ tasks:
       - workspace
       - joint_position_limits
       - joint_velocity_limit
+      - task_joint_speed_limit
       - hardware_watchdog
       - temperature_limit
       - current_limit

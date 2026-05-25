@@ -371,6 +371,7 @@ export function McapCycleInspector({ filename, cycleId, tsNs, fallbackDetail, ov
             totalMs={totalMs}
             observation={detail.observation}
             action={detail.action}
+            hardware={detail.hardware}
             failure={{
               type: detail.failure_type,
               guardNames: detail.failure_guard_names,

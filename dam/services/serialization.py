@@ -67,3 +67,47 @@ class MsgspecJSONResponse(Response):
 
     def render(self, content: Any) -> bytes:
         return msgspec_json.encode(content, enc_hook=msgspec_enc_hook)
+
+
+def serialise_cycle_io(result: Any) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Expose one stable observation/action payload for telemetry and risk detail."""
+    obs = getattr(result, "observation", None)
+    observation = None
+    if obs is not None:
+        observation = {
+            "joint_positions": obs.joint_positions.tolist(),
+            "joint_velocities": (
+                obs.joint_velocities.tolist() if obs.joint_velocities is not None else None
+            ),
+            "end_effector_pose": (
+                obs.end_effector_pose.tolist() if obs.end_effector_pose is not None else None
+            ),
+            "force_torque": obs.force_torque.tolist() if obs.force_torque is not None else None,
+            **{name: value.tolist() for name, value in (obs.channels or {}).items()},
+        }
+
+    proposal = getattr(result, "original_proposal", None)
+    validated = getattr(result, "validated_action", None)
+    action = None
+    if proposal is not None or validated is not None:
+        action = {
+            "target_positions": (
+                proposal.target_joint_positions.tolist() if proposal is not None else None
+            ),
+            "target_velocities": (
+                proposal.target_joint_velocities.tolist()
+                if proposal is not None and proposal.target_joint_velocities is not None
+                else None
+            ),
+            "validated_positions": (
+                validated.target_joint_positions.tolist() if validated is not None else None
+            ),
+            "validated_velocities": (
+                validated.target_joint_velocities.tolist()
+                if validated is not None and validated.target_joint_velocities is not None
+                else None
+            ),
+            "was_clamped": bool(getattr(result, "was_clamped", False)),
+            "fallback_triggered": getattr(result, "fallback_triggered", None),
+        }
+    return observation, action

@@ -1,8 +1,30 @@
+# Dataset replay with hardware output — guarded playback.
+#
+# Replays a recorded LeRobot dataset through the full guard pipeline,
+# then outputs validated actions to the physical robot. This mode:
+#
+#   1. Reads observation + action trajectories from a HuggingFace dataset
+#   2. Runs actions through L0–L3 guard boundaries (just like live inference)
+#   3. Sends only validated (possibly clamped) actions to the real arm
+#   4. Records live top + wrist camera footage to MCAP while replay runs
+#
+# Use cases:
+#   - Verify a recorded demonstration is safe before replaying on hardware
+#   - Tune guard parameters against known-good trajectories
+#   - Test new boundary configurations without re-running inference
+#
+# The dataset source provides both observations (state) and actions; no
+# policy is needed. Guard checking runs at the configured control frequency.
 version: "1"
 
 hardware:
   preset: so101_follower
   sources:
+    replay:
+      type: dataset
+      dataset_repo_id: MikeChenYZ/soarm-fmb-v2
+      episode: 0
+      degrees_mode: true
     arm:
       type: motor
       port: /dev/tty.usbmodem5AA90244141
@@ -23,14 +45,15 @@ hardware:
     current:
       type: current
       ref: arm
+    temperature:
+      type: temperature
+      ref: arm
+    voltage:
+      type: voltage
+      ref: arm
   sinks:
     command:
       ref: sources.arm
-
-policy:
-  type: act
-  pretrained_path: MikeChenYZ/act-soarm-fmb-v2
-  device: mps
 
 safety:
   control_frequency_hz: 30
@@ -45,23 +68,12 @@ fallbacks:
     type: hold_position
     severity: 80
     escalate_to: emergency_stop
-  retreat:
-    type: retreat
-    severity: 60
-    params:
-      duration_seconds: 3.0
-      arrival_tol: 0.01
   slow_down:
     type: slow_down
     severity: 40
     requires_proposal: true
     params:
       scale: 0.5
-  wait_and_retry:
-    type: wait_and_retry
-    severity: 20
-    params:
-      wait_seconds: 1.0
 
 guards:
   - L0: ood
@@ -82,48 +94,36 @@ boundaries:
         params:
           upper: [1.8243, 1.7691, 1.6026, 1.8067, 3.0741, 1.7453]
           lower: [-1.8243, -1.7691, -1.6026, -1.8067, -3.0741, 0]
-          qp_solver: proxsuite
-          slack_weight: 100000000
   joint_velocity_limit:
     layer: L1
     type: single
     nodes:
       - callback: joint_velocity_limit
         params:
-          max_velocities: [1.5000, 1.5000, 1.5000, 1.5000, 1.5000, 1.5000]
-          qp_solver: proxsuite
-          slack_weight: 100000000
+          max_velocities: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5]
   workspace:
     layer: L1
     type: single
     nodes:
       - callback: workspace
         params:
-          bounds: [[-0.4000, 0.4000], [-0.4000, 0.4000], [0.0200, 0.6000]]
-          cbf_gamma: 1.0
-          qp_solver: proxsuite
-          slack_weight: 100000000
-  ood_perception:
-    layer: L0
+          bounds: [[-0.4, 0.4], [-0.4, 0.4], [0.02, 0.6]]
+  task_joint_speed_limit:
+    layer: L2
     type: single
     nodes:
-      - callback: ood_detector
+      - callback: task_joint_speed_limit
+        warn_frames: 3
         fallback: hold_position
         params:
-          backend: normalizing_flow
-          ood_model_path: data/ood_models/ood_model.pt
-          nll_sigma: 0
-          nll_threshold: -524.3279  # EER threshold from exported RQ1 bundle.
-          vision_model: mobilenet_v3_large  # Match the default RQ1 exported bundle.
-          vision_weight: 0.3
-          vision_camera: top
-          temporal_smoothing_frames: 3
+          max_speed: 3.0
   hardware_watchdog:
     layer: L3
     type: single
     nodes:
       - callback: hardware_watchdog
         timeout_sec: 0.5
+        warn_frames: 3
         fallback: emergency_stop
         params:
           max_staleness_ms: 1000
@@ -135,7 +135,7 @@ boundaries:
         warn_frames: 5
         fallback: slow_down
         params:
-          max_temperature_c: 110
+          max_temperature_c: 55
   current_limit:
     layer: L3
     type: single
@@ -144,29 +144,41 @@ boundaries:
         warn_frames: 3
         fallback: hold_position
         params:
-          max_current_a: 3.0
+          max_current_a: 1.5
+  voltage_limit:
+    layer: L3
+    type: single
+    nodes:
+      - callback: voltage_limit
+        warn_frames: 3
+        fallback: emergency_stop
+        params:
+          min_voltage_v: 10.0
+          max_voltage_v: 13.0
   host_health:
     layer: L3
     type: single
     nodes:
       - callback: host_health_limit
         timeout_sec: 0.5
+        warn_frames: 3
         fallback: slow_down
         params:
           max_cpu_percent: 95.0
           max_memory_percent: 95.0
 
 tasks:
-  soarm101:
-    description: "QP-protected motion"
+  replay_check:
+    description: "Guard-checked dataset replay to hardware"
     boundaries:
-      - ood_perception
-      - workspace
       - joint_position_limits
       - joint_velocity_limit
+      - workspace
+      - task_joint_speed_limit
       - hardware_watchdog
       - temperature_limit
       - current_limit
+      - voltage_limit
       - host_health
 
 loopback:

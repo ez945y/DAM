@@ -57,7 +57,7 @@ fails — this is the CI stackfile gate.
 
 ```bash
 dam validate                              # → .dam_stackfile.yaml
-dam validate examples/stackfiles/test.yaml
+dam validate examples/stackfiles/demo.yaml
 dam validate examples/stackfiles/*.yaml
 ```
 
@@ -131,7 +131,7 @@ keys), tasks, and the fallback escalation chain. Pure config read; no
 hardware, registry, or runtime is started.
 
 ```bash
-dam inspect examples/stackfiles/manipulation_safe.yaml
+dam inspect examples/stackfiles/so101.yaml
 ```
 
 ## `dam help`

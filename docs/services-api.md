@@ -140,8 +140,9 @@ Query historical risk events.
 | `since` | float | Unix timestamp lower bound |
 | `until` | float | Unix timestamp upper bound |
 | `min_risk_level` | str | `NORMAL` · `ELEVATED` · `CRITICAL` · `EMERGENCY` |
-| `rejected_only` | bool | Return only rejected cycles |
-| `clamped_only` | bool | Return only clamped cycles |
+| `outcome` | string | Filter canonical cycle outcome: `reject`, `clamp`, or `pass` |
+| `rejected_only` | bool | Backward-compatible alias for `outcome=reject` |
+| `clamped_only` | bool | Backward-compatible alias for `outcome=clamp` |
 | `limit` | int | Max events (default 100, max 5000) |
 
 ### `GET /api/risk-log/stats`

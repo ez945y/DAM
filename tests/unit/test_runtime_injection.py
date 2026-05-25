@@ -138,12 +138,7 @@ def test_l3_boundaries_receive_separate_metadata(tmp_path, monkeypatch):
                     {
                         "node_id": "n0",
                         "callback": "hardware_watchdog",
-                        "params": {
-                            "max_staleness_ms": 1000.0,
-                            "monitor_voltage": True,
-                            "min_voltage_v": 10.0,
-                            "max_voltage_v": 13.0,
-                        },
+                        "params": {"max_staleness_ms": 1000.0},
                         "fallback": "emergency_stop",
                     }
                 ],

@@ -15,7 +15,7 @@ Use this checklist before running DAM against physical robot hardware. It is int
 For the SO-ARM101 example:
 
 ```bash
-.venv/bin/dam inspect examples/stackfiles/test.yaml
+.venv/bin/dam inspect examples/stackfiles/so101.yaml
 ```
 
 Confirm:
@@ -30,11 +30,11 @@ Confirm:
 
 ## Run In Small Steps
 
-1. Validate: `.venv/bin/dam validate examples/stackfiles/test.yaml`
-2. Inspect: `.venv/bin/dam inspect examples/stackfiles/test.yaml`
+1. Validate: `.venv/bin/dam validate examples/stackfiles/so101.yaml`
+2. Inspect: `.venv/bin/dam inspect examples/stackfiles/so101.yaml`
 3. Start with a short controlled run:
    ```bash
-   .venv/bin/dam run examples/stackfiles/test.yaml --cycles 50 --task soarm101
+   .venv/bin/dam run examples/stackfiles/so101.yaml --cycles 50 --task soarm101
    ```
 4. Watch the console for guard decisions and latency.
 5. Stop and review any reject, fault, repeated clamp, or latency warning.

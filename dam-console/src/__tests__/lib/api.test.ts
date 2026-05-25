@@ -24,11 +24,11 @@ describe('api', () => {
       )
     })
 
-    it('appends rejected_only query param', async () => {
+    it('appends canonical outcome query param', async () => {
       mockFetch.mockReturnValue(ok({ events: [], count: 0 }))
-      await api.getRiskLog({ rejected_only: true })
+      await api.getRiskLog({ outcome: 'reject' })
       expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining('rejected_only=true'),
+        expect.stringContaining('outcome=reject'),
         expect.any(Object),
       )
     })

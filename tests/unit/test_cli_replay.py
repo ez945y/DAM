@@ -10,7 +10,9 @@ from dam.cli import main
 
 mcap_writer = pytest.importorskip("mcap.writer")
 
-STACK = "examples/stackfiles/manipulation_safe.yaml"  # has joint_position_limits
+# Deterministic replay contract: unlike the interactive demo this stack does
+# not carry stateful L0 model warm-up into an offline divergence comparison.
+STACK = "examples/stackfiles/dataset_replay_check.yaml"
 
 
 def _write_session(path, cycles):

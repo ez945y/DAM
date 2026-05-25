@@ -1,7 +1,7 @@
 'use client'
 import { useMemo, useState } from 'react'
 import { Activity, AlertTriangle, ChevronDown, ChevronRight, Cpu, Shield } from 'lucide-react'
-import type { FailureType } from '@/lib/types'
+import type { FailureType, HostHardwareSnapshot } from '@/lib/types'
 import { useDisplayUnit, type DisplayUnit } from '@/hooks/useDisplayUnit'
 
 export interface InspectorGuardResult {
@@ -30,6 +30,7 @@ export interface CycleSafetyInspectorProps {
   }
   readonly observation?: unknown
   readonly action?: unknown
+  readonly hardware?: HostHardwareSnapshot | null
   readonly mode?: 'mcap' | 'risk'
   readonly chrome?: 'card' | 'flush'
   /**
@@ -400,17 +401,85 @@ function VectorTable({
   )
 }
 
-function ActionPanel({ action, displayUnit = 'rad' }: { action: unknown; displayUnit?: 'rad' | 'deg' }) {
+function JointStateTable({
+  observation,
+  action,
+  hardware,
+  displayUnit = 'rad',
+}: {
+  observation: unknown
+  action: unknown
+  hardware?: HostHardwareSnapshot | null
+  displayUnit?: 'rad' | 'deg'
+}) {
+  const o = observation && typeof observation === 'object' ? observation as Record<string, unknown> : {}
+  const a = action && typeof action === 'object' ? action as Record<string, unknown> : {}
+  const { scale, label } = makeJointFormatter(displayUnit)
+  const scaled = (v: unknown) => (numArr(v) ?? []).map(scale)
+  const cols = [
+    { head: `State (${label})`, values: scaled(o.joint_positions) },
+    { head: `Target (${label})`, values: scaled(a.target_positions) },
+    { head: `Output (${label})`, values: scaled(a.validated_positions), highlightDiffWith: scaled(a.target_positions) },
+    { head: `Velocity (${label}/s)`, values: scaled(o.joint_velocities) },
+    { head: 'Temp (C)', values: numArr(o.temperature) ?? [] },
+    { head: 'Current (A)', values: numArr(o.current) ?? [] },
+    { head: 'Voltage (V)', values: numArr(o.voltage) ?? [] },
+  ]
+  const named = hardware
+    ? [...new Set([
+        ...Object.keys(hardware.temperatures ?? {}),
+        ...Object.keys(hardware.currents ?? {}),
+        ...Object.keys(hardware.voltages ?? {}),
+      ])].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+    : []
+  const present = cols.filter(c => c.values.length > 0)
+  const n = Math.max(named.length, ...present.map(c => c.values.length), 0)
+  if (n === 0) return <p className="text-[11px] text-dam-muted/60 italic">No joint state recorded.</p>
+
+  return (
+    <div className="space-y-1">
+      <p className="text-[10px] uppercase tracking-wider text-dam-muted font-bold">Joint state and command</p>
+      <div className="overflow-x-auto rounded border border-dam-border/50">
+        <table className="w-full text-[10px]">
+          <thead className="bg-dam-surface-2 text-dam-muted uppercase tracking-wider">
+            <tr>
+              <th className="px-2 py-1 text-left">Joint</th>
+              {present.map(c => <th key={c.head} className="px-2 py-1 text-right">{c.head}</th>)}
+              {hardware?.temperatures && <th className="px-2 py-1 text-right">Temp (C)</th>}
+              {hardware?.currents && <th className="px-2 py-1 text-right">Current (A)</th>}
+              {hardware?.voltages && <th className="px-2 py-1 text-right">Voltage (V)</th>}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-dam-border/30">
+            {Array.from({ length: n }, (_, j) => {
+              const name = named[j] ?? `J${j}`
+              return (
+                <tr key={name}>
+                  <td className="px-2 py-1 font-mono text-dam-text">{name}</td>
+                  {present.map(c => {
+                    const value = c.values[j]
+                    const ref = c.highlightDiffWith?.[j]
+                    const changed = ref != null && value != null && Math.abs(ref - value) > 1e-6
+                    return <td key={c.head} className={`px-2 py-1 text-right font-mono ${changed ? 'text-dam-orange font-bold bg-dam-orange/10' : 'text-dam-text'}`}>{value == null ? '—' : fmtNumber(value)}</td>
+                  })}
+                  {hardware?.temperatures && <td className="px-2 py-1 text-right font-mono">{hardware.temperatures[name] == null ? '—' : fmtNumber(hardware.temperatures[name]!)}</td>}
+                  {hardware?.currents && <td className="px-2 py-1 text-right font-mono">{hardware.currents[name] == null ? '—' : fmtNumber(hardware.currents[name]!)}</td>}
+                  {hardware?.voltages && <td className="px-2 py-1 text-right font-mono">{hardware.voltages[name] == null ? '—' : fmtNumber(hardware.voltages[name]!)}</td>}
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function ActionPanel({ action }: { action: unknown; displayUnit?: 'rad' | 'deg' }) {
   if (!action || typeof action !== 'object') {
     return <p className="text-[11px] text-dam-muted/60 italic">No action recorded.</p>
   }
   const a = action as Record<string, unknown>
-  const { scale, label } = makeJointFormatter(displayUnit)
-  const apply = (xs: number[] | null) => (xs ?? []).map(scale)
-  const target = apply(numArr(a.target_positions))
-  const validated = apply(numArr(a.validated_positions))
-  const tvel = apply(numArr(a.target_velocities))
-  const vvel = apply(numArr(a.validated_velocities))
   const wasClamped = a.was_clamped === true
   const fallback = typeof a.fallback_triggered === 'string' ? a.fallback_triggered : null
   const known = new Set([
@@ -431,20 +500,6 @@ function ActionPanel({ action, displayUnit = 'rad' }: { action: unknown; display
           </span>
         )}
       </div>
-      <VectorTable
-        label={`Positions (target → validated) [${label}]`}
-        cols={[
-          { head: 'target', values: target },
-          { head: 'validated', values: validated, highlightDiffWith: target },
-        ]}
-      />
-      <VectorTable
-        label={`Velocities (target → validated) [${label}/s]`}
-        cols={[
-          { head: 'target', values: tvel },
-          { head: 'validated', values: vvel, highlightDiffWith: tvel },
-        ]}
-      />
       {Object.keys(extra).length > 0 && (
         <div className="rounded border border-dam-border/40 bg-dam-surface-1 p-2"><JsonValue value={extra} /></div>
       )}
@@ -452,12 +507,11 @@ function ActionPanel({ action, displayUnit = 'rad' }: { action: unknown; display
   )
 }
 
-function ObservationPanel({ observation, displayUnit = 'rad' }: { observation: unknown; displayUnit?: 'rad' | 'deg' }) {
+function ObservationPanel({ observation }: { observation: unknown; displayUnit?: 'rad' | 'deg' }) {
   if (!observation || typeof observation !== 'object') {
     return <p className="text-[11px] text-dam-muted/60 italic">No observation recorded.</p>
   }
   const o = observation as Record<string, unknown>
-  const { scale, label } = makeJointFormatter(displayUnit)
   const known = new Set([
     'joint_positions', 'joint_velocities', 'end_effector_pose',
     'force_torque', 'obs_timestamp',
@@ -465,13 +519,6 @@ function ObservationPanel({ observation, displayUnit = 'rad' }: { observation: u
   const extra = Object.fromEntries(Object.entries(o).filter(([k]) => !known.has(k)))
   return (
     <div className="space-y-2">
-      <VectorTable
-        label={`Joint state [pos ${label}, vel ${label}/s]`}
-        cols={[
-          { head: 'position', values: (numArr(o.joint_positions) ?? []).map(scale) },
-          { head: 'velocity', values: (numArr(o.joint_velocities) ?? []).map(scale) },
-        ]}
-      />
       <VectorTable
         label="End-effector pose"
         cols={[{ head: 'value', values: numArr(o.end_effector_pose) }]}
@@ -551,7 +598,7 @@ function GroupedGuardCards({ guards, displayUnit }: { guards: InspectorGuardResu
 
 const LAYER_TO_EVENT_CLASS_MAP: Record<string, string> = { L0: 'perception', L1: 'motion', L2: 'task', L3: 'hardware' }
 
-export function CycleSafetyInspector({ guards, latency, totalMs, failure, observation, action, mode = 'mcap', chrome = 'card', displayUnit }: CycleSafetyInspectorProps) {
+export function CycleSafetyInspector({ guards, latency, totalMs, failure, observation, action, hardware, mode = 'mcap', chrome = 'card', displayUnit }: CycleSafetyInspectorProps) {
   const ctxUnit = useDisplayUnit()
   const unit: DisplayUnit = displayUnit ?? ctxUnit
   const displayGuards = useMemo(() => {
@@ -577,7 +624,7 @@ export function CycleSafetyInspector({ guards, latency, totalMs, failure, observ
   const tabs = [
     ['summary', 'Summary'],
     ['guards', `Guards ${displayGuards.length}`],
-    ...(mode === 'mcap' ? [['io', 'I/O']] as const : []),
+    ...((mode === 'mcap' || observation || action) ? [['io', 'I/O']] as const : []),
   ] as const
   const failureLabel = failure?.type ? (FAILURE_LABEL[String(failure.type)] ?? String(failure.type)) : null
   const topReason = failing.find(g => g.reason)?.reason ?? failure?.reasons?.[0]
@@ -618,6 +665,7 @@ export function CycleSafetyInspector({ guards, latency, totalMs, failure, observ
                 <p className="mt-1 max-w-full text-[11px] text-dam-muted leading-relaxed whitespace-pre-wrap break-all">{topReason}</p>
               </div>
             )}
+            {hardware && <HardwareTable metadata={hardware as Record<string, unknown>} />}
             <FailureLayerBreakdown failing={failing} />
             <div className="rounded border border-dam-border/50 bg-dam-surface-2 p-2">
               <p className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-dam-muted"><Activity size={11} /> Latency</p>
@@ -634,6 +682,9 @@ export function CycleSafetyInspector({ guards, latency, totalMs, failure, observ
         )}
         {tab === 'io' && (
           <div className="space-y-3">
+            <div className="rounded border border-dam-border/50 bg-dam-surface-2 p-2">
+              <div className="mt-2"><JointStateTable observation={observation} action={action} hardware={hardware} displayUnit={unit} /></div>
+            </div>
             <div className="rounded border border-dam-border/50 bg-dam-surface-2 p-2">
               <p className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-dam-muted"><Cpu size={11} /> Observation</p>
               <div className="mt-2"><ObservationPanel observation={observation ?? null} displayUnit={unit} /></div>

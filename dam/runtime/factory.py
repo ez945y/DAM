@@ -80,7 +80,12 @@ class RuntimeFactory:
         adapter_type = None
         hw_config = config.hardware
         if hw_config and hw_config.sources:
+            source_types = {str(src.type or "").lower() for src in hw_config.sources.values()}
+            if "dataset" in source_types and source_types.intersection({"motor", "lerobot"}):
+                adapter_type = "dataset_motor"
             for src in hw_config.sources.values():
+                if adapter_type:
+                    break
                 t = str(src.type or "").lower()
                 if t in _ADAPTER_TYPES:
                     adapter_type = "motor" if t in ("motor", "lerobot") else t
@@ -100,6 +105,8 @@ class RuntimeFactory:
 
         if adapter_type == "motor":
             return RuntimeFactory._build_lerobot(config)
+        elif adapter_type == "dataset_motor":
+            return RuntimeFactory._build_dataset_hardware_replay(config)
         elif adapter_type == "ros2":
             return RuntimeFactory._build_ros2(config, ros2_node=ros2_node)
 
@@ -212,42 +219,78 @@ class RuntimeFactory:
         if policy:
             runtime.register_policy(policy)
 
-        # ── DISCOVER OTHER SOURCES (e.g. External OpenCV Cameras) ───────
-        auxiliary_sources: dict[str, Any] = {}
-        if config.hardware.sources:
-            for name, src_cfg in config.hardware.sources.items():
-                if name == main_name:
-                    continue  # already registered
+        auxiliary_sources = RuntimeFactory._build_camera_sources(
+            config, frame_hub, excluded={main_name}, supported=supported
+        )
 
-                type_str = str(src_cfg.type).lower()
-                if type_str in supported:
-                    continue  # observation channel, handled above
-                if type_str in ("opencv", "camera", "usb"):
-                    extra = src_cfg.model_extra or {}
-                    from dam.adapter.opencv.source import OpenCVSourceAdapter
+        return LeRobotRunner(
+            runtime=runtime,
+            control_frequency_hz=hz,
+            frame_hub=frame_hub,
+            auxiliary_sources=auxiliary_sources,
+        )
 
-                    idx: int | str = (
-                        extra.get("index_or_path")
-                        or extra.get("index")
-                        or getattr(src_cfg, "index_or_path", None)
-                        or getattr(src_cfg, "index", None)
-                        or 0
-                    )
-                    width = extra.get("width")
-                    height = extra.get("height")
-                    fps = float(extra.get("fps") or extra.get("jpeg_fps") or 30.0)
+    @staticmethod
+    def _build_dataset_hardware_replay(config: StackfileConfig) -> BaseRunner:
+        """Replay recorded dataset actions through guards into a real motor sink."""
+        from dam.adapter.dataset import DatasetReplayPolicy
+        from dam.adapter.lerobot.adapter import LeRobotAdapter
+        from dam.adapter.lerobot.builder import LeRobotBuilder
+        from dam.camera.frame_hub import CameraFrameHub
+        from dam.runner.lerobot import LeRobotRunner
 
-                    cam_adapter = OpenCVSourceAdapter(
-                        index=idx,
-                        name=name,
-                        width=width,
-                        height=height,
-                        jpeg_fps=fps,
-                        frame_hub=frame_hub,
-                    )
-                    auxiliary_sources[name] = cam_adapter
-                    logger.info("Registered camera source: %s (type=%s)", name, type_str)
+        assert config.hardware is not None
+        RuntimeFactory._validate_opencv_source_fields(config)
+        hz = config.safety.control_frequency_hz if config.safety else 30.0
+        frame_hub = CameraFrameHub(
+            window_sec=config.loopback.window_sec if config.loopback else 10.0
+        )
+        runtime = GuardRuntime._from_config(config, frame_hub=frame_hub)
 
+        sources = config.hardware.sources or {}
+        dataset_name, dataset_cfg = next(
+            item for item in sources.items() if str(item[1].type).lower() == "dataset"
+        )
+        motor_name, motor_cfg = next(
+            item for item in sources.items() if str(item[1].type).lower() in ("motor", "lerobot")
+        )
+
+        dataset_repo = RuntimeFactory._resolve_dataset_repo(dataset_cfg, config.simulation)
+        if not dataset_repo:
+            raise ValueError(
+                "Dataset hardware replay requires dataset_repo_id on its dataset source"
+            )
+        dataset_source = RuntimeFactory._build_sim_source(
+            dataset_repo, dataset_cfg, config.simulation, float(hz), strict=True
+        )
+
+        builder = LeRobotBuilder(config.hardware, None, control_frequency_hz=hz)
+        degrees_mode = (
+            builder.preset.degrees_mode
+            if motor_cfg.degrees_mode is None
+            else motor_cfg.degrees_mode
+        )
+        motor = LeRobotAdapter(
+            builder.build_robot(),
+            joint_names=builder.joint_names,
+            degrees_mode=degrees_mode,
+            urdf_path=RuntimeFactory._resolve_urdf_path(config, builder.preset),
+        )
+        supported = motor.supported_channels()
+        obs_channels = RuntimeFactory._collect_channels(config, motor_name, supported)
+        if obs_channels:
+            motor.set_observation_channels(obs_channels)
+
+        # Keep the dataset first: its state/images are the replay observation;
+        # the motor source contributes current hardware telemetry and is the sink.
+        runtime.register_source(dataset_name, dataset_source)
+        runtime.register_source(motor_name, motor)
+        runtime.register_policy(DatasetReplayPolicy(dataset_source))
+        runtime.register_sink(motor)
+
+        auxiliary_sources = RuntimeFactory._build_camera_sources(
+            config, frame_hub, excluded={dataset_name, motor_name}, supported=supported
+        )
         return LeRobotRunner(
             runtime=runtime,
             control_frequency_hz=hz,
@@ -273,6 +316,46 @@ class RuntimeFactory:
                     "top level (for example index_or_path, width, height, fps), not "
                     "under params."
                 )
+
+    @staticmethod
+    def _build_camera_sources(
+        config: StackfileConfig,
+        frame_hub: Any,
+        *,
+        excluded: set[str],
+        supported: set[str],
+    ) -> dict[str, Any]:
+        """Build peer OpenCV sources shared by motor and dataset-to-motor modes."""
+        from dam.adapter.opencv.source import OpenCVSourceAdapter
+
+        auxiliary_sources: dict[str, Any] = {}
+        source_items = (config.hardware.sources or {}).items() if config.hardware else ()
+        for name, src_cfg in source_items:
+            if name in excluded:
+                continue
+            type_str = str(src_cfg.type).lower()
+            if type_str in supported:
+                continue
+            if type_str not in ("opencv", "camera", "usb"):
+                continue
+            extra = src_cfg.model_extra or {}
+            idx: int | str = (
+                extra.get("index_or_path")
+                or extra.get("index")
+                or getattr(src_cfg, "index_or_path", None)
+                or getattr(src_cfg, "index", None)
+                or 0
+            )
+            auxiliary_sources[name] = OpenCVSourceAdapter(
+                index=idx,
+                name=name,
+                width=extra.get("width"),
+                height=extra.get("height"),
+                jpeg_fps=float(extra.get("fps") or extra.get("jpeg_fps") or 30.0),
+                frame_hub=frame_hub,
+            )
+            logger.info("Registered camera source: %s (type=%s)", name, type_str)
+        return auxiliary_sources
 
     @staticmethod
     def _build_ros2(config: StackfileConfig, *, ros2_node: Any = None) -> BaseRunner:
@@ -489,10 +572,15 @@ class RuntimeFactory:
 
     @staticmethod
     def _build_sim_source(
-        dataset_repo: str | None, source_cfg: Any, sim_cfg: Any, hz: float
+        dataset_repo: str | None,
+        source_cfg: Any,
+        sim_cfg: Any,
+        hz: float,
+        *,
+        strict: bool = False,
     ) -> Any:
         if dataset_repo:
-            from dam.testing.dataset_source import DatasetSimSource
+            from dam.adapter.dataset import DatasetSimSource
 
             episode = 0
             degrees_mode = True
@@ -506,7 +594,11 @@ class RuntimeFactory:
                 episode = getattr(sim_cfg, "episode", 0)
                 degrees_mode = getattr(sim_cfg, "degrees_mode", True)
             return DatasetSimSource(
-                repo_id=dataset_repo, episode=episode, hz=hz, degrees_mode=degrees_mode
+                repo_id=dataset_repo,
+                episode=episode,
+                hz=hz,
+                degrees_mode=degrees_mode,
+                strict=strict,
             )
         from dam.testing.sim_adapters import SimSource
 

@@ -1,34 +1,42 @@
-# Manipulation safety bundle — human-collaborative desktop arm.
-#
-# A curated full-stack profile for tabletop pick-and-place near people.
-# Layers joint/workspace limits with the collaborative L1 callbacks:
-#   - cartesian_velocity_limit : ISO/TS 15066 reduced-speed cap
-#   - keep_out_zone            : operator-occupied no-go volume
-#   - orientation_limit        : keep a carried payload upright
-#
-# Runs in simulation out of the box. For full effect of the FK-based
-# callbacks (keep_out_zone / orientation_limit / cartesian_velocity_limit),
-# set hardware.urdf_path so a kinematics/dynamics context is available;
-# without it those callbacks degrade gracefully (pass).
 version: "1"
 
 hardware:
   preset: so101_follower
-  # urdf_path: ./assets/so101_new_calib.urdf   # uncomment to enable FK/Jacobian callbacks
   sources:
-    main:
-      type: dataset
-      dataset_repo_id: MikeChenYZ/soarm-fmb-v2
-      episode: 0
-      degrees_mode: true
+    arm:
+      type: motor
+      port: /dev/tty.usbmodem5AA90244141
+      robot_type: so101_follower
+      id: my_awesome_follower_arm
+    top:
+      type: opencv
+      index_or_path: 0
+      width: 640
+      height: 480
+      fps: 30
+    wrist:
+      type: opencv
+      index_or_path: 1
+      width: 640
+      height: 480
+      fps: 30
+    current:
+      type: current
+      ref: arm
+    temperature:
+      type: temperature
+      ref: arm
+    voltage:
+      type: voltage
+      ref: arm
   sinks:
-    main:
-      ref: sources.main
+    command:
+      ref: sources.arm
 
 policy:
   type: act
   pretrained_path: MikeChenYZ/act-soarm-fmb-v2
-  device: cpu
+  device: mps
 
 safety:
   control_frequency_hz: 30
@@ -46,7 +54,6 @@ fallbacks:
   retreat:
     type: retreat
     severity: 60
-    escalate_to: hold_position
     params:
       duration_seconds: 3.0
       arrival_tol: 0.01
@@ -73,6 +80,21 @@ guards:
     always: true
 
 boundaries:
+  ood_perception:
+    layer: L0
+    type: single
+    nodes:
+      - callback: ood_detector
+        fallback: hold_position
+        params:
+          backend: normalizing_flow
+          ood_model_path: data/ood_models/ood_model.pt
+          nll_sigma: 0
+          nll_threshold: -524.3279  # EER threshold from exported RQ1 bundle.
+          vision_model: mobilenet_v3_large  # Match the default RQ1 exported bundle.
+          vision_weight: 0.3
+          vision_camera: top
+          temporal_smoothing_frames: 3
   joint_position_limits:
     layer: L1
     type: single
@@ -81,70 +103,64 @@ boundaries:
         params:
           upper: [1.8243, 1.7691, 1.6026, 1.8067, 3.0741, 1.7453]
           lower: [-1.8243, -1.7691, -1.6026, -1.8067, -3.0741, 0]
+          qp_solver: proxsuite
+          slack_weight: 100000000
   joint_velocity_limit:
     layer: L1
     type: single
     nodes:
       - callback: joint_velocity_limit
         params:
-          max_velocities: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5]
+          max_velocities: [1.5000, 1.5000, 1.5000, 1.5000, 1.5000, 1.5000]
+          qp_solver: proxsuite
+          slack_weight: 100000000
   workspace:
     layer: L1
     type: single
     nodes:
       - callback: workspace
         params:
-          bounds: [[-0.4, 0.4], [-0.4, 0.4], [0.02, 0.6]]
-  cartesian_velocity_limit:
-    layer: L1
+          bounds: [[-0.4000, 0.4000], [-0.4000, 0.4000], [0.0200, 0.6000]]
+          cbf_gamma: 1.0
+          qp_solver: proxsuite
+          slack_weight: 100000000
+  task_joint_speed_limit:
+    layer: L2
     type: single
     nodes:
-      - callback: cartesian_velocity_limit
-        timeout_sec: 1
+      - callback: task_joint_speed_limit
+        warn_frames: 3
         fallback: hold_position
         params:
-          max_linear_speed: 0.25   # ISO/TS 15066 reduced-speed (m/s)
-          max_angular_speed: 1.0   # rad/s
-  keep_out_zone:
-    layer: L1
-    type: single
+          max_speed: 3.0
+  task_gripper_sequence:
+    layer: L2
+    type: list
     nodes:
-      - callback: keep_out_zone
-        timeout_sec: 1
-        fallback: retreat
-        params:
-          # Operator-side no-go volume (metres, base frame).
-          boxes:
-            - [[-0.6, -0.2], [-0.4, 0.4], [0.0, 0.8]]
-          spheres:
-            - [0.0, 0.35, 0.2, 0.15]
-  orientation_limit:
-    layer: L1
-    type: single
-    nodes:
-      - callback: orientation_limit
-        timeout_sec: 1
+      - node_id: pick_left
+        callback: task_gripper_command_guard
         fallback: hold_position
         params:
-          max_tilt_deg: 35.0       # keep payload within 35° of upright
-          reference_axis: [0.0, 0.0, 1.0]
-          tool_axis: [0.0, 0.0, 1.0]
-  force_limit:
-    layer: L3
-    type: single
-    nodes:
-      - callback: check_force_torque_safe
-        timeout_sec: 1
+          allowed_command: close
+          zone: [[-0.175, -0.025], [-0.075, 0.075], [0.075, 0.225]]
+      - node_id: transfer_left_to_right
+        callback: task_gripper_command_guard
         fallback: hold_position
         params:
-          max_force_n: 40.0
-          max_torque_nm: 8.0
+          allowed_command: none
+      - node_id: place_right
+        callback: task_gripper_command_guard
+        fallback: hold_position
+        params:
+          allowed_command: open
+          zone: [[0.025, 0.175], [-0.075, 0.075], [0.075, 0.225]]
   hardware_watchdog:
     layer: L3
     type: single
     nodes:
       - callback: hardware_watchdog
         timeout_sec: 0.5
+        warn_frames: 3
         fallback: emergency_stop
         params:
           max_staleness_ms: 1000
@@ -156,7 +172,7 @@ boundaries:
         warn_frames: 5
         fallback: slow_down
         params:
-          max_temperature_c: 55.0
+          max_temperature_c: 55
   current_limit:
     layer: L3
     type: single
@@ -171,35 +187,33 @@ boundaries:
     type: single
     nodes:
       - callback: voltage_limit
+        warn_frames: 3
         fallback: emergency_stop
         params:
-          min_voltage_v: 6.0
-          max_voltage_v: 8.5
+          min_voltage_v: 10.0
+          max_voltage_v: 13.0
   host_health:
     layer: L3
     type: single
     nodes:
       - callback: host_health_limit
         timeout_sec: 0.5
+        warn_frames: 3
         fallback: slow_down
         params:
-          max_cpu_percent: 99.0
-          max_memory_percent: 98.0
-          max_temperature_c: 95.0
-          max_gpu_percent: 99.0
-          max_gpu_temperature_c: 95.0
+          max_cpu_percent: 95.0
+          max_memory_percent: 95.0
 
 tasks:
-  collaborative_pick_place:
-    description: "Human-collaborative tabletop pick-and-place"
+  soarm101:
+    description: "Safety-filtered motion"
     boundaries:
+      - ood_perception
+      - workspace
       - joint_position_limits
       - joint_velocity_limit
-      - workspace
-      - cartesian_velocity_limit
-      - keep_out_zone
-      - orientation_limit
-      - force_limit
+      - task_joint_speed_limit
+      - task_gripper_sequence
       - hardware_watchdog
       - temperature_limit
       - current_limit

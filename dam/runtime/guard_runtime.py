@@ -919,6 +919,10 @@ class GuardRuntime:
                     if full_obs.metadata is None:
                         object.__setattr__(full_obs, "metadata", {})
                     full_obs.metadata.update(s_obs.metadata)
+                if s_obs.channels:
+                    if full_obs.channels is None:
+                        object.__setattr__(full_obs, "channels", {})
+                    full_obs.channels.update(s_obs.channels)
 
         if full_obs is None:
             raise RuntimeError("No hardware sources registered to GuardRuntime")
@@ -1122,6 +1126,7 @@ class GuardRuntime:
             active_boundaries=list(self._active_container_names),
             mcap_filename=self._loopback.current_filename if self._loopback else None,
             hardware_snapshot=self._build_hardware_snapshot(obs),
+            observation=obs,
         )
 
     def _publish_frames_to_hub(self, images: dict[str, Any], timestamp: float) -> None:
@@ -1681,11 +1686,21 @@ class GuardRuntime:
             params=params,
             callback=ncfg.callback,
         )
+        timeout_sec = ncfg.timeout_sec
+        if ncfg.callback == "task_gripper_command_guard" and timeout_sec is not None:
+            logger.warning(
+                "Ignoring timeout_sec=%s for task_gripper_command_guard node '%s': "
+                "gripper phases advance explicitly and do not have a universal dwell deadline",
+                timeout_sec,
+                ncfg.node_id,
+            )
+            timeout_sec = None
+
         return BoundaryNode(
             node_id=ncfg.node_id,
             constraint=constraint,
             fallback=ncfg.fallback or config.safety.no_task_behavior,
-            timeout_sec=ncfg.timeout_sec,
+            timeout_sec=timeout_sec,
             warn_frames=max(1, int(ncfg.warn_frames)),
         )
 

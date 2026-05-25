@@ -8,7 +8,7 @@ import pytest
 
 from dam.cli import main
 
-VALID_STACK = "examples/stackfiles/test.yaml"
+VALID_STACK = "examples/stackfiles/demo.yaml"
 
 
 class TestValidate:
@@ -166,8 +166,8 @@ class TestInspect:
         assert "boundaries" in out
 
     def test_inspect_reports_boundary_layers(self, capsys):
-        rc = main(["inspect", "examples/stackfiles/manipulation_safe.yaml"])
+        rc = main(["inspect", "examples/stackfiles/so101.yaml"])
         out = capsys.readouterr().out
         assert rc == 0
-        assert "keep_out_zone" in out
-        assert "[L3 single]" in out  # force_limit / hardware_watchdog at L3
+        assert "task_gripper_sequence" in out
+        assert "[L3 single]" in out  # hardware health boundaries at L3

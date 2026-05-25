@@ -215,8 +215,8 @@ def current_limit(
 def voltage_limit(
     *,
     obs: Observation,
-    min_voltage_v: float = 6.0,
-    max_voltage_v: float = 8.5,
+    min_voltage_v: float = 10.0,
+    max_voltage_v: float = 13.0,
     channel: str = "voltage",
 ) -> bool:
     """Return False if any voltage reading is outside [min, max].

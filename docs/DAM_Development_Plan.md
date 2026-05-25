@@ -495,7 +495,7 @@ Phase 1 只需支援：`guards`、`boundaries`、`tasks`、`safety` 區塊。`ha
 # 這段測試必須通過，Phase 1 才算完成
 def test_phase1_exit_criterion():
     """dam.step() 在純 Python mock 環境中跑完一個完整的 sense→validate→act 週期"""
-    runtime = GuardRuntime.from_stackfile("examples/stackfiles/test.yaml")
+    runtime = GuardRuntime.from_stackfile("examples/stackfiles/demo.yaml")
     runtime.register_source("main", MockSourceAdapter([obs1, obs2, obs3]))
     runtime.register_policy(MockPolicyAdapter([action1, action2, action3]))
     sink = MockSinkAdapter()
@@ -523,7 +523,7 @@ def test_phase1_exit_criterion():
 **硬體**：SO-ARM101 follower arm（6 關節，Feetech STS3215 伺服，LeRobot USB 介面）
 **策略**：LeRobot ACT（`lerobot/act` 類型，pretrained checkpoint）
 **任務**：桌面 pick-and-place，單一物體
-**參考 Stackfile**：`examples/so101_act_pick_place.yaml`
+**參考 Stackfile**：`examples/stackfiles/so101.yaml`
 
 **Phase 2 新增依賴（硬性邊界）**：
 - `lerobot` Python SDK（`pip install lerobot`）
@@ -723,7 +723,7 @@ Phase 2 新增的工作：`LeRobotRunner.from_stackfile()` 讀取這些區塊建
 # 這段必須在真實硬體上通過（@pytest.mark.hardware）
 def test_phase2_exit_criterion():
     """so101 + ACT pick-and-place with L0+L2+L3 guards, real hardware."""
-    runner = LeRobotRunner.from_stackfile("examples/so101_act_pick_place.yaml")
+    runner = LeRobotRunner.from_stackfile("examples/stackfiles/so101.yaml")
     runner.start_task("pick_and_place")
 
     # 正常跑 10 個週期

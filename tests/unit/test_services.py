@@ -17,6 +17,7 @@ from dam.services.risk_log import RiskLogService
 from dam.services.runtime_control import BackendState, RuntimeControlService, RuntimeState
 from dam.services.telemetry import TelemetryService, _serialise_cycle
 from dam.types.action import ActionProposal
+from dam.types.observation import Observation
 from dam.types.result import GuardDecision, GuardResult
 from dam.types.risk import CycleResult, RiskLevel
 
@@ -80,6 +81,25 @@ def test_risk_log_filters_failure_type():
     assert len(hardware) == 1
     assert hardware[0].failure_type == "hardware_triggered"
     assert svc.query(failure_type="ood_only") == []
+
+
+def test_risk_log_reject_outcome_includes_guard_reject_with_fallback_action():
+    svc = RiskLogService(max_events=10)
+    result = _make_cycle_result(2, rejected=False, risk=RiskLevel.CRITICAL)
+    result.guard_results = [
+        GuardResult(
+            decision=GuardDecision.REJECT,
+            guard_name="joint_position_limits",
+            layer=GuardLayer.L1,
+            reason="Outside limit",
+        )
+    ]
+
+    svc.record(result)
+
+    assert svc.query(outcome="reject")[0].outcome == "reject"
+    assert svc.query(rejected_only=True)[0].outcome == "reject"
+    assert svc.stats()["rejected"] == 1
 
 
 # ── TelemetryService ──────────────────────────────────────────────────────────
@@ -168,6 +188,13 @@ class TestTelemetryService:
         result.hardware_snapshot = None
         d = _serialise_cycle(result)
         assert "hardware" not in d
+
+    def test_serialise_cycle_exposes_shared_io_payload(self):
+        result = _make_cycle_result(46)
+        result.observation = Observation(timestamp=1.0, joint_positions=np.array([0.1, 0.2]))
+        d = _serialise_cycle(result)
+        assert d["observation"]["joint_positions"] == [0.1, 0.2]
+        assert d["action"]["target_positions"] == [0.0] * 6
 
     def test_push_raw(self):
         svc = TelemetryService()

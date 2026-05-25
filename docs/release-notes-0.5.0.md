@@ -1,10 +1,38 @@
 # DAM 0.5.0 Release Notes
 
 DAM 0.5.0 turns the thesis evaluation runners into first-class, real
-measurements, adds a host-health (computer CPU/GPU/temperature/memory) safety
-boundary, and makes the failure-event taxonomy a single shared, spec-aligned
-classifier. The console gains a native Experiments workspace and a
-host/robot hardware view on the dashboard.
+measurements, adds guard-checked dataset playback to physical hardware, and
+makes the failure-event taxonomy a shared, spec-aligned classifier. The
+console gains a native Experiments workspace plus useful live/recorded robot
+hardware and multi-camera inspection.
+
+## Guarded Dataset Replay
+
+- A production `dataset` adapter can now provide recorded observations and
+  actions while a real motor sink receives only guard-validated commands.
+  The implementation reuses the normal runtime, sink, safety pipeline, camera
+  hub, live preview, and MCAP recorder rather than creating a replay-only
+  execution path.
+- `dataset_replay_check.yaml` is the focused hardware-validation example:
+  recorded actions, real SO-101 output, and top/wrist live camera recording.
+- Dataset-to-hardware replay runs in strict mode: absent recorded actions fail
+  closed instead of falling back to synthetic actions.
+
+## Guard Configuration and Inspection
+
+- Risk Log and Cycle Inspector now use one shared cycle I/O payload and render
+  a merged per-joint table for state, proposed target, validated output, and
+  motor temperature/current/voltage where available.
+- Risk outcomes are canonical (`reject`, `clamp`, `pass`); filtering a
+  fallback-resolved guard rejection now still finds the rejected cycle.
+- Templates emit boundaries in layer order (`L0` through `L3`) and include
+  L1-L3 coverage. L2/L3 presets expose `warn_frames`, the existing
+  consecutive-cycle reaction threshold, instead of hiding transient filtering.
+- The nominal SO-101 voltage safety band is corrected to `10.0-13.0 V` for
+  a 12 V supply. The previous `6.0-8.5 V` example values could trigger an
+  immediate stop on normally powered hardware.
+- Task gripper workflow nodes no longer use a one-second timeout as if it
+  measured callback latency; these phases advance explicitly with the task.
 
 ## Experiment Runners
 
@@ -60,7 +88,7 @@ host/robot hardware view on the dashboard.
   `fault_source="hardware"` — so a computer-side breach is a 硬體風險事件
   automatically.
 - Wired into the canonical Console template, `examples/stackfiles/demo.yaml`,
-  `manipulation_safe.yaml`, and the default local config.
+  `so101.yaml`, and the default local config.
 - Fixed a crash: `host_health_limit` returned `layer="L3"` as a string,
   which broke failure harvesting (`int(r.layer)`) on every host-health fault.
   It now uses the `GuardLayer` enum, and the classifier tolerates
@@ -69,6 +97,8 @@ host/robot hardware view on the dashboard.
 
 ## MCAP & Console
 
+- The MCAP player and live stream can display multiple cameras from the shared
+  camera hub; hardware replay templates capture both top and wrist streams.
 - Guard `metadata` (including `host_health`) is now surfaced through the
   positional Rust cycle path, not only the dict path, so the MCAP inspector
   shows it for Rust-recorded sessions too.
@@ -96,3 +126,6 @@ host/robot hardware view on the dashboard.
 - Failure classification no longer inspects guard names. Custom guards that
   relied on a name containing `ood`/`hardware` for classification must use
   the correct layer or set `fault_source="hardware"`.
+- Built-in SO-101 templates use `10.0-13.0 V` as the nominal voltage band.
+  Deployments intentionally powered outside that band must set their own
+  `voltage_limit` parameters.

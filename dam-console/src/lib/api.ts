@@ -35,6 +35,7 @@ import type {
   ExperimentDef,
   ExperimentResult,
   FallbackDef,
+  HostHardwareSnapshot,
   RiskEvent,
   RiskLogStats,
   RuntimeStatus,
@@ -51,8 +52,7 @@ export const api = {
     since?: number
     until?: number
     min_risk_level?: string
-    rejected_only?: boolean
-    clamped_only?: boolean
+    outcome?: 'reject' | 'clamp' | 'pass'
     failure_type?: string
     limit?: number
   }) => {
@@ -60,8 +60,7 @@ export const api = {
     if (params?.since != null) q.set('since', String(params.since))
     if (params?.until != null) q.set('until', String(params.until))
     if (params?.min_risk_level) q.set('min_risk_level', params.min_risk_level)
-    if (params?.rejected_only) q.set('rejected_only', 'true')
-    if (params?.clamped_only) q.set('clamped_only', 'true')
+    if (params?.outcome) q.set('outcome', params.outcome)
     if (params?.failure_type) q.set('failure_type', params.failure_type)
     if (params?.limit) q.set('limit', String(params.limit))
     const qs = q.toString()
@@ -336,6 +335,7 @@ export interface McapCycleDetail {
   failure_decisions?: string[]
   failure_reasons?: string[]
   failure_tuple?: Record<string, unknown> | null
+  hardware?: HostHardwareSnapshot | null
   active_context?: string
   context_severity?: number
   context_event?: ContextEvent | null

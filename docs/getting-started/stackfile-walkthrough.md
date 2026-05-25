@@ -97,7 +97,7 @@ Use [Common Stackfile Edits](common-stackfile-edits.md) when you are ready to ma
 
 ## When To Move To Real Hardware
 
-The first hardware-oriented example is `examples/stackfiles/test.yaml`, not the demo file.
+The first hardware-oriented example is `examples/stackfiles/so101.yaml`, not the demo file.
 
 Key differences:
 
@@ -112,8 +112,8 @@ Key differences:
 Use the hardware file only after you have a connected SO-ARM101, correct serial port, camera indexes, and a device setting that matches your machine. Follow [Hardware Readiness](hardware-readiness.md) before running physical hardware.
 
 ```bash
-.venv/bin/dam inspect examples/stackfiles/test.yaml
-.venv/bin/dam run examples/stackfiles/test.yaml --cycles 50 --task soarm101
+.venv/bin/dam inspect examples/stackfiles/so101.yaml
+.venv/bin/dam run examples/stackfiles/so101.yaml --cycles 50 --task soarm101
 ```
 
 Do not use `--task default` for these examples; the task names are explicit in each Stackfile.

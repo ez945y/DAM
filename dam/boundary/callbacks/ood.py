@@ -47,6 +47,12 @@ def _load_calibrated_threshold(model_path: str) -> float | None:
     return None
 
 
+def _exceeds_threshold(score: float, threshold: float) -> bool:
+    """Ignore float-level jitter at an OOD decision boundary."""
+    numeric_margin = max(1e-6, abs(threshold) * 1e-6)
+    return score > threshold + numeric_margin
+
+
 def _welford_verdict(
     *,
     bname: str,
@@ -67,7 +73,7 @@ def _welford_verdict(
         "backend": "welford",
         "warmup": in_warmup,
     }
-    if not in_warmup and score > threshold:
+    if not in_warmup and _exceeds_threshold(score, threshold):
         return CallbackResult.violate(
             bname,
             f"OOD z-score={score:.2f} > threshold={threshold:.2f} (Welford)",
@@ -191,11 +197,11 @@ def ood_detector(
         }
         if calibrated is not None:
             meta["calibrated"] = True
-        if score > threshold:
+        if _exceeds_threshold(score, threshold):
             return CallbackResult.violate(bname, reason, metadata=meta)
         return CallbackResult.ok(bname, metadata=meta)
     except Exception as exc:  # noqa: BLE001
         return CallbackResult.fault(bname, exc, fault_source="ood_backend")
 
 
-__all__ = ["ood_detector", "_key"]
+__all__ = ["ood_detector", "_exceeds_threshold", "_key"]

@@ -18,11 +18,35 @@ describe('TEMPLATES', () => {
       expect(t.badge).toBeTruthy()
     }
   })
+
+  it('every template includes L1-L3 with the standard hardware monitors', () => {
+    for (const t of TEMPLATES) {
+      const cfg = defaultConfig(t.id)
+      const layers = new Set(cfg.boundaries.map(b => b.layer))
+      expect(layers).toEqual(new Set(['L1', 'L2', 'L3']))
+      for (const boundary of ['hardware_watchdog', 'temperature_limit', 'current_limit', 'voltage_limit']) {
+        expect(cfg.boundaries.map(b => b.name)).toContain(boundary)
+        expect(cfg.tasks[0].boundaries).toContain(boundary)
+      }
+    }
+  })
+
+  it('uses multi-cycle L2/L3 reactions and a 12 V-compatible supply band', () => {
+    for (const t of TEMPLATES) {
+      const cfg = defaultConfig(t.id)
+      const byName = Object.fromEntries(cfg.boundaries.map(b => [b.name, b]))
+      expect(byName.task_joint_speed_limit.nodes[0].warn_frames).toBeGreaterThan(1)
+      for (const name of ['hardware_watchdog', 'temperature_limit', 'current_limit', 'voltage_limit']) {
+        expect(byName[name].nodes[0].warn_frames).toBeGreaterThan(1)
+      }
+      expect(byName.voltage_limit.nodes[0].params).toMatchObject({ min_voltage_v: 10, max_voltage_v: 13 })
+    }
+  })
 })
 
 describe('defaultConfig', () => {
-  it('returns a valid config for so101_act', () => {
-    const cfg = defaultConfig('so101_act')
+  it('returns a valid config for so101', () => {
+    const cfg = defaultConfig('so101')
     expect(cfg.joints).toHaveLength(6)
     expect(cfg.adapter).toBe('lerobot')
     expect(cfg.policy.type).toBe('act')
@@ -31,20 +55,20 @@ describe('defaultConfig', () => {
   })
 
   it('SO-101 ACT uses correct pretrained_path', () => {
-    const cfg = defaultConfig('so101_act')
+    const cfg = defaultConfig('so101')
     expect(cfg.policy.pretrained_path).toBe('MikeChenYZ/act-soarm-fmb-v2')
     expect(cfg.policy.device).toBe('mps')
   })
 
   it('SO-101 joints have correct names', () => {
-    const cfg = defaultConfig('so101_act')
+    const cfg = defaultConfig('so101')
     const names = cfg.joints.map(j => j.name)
     expect(names).toContain('shoulder_pan')
     expect(names).toContain('gripper')
   })
 
   it('SO-101 joints use calibrated limits', () => {
-    const cfg = defaultConfig('so101_act')
+    const cfg = defaultConfig('so101')
     const pan  = cfg.joints.find(j => j.name === 'shoulder_pan')!
     const grip = cfg.joints.find(j => j.name === 'gripper')!
     // shoulder_pan: ±1.8243
@@ -56,20 +80,20 @@ describe('defaultConfig', () => {
   })
 
   it('SO-101 robot_id matches lerobot-record default', () => {
-    const cfg = defaultConfig('so101_act')
+    const cfg = defaultConfig('so101')
     expect(cfg.lerobot_robot_type).toBe('so101_follower')
     expect(cfg.lerobot_robot_id).toBe('my_awesome_follower_arm')
   })
 
   it('SO-101 cameras use index_or_path convention', () => {
-    const cfg = defaultConfig('so101_act')
+    const cfg = defaultConfig('so101')
     expect(cfg.lerobot_cameras).toHaveLength(2)
     expect(cfg.lerobot_cameras[0].name).toBe('top')
     expect(cfg.lerobot_cameras[1].name).toBe('wrist')
   })
 
   it('lerobot_calibration_path defaults to empty string', () => {
-    const cfg = defaultConfig('so101_act')
+    const cfg = defaultConfig('so101')
     expect(cfg.lerobot_calibration_path).toBe('')
   })
 
@@ -77,9 +101,10 @@ describe('defaultConfig', () => {
     const cfg = defaultConfig('quick_start')
     expect(cfg.adapter).toBe('simulation')
     expect(cfg.enforcement_mode).toBe('monitor')
-    expect(cfg.tasks[0].boundaries).toHaveLength(5)
+    expect(cfg.tasks[0].boundaries).toContain('task_joint_speed_limit')
     expect(cfg.tasks[0].boundaries).toContain('workspace')
     expect(cfg.tasks[0].boundaries).toContain('hardware_watchdog')
+    expect(cfg.tasks[0].boundaries).toContain('voltage_limit')
     expect(cfg.tasks[0].boundaries).toContain('host_health')
   })
 
@@ -99,11 +124,17 @@ describe('defaultConfig', () => {
     const cfg = defaultConfig('quick_start')
     expect(cfg.guardsEnabled).toBeDefined()
   })
+
+  it('returns independent nested config objects for editor changes', () => {
+    const first = defaultConfig('so101')
+    first.boundaries[0].name = 'edited_locally'
+    expect(defaultConfig('so101').boundaries[0].name).not.toBe('edited_locally')
+  })
 })
 
 describe('generateYaml', () => {
   it('produces valid YAML string with required sections', () => {
-    const cfg = defaultConfig('so101_act')
+    const cfg = defaultConfig('so101')
     const yaml = generateYaml(cfg)
     expect(yaml).toContain('version: "1"')
     expect(yaml).toContain('guards:')
@@ -113,14 +144,14 @@ describe('generateYaml', () => {
   })
 
   it('includes hardware section for lerobot', () => {
-    const cfg = defaultConfig('so101_act')
+    const cfg = defaultConfig('so101')
     const yaml = generateYaml(cfg)
     expect(yaml).toContain('hardware:')
     expect(yaml).toContain('so101_follower')
   })
 
   it('includes policy section for non-noop', () => {
-    const cfg = defaultConfig('so101_act')
+    const cfg = defaultConfig('so101')
     const yaml = generateYaml(cfg)
     expect(yaml).toContain('policy:')
     expect(yaml).toContain('type: act')
@@ -138,13 +169,62 @@ describe('generateYaml', () => {
     expect(yaml).toContain('ref: sources.main')
   })
 
+  it('dataset replay check emits a dataset source, hardware sink, and two cameras', () => {
+    const cfg = defaultConfig('dataset_replay_check')
+    const yaml = generateYaml(cfg)
+    expect(yaml).toMatch(/replay:\s*\n\s*type: dataset/)
+    expect(yaml).toMatch(/arm:\s*\n\s*type: motor/)
+    expect(yaml).toMatch(/command:\s*\n\s*ref: sources\.arm/)
+    expect(yaml).toMatch(/top:\s*\n\s*type: opencv/)
+    expect(yaml).toMatch(/wrist:\s*\n\s*type: opencv/)
+
+    const parsed = parseConfigFromYaml(yaml)
+    expect(parsed.dataset_replay_to_hardware).toBe(true)
+    expect(parsed.simulation_dataset_repo_id).toBe('MikeChenYZ/soarm-fmb-v2')
+    expect(parsed.lerobot_cameras).toHaveLength(2)
+
+    const mixedUnits = yaml.replace(
+      /(\n\s+arm:\s*\n\s+type: motor[\s\S]*?degrees_mode:) true/,
+      '$1 false',
+    )
+    expect(parseConfigFromYaml(mixedUnits).lerobot_degrees_mode).toBe(false)
+  })
+
+  it('emits boundaries and task references in L0 through L3 order', () => {
+    const cfg = defaultConfig('so101')
+    cfg.boundaries = [...cfg.boundaries, {
+      name: 'ood_detector',
+      layer: 'L0',
+      type: 'single',
+      nodes: [{ node_id: 'default', callback: 'ood_detector', params: {} }],
+    }]
+    cfg.tasks = [{
+      ...cfg.tasks[0],
+      boundaries: [...cfg.tasks[0].boundaries, 'ood_detector'],
+    }]
+    const yaml = generateYaml(cfg)
+    const positions = ['ood_detector:', 'workspace:', 'task_joint_speed_limit:', 'hardware_watchdog:']
+      .map(name => yaml.indexOf(`  ${name}`))
+    expect(positions).toEqual([...positions].sort((a, b) => a - b))
+    expect(yaml).toContain('boundaries: [ood_detector, workspace')
+  })
+
+  it('roundtrips warn_frames and emits the 12 V supply band', () => {
+    const yaml = generateYaml(defaultConfig('dataset_replay_check'))
+    expect(yaml).toMatch(/task_joint_speed_limit:[\s\S]*?warn_frames: 3/)
+    expect(yaml).toMatch(/voltage_limit:[\s\S]*?warn_frames: 3[\s\S]*?min_voltage_v: 10[\s\S]*?max_voltage_v: 13/)
+    const parsed = parseConfigFromYaml(yaml)
+    const voltage = parsed.boundaries!.find(b => b.name === 'voltage_limit')!
+    expect(voltage.nodes[0].warn_frames).toBe(3)
+  })
+
   it('omits USB section entirely (USB config removed from stackfile)', () => {
-    const yaml = generateYaml(defaultConfig('so101_act'))
+    const yaml = generateYaml(defaultConfig('so101'))
     expect(yaml).not.toContain('usb_devices:')
   })
 
   it('guards section contains list of active guards — no guard-specific params', () => {
-    const cfg = defaultConfig('so101_act')
+    const cfg = defaultConfig('so101')
     const yaml = generateYaml(cfg)
     expect(yaml).toContain('guards:')
     expect(yaml).toContain('  - L0: ood')
@@ -171,7 +251,7 @@ describe('generateYaml', () => {
   })
 
   it('roundtrips fallbacks through generate → parse', () => {
-    const cfg = defaultConfig('so101_act')
+    const cfg = defaultConfig('so101')
     const yaml = generateYaml(cfg)
     const parsed = parseConfigFromYaml(yaml)
     expect(parsed.fallbacks).toHaveLength(5)
@@ -183,7 +263,7 @@ describe('generateYaml', () => {
   })
 
   it('includes all 4 builtin guards in list format', () => {
-    const cfg = defaultConfig('so101_act')
+    const cfg = defaultConfig('so101')
     const yaml = generateYaml(cfg)
     expect(yaml).toContain('- L0: ood')
     expect(yaml).toContain('- L1: motion')
@@ -192,7 +272,7 @@ describe('generateYaml', () => {
   })
 
   it('joint limits appear in boundaries with calibrated values', () => {
-    const cfg = defaultConfig('so101_act')
+    const cfg = defaultConfig('so101')
     const yaml = generateYaml(cfg)
     expect(yaml).toContain('joint_position_limits:')
     expect(yaml).toContain('upper:')
@@ -205,7 +285,7 @@ describe('generateYaml', () => {
   })
 
   it('emits and parses the robot degrees_mode used by the SO-101 template', () => {
-    const cfg = defaultConfig('so101_act')
+    const cfg = defaultConfig('so101')
     const yaml = generateYaml(cfg)
     expect(yaml).toContain('degrees_mode: true')
     const parsed = parseConfigFromYaml(yaml)
@@ -213,7 +293,7 @@ describe('generateYaml', () => {
   })
 
   it('includes workspace bounds in boundaries', () => {
-    const cfg = defaultConfig('so101_act')
+    const cfg = defaultConfig('so101')
     const yaml = generateYaml(cfg)
     expect(yaml).toContain('workspace:')
     expect(yaml).toContain('bounds:')
@@ -221,7 +301,7 @@ describe('generateYaml', () => {
   })
 
   it('includes the left-to-right task gripper sequence', () => {
-    const cfg = defaultConfig('so101_act')
+    const cfg = defaultConfig('so101')
     const yaml = generateYaml(cfg)
     expect(yaml).toContain('task_gripper_sequence:')
     expect(yaml).toContain('type: list')
@@ -236,7 +316,7 @@ describe('generateYaml', () => {
   })
 
   it('omits transient unnamed boundaries from generated YAML', () => {
-    const cfg = defaultConfig('so101_act')
+    const cfg = defaultConfig('so101')
     cfg.boundaries = [
       ...cfg.boundaries,
       {
@@ -265,8 +345,8 @@ describe('generateYaml', () => {
     expect(yaml).toContain('bounds:')
   })
 
-  it('QP template opts L1 motion callbacks into the stackfile QP strategy', () => {
-    const cfg = defaultConfig('so101_act_qp')
+  it('SO-101 template opts L1 motion callbacks into its built-in safety strategy', () => {
+    const cfg = defaultConfig('so101')
     const yaml = generateYaml(cfg)
     expect(yaml).toContain('workspace:')
     expect(yaml).toContain('qp_solver: proxsuite')
@@ -275,28 +355,28 @@ describe('generateYaml', () => {
   })
 
   it('cameras use index_or_path key in generated YAML', () => {
-    const cfg = defaultConfig('so101_act')
+    const cfg = defaultConfig('so101')
     const yaml = generateYaml(cfg)
     expect(yaml).toContain('index_or_path:')
     expect(yaml).not.toContain('index: 0')   // old key must not appear
   })
 
   it('ACT template does not include diffusion params', () => {
-    const cfg = defaultConfig('so101_act')
+    const cfg = defaultConfig('so101')
     const yaml = generateYaml(cfg)
     expect(yaml).not.toContain('noise_scheduler_type')
     expect(yaml).not.toContain('num_inference_steps')
   })
 
   it('calibration_path appears in YAML when set', () => {
-    const cfg = defaultConfig('so101_act')
+    const cfg = defaultConfig('so101')
     cfg.lerobot_calibration_path = '/mnt/dam_data/calibration'
     const yaml = generateYaml(cfg)
     expect(yaml).toContain('calibration_path: /mnt/dam_data/calibration')
   })
 
   it('calibration_path is omitted from YAML when empty', () => {
-    const cfg = defaultConfig('so101_act')
+    const cfg = defaultConfig('so101')
     cfg.lerobot_calibration_path = ''
     const yaml = generateYaml(cfg)
     expect(yaml).not.toContain('calibration_path:')
@@ -311,7 +391,7 @@ describe('generateYaml', () => {
   })
 
   it('emits observation channels as peer sources for lerobot', () => {
-    const cfg = defaultConfig('so101_act')
+    const cfg = defaultConfig('so101')
     const yaml = generateYaml(cfg)
     expect(yaml).toContain('current:')
     expect(yaml).toMatch(/current:\s*\n\s*type: current\s*\n\s*ref: arm/)
@@ -327,7 +407,7 @@ describe('generateYaml', () => {
   })
 
   it('includes adapter section for lerobot', () => {
-    const cfg = defaultConfig('so101_act')
+    const cfg = defaultConfig('so101')
     const yaml = generateYaml(cfg)
     expect(yaml).toContain('arm:')
     expect(yaml).toContain('type: motor')
@@ -340,20 +420,20 @@ describe('generateYaml', () => {
   })
 
   it('includes enforcement_mode in safety section', () => {
-    const cfg = defaultConfig('so101_act')
+    const cfg = defaultConfig('so101')
     const yaml = generateYaml(cfg)
     expect(yaml).toContain('enforcement_mode: enforce')
   })
 
-  it('does not include OOD boundary in the default so101_act Stackfile', () => {
-    const cfg = defaultConfig('so101_act')
+  it('does not include OOD boundary in the default so101 Stackfile', () => {
+    const cfg = defaultConfig('so101')
     const yaml = generateYaml(cfg)
     expect(yaml).not.toContain('ood_detector:')
     expect(yaml).not.toContain('callback: ood_detector')
   })
 
   it('disabled guard appears as enabled: false in guards section', () => {
-    const cfg = defaultConfig('so101_act')
+    const cfg = defaultConfig('so101')
     cfg.guardsEnabled = { ood: false }
     const yaml = generateYaml(cfg)
     expect(yaml).toContain('enabled: false')
@@ -361,7 +441,7 @@ describe('generateYaml', () => {
 
 
   it('OOD callback boundary node params appear in boundaries when set', () => {
-    const cfg = defaultConfig('so101_act')
+    const cfg = defaultConfig('so101')
     // Simulate OODTrainer selecting a model (boundary node is added via guard page)
     cfg.boundaries = [
       ...cfg.boundaries,
@@ -425,7 +505,7 @@ describe('observation channel round-trip', () => {
   })
 
   it('lerobot health channels round-trip without overrides', () => {
-    const cfg = defaultConfig('so101_act')
+    const cfg = defaultConfig('so101')
     const yaml = generateYaml(cfg)
     expect(yaml).toMatch(/current:\s*\n\s*type: current\s*\n\s*ref: arm/)
     expect(yaml).toMatch(/temperature:\s*\n\s*type: temperature\s*\n\s*ref: arm/)

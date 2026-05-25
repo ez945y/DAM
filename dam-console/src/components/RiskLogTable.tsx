@@ -371,6 +371,9 @@ function EventDetailPanel({ e }: { e: RiskEvent }) {
             reasons: e.failure_reasons,
             tuple: e.failure_tuple,
           }}
+          observation={e.observation}
+          action={e.action}
+          hardware={e.hardware}
         />
       </div>
 
@@ -401,14 +404,12 @@ function sensorGlimpse(events: RiskEvent[]): {
   tMax?: [string, number];
   iMax?: [string, number];
 } {
-  // Latest event with hardware metadata; fall back to scanning if topmost lacks it.
-  const meta = events.find((e) =>
-    e.guard_results?.some(
-      (g) => g.metadata && (g.metadata.temperatures || g.metadata.currents),
-    ),
-  );
+  // Latest event with adapter telemetry; old guard-metadata records remain readable.
+  const meta = events.find((e) => e.hardware?.temperatures || e.hardware?.currents || e.guard_results?.some(
+    (g) => g.metadata && (g.metadata.temperatures || g.metadata.currents),
+  ));
   if (!meta) return {};
-  const hw = meta.guard_results.find(
+  const hw = meta.hardware ?? meta.guard_results.find(
     (g) => g.metadata?.temperatures || g.metadata?.currents,
   )?.metadata;
   const temps = pickNumericDict(hw, "temperatures");
@@ -571,8 +572,7 @@ export function RiskLogTable() {
   const [frozen, setFrozen] = useState(false);
   const [filters, setFilters] = useState({
     min_risk_level: "",
-    rejected_only: false,
-    clamped_only: false,
+    outcome: "" as "" | "reject" | "clamp",
     failure_type: "" as "" | FailureType,
     limit: 1000,
   });
@@ -619,8 +619,7 @@ export function RiskLogTable() {
     try {
       const evRes = await api.getRiskLog({
         min_risk_level: filters.min_risk_level || undefined,
-        rejected_only: filters.rejected_only,
-        clamped_only: filters.clamped_only,
+        outcome: filters.outcome || undefined,
         failure_type: filters.failure_type || undefined,
         limit: filters.limit,
       });
@@ -828,19 +827,14 @@ export function RiskLogTable() {
               Outcome
             </span>
             <div className="flex rounded border border-dam-border overflow-hidden">
-              {(
-                [
-                  ["rejected_only", "Rejected"],
-                  ["clamped_only", "Clamped"],
-                ] as const
-              ).map(([key, label]) => {
-                const on = filters[key];
+              {([["reject", "Reject"], ["clamp", "Clamp"]] as const).map(([value, label]) => {
+                const on = filters.outcome === value;
                 return (
                   <button
-                    key={key}
+                    key={value}
                     type="button"
                     onClick={() =>
-                      setFilters((f) => ({ ...f, [key]: !f[key] }))
+                      setFilters((f) => ({ ...f, outcome: f.outcome === value ? "" : value }))
                     }
                     className={`px-2.5 py-1.5 text-xs font-medium transition-colors border-r border-dam-border last:border-r-0 ${
                       on
@@ -1030,14 +1024,14 @@ export function RiskLogTable() {
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <div className="flex items-center gap-2">
-                          {e.was_rejected && (
+                          {e.outcome === "reject" && (
                             <span className="px-1.5 py-0.5 rounded bg-orange-950/40 text-dam-orange border border-orange-900/40 font-bold text-[10px]">
-                              REJECTED
+                              REJECT
                             </span>
                           )}
-                          {e.was_clamped && (
+                          {e.outcome === "clamp" && (
                             <span className="px-1.5 py-0.5 rounded bg-blue-950/40 text-dam-blue border border-blue-900/40 font-bold text-[10px]">
-                              CLAMPED
+                              CLAMP
                             </span>
                           )}
                           {e.fallback_triggered && (
@@ -1045,8 +1039,7 @@ export function RiskLogTable() {
                               FALLBACK
                             </span>
                           )}
-                          {!e.was_rejected &&
-                            !e.was_clamped &&
+                          {e.outcome === "pass" &&
                             !e.fallback_triggered && (
                               <span className="text-dam-muted">—</span>
                             )}

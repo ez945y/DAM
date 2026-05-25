@@ -7,7 +7,7 @@ from typing import Any
 
 import numpy as np
 
-from dam.boundary.callbacks.ood import _key, ood_detector
+from dam.boundary.callbacks.ood import _exceeds_threshold, _key, ood_detector
 from dam.guard.builtin.ood import OODGuard
 from dam.guard.ood_context import OODContext
 from dam.types.observation import Observation
@@ -49,6 +49,11 @@ class _Container:
 
 
 # ── unified OOD callback ──────────────────────────────────────────────────────
+
+
+def test_threshold_comparison_tolerates_float_precision_jitter() -> None:
+    assert not _exceeds_threshold(91.18304443359375, 91.18303680419922)
+    assert _exceeds_threshold(91.184, 91.183)
 
 
 def test_ood_detector_welford_backend_warmup_then_reject() -> None:

@@ -62,6 +62,10 @@ def _current_container(max_current_a: float = 1.5, warn_frames: int = 1):
     return _container("current_limit", warn_frames=warn_frames, max_current_a=max_current_a)
 
 
+def _voltage_container(warn_frames: int = 1):
+    return _container("voltage_limit", warn_frames=warn_frames)
+
+
 @pytest.fixture(autouse=True)
 def _register_callbacks():
     from dam.boundary.builtin_callbacks import register_all
@@ -96,6 +100,12 @@ def test_fault_on_overcurrent(HG):
     c = _current_container(1.5)
     result = HG.check(obs=obs, active_containers=[c])
     assert result.decision == GuardDecision.FAULT
+
+
+def test_default_voltage_band_accepts_twelve_volt_supply(HG):
+    obs = _make_obs(channels={"voltage": np.array([11.8, 12.1])})
+    result = HG.check(obs=obs, active_containers=[_voltage_container()])
+    assert result.decision == GuardDecision.PASS
 
 
 # ── warn_frames (consecutive frames before fault) ──────────────────────────

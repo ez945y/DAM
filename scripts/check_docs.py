@@ -35,7 +35,7 @@ FORBIDDEN_PATTERNS = {
     r"Real-time safe": "Avoid real-time safety claims; describe measured timing health.",
     r"Safety Guarantees": "Use Safety Model for research-grade safety documentation.",
     r"Deploy DAM to simulation and hardware": "Prefer supervised hardware preparation wording.",
-    r"dam run examples/stackfiles/test\.yaml(?!.*--cycles)": (
+    r"dam run examples/stackfiles/so101\.yaml(?!.*--cycles)": (
         "Use a bounded --cycles value for hardware-oriented run examples."
     ),
 }

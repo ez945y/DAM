@@ -46,6 +46,68 @@ guard layer** — the sections below mirror it exactly:
 Adding a `@boundary_callback` function to the matching module is all that is
 needed — `register_all()` discovers it automatically (no list to maintain).
 
+### Scenario and response guide
+
+The callback detects the condition; the node's `fallback` chooses the
+deployment response. This table documents the recommended built-in pairing
+used by the templates, so operators can review intent rather than infer it
+from a function name.
+
+| Callback | Category | Scenario Detected | Recommended Response |
+|---|---|---|---|
+| `ood_detector` | anomaly | Observation no longer resembles calibrated normal operation | `hold_position` while the operator reviews context |
+| `joint_velocity_limit` | kinematics | A commanded joint rate would exceed its limit | clamp to the permitted rate |
+| `joint_position_limits` | kinematics | A commanded joint target would exceed joint travel | clamp to the permitted position |
+| `workspace` | kinematics | End effector would leave its allowed work volume | halt/clamp motion at the safe state |
+| `check_velocity_smooth` | kinematics | Motion changes too abruptly for the smoothness bound | `hold_position` |
+| `check_joints_not_moving` | kinematics | A task requiring stillness observes joint motion | `hold_position` |
+| `cartesian_velocity_limit` | kinematics | Tool linear/angular speed exceeds its collaborative-speed limit | `hold_position` |
+| `keep_out_zone` | kinematics | Tool enters a fixture or operator exclusion volume | `hold_position` |
+| `orientation_limit` | kinematics | Tool/payload tilts past its permitted angle | `hold_position` |
+| `base_geofence` | kinematics | Mobile base exits its permitted floor region | `hold_position` |
+| `task_joint_speed_limit` | execution | Current task phase moves the arm faster than allowed | `hold_position` after the configured warning streak |
+| `task_workspace_bounds` | execution | Current task phase leaves its local work area | `hold_position` after the configured warning streak |
+| `check_gripper_clear` | execution | Gripper is obstructed/closed when clearance is required | `hold_position` |
+| `task_gripper_command_guard` | execution | Open/close command is invalid in the active task phase or zone | suppress only the gripper command |
+| `hardware_watchdog` | hardware | Sensor/robot heartbeat is stale or lost | `emergency_stop` |
+| `temperature_limit` | hardware | Motor temperature remains too high | `slow_down` to allow cooling, then escalate if configured |
+| `current_limit` | hardware | Sustained over-current suggests collision or stall | `hold_position` |
+| `voltage_limit` | hardware | Supply leaves the safe 12 V operating band | `emergency_stop` |
+| `force_limit` | hardware | Force sensor detects excessive contact force | `hold_position` |
+| `check_force_torque_safe` | hardware | Force/torque sensor detects excessive contact load | `hold_position` |
+| `host_health_limit` | host | Controller CPU/GPU/memory/temperature is overloaded | `slow_down` while system health recovers |
+
+### Multi-cycle reaction thresholds
+
+L2 and L3 nodes use the shared structural field `warn_frames` to require
+consecutive violating cycles before escalation. A healthy cycle resets the
+streak. Use this for transient sensor spikes or momentary task deviations;
+do not use `timeout_sec` as a debounce value, because it is the maximum time
+a workflow node may remain active.
+
+```yaml
+boundaries:
+  task_joint_speed_limit:
+    layer: L2
+    type: single
+    nodes:
+      - callback: task_joint_speed_limit
+        warn_frames: 3
+        fallback: hold_position
+        params:
+          max_speed: 3.0
+  voltage_limit:
+    layer: L3
+    type: single
+    nodes:
+      - callback: voltage_limit
+        warn_frames: 3
+        fallback: emergency_stop
+        params:
+          min_voltage_v: 10.0
+          max_voltage_v: 13.0
+```
+
 ---
 
 ## L0: Perception
@@ -252,8 +314,8 @@ Reads from the `voltage` observation channel.
 
 | Param | Default | Description |
 |---|---|---|
-| `min_voltage_v` | `6.0` | Min safe voltage (V) |
-| `max_voltage_v` | `8.5` | Max safe voltage (V) |
+| `min_voltage_v` | `10.0` | Min safe voltage for a nominal 12 V supply (V) |
+| `max_voltage_v` | `13.0` | Max safe voltage for a nominal 12 V supply (V) |
 | `channel` | `"voltage"` | Observation channel name |
 
 ### `force_limit`
