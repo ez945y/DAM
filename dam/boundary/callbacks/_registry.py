@@ -31,6 +31,8 @@ _CATALOG: list[dict[str, Any]] = []  # [{name, layer, description, params, doc},
 # to keep in sync.
 _CALLBACKS: dict[str, Callable[..., Any]] = {}
 
+# Params injected by the runtime at call time — never user-authored,
+# never shown in the catalog.
 _RUNTIME_ONLY_PARAMS = {
     "obs",
     "ood_context",
@@ -41,8 +43,6 @@ _RUNTIME_ONLY_PARAMS = {
     "kinematics_resolver",
     "dynamics",
     "camera_shapes",
-    # Legacy aliases / compatibility params that should not be authored in new stackfiles.
-    "cbf_alpha",
 }
 
 
@@ -53,6 +53,7 @@ def boundary_callback(
     description: str = "",
     params: Mapping[str, str] | None = None,
     unit_params: tuple[str, ...] | list[str] | None = None,
+    internal_params: tuple[str, ...] | list[str] | None = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator that registers a function as a named boundary callback.
 
@@ -61,6 +62,10 @@ def boundary_callback(
     radians once at config-pool build time so the callback hot path never
     touches a unit branch.  ``use_degrees`` itself stays in the catalog as a
     UI hint and is stripped from the pool after normalisation.
+
+    ``internal_params`` lists params that are valid in stackfiles but should
+    not be shown in the UI.  They appear in the catalog with
+    ``"internal": True`` so frontends can filter them out.
     """
 
     def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
@@ -68,15 +73,19 @@ def boundary_callback(
 
         sig = inspect.signature(fn)
         param_descriptions = params or {}
+        internal_set = set(internal_params or ())
         params_meta = {}
         for p_name, param in sig.parameters.items():
             if p_name in _RUNTIME_ONLY_PARAMS:
                 continue
-            params_meta[p_name] = {
+            meta: dict[str, Any] = {
                 "default": param.default if param.default is not inspect.Parameter.empty else None,
                 "has_default": param.default is not inspect.Parameter.empty,
                 "description": param_descriptions.get(p_name, ""),
             }
+            if p_name in internal_set:
+                meta["internal"] = True
+            params_meta[p_name] = meta
         doc = fn.__doc__ or ""
         unit_params_tuple: tuple[str, ...] = tuple(unit_params or ())
 

@@ -629,7 +629,11 @@ function NodeForm({
             <p className="text-dam-muted text-[10px] uppercase font-bold tracking-widest">{node.callback} Parameters</p>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {Object.entries(meta.params)
-                .filter(([pName]) => !(node.callback === 'workspace' && pName === 'bounds'))
+                .filter(([pName, pMeta]: [string, any]) => {
+                  if (pMeta.internal) return false
+                  if (node.callback === 'workspace' && pName === 'bounds') return false
+                  return true
+                })
                 .map(([pName, pMeta]) => (
                 <div key={pName} className="space-y-0.5">
                   <label

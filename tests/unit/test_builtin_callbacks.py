@@ -276,9 +276,11 @@ class TestRegisterAll:
         workspace_params = by_name["workspace"]["params"]
         assert "bounds" in workspace_params
         assert "action" not in workspace_params
-        assert "cbf_alpha" not in workspace_params
         assert "kinematics_resolver" not in workspace_params
         assert "dynamics" not in workspace_params
+        assert workspace_params["cbf_gamma"]["internal"] is True
+        assert workspace_params["cbf_alpha"]["internal"] is True
+        assert workspace_params["slack_weight"]["internal"] is True
         assert workspace_params["cbf_gamma"]["description"]
 
         host_params = by_name["host_health_limit"]["params"]

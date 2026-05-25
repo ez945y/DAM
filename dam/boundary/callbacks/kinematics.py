@@ -56,6 +56,7 @@ def _to_array(x: Any, *, name: str) -> np.ndarray:
         "use_degrees": "UI/loader hint: interpret max_velocities as deg/s. Normalised to rad/s once at load — runtime never sees this flag.",
     },
     unit_params=("max_velocities",),
+    internal_params=("slack_weight",),
 )
 def joint_velocity_limit(
     *,
@@ -173,6 +174,7 @@ def joint_velocity_limit(
         "use_degrees": "UI/loader hint: interpret upper/lower as degrees. Normalised to radians once at load — runtime never sees this flag.",
     },
     unit_params=("upper", "lower"),
+    internal_params=("slack_weight",),
 )
 def joint_position_limits(
     *,
@@ -250,6 +252,7 @@ def joint_position_limits(
         "cbf_gamma": "Workspace CBF decay in [0,1]. 1 is a hard one-step bound; lower values brake earlier.",
         "slack_weight": "QP soft-constraint penalty. Higher values make violating this limit more expensive.",
     },
+    internal_params=("cbf_gamma", "cbf_alpha", "slack_weight"),
 )
 def workspace(
     *,
