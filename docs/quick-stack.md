@@ -310,6 +310,7 @@ hardware:
     follower_arm:
       type: motor
       port: /dev/tty.usbmodem5AA90244141
+      robot_type: so101_follower
       id: my_follower_arm
 
     top_cam:
@@ -327,6 +328,13 @@ hardware:
 OpenCV camera options are source-level fields. Put `index_or_path`, `width`, `height`,
 and `fps` directly under the camera source; `params:` is reserved for boundary and
 guard configuration.
+
+For a LeRobot motor source, `robot_type` selects the concrete LeRobot robot
+configuration and its default calibration namespace. For `so101_follower`,
+the default calibration directory is
+`~/.cache/huggingface/lerobot/calibration/robots/so101_follower/`, and the
+configured `id` selects the JSON file within that directory. Set
+`calibration_path` only when using an explicit alternate calibration location.
 
 ### ROS2 example
 

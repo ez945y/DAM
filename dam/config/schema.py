@@ -129,6 +129,8 @@ class HardwareJointConfig(BaseModel):
 class HardwareSourceConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
     type: str
+    # Concrete LeRobot robot namespace, distinct from DAM's source adapter type.
+    robot_type: str | None = None
     port: str | None = None
     id: str | None = None
     topic: str | None = None

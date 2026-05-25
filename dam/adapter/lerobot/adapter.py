@@ -191,7 +191,7 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
             return
         try:
             if hasattr(self._robot, "connect"):
-                self._robot.connect()
+                self._connect_without_calibration_prompt()
             self._connected = True
             self._prev_time = time.monotonic()
             logger.info(
@@ -207,6 +207,36 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
                 logger.info("LeRobotAdapter: already connected, synchronizing state.")
             else:
                 raise
+
+    def _connect_without_calibration_prompt(self) -> None:
+        """Connect LeRobot hardware without stdin prompts in the host process."""
+        calibration = getattr(self._robot, "calibration", None)
+        calibration_file = getattr(self._robot, "calibration_fpath", None)
+        if calibration is not None and not calibration:
+            location = f" at {calibration_file}" if calibration_file else ""
+            raise RuntimeError(
+                f"No saved LeRobot calibration file found{location}. "
+                "Create one with the LeRobot calibration command before starting DAM."
+            )
+
+        if calibration and hasattr(self._robot, "bus") and hasattr(self._robot, "calibrate"):
+            original_calibrate = self._robot.calibrate
+
+            def apply_saved_calibration() -> None:
+                logger.info(
+                    "LeRobotAdapter: applying saved calibration without interactive prompt: %s",
+                    calibration_file or "<configured calibration>",
+                )
+                self._robot.bus.write_calibration(calibration)
+
+            self._robot.calibrate = apply_saved_calibration
+            try:
+                self._robot.connect()
+            finally:
+                self._robot.calibrate = original_calibrate
+            return
+
+        self._robot.connect()
 
     def disconnect(self) -> None:
         if not self._connected and self._robot is None:

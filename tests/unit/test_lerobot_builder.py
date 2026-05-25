@@ -68,6 +68,10 @@ class TestResolvePath:
         assert isinstance(result, Path)
         assert str(result) == "relative/cal"
 
+    def test_user_home_path_is_expanded(self):
+        result = self._fn()("~/.cache/calibration")
+        assert result == Path.home() / ".cache/calibration"
+
     def test_hf_repo_id_returns_path(self):
         # HF repo IDs like "MikeChenYZ/act-soarm-fmb-v2" are non-absolute —
         # callers treat path.is_absolute() == False as a repo ID.
@@ -98,11 +102,17 @@ class TestLegacyNestedCamerasIgnored:
         src_cfg = MagicMock()
         src_cfg.port = "/dev/ttyUSB0"
         src_cfg.id = "follower"
+        src_cfg.robot_type = "so101_follower"
         src_cfg.cameras = {"top": {"index": 0}}
         src_cfg.calibration_path = None
 
         with (
             patch.object(LeRobotBuilder, "_cfg_so101", return_value="cfg") as cfg_so101,
+            patch.object(
+                LeRobotBuilder,
+                "_default_calibration_dir",
+                return_value=Path("/tmp/so101_follower"),
+            ),
             caplog.at_level(logging.WARNING, logger="dam.adapter.lerobot.builder"),
         ):
             builder._make_robot_config(src_cfg)
@@ -145,7 +155,16 @@ class TestRobotConfigBuilders:
 
     def test_so101_with_calibration_sets_calibration_dir(self):
         kw = self._call_so101(calibration=Path("/mnt/dam_data/calibration"))
-        assert kw["calibration_dir"] == "/mnt/dam_data/calibration"
+        assert kw["calibration_dir"] == Path("/mnt/dam_data/calibration")
+
+    def test_so101_json_calibration_uses_parent_dir_and_file_id(self, tmp_path):
+        calibration = tmp_path / "follower_arm.json"
+        calibration.write_text("{}")
+
+        kw = self._call_so101(calibration=calibration)
+
+        assert kw["id"] == "follower_arm"
+        assert kw["calibration_dir"] == tmp_path
 
     def test_so101_base_kwargs_correct(self):
         kw = self._call_so101(calibration=None)
@@ -260,3 +279,41 @@ class TestBuildRobot:
             sys.modules["lerobot.robots"].make_robot_from_config = fake_make_robot
             with pytest.raises(ValueError, match="no motor-typed source"):
                 builder.build_robot()
+
+
+class TestRobotTypeCalibrationDirectory:
+    def test_robot_type_uses_its_lerobot_calibration_namespace(self, tmp_path):
+        from dam.adapter.lerobot.builder import LeRobotBuilder
+
+        constants = MagicMock()
+        constants.HF_LEROBOT_CALIBRATION = tmp_path
+        constants.ROBOTS = Path("robots")
+        with patch.dict(sys.modules, {"lerobot.utils.constants": constants}):
+            result = LeRobotBuilder._default_calibration_dir("so101_follower")
+
+        assert result == tmp_path / "robots" / "so101_follower"
+
+    def test_make_config_uses_robot_type_default_directory(self):
+        from dam.adapter.lerobot.builder import LeRobotBuilder
+
+        builder = object.__new__(LeRobotBuilder)
+        builder._preset = SimpleNamespace(name="so101_follower")
+        src_cfg = SimpleNamespace(
+            port="/dev/null",
+            id="follower_arm",
+            robot_type="so101_follower",
+            cameras=None,
+            calibration_path=None,
+        )
+
+        with (
+            patch.object(
+                LeRobotBuilder,
+                "_default_calibration_dir",
+                return_value=Path("/tmp/calibration/robots/so101_follower"),
+            ),
+            patch.object(LeRobotBuilder, "_cfg_so101", return_value="cfg") as config_builder,
+        ):
+            assert builder._make_robot_config(src_cfg) == "cfg"
+
+        assert config_builder.call_args.args[3] == Path("/tmp/calibration/robots/so101_follower")

@@ -39,6 +39,7 @@ export interface DamConfig {
   hardware_preset: string
   adapter: 'lerobot' | 'ros2' | 'simulation'
   lerobot_port: string
+  lerobot_robot_type: string
   lerobot_robot_id: string
   lerobot_cameras: CameraConfig[]
   lerobot_calibration_path: string
@@ -237,7 +238,7 @@ export const TEMPLATES: TemplatePreset[] = [
     badge: 'LeRobot',
     config: {
       hardware_preset: 'so101_follower', adapter: 'lerobot', lerobot_port: '/dev/tty.usbmodem5AA90244141',
-      lerobot_robot_id: 'my_awesome_follower_arm', lerobot_cameras: SO101_CAMERAS,
+      lerobot_robot_type: 'so101_follower', lerobot_robot_id: 'my_awesome_follower_arm', lerobot_cameras: SO101_CAMERAS,
       lerobot_degrees_mode: true,
       observation_channels: SO101_HEALTH_CHANNELS,
       policy: { type: 'act', pretrained_path: 'MikeChenYZ/act-soarm-fmb-v2', device: 'mps' },
@@ -258,7 +259,7 @@ export const TEMPLATES: TemplatePreset[] = [
     badge: 'LeRobot',
     config: {
       hardware_preset: 'so101_follower', adapter: 'lerobot', lerobot_port: '/dev/tty.usbmodem5AA90244141',
-      lerobot_robot_id: 'my_awesome_follower_arm', lerobot_cameras: SO101_CAMERAS,
+      lerobot_robot_type: 'so101_follower', lerobot_robot_id: 'my_awesome_follower_arm', lerobot_cameras: SO101_CAMERAS,
       lerobot_degrees_mode: true,
       observation_channels: SO101_HEALTH_CHANNELS,
       policy: { type: 'act', pretrained_path: 'MikeChenYZ/act-soarm-fmb-v2', device: 'mps' },
@@ -299,7 +300,7 @@ export function defaultConfig(templateId = ''): DamConfig {
   const preset = TEMPLATES.find(t => t.id === templateId)
   const base: DamConfig = {
     templateId: '', // Always empty for stateless behavior
-    hardware_preset: 'custom', adapter: 'simulation', lerobot_port: '', lerobot_robot_id: '',
+    hardware_preset: 'custom', adapter: 'simulation', lerobot_port: '', lerobot_robot_type: 'so101_follower', lerobot_robot_id: '',
     lerobot_cameras: [], lerobot_calibration_path: '', lerobot_degrees_mode: true, observation_channels: [],
     ros2JointTopic: '/joint_states', ros2CmdTopic: '/joint_commands',
     policy: { type: 'noop', pretrained_path: '', device: 'cpu' },
@@ -447,6 +448,7 @@ const SCHEMA: YamlSection[] = [
       ], cfg => cfg.adapter === 'simulation' && !!cfg.simulation_dataset_repo_id),
       block(MAIN_SOURCE_NAME.lerobot, [
         scalar('type', () => 'motor'), scalar('port', cfg => cfg.lerobot_port),
+        scalar('robot_type', cfg => cfg.lerobot_robot_type || 'so101_follower'),
         scalar('id', cfg => cfg.lerobot_robot_id), scalar('calibration_path', cfg => cfg.lerobot_calibration_path || null),
         scalar('degrees_mode', cfg => cfg.lerobot_degrees_mode),
       ], cfg => cfg.adapter === 'lerobot'),
@@ -569,6 +571,7 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
 
   if (yaml.includes('type: motor') || yaml.includes('type: lerobot')) {
     result.adapter = 'lerobot'; result.lerobot_port = getVal(/port:\s*(.*)/);
+    result.lerobot_robot_type = getVal(/robot_type:\s*(.*)/) || 'so101_follower';
     result.lerobot_robot_id = getVal(/id:\s*(.*)/); result.lerobot_calibration_path = getVal(/calibration_path:\s*(.*)/) || '';
     result.lerobot_degrees_mode = (getVal(/degrees_mode:\s*(true|false)/) ?? 'true') === 'true'
   } else if (yaml.includes('type: ros2')) {

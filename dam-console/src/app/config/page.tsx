@@ -415,6 +415,17 @@ export default function ConfigPage() {
             </div>
 
             <div className="space-y-1">
+              <label htmlFor="lerobot-robot-type" className="text-dam-muted text-xs">Robot Type</label>
+              <input
+                id="lerobot-robot-type"
+                value={cfg.lerobot_robot_type}
+                onChange={e => set('lerobot_robot_type', e.target.value)}
+                placeholder="so101_follower"
+                className={`w-full ${inputCls}`}
+              />
+            </div>
+
+            <div className="space-y-1">
               <label htmlFor="lerobot-robot-id" className="text-dam-muted text-xs">Robot ID</label>
               <input
                 id="lerobot-robot-id"
@@ -439,7 +450,7 @@ export default function ConfigPage() {
                 id="lerobot-calibration-path"
                 value={cfg.lerobot_calibration_path}
                 onChange={e => setCalibrationPath(e.target.value)}
-                placeholder={`~/.cache/huggingface/lerobot/calibration/robots/so_follower/${cfg.lerobot_robot_id || '<robot_id>'}.json`}
+                placeholder={`~/.cache/huggingface/lerobot/calibration/robots/${cfg.lerobot_robot_type || 'so101_follower'}`}
                 className={`w-full ${inputCls} font-mono`}
               />
             </div>

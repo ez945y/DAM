@@ -6,6 +6,7 @@ hardware:
     arm:
       type: motor
       port: /dev/tty.usbmodem5AA90244141
+      robot_type: so101_follower
       id: my_awesome_follower_arm
     top:
       type: opencv

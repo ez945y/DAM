@@ -47,14 +47,15 @@ logger = logging.getLogger(__name__)
 def _resolve_path(raw: str | None) -> Path | None:
     """Return a resolved Path for *raw*, or None if raw is empty/None.
 
-    Absolute paths (e.g. /mnt/dam_data/…) are returned as-is.
+    Absolute paths (e.g. /mnt/dam_data/…) are returned as-is and user-home
+    paths (e.g. ~/.cache/…) are expanded.
     Relative paths are resolved from the current working directory.
     HuggingFace repo IDs (no leading '/') are not touched — callers that use
     the path as a string should check ``path.is_absolute()`` if needed.
     """
     if not raw:
         return None
-    return Path(raw)
+    return Path(raw).expanduser()
 
 
 class LeRobotBuilder:
@@ -211,6 +212,7 @@ class LeRobotBuilder:
         preset_name = self._preset.name
         port = src_cfg.port or "/dev/ttyUSB0"
         robot_id = src_cfg.id or "follower"
+        robot_type = getattr(src_cfg, "robot_type", None) or preset_name
         # Cameras live as peer-level opencv sources handled by the factory as
         # DAM OpenCVSourceAdapter instances; lerobot's strict-resolution
         # OpenCVCameraConfig is bypassed entirely.  The legacy nested-cameras
@@ -249,14 +251,28 @@ class LeRobotBuilder:
                     calibration,
                 )
 
-        if "so101" in preset_name:
+        if robot_type == "so101_follower":
+            calibration = calibration or self._default_calibration_dir(robot_type)
             return self._cfg_so101(port, robot_id, cam_configs, calibration)
 
         raise ValueError(
-            f"No lerobot robot class mapping for preset '{preset_name}'. "
+            f"No lerobot robot class mapping for robot_type '{robot_type}'. "
             "Supported: so101_follower. "
             "Add a mapping in LeRobotBuilder._make_robot_config()."
         )
+
+    @staticmethod
+    def _default_calibration_dir(robot_type: str) -> Path:
+        """Return LeRobot's calibration namespace for the configured robot type."""
+        from lerobot.utils.constants import HF_LEROBOT_CALIBRATION, ROBOTS
+
+        calibration_dir = Path(HF_LEROBOT_CALIBRATION) / ROBOTS / robot_type
+        logger.info(
+            "LeRobotBuilder: robot_type=%s calibration_dir=%s",
+            robot_type,
+            calibration_dir,
+        )
+        return calibration_dir
 
     @staticmethod
     def _cfg_so101(
@@ -267,12 +283,22 @@ class LeRobotBuilder:
     ) -> Any:
         from lerobot.robots.so_follower import SO101FollowerConfig
 
+        if calibration is not None and calibration.is_file():
+            if calibration.stem != robot_id:
+                logger.warning(
+                    "LeRobotBuilder: calibration file id '%s' overrides configured robot id '%s'.",
+                    calibration.stem,
+                    robot_id,
+                )
+                robot_id = calibration.stem
+            calibration = calibration.parent
+
         # ``cameras`` is always empty in the modern peer-level design;
         # forwarded as-is so a future preset that genuinely needs lerobot's
         # nested cameras can opt in.
         kwargs: dict[str, Any] = {"port": port, "id": robot_id, "cameras": cameras}
         if calibration is not None:
-            kwargs["calibration_dir"] = str(calibration)
+            kwargs["calibration_dir"] = calibration
             logger.info("So101FollowerConfig: calibration_dir=%s", calibration)
         return SO101FollowerConfig(**kwargs)
 

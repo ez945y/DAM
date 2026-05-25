@@ -9,6 +9,7 @@ Covers:
 """
 
 import math
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -78,6 +79,21 @@ class MockPolicy:
         return np.array(self._action)
 
 
+class CalibratingMockRobot:
+    def __init__(self, calibration: dict | None):
+        self.calibration = calibration or {}
+        self.calibration_fpath = Path("/tmp/calibration/follower_arm.json")
+        self.bus = MagicMock()
+        self.calibrate_called = False
+
+    def connect(self):
+        self.calibrate()
+
+    def calibrate(self):
+        self.calibrate_called = True
+        raise AssertionError("interactive calibration must not be called")
+
+
 # ── Source adapter — legacy API ───────────────────────────────────────────────
 
 
@@ -98,6 +114,26 @@ def test_source_velocity_estimated_on_first_read():
     assert obs.joint_velocities.shape == (6,)
     # First read: velocities should be zero (no previous)
     np.testing.assert_allclose(obs.joint_velocities, np.zeros(6))
+
+
+def test_connect_applies_loaded_calibration_without_prompt():
+    robot = CalibratingMockRobot({"shoulder_pan": object()})
+    adapter = LeRobotAdapter(robot)
+
+    adapter.connect()
+
+    robot.bus.write_calibration.assert_called_once_with(robot.calibration)
+    assert not robot.calibrate_called
+
+
+def test_connect_rejects_missing_calibration_before_interactive_prompt():
+    robot = CalibratingMockRobot(None)
+    adapter = LeRobotAdapter(robot)
+
+    with pytest.raises(RuntimeError, match="No saved LeRobot calibration file found"):
+        adapter.connect()
+
+    assert not robot.calibrate_called
 
 
 # ── Source adapter — modern API ───────────────────────────────────────────────

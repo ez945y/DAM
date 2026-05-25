@@ -57,6 +57,7 @@ describe('defaultConfig', () => {
 
   it('SO-101 robot_id matches lerobot-record default', () => {
     const cfg = defaultConfig('so101_act')
+    expect(cfg.lerobot_robot_type).toBe('so101_follower')
     expect(cfg.lerobot_robot_id).toBe('my_awesome_follower_arm')
   })
 
@@ -299,6 +300,7 @@ describe('generateYaml', () => {
     cfg.lerobot_calibration_path = ''
     const yaml = generateYaml(cfg)
     expect(yaml).not.toContain('calibration_path:')
+    expect(yaml).toContain('robot_type: so101_follower')
   })
 
   it('includes ros2 source section for ros2 template', () => {
