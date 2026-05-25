@@ -43,6 +43,7 @@ let gGuardMapVer = 0
 let gEventsVer = 0
 let gLatencyVer = 0
 let gWsConnected = false
+const gOpenSockets = new Set<WebSocket>()
 let gHistoryFetched = false
 
 export const resetGlobalState = () => {
@@ -62,6 +63,8 @@ export const resetGlobalState = () => {
   gRejectTimes = []
   gClampTimes = []
   gProcessedIds.clear()
+  gOpenSockets.clear()
+  gWsConnected = false
   gLiveImagesVer++
   gGuardMapVer++
   gVersion++
@@ -138,6 +141,11 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
     wsRef.current = ws
 
     ws.onopen = () => {
+      if (wsRef.current !== ws) {
+        ws.close()
+        return
+      }
+      gOpenSockets.add(ws)
       gWsConnected = true
       gVersion++
       setState(s => ({ ...s, connected: true }))
@@ -189,6 +197,7 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
     }
 
     ws.onmessage = (e: MessageEvent) => {
+      if (wsRef.current !== ws) return
       if (typeof e.data !== 'string') {
         // Binary Protocol v2: [magic: 0x02][cycle_id: 4][name_len: 1][name][jpeg]
         try {
@@ -364,8 +373,13 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
     }
 
     ws.onclose = () => {
+      gOpenSockets.delete(ws)
+      gWsConnected = gOpenSockets.size > 0
+      // React StrictMode may close the first development-only mount after a
+      // replacement socket is already active. Stale closes must not mark the
+      // current subscription offline or erase its reference.
+      if (wsRef.current !== ws) return
       wsRef.current = null
-      gWsConnected = false
       setState(s => ({ ...s, connected: false }))
       // Only schedule reconnect while the component is still mounted.
       if (mountedRef.current) {
@@ -471,7 +485,9 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
       mountedRef.current = false
       if (timerRef.current) clearTimeout(timerRef.current)
       if (refreshTimerRef.current) clearInterval(refreshTimerRef.current)
-      wsRef.current?.close()
+      const ws = wsRef.current
+      wsRef.current = null
+      ws?.close()
     }
   }, [connect])
 

@@ -113,27 +113,28 @@ export function ActionShell({
 
       {/* YAML Section (Shared between Guard & Config) */}
       <div className="mt-12 pt-12 border-t border-dam-border/40 px-8">
-        <button
-          type="button"
-          className="flex items-center justify-between cursor-pointer group mb-5 w-full text-left"
-          onClick={() => setYamlOpen(!yamlOpen)}
-        >
-          <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between mb-5 w-full">
+          <button
+            type="button"
+            className="flex items-center gap-3 cursor-pointer group text-left"
+            onClick={() => setYamlOpen(!yamlOpen)}
+          >
             <h2 className="text-dam-muted text-[11px] uppercase tracking-[0.4em] font-black">Stackfile YAML Preview</h2>
             <div className={`transition-all duration-300 ${yamlOpen ? 'rotate-180 text-dam-blue' : 'text-dam-muted/40'}`}>
               <ChevronDown size={14} />
             </div>
-          </div>
+          </button>
           {yamlOpen && (
             <button
-              onClick={(e) => { e.stopPropagation(); handleCopy(); }}
+              type="button"
+              onClick={handleCopy}
               className="flex items-center gap-1.5 px-3 py-1 rounded bg-dam-surface-3 border border-dam-border text-[10px] font-bold text-dam-muted hover:text-dam-text transition-colors"
             >
               {copied ? <Check size={10} className="text-dam-green" /> : <Copy size={10} />}
               {copied ? 'COPIED' : 'COPY'}
             </button>
           )}
-        </button>
+        </div>
 
         {yamlOpen && (
           <div className="glass-card mt-2 group animate-in zoom-in-95 duration-300">

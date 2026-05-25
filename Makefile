@@ -21,8 +21,8 @@ _chmod:
 	@chmod +x scripts/setup.sh scripts/run.sh scripts/run_prod.sh scripts/test.sh
 
 _kill_port:
-	@echo "Checking for processes on port 8080..."
-	@lsof -ti:8080 | xargs kill -9 2>/dev/null || true
+	@echo "Checking for processes on ports 8080 and 3000..."
+	@lsof -ti:8080 -ti:3000 | sort -u | xargs kill -9 2>/dev/null || true
 
 setup: _chmod   ## First-time setup: venv + Rust + npm + pre-commit hooks + build frontend
 	@bash scripts/setup.sh

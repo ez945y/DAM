@@ -107,6 +107,22 @@ describe('useTelemetry', () => {
     expect(MockWebSocket._instances.length).toBeGreaterThan(1)
   })
 
+  it('ignores close events from a stale socket after remount', async () => {
+    const first = renderHook(() => useTelemetry())
+    await act(async () => { jest.runOnlyPendingTimers() })
+    expect(first.result.current.connected).toBe(true)
+
+    const stale = MockWebSocket._instances[0]
+    first.unmount()
+
+    const second = renderHook(() => useTelemetry())
+    await act(async () => { jest.runOnlyPendingTimers() })
+    expect(second.result.current.connected).toBe(true)
+
+    act(() => { stale.onclose?.() })
+    expect(second.result.current.connected).toBe(true)
+  })
+
   it('drops stale boundaries from guardMap after reconnect with a smaller list', async () => {
     // Regression: Apply & Restart used to leave old boundaries (e.g. ood_welford)
     // visible on the home page because the listBoundaries handler only added

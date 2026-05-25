@@ -21,6 +21,24 @@ info() { echo -e "${BLUE}[run]${NC} $*"; return 0; }
 ok()   { echo -e "${GREEN}[run] ✓${NC} $*"; return 0; }
 die()  { echo -e "${RED}[run] ✗${NC} $*" >&2; exit 1; }
 
+wait_for_http() {
+    local name="$1" url="$2" pid="$3" log_file="${4:-}"
+    local attempt
+    for attempt in $(seq 1 50); do
+        if ! kill -0 "$pid" 2>/dev/null; then
+            [[ -n "$log_file" && -f "$log_file" ]] && tail -30 "$log_file" >&2
+            die "${name} exited before it became reachable at ${url}."
+        fi
+        if curl -fsS "$url" >/dev/null 2>&1; then
+            ok "${name} ready at ${url}"
+            return 0
+        fi
+        sleep 0.1
+    done
+    [[ -n "$log_file" && -f "$log_file" ]] && tail -30 "$log_file" >&2
+    die "${name} did not become reachable at ${url}."
+}
+
 cd "$ROOT"
 
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
@@ -89,6 +107,7 @@ info "Starting backend (scripts/dam_host.py) on :8080…"
 .venv/bin/python scripts/dam_host.py &
 _child_pids+=($!)
 BACKEND_PID=$!
+wait_for_http "Backend API" "http://127.0.0.1:8080/api/control/status" "$BACKEND_PID"
 
 FRONTEND_RUN_LOG="/tmp/dam-frontend-run.log"
 
@@ -102,7 +121,9 @@ info "Starting frontend (Next.js standalone) on :3000…"
 info "  run log → ${FRONTEND_RUN_LOG}"
 # standalone mode requires `node .next/standalone/server.js`
 (cd dam-console && PORT=3000 HOSTNAME=127.0.0.1 node .next/standalone/server.js > "$FRONTEND_RUN_LOG" 2>&1) &
-_child_pids+=($!)
+FRONTEND_PID=$!
+_child_pids+=("$FRONTEND_PID")
+wait_for_http "Frontend console" "http://127.0.0.1:3000/" "$FRONTEND_PID" "$FRONTEND_RUN_LOG"
 
 # ── Ready banner ───────────────────────────────────────────────────────────────
 echo ""
