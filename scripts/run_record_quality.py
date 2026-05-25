@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import logging
 import re
 import sys
 import time
@@ -37,6 +38,9 @@ import numpy as np
 from dam.runtime.failure_classify import classify_failure, select_failure_results
 from dam.types.action import ActionProposal
 from dam.types.observation import Observation
+from scripts._experiment_logging import configure_cli_logging
+
+LOGGER = logging.getLogger(__name__)
 
 _N_JOINTS = 6
 _JOINT_UPPER = np.array([1.8243, 1.7691, 1.6026, 1.8067, 3.0741, 1.7453])
@@ -262,7 +266,7 @@ def write_csv(rows: list[dict[str, Any]], path: Path) -> None:
         writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
         writer.writeheader()
         writer.writerows(rows)
-    print(f"CSV saved: {path}")
+    LOGGER.info("CSV saved: %s", path)
 
 
 def plot_results(rows: list[dict[str, Any]], outdir: Path) -> None:
@@ -272,7 +276,7 @@ def plot_results(rows: list[dict[str, Any]], outdir: Path) -> None:
         matplotlib.use("Agg", force=True)
         import matplotlib.pyplot as plt
     except ImportError:
-        print("matplotlib not installed — skipping plot generation.")
+        LOGGER.warning("matplotlib not installed; skipping plot generation.")
         return
     fig, ax = plt.subplots(figsize=(8, 4))
     ax.bar([r["metric"] for r in rows], [r["rate"] for r in rows], color="#10b981")
@@ -285,10 +289,11 @@ def plot_results(rows: list[dict[str, Any]], outdir: Path) -> None:
     out = outdir / "failure_record_quality.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
-    print(f"Plot saved: {out}")
+    LOGGER.info("Plot saved: %s", out)
 
 
 def main() -> None:
+    configure_cli_logging()
     parser = argparse.ArgumentParser(description="DAM Failure Record Quality (RQ5)")
     parser.add_argument("--trials", type=int, default=40)
     parser.add_argument("--seed", type=int, default=42)
@@ -299,7 +304,7 @@ def main() -> None:
     outdir.mkdir(parents=True, exist_ok=True)
     rows = run_quality(args.trials, args.seed)
     for r in rows:
-        print(f"  {r['metric']:<22} rate={r['rate']:.4f}  count={r['count']}")
+        LOGGER.info("%s rate=%.4f count=%d", r["metric"], r["rate"], r["count"])
     write_csv(rows, outdir / "results.csv")
     plot_results(rows, outdir)
 

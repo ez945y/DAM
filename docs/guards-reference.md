@@ -31,12 +31,14 @@ Rejects observations that appear out-of-distribution.
 **Training the density model:**
 
 Training fits a density model over normal observations and saves two statistics
-(`mean_train_nll`, `std_train_nll`) alongside the model weights.  At inference the
-rejection threshold is computed as:
+(`mean_train_nll`, `std_train_nll`) alongside the model weights.
 
-```
-threshold = mean_train_nll + nll_sigma × std_train_nll
-```
+**Threshold calibration (recommended):**
+
+Use `scripts/run_l0_calibration.py` to compute the optimal threshold via
+Equal Error Rate (EER) on a held-out calibration set. The script outputs τ*
+which should be set as `nll_threshold` in the stackfile. This replaces the
+legacy σ-based heuristic with a data-driven operating point.
 
 ```python
 from dam.guard.builtin.ood import OODGuard
@@ -46,15 +48,27 @@ guard.train(normal_observations)   # list[Observation]
 guard.save("extractor.pt", "bank.npy")
 ```
 
+**Vision feature fusion (optional):**
+
+When `vision_model` is configured, the guard fuses joint embeddings (128-dim)
+with pretrained vision features (MobileNetV3) into a 256-dim vector. This enables
+cross-scene OOD detection. The `vision_weight` parameter controls the balance
+(0.0 = joint only, 1.0 = vision only; default 0.3). Set `vision_camera` to
+the same camera used during RQ1 calibration.
+
 **Config pool keys:**
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `nn_threshold` | float | 0.5 | NN distance threshold (memory-bank detector) |
-| `nll_sigma` | float | 3.0 | Sensitivity multiplier for density-model threshold (`threshold = mean_train_nll + nll_sigma × std_train_nll`). Stackfile-configurable; higher values are more permissive. |
+| `nll_threshold` | float | 5.0 | Direct NLL threshold (set via EER calibration). Used when `nll_sigma` ≤ 0. |
+| `nll_sigma` | float | 3.0 | σ multiplier. Set to 0 to use `nll_threshold` directly (EER mode). |
 | `temporal_smoothing_frames` | int | 3 | Consecutive abnormal observations required before an OOD REJECT is surfaced through the boundary callback. Use 1 to disable smoothing. |
 | `ood_model_path` | str | None | Path to feature extractor weights |
 | `bank_path` | str | None | Path to memory bank `.npy` file |
+| `vision_model` | str | None | HuggingFace vision backbone (e.g. `mobilenet_v3_small`) |
+| `vision_weight` | float | 0.3 | Vision feature weight in fused embedding (0.0–1.0) |
+| `vision_camera` | str | None | Camera image key used for vision features (for example `top`) |
 
 ---
 

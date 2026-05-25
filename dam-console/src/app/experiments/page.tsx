@@ -93,7 +93,10 @@ function visibleArtifacts(result: ExperimentResult | null): string[] {
 }
 
 function L0CalibrationSummary({ summary }: { summary: Record<string, unknown> }) {
-  const nllThreshold = asNumber(summary.nll_threshold);
+  const nllThreshold = asNumber(summary.eer_threshold) ?? asNumber(summary.nll_threshold);
+  const thresholdMethod = String(summary.threshold_method ?? "train sigma");
+  const auroc = asNumber(summary.auroc);
+  const calibrationEer = asNumber(summary.eer);
   const datasetStats = summary.dataset_stats as Record<string, { samples?: number; median?: number; p95?: number; repo_id?: string }> | undefined;
   const methodStats = summary.method_stats as Record<string, Record<string, { samples?: number; median?: number; p95?: number; score_name?: string }>> | undefined;
   const normalFprNll = asNumber(summary.normal_fpr_at_threshold);
@@ -104,9 +107,13 @@ function L0CalibrationSummary({ summary }: { summary: Record<string, unknown> })
   const featureSources = Array.isArray(summary.feature_sources)
     ? summary.feature_sources.map(String)
     : [];
-  const ignoredFields = Array.isArray(summary.not_consumed_fields)
-    ? summary.not_consumed_fields.map(String)
+  const notScoredFields = Array.isArray(summary.not_scored_fields)
+    ? summary.not_scored_fields.map(String)
+    : Array.isArray(summary.not_consumed_fields)
+      ? summary.not_consumed_fields.map(String)
     : [];
+  const runtimeModelPath = typeof summary.runtime_model_path === "string" ? summary.runtime_model_path : null;
+  const runtimeFlowPath = typeof summary.runtime_flow_path === "string" ? summary.runtime_flow_path : null;
   const visionFrames = summary.vision_frames_attached as Record<string, number> | null | undefined;
   const visionCandidates = summary.vision_candidate_frames as Record<string, number> | null | undefined;
 
@@ -115,7 +122,9 @@ function L0CalibrationSummary({ summary }: { summary: Record<string, unknown> })
       <div className="space-y-3">
         <div className="bg-dam-surface-2 border border-dam-border rounded-lg px-3 py-2 flex flex-wrap items-center gap-3 text-[11px]">
           <span className="font-mono text-dam-accent">Real-NVP</span>
-          <span className="text-dam-muted font-mono">threshold={nllThreshold.toFixed(4)}</span>
+          <span className="text-dam-muted font-mono">{thresholdMethod} threshold={nllThreshold.toFixed(4)}</span>
+          {auroc !== null && <span className="text-dam-muted font-mono">AUROC={auroc.toFixed(4)}</span>}
+          {calibrationEer !== null && <span className="text-dam-muted font-mono">EER={calibrationEer.toFixed(4)}</span>}
           {trainObsNll !== null && <span className="text-dam-muted">{trainObsNll.toLocaleString()} train obs</span>}
           {compareMethods && <span className="text-dam-blue font-mono">method comparison enabled</span>}
         </div>
@@ -125,8 +134,8 @@ function L0CalibrationSummary({ summary }: { summary: Record<string, unknown> })
             <div className="flex flex-wrap gap-x-4 gap-y-1">
               <span className="text-dam-muted">Signals</span>
               <span className="font-mono text-dam-text">{featureSources.join(" + ")}</span>
-              {ignoredFields.length > 0 && (
-                <span className="font-mono text-amber-400">not scored: {ignoredFields.join(", ")}</span>
+              {notScoredFields.length > 0 && (
+                <span className="font-mono text-amber-400">not scored: {notScoredFields.join(", ")}</span>
               )}
             </div>
             {visionFrames && visionCandidates && (
@@ -136,6 +145,18 @@ function L0CalibrationSummary({ summary }: { summary: Record<string, unknown> })
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {runtimeModelPath && (
+          <div className="bg-dam-surface-2 border border-dam-border rounded-lg px-3 py-2 text-[11px]">
+            <p className="section-label mb-1">Stackfile Model</p>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono">
+              <span className="text-dam-text">ood_model_path: {runtimeModelPath}</span>
+              <span className="text-dam-muted">nll_sigma: 0</span>
+              <span className="text-dam-muted">nll_threshold: {nllThreshold.toFixed(4)}</span>
+            </div>
+            {runtimeFlowPath && <p className="mt-1 font-mono text-dam-muted">flow: {runtimeFlowPath}</p>}
           </div>
         )}
 

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import logging
 import sys
 import time
 from pathlib import Path
@@ -53,6 +54,9 @@ from scripts._bench_stackfiles import (
 from scripts._bench_stackfiles import (
     build_runtime as _build_runtime,
 )
+from scripts._experiment_logging import configure_cli_logging
+
+LOGGER = logging.getLogger(__name__)
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -128,7 +132,7 @@ def scan_l1_joint_offset(trials: int) -> list[dict]:
                 "interception_rate": intercepted / trials,
             }
         )
-        print(f"  L1-A σ={sigma:.2f}  intercepted={intercepted}/{trials}")
+        LOGGER.info("L1-A sigma=%.2f intercepted=%d/%d", sigma, intercepted, trials)
     return rows
 
 
@@ -166,7 +170,7 @@ def scan_l1_velocity_scale(trials: int) -> list[dict]:
                 "interception_rate": intercepted / trials,
             }
         )
-        print(f"  L1-B k={k:.2f}  intercepted={intercepted}/{trials}")
+        LOGGER.info("L1-B k=%.2f intercepted=%d/%d", k, intercepted, trials)
     return rows
 
 
@@ -234,7 +238,7 @@ def scan_l2_collision_distance(trials: int) -> list[dict]:
                 "interception_rate": intercepted / trials,
             }
         )
-        print(f"  L2-A d={d_cm:+.1f}cm  intercepted={intercepted}/{trials}")
+        LOGGER.info("L2-A d=%+.1fcm intercepted=%d/%d", d_cm, intercepted, trials)
     return rows
 
 
@@ -293,7 +297,7 @@ def scan_l2_timeout(trials: int) -> list[dict]:
                 "interception_rate": intercepted / trials,
             }
         )
-        print(f"  L2-B ratio={ratio:.2f}×T  intercepted={intercepted}/{trials}")
+        LOGGER.info("L2-B ratio=%.2f*T intercepted=%d/%d", ratio, intercepted, trials)
     return rows
 
 
@@ -307,7 +311,7 @@ def write_csv(rows: list[dict], path: Path) -> None:
         writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
         writer.writeheader()
         writer.writerows(rows)
-    print(f"CSV saved: {path}")
+    LOGGER.info("CSV saved: %s", path)
 
 
 def plot_results(rows: list[dict], outdir: Path) -> None:
@@ -317,7 +321,7 @@ def plot_results(rows: list[dict], outdir: Path) -> None:
         matplotlib.use("Agg", force=True)
         import matplotlib.pyplot as plt
     except ImportError:
-        print("matplotlib not installed — skipping plot generation.")
+        LOGGER.warning("matplotlib not installed; skipping plot generation.")
         return
 
     scenarios = {}
@@ -344,7 +348,7 @@ def plot_results(rows: list[dict], outdir: Path) -> None:
     fig.tight_layout()
     out = outdir / "boundary_scan.png"
     fig.savefig(out, dpi=150)
-    print(f"Plot saved: {out}")
+    LOGGER.info("Plot saved: %s", out)
     plt.close(fig)
 
 
@@ -371,7 +375,7 @@ def _process_scenario(name: str, data: list[dict]) -> None:
     x50_s = "N/A" if x50 is None else f"{x50:.4f}"
     x90_s = "N/A" if x90 is None else f"{x90:.4f}"
     steep_s = "N/A" if steepness is None else f"{steepness:.4f}"
-    print(f"  {name:<35}  x50={x50_s:>8}  x90={x90_s:>8}  steepness={steep_s:>8}")
+    LOGGER.info("%s x50=%s x90=%s steepness=%s", name, x50_s, x90_s, steep_s)
 
 
 def compute_summary(rows: list[dict]) -> None:
@@ -380,7 +384,7 @@ def compute_summary(rows: list[dict]) -> None:
     for r in rows:
         scenarios.setdefault(r["scenario"], []).append(r)
 
-    print("\n── Summary ──────────────────────────────")
+    LOGGER.info("Boundary scan summary")
     for name, data in scenarios.items():
         _process_scenario(name, data)
 
@@ -389,6 +393,7 @@ def compute_summary(rows: list[dict]) -> None:
 
 
 def main() -> None:
+    configure_cli_logging()
     parser = argparse.ArgumentParser(description="DAM Experiment 1 — Boundary Precision Scan")
     parser.add_argument("--trials", type=int, default=20, help="Trials per (scenario, level)")
     parser.add_argument("--outdir", type=str, default="data/exp1_boundary_scan")
@@ -399,16 +404,16 @@ def main() -> None:
 
     all_rows: list[dict] = []
 
-    print("=== L1-A: Joint Angle Offset ===")
+    LOGGER.info("L1-A: Joint Angle Offset")
     all_rows += scan_l1_joint_offset(args.trials)
 
-    print("=== L1-B: Velocity Scale ===")
+    LOGGER.info("L1-B: Velocity Scale")
     all_rows += scan_l1_velocity_scale(args.trials)
 
-    print("=== L2-A: Collision Distance ===")
+    LOGGER.info("L2-A: Collision Distance")
     all_rows += scan_l2_collision_distance(args.trials)
 
-    print("=== L2-B: Timeout Trigger ===")
+    LOGGER.info("L2-B: Timeout Trigger")
     all_rows += scan_l2_timeout(args.trials)
 
     write_csv(all_rows, outdir / "results.csv")
@@ -416,7 +421,7 @@ def main() -> None:
     compute_summary(all_rows)
 
     total = sum(r["trials"] for r in all_rows)
-    print(f"\nDone. Total trials: {total}")
+    LOGGER.info("Boundary scan done: total_trials=%d", total)
 
 
 if __name__ == "__main__":

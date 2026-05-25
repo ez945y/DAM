@@ -181,6 +181,9 @@ class MemoryBankBackend:
         return {
             "bank_trained": self._bank.is_trained,
             "bank_size": self._bank.size,
+            "bank_dim": (
+                int(self._bank._vectors.shape[1]) if self._bank._vectors is not None else None
+            ),
             "bank_backend": self._bank._backend,  # noqa: SLF001 — diagnostics surface
         }
 
@@ -243,7 +246,14 @@ class RealNVPFlowBackend:
         self.std_train_nll = float(np.std(train_nlls))
 
     def threshold(self, *, nll_sigma: float, nll_threshold: float) -> float:
-        """Effective cutoff: mean + σ·std when training stats exist, else direct."""
+        """Effective cutoff.
+
+        When nll_sigma <= 0, uses nll_threshold directly (EER-calibrated mode).
+        When nll_sigma > 0 and training stats exist, uses mean + σ·std.
+        Otherwise falls back to nll_threshold.
+        """
+        if nll_sigma <= 0:
+            return nll_threshold
         if self.mean_train_nll is not None and self.std_train_nll is not None:
             return self.mean_train_nll + nll_sigma * self.std_train_nll
         return nll_threshold

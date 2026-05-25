@@ -316,7 +316,7 @@ class FeatureExtractor:
 
 
 class MemoryBank:
-    """Stores L2-normalised 128-dim z-vectors; queries nearest-neighbour distance.
+    """Stores L2-normalised embedding vectors; queries nearest-neighbour distance.
 
     Backend priority:
         1. FAISS (faiss-cpu/faiss-gpu)  — fastest for large banks
@@ -327,7 +327,7 @@ class MemoryBank:
     """
 
     def __init__(self) -> None:
-        self._vectors: np.ndarray | None = None  # shape (N, 128)
+        self._vectors: np.ndarray | None = None  # shape (N, embedding_dim)
         self._tree: Any | None = None  # scipy KDTree | faiss index
         self._backend: str = "none"
         self._n_vectors: int = 0
@@ -341,10 +341,9 @@ class MemoryBank:
         return self._n_vectors
 
     def train(self, vectors: np.ndarray) -> None:
-        """Build the bank from an (N, 128) float32 array."""
-        assert vectors.ndim == 2 and vectors.shape[1] == _EMBED_DIM, (
-            f"Expected (N, {_EMBED_DIM}), got {vectors.shape}"
-        )
+        """Build the bank from an (N, embedding_dim) float32 array."""
+        if vectors.ndim != 2 or vectors.shape[1] == 0:
+            raise ValueError(f"Expected (N, embedding_dim), got {vectors.shape}")
         self._vectors = vectors.astype(np.float32)
         self._n_vectors = len(vectors)
         self._build_index()
@@ -380,6 +379,11 @@ class MemoryBank:
         if not self.is_trained:
             return 0.0
         z32 = z.astype(np.float32)
+        assert self._vectors is not None
+        if z32.ndim != 1 or z32.shape[0] != self._vectors.shape[1]:
+            raise ValueError(
+                f"Expected query embedding dimension {self._vectors.shape[1]}, got {z32.shape}"
+            )
 
         if self._backend == "faiss":
             q = z32.reshape(1, -1)
@@ -391,7 +395,6 @@ class MemoryBank:
             return float(dist)
 
         # Brute force
-        assert self._vectors is not None
         diffs = self._vectors - z32[np.newaxis, :]
         dists = np.linalg.norm(diffs, axis=1)
         return float(np.min(dists))
@@ -579,12 +582,12 @@ class RealNVPFlow:
                 total_loss += loss.item()
                 n_batches += 1
             if verbose and ((epoch + 1) == 1 or (epoch + 1) % 5 == 0 or (epoch + 1) == epochs):
-                message = (
-                    f"  Real-NVP epoch {epoch + 1}/{epochs}  "
-                    f"loss={total_loss / max(n_batches, 1):.4f}"
+                logger.info(
+                    "Real-NVP epoch %d/%d loss=%.4f",
+                    epoch + 1,
+                    epochs,
+                    total_loss / max(n_batches, 1),
                 )
-                print(message, flush=True)
-                logger.info(message.strip())
 
         self._model.eval()
         self._is_fitted = True
@@ -911,6 +914,7 @@ class OODGuard(Guard):
         device: str,
         vision_model: str | None = None,
         vision_weight: float = 0.3,
+        vision_camera: str | None = None,
     ) -> Any:
         """Synthesize a SingleNodeContainer wired to the callback matching
         ``self._kind``. Used when no stackfile-provided container is active
@@ -933,6 +937,8 @@ class OODGuard(Guard):
         if vision_model:
             params["vision_model"] = vision_model
             params["vision_weight"] = vision_weight
+            if vision_camera:
+                params["vision_camera"] = vision_camera
         node = BoundaryNode(
             node_id=f"ood_default/{callback_name}",
             constraint=BoundaryConstraint(callback=callback_name, params=params),
@@ -1009,6 +1015,7 @@ class OODGuard(Guard):
         temporal_smoothing_frames: int = 1,
         vision_model: str | None = None,
         vision_weight: float = 0.3,
+        vision_camera: str | None = None,
     ) -> GuardResult:
         layer = self.get_layer()
         name = self.get_name()
@@ -1026,6 +1033,7 @@ class OODGuard(Guard):
                 device=device,
                 vision_model=vision_model,
                 vision_weight=vision_weight,
+                vision_camera=vision_camera,
             )
         ]
         if not active_containers:

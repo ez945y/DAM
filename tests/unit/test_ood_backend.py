@@ -95,6 +95,18 @@ def test_memory_bank_train_score_ready() -> None:
     assert b.diagnostics()["bank_size"] == 50
 
 
+def test_memory_bank_scores_fused_vision_embeddings() -> None:
+    rng = np.random.RandomState(1)
+    vectors = rng.randn(20, 256).astype(np.float32)
+    vectors /= np.linalg.norm(vectors, axis=1, keepdims=True)
+    b = MemoryBankBackend()
+
+    b.train(vectors)
+
+    assert b.score(vectors[0]) < 1e-4
+    assert b.diagnostics()["bank_dim"] == 256
+
+
 # ── RealNVP flow ──────────────────────────────────────────────────────────────
 
 

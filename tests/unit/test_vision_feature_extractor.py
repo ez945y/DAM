@@ -112,3 +112,35 @@ class TestOODContextVision:
         z = ctx.features(dummy_obs_with_image)
         # joint=128, vision after PCA=64, padded to 128 → concat = 256
         assert z.shape[0] == 256
+
+    def test_features_batch_matches_single_extraction(self, dummy_obs_with_image):
+        class FakeVisionExtractor:
+            def extract(self, images):
+                return np.tile(np.arange(576, dtype=np.float32), (len(images), 1))
+
+            def extract_single(self, image):
+                return self.extract(image[np.newaxis])[0]
+
+        ctx = OODContext()
+        ctx._vision_extractor = FakeVisionExtractor()
+        ctx._vision_weight = 0.3
+        observations = [dummy_obs_with_image, dummy_obs_with_image]
+
+        expected = np.stack([ctx.features(obs) for obs in observations], axis=0)
+        actual = ctx.features_batch(observations, vision_batch_size=2)
+
+        np.testing.assert_allclose(actual, expected, atol=1e-6)
+
+    def test_configured_camera_selects_matching_image(self):
+        ctx = OODContext()
+        ctx._vision_camera = "top"
+        obs = Observation(
+            timestamp=0.0,
+            joint_positions=np.zeros(6),
+            images={
+                "wrist": np.zeros((2, 2, 3), dtype=np.uint8),
+                "top": np.ones((2, 2, 3), dtype=np.uint8),
+            },
+        )
+
+        np.testing.assert_array_equal(ctx._select_vision_image(obs), obs.images["top"])

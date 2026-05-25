@@ -102,6 +102,20 @@ boundaries:
           cbf_gamma: 1.0
           qp_solver: proxsuite
           slack_weight: 100000000
+  ood_perception:
+    layer: L0
+    type: single
+    nodes:
+      - callback: ood_normalizing_flow
+        fallback: hold_position
+        params:
+          ood_model_path: data/ood_models/ood_model.pt
+          nll_sigma: 0
+          nll_threshold: -524.3279  # EER threshold from exported RQ1 bundle.
+          vision_model: mobilenet_v3_large  # Match the default RQ1 exported bundle.
+          vision_weight: 0.3
+          vision_camera: top
+          temporal_smoothing_frames: 3
   hardware_watchdog:
     layer: L3
     type: single
@@ -116,7 +130,7 @@ boundaries:
 tasks:
   soarm101:
     description: "QP-protected motion"
-    boundaries: [workspace, joint_position_limits, joint_velocity_limit, hardware_watchdog]
+    boundaries: [ood_perception, workspace, joint_position_limits, joint_velocity_limit, hardware_watchdog]
 
 loopback:
   backend: mcap

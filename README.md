@@ -27,6 +27,7 @@ This design keeps safety boundaries explicit while leaving the learning/policy l
 - **Stackfile-driven config**: Robots, policies, guards, boundaries, and tasks are YAML-defined and validated via `dam validate`.
 - **MCAP loopback logging**: Records observations, actions, guard decisions, and safety events for replay and review.
 - **Cycle inspection**: Audits control loops with guard decisions, latency, and observation/action context in the console.
+- **Research experiments**: Runs RQ1-RQ5 from the console or CLI with reproducible result artifacts and unified progress logs.
 - **Predictable runtime path**: Keeps high-volume logging and messaging off the policy path for steadier control-loop timing.
 - **Adapter isolation**: Swaps LeRobot, ROS 2, dataset, or custom adapters without changing guard logic.
 
@@ -74,6 +75,28 @@ After starting, open **http://localhost:3000** in your browser and use the conso
 to inspect guard decisions, latency, and runtime status. Start with
 `examples/stackfiles/demo.yaml` before moving to SO-ARM101 hardware or a custom
 Stackfile.
+
+### Experiments
+
+The **Experiments** page runs the thesis evaluation suite (RQ1-RQ5) and previews
+the generated plots. RQ1 evaluates normal, legal-variation, and abnormal
+observation sequences with Real-NVP NLL by default; the optional comparison runs
+MemoryBank and Welford scores beside it. When vision is enabled in the console,
+RQ1 defaults to MobileNetV3 features fused with robot state.
+
+```bash
+.venv/bin/dam experiment list
+.venv/bin/dam experiment run l0-calibration
+```
+
+RQ1 caches loaded datasets, extracted embeddings, and trained Real-NVP models.
+Running the same datasets and feature/model configuration again reuses those
+artifacts instead of decoding frames or retraining. Experiment progress is
+reported through the same timestamped logger used by the application host.
+The calibrated RQ1 extractor and Real-NVP flow are also published to
+`data/ood_models/ood_model.pt` and `data/ood_models/ood_model_flow.pt`, the
+same model location used by the SO-ARM runtime Stackfile.
+See [Experiment Runners](docs/experiments.md) for parameters and output details.
 
 ---
 

@@ -136,6 +136,7 @@ class VisionFeatureExtractor:
         import torch.nn.functional as F
 
         img_t = torch.from_numpy(images).to(self._device).permute(0, 3, 1, 2).float() / 255.0
+        img_t = F.interpolate(img_t, size=(224, 224), mode="bilinear", align_corners=False)
         img_t = (img_t - self._mean) / self._std
 
         with torch.no_grad():

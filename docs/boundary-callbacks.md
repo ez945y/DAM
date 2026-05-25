@@ -60,9 +60,22 @@ Return False if the observation is flagged as out-of-distribution.
 | `ood_model_path` | `""` | Path to the OOD model |
 | `bank_path` | `""` | Path to the memory bank |
 | `nn_threshold` | `2.0` | Nearest-neighbour threshold |
-| `nll_threshold` | `5.0` | NLL threshold |
+| `nll_threshold` | `5.0` | NLL threshold (set via EER calibration) |
 | `backend` | `"memory_bank"` | OOD backend |
 | `temporal_smoothing_frames` | `3` | Consecutive abnormal frames required before REJECT |
+| `vision_model` | `""` | HuggingFace vision backbone (`mobilenet_v3_small`, `mobilenet_v3_large`) |
+| `vision_weight` | `0.3` | Weight of vision features in fused embedding (0.0–1.0) |
+| `vision_camera` | `""` | Camera key to score; set this to match RQ1 (for example `top`) |
+
+When `vision_model` is set, the callback fuses joint embeddings (128-dim) with vision
+embeddings (128-dim, truncated from the backbone output) into a 256-dim vector weighted
+by `vision_weight`, using `vision_camera` when configured. This enables cross-scene OOD detection while preserving joint-level
+sensitivity. Use `scripts/run_l0_calibration.py` with `--vision-model` to determine
+the optimal `nll_threshold` (τ*) via Equal Error Rate calibration.
+
+To use an EER-calibrated threshold, set `nll_sigma: 0` and `nll_threshold: <τ*>` in
+the stackfile. When `nll_sigma` is 0, the σ-based heuristic is bypassed and
+`nll_threshold` is used directly as the decision boundary.
 
 ---
 

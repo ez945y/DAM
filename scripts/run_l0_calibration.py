@@ -22,7 +22,9 @@ import argparse
 import csv
 import hashlib
 import json
+import logging
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -36,12 +38,17 @@ from dam.guard.ood_backend import MemoryBankBackend, OODBackend, RealNVPFlowBack
 from dam.guard.ood_context import OODContext
 from dam.types.observation import Observation
 from dam.types.result import GuardDecision
+from scripts._experiment_logging import configure_cli_logging
+
+LOGGER = logging.getLogger(__name__)
 
 _DEFAULT_NORMAL_REPO = "MikeChenYZ/soarm-fmb-v2"
 _DEFAULT_LEGAL_REPO = "MikeChenYZ/eval_soarm_fmb"
 _DEFAULT_ANOMALY_REPO = "MikeChenYZ/soarm-recover-failure"
 _DEFAULT_SESSIONS_DIR = "data/robot/sessions"
 _DEFAULT_CACHE_DIR = "data/experiments/l0_calibration/cache"
+_DEFAULT_RUNTIME_MODEL_PATH = "data/ood_models/ood_model.pt"
+_FEATURE_CACHE_VERSION = 4
 
 # Physical limits for OOD scenario generation
 _N_JOINTS = 6
@@ -230,7 +237,7 @@ def load_observations_from_hf_cached(
             degrees_to_radians=degrees_to_radians,
         )
         if path.is_file():
-            print(f"  Dataset cache hit: {repo_id} -> {path}", flush=True)
+            LOGGER.info("Dataset cache hit: %s -> %s", repo_id, path)
             return _load_observation_cache(path)
 
     by_episode = load_observations_from_hf(
@@ -241,7 +248,7 @@ def load_observations_from_hf_cached(
     )
     if cache_dir:
         _save_observation_cache(path, by_episode)
-        print(f"  Dataset cache saved: {repo_id} -> {path}", flush=True)
+        LOGGER.info("Dataset cache saved: %s -> %s", repo_id, path)
     return by_episode
 
 
@@ -314,8 +321,7 @@ def _flatten_episode_obs(
 def _vectors_for_observations(
     context: OODContext, labelled_obs: list[tuple[int, int, Observation]]
 ) -> np.ndarray:
-    vectors = np.stack([context.features(obs) for _, _, obs in labelled_obs], axis=0)
-    return vectors
+    return context.features_batch([obs for _, _, obs in labelled_obs])
 
 
 def _score_backend(backend: OODBackend, vectors: np.ndarray) -> np.ndarray:
@@ -395,6 +401,161 @@ def _flow_cache_path(
     return Path(cache_dir) / "models" / f"{key}.flow.pt"
 
 
+def _feature_cache_path(
+    cache_dir: str | Path,
+    *,
+    normal_repo_id: str,
+    legal_repo_id: str,
+    anomaly_repo_id: str,
+    max_observations_per_dataset: int | None,
+    feature_config: dict[str, object],
+) -> Path:
+    key = _cache_key(
+        {
+            "kind": "rq1_features",
+            "version": _FEATURE_CACHE_VERSION,
+            "normal_repo_id": normal_repo_id,
+            "legal_repo_id": legal_repo_id,
+            "anomaly_repo_id": anomaly_repo_id,
+            "max_observations_per_dataset": max_observations_per_dataset,
+            "feature_config": feature_config,
+        }
+    )
+    return Path(cache_dir) / "features" / f"{key}.npz"
+
+
+def _feature_extractor_cache_path(feature_path: Path) -> Path:
+    return feature_path.with_suffix(".extractor.pt")
+
+
+def _feature_cache_ready_for_run(feature_path: Path | None, runtime_model_path: str | None) -> bool:
+    if feature_path is None or not feature_path.is_file():
+        return False
+    return not runtime_model_path or _feature_extractor_cache_path(feature_path).is_file()
+
+
+def _save_feature_cache(
+    path: Path,
+    *,
+    train_vectors: np.ndarray,
+    eval_vectors: dict[str, np.ndarray],
+    kept_indices: dict[str, np.ndarray],
+    vision_frames: dict[str, int] | None,
+    vision_candidates: dict[str, int] | None,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        path,
+        train_vectors=train_vectors,
+        normal_test_vectors=eval_vectors["normal_test"],
+        legal_variation_vectors=eval_vectors["legal_variation"],
+        abnormal_a_vectors=eval_vectors["abnormal_a"],
+        train_indices=kept_indices["train"],
+        normal_test_indices=kept_indices["normal_test"],
+        legal_variation_indices=kept_indices["legal_variation"],
+        abnormal_a_indices=kept_indices["abnormal_a"],
+        vision_frames=json.dumps(vision_frames),
+        vision_candidates=json.dumps(vision_candidates),
+    )
+
+
+def _load_feature_cache(
+    path: Path,
+) -> tuple[np.ndarray, dict[str, np.ndarray], dict[str, np.ndarray], dict | None, dict | None]:
+    data = np.load(path)
+    return (
+        data["train_vectors"],
+        {
+            "normal_test": data["normal_test_vectors"],
+            "legal_variation": data["legal_variation_vectors"],
+            "abnormal_a": data["abnormal_a_vectors"],
+        },
+        {
+            "train": data["train_indices"],
+            "normal_test": data["normal_test_indices"],
+            "legal_variation": data["legal_variation_indices"],
+            "abnormal_a": data["abnormal_a_indices"],
+        },
+        json.loads(str(data["vision_frames"])),
+        json.loads(str(data["vision_candidates"])),
+    )
+
+
+def _flow_path_for_runtime_model(model_path: Path) -> Path:
+    if model_path.suffix == ".pt":
+        return model_path.with_name(f"{model_path.stem}_flow.pt")
+    return Path(f"{model_path}_flow.pt")
+
+
+def _export_runtime_bundle(
+    *,
+    backend: RealNVPFlowBackend,
+    runtime_model_path: str | Path,
+    extractor: object | None,
+    extractor_source_path: Path | None,
+    eer_threshold: float,
+    feature_config: dict[str, object],
+    normal_repo_id: str,
+    legal_repo_id: str,
+    anomaly_repo_id: str,
+) -> dict[str, object]:
+    model_path = Path(runtime_model_path)
+    flow_path = _flow_path_for_runtime_model(model_path)
+    metadata_path = model_path.with_suffix(".json")
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if extractor_source_path is not None and extractor_source_path.is_file():
+        shutil.copy2(extractor_source_path, model_path)
+    elif extractor is not None:
+        extractor.save(str(model_path))  # type: ignore[attr-defined]
+    else:
+        raise RuntimeError("Runtime export requires the cached feature extractor sidecar.")
+    if not model_path.is_file():
+        raise RuntimeError("Runtime export requires a persisted feature extractor checkpoint.")
+
+    backend.save(flow_path)
+    if not flow_path.is_file():
+        raise RuntimeError("Runtime export requires a persisted Real-NVP flow checkpoint.")
+
+    stackfile_params: dict[str, object] = {
+        "ood_model_path": str(model_path),
+        "nll_sigma": 0,
+        "nll_threshold": round(float(eer_threshold), 4),
+    }
+    if feature_config.get("vision_model"):
+        stackfile_params.update(
+            {
+                "vision_model": feature_config["vision_model"],
+                "vision_weight": feature_config["vision_weight"],
+            }
+        )
+        if feature_config.get("vision_camera"):
+            stackfile_params["vision_camera"] = feature_config["vision_camera"]
+    metadata = {
+        "backend": "normalizing_flow",
+        "flow_path": str(flow_path),
+        "feature_config": feature_config,
+        "normal_repo_id": normal_repo_id,
+        "legal_repo_id": legal_repo_id,
+        "anomaly_repo_id": anomaly_repo_id,
+        "stackfile_params": stackfile_params,
+    }
+    with open(metadata_path, "w") as f:
+        json.dump(metadata, f, indent=2)
+    LOGGER.info(
+        "Runtime OOD bundle exported: model=%s flow=%s metadata=%s",
+        model_path,
+        flow_path,
+        metadata_path,
+    )
+    return {
+        "runtime_model_path": str(model_path),
+        "runtime_flow_path": str(flow_path),
+        "runtime_metadata_path": str(metadata_path),
+        "stackfile_params": stackfile_params,
+    }
+
+
 def _fit_or_load_real_nvp(
     backend: RealNVPFlowBackend,
     train_vectors: np.ndarray,
@@ -416,7 +577,7 @@ def _fit_or_load_real_nvp(
             feature_config=feature_config,
         )
         if flow_path.is_file():
-            print(f"  Real-NVP model cache hit: {flow_path}", flush=True)
+            LOGGER.info("Real-NVP model cache hit: %s", flow_path)
             backend.load(flow_path)
             return (
                 float(backend.mean_train_nll or 0.0),
@@ -424,9 +585,10 @@ def _fit_or_load_real_nvp(
                 True,
             )
 
-    print(
-        f"  Training Real-NVP on {len(train_vectors)} normal frames for {flow_epochs} epochs...",
-        flush=True,
+    LOGGER.info(
+        "Training Real-NVP on %d normal frames for %d epochs...",
+        len(train_vectors),
+        flow_epochs,
     )
     backend.train(train_vectors, epochs=flow_epochs, verbose=True)
     mean_nll = float(backend.mean_train_nll or 0.0)
@@ -434,7 +596,7 @@ def _fit_or_load_real_nvp(
     if flow_path is not None:
         flow_path.parent.mkdir(parents=True, exist_ok=True)
         backend.save(flow_path)
-        print(f"  Real-NVP model cache saved: {flow_path}", flush=True)
+        LOGGER.info("Real-NVP model cache saved: %s", flow_path)
     return mean_nll, std_nll, False
 
 
@@ -450,6 +612,50 @@ def _summarise_scores(values: np.ndarray) -> dict[str, float | int]:
         "p95": round(float(np.percentile(values, 95)), 4),
         "min": round(float(np.min(values)), 4),
         "max": round(float(np.max(values)), 4),
+    }
+
+
+def _compute_roc_and_eer(
+    normal_scores: np.ndarray,
+    anomaly_scores: np.ndarray,
+    n_thresholds: int = 500,
+) -> dict:
+    """Compute ROC curve, AUROC, and EER threshold from normal vs anomaly scores.
+
+    Higher score → more likely OOD (anomalous).
+    Returns dict with fpr, tpr, auroc, eer, eer_threshold.
+    """
+    all_scores = np.concatenate([normal_scores, anomaly_scores])
+    thresholds = np.linspace(float(all_scores.min()), float(all_scores.max()), n_thresholds)
+
+    fpr_list = []
+    tpr_list = []
+    for t in thresholds:
+        fpr_list.append(float(np.mean(normal_scores > t)))
+        tpr_list.append(float(np.mean(anomaly_scores > t)))
+
+    fpr_arr = np.array(fpr_list)
+    tpr_arr = np.array(tpr_list)
+
+    # AUROC via trapezoidal integration (FPR descending, TPR descending)
+    sorted_idx = np.argsort(fpr_arr)
+    auroc = float(np.trapezoid(tpr_arr[sorted_idx], fpr_arr[sorted_idx]))
+    auroc = abs(auroc)
+
+    # EER: where FPR ≈ FNR (i.e., FPR ≈ 1 - TPR)
+    fnr_arr = 1.0 - tpr_arr
+    eer_idx = int(np.argmin(np.abs(fpr_arr - fnr_arr)))
+    eer = float((fpr_arr[eer_idx] + fnr_arr[eer_idx]) / 2.0)
+    eer_threshold = float(thresholds[eer_idx])
+
+    # Subsample ROC curve for storage (keep ~50 points)
+    step = max(1, n_thresholds // 50)
+    return {
+        "fpr": fpr_arr[::step].tolist(),
+        "tpr": tpr_arr[::step].tolist(),
+        "auroc": auroc,
+        "eer": eer,
+        "eer_threshold": eer_threshold,
     }
 
 
@@ -501,7 +707,7 @@ def _attach_vision_frames(
     """
     from dam.guard.lerobot_video_loader import LeRobotVideoLoader
 
-    print(f"  Loading {label} video frames ({repo_id}, camera={camera})...", flush=True)
+    LOGGER.info("Loading %s video frames (%s, camera=%s)...", label, repo_id, camera)
     loader = LeRobotVideoLoader(repo_id, camera=camera)
 
     obs_idx = 0
@@ -510,7 +716,7 @@ def _attach_vision_frames(
         try:
             frames = loader.load_episode_frames(ep_id, subsample=subsample)
         except Exception as exc:
-            print(f"    Warning: could not load video for episode {ep_id}: {exc}")
+            LOGGER.warning("Could not load video for episode %s: %s", ep_id, exc)
             obs_idx += len(ep_obs)
             continue
 
@@ -533,7 +739,7 @@ def _attach_vision_frames(
             obs_idx += 1
 
     n_with_images = sum(1 for o in obs_list if o.images is not None)
-    print(f"    Attached images to {n_with_images}/{len(obs_list)} observations")
+    LOGGER.info("Attached images for %s: %d/%d observations", label, n_with_images, len(obs_list))
     return n_with_images
 
 
@@ -549,7 +755,7 @@ def _attach_vision_frames_labelled(
     """Attach video frames to labelled observation tuples."""
     from dam.guard.lerobot_video_loader import LeRobotVideoLoader
 
-    print(f"  Loading {label} video frames ({repo_id}, camera={camera})...", flush=True)
+    LOGGER.info("Loading %s video frames (%s, camera=%s)...", label, repo_id, camera)
     loader = LeRobotVideoLoader(repo_id, camera=camera)
 
     frames_by_episode: dict[int, list[np.ndarray]] = {}
@@ -557,7 +763,7 @@ def _attach_vision_frames_labelled(
         try:
             frames_by_episode[ep_id] = loader.load_episode_frames(ep_id, subsample=subsample)
         except Exception as exc:
-            print(f"    Warning: could not load video for episode {ep_id}: {exc}")
+            LOGGER.warning("Could not load video for episode %s: %s", ep_id, exc)
 
     n_attached = 0
     for i, (ep, frame_idx, obs) in enumerate(labelled):
@@ -579,7 +785,7 @@ def _attach_vision_frames_labelled(
             labelled[i] = (ep, frame_idx, new_obs)
             n_attached += 1
 
-    print(f"    Attached images to {n_attached}/{len(labelled)} observations")
+    LOGGER.info("Attached images for %s: %d/%d observations", label, n_attached, len(labelled))
     return n_attached
 
 
@@ -603,23 +809,24 @@ def run_calibration(
     vision_weight: float = 0.3,
     vision_camera: str = "top",
     vision_subsample: int = 30,
+    runtime_model_path: str | None = _DEFAULT_RUNTIME_MODEL_PATH,
 ) -> tuple[list[dict], dict]:
     rng = np.random.default_rng(seed)
     del ood_samples_per_scenario, n_thresholds, sessions_dir
 
-    print(f"  Loading normal dataset:        {normal_repo_id}")
+    LOGGER.info("Loading normal dataset: %s", normal_repo_id)
     normal_by_episode = load_observations_from_hf_cached(
         normal_repo_id,
         cache_dir=cache_dir,
         max_observations=max_observations_per_dataset,
     )
-    print(f"  Loading legal-variation set:   {legal_repo_id}")
+    LOGGER.info("Loading legal-variation set: %s", legal_repo_id)
     legal_by_episode = load_observations_from_hf_cached(
         legal_repo_id,
         cache_dir=cache_dir,
         max_observations=max_observations_per_dataset,
     )
-    print(f"  Loading abnormal-A dataset:    {anomaly_repo_id}")
+    LOGGER.info("Loading abnormal-A dataset: %s", anomaly_repo_id)
     anomaly_by_episode = load_observations_from_hf_cached(
         anomaly_repo_id,
         cache_dir=cache_dir,
@@ -650,91 +857,14 @@ def run_calibration(
     legal_labelled = _flatten_episode_obs(legal_by_episode)
     anomaly_labelled = _flatten_episode_obs(anomaly_by_episode)
 
-    print(
-        f"  Split: train={len(train_obs)}, normal_test={len(normal_labelled)}, "
-        f"legal_variation={len(legal_labelled)}, abnormal_a={len(anomaly_labelled)}"
+    LOGGER.info(
+        "Dataset split: train=%d normal_test=%d legal_variation=%d abnormal_a=%d",
+        len(train_obs),
+        len(normal_labelled),
+        len(legal_labelled),
+        len(anomaly_labelled),
     )
 
-    vision_frames: dict[str, int] | None = None
-    vision_candidates: dict[str, int] | None = None
-
-    # Vision mode evaluates only observations with an actual video frame. It
-    # must not compare image embeddings against zero-padded "missing image" rows.
-    if vision_model:
-        print(f"  Vision model: {vision_model} (weight={vision_weight}, camera={vision_camera})")
-        vision_candidates = {
-            "train": len(train_obs),
-            "normal_test": len(normal_labelled),
-            "legal_variation": len(legal_labelled),
-            "abnormal_a": len(anomaly_labelled),
-        }
-        vision_frames = {}
-        vision_frames["train"] = _attach_vision_frames(
-            normal_repo_id,
-            train_eps,
-            normal_by_episode,
-            train_obs,
-            vision_camera,
-            vision_subsample,
-            "train",
-        )
-        vision_frames["normal_test"] = _attach_vision_frames_labelled(
-            normal_repo_id,
-            normal_test_eps,
-            normal_by_episode,
-            normal_labelled,
-            vision_camera,
-            vision_subsample,
-            "normal_test",
-        )
-        vision_frames["legal_variation"] = _attach_vision_frames_labelled(
-            legal_repo_id,
-            sorted(legal_by_episode.keys()),
-            legal_by_episode,
-            legal_labelled,
-            vision_camera,
-            vision_subsample,
-            "legal_variation",
-        )
-        vision_frames["abnormal_a"] = _attach_vision_frames_labelled(
-            anomaly_repo_id,
-            sorted(anomaly_by_episode.keys()),
-            anomaly_by_episode,
-            anomaly_labelled,
-            vision_camera,
-            vision_subsample,
-            "abnormal_a",
-        )
-        train_obs = [obs for obs in train_obs if obs.images]
-        normal_labelled = [row for row in normal_labelled if row[2].images]
-        legal_labelled = [row for row in legal_labelled if row[2].images]
-        anomaly_labelled = [row for row in anomaly_labelled if row[2].images]
-        if not all((train_obs, normal_labelled, legal_labelled, anomaly_labelled)):
-            raise DatasetLoadError(
-                "Vision RQ1 requested, but one or more datasets provided no matching video "
-                "frames. Check the camera name and the dataset video assets."
-            )
-        print(
-            "  Vision scoring frames: "
-            + ", ".join(f"{name}={count}" for name, count in vision_frames.items()),
-            flush=True,
-        )
-
-    # FeatureExtractor contains an untrained projection; make the experiment
-    # deterministic so equal inputs resolve to the same cached flow model.
-    try:
-        import torch
-
-        torch.manual_seed(seed)
-    except ImportError:
-        pass
-    context = OODContext()
-    if vision_model:
-        context.configure_vision(vision_model, vision_weight, device="cpu")
-
-    print("  Extracting train embeddings...", flush=True)
-    train_vectors = np.stack([context.features(obs) for obs in train_obs], axis=0)
-    flow_backend = RealNVPFlowBackend(device="cpu")
     feature_config: dict[str, object] = {
         "state": "observation.state",
         "feature_seed": seed,
@@ -743,6 +873,166 @@ def run_calibration(
         "vision_camera": vision_camera if vision_model else None,
         "vision_subsample": vision_subsample if vision_model else None,
     }
+    vision_frames: dict[str, int] | None = None
+    vision_candidates: dict[str, int] | None = None
+    runtime_extractor: object | None = None
+    runtime_extractor_source_path: Path | None = None
+    feature_path = (
+        _feature_cache_path(
+            cache_dir,
+            normal_repo_id=normal_repo_id,
+            legal_repo_id=legal_repo_id,
+            anomaly_repo_id=anomaly_repo_id,
+            max_observations_per_dataset=max_observations_per_dataset,
+            feature_config=feature_config,
+        )
+        if cache_dir
+        else None
+    )
+    feature_extractor_path = (
+        _feature_extractor_cache_path(feature_path) if feature_path is not None else None
+    )
+    kept_indices: dict[str, np.ndarray]
+    feature_cache_ready = _feature_cache_ready_for_run(feature_path, runtime_model_path)
+    if (
+        feature_path is not None
+        and feature_path.is_file()
+        and not feature_cache_ready
+        and runtime_model_path
+    ):
+        LOGGER.info("Embedding cache missing runtime extractor sidecar; refreshing embeddings.")
+    if feature_cache_ready:
+        assert feature_path is not None
+        LOGGER.info("Embedding cache hit: %s", feature_path)
+        train_vectors, eval_vectors, kept_indices, vision_frames, vision_candidates = (
+            _load_feature_cache(feature_path)
+        )
+        runtime_extractor_source_path = feature_extractor_path
+    else:
+        # Vision mode evaluates only observations with an actual video frame. It
+        # must not compare image embeddings against zero-padded missing-image rows.
+        if vision_model:
+            LOGGER.info(
+                "Vision model: %s (weight=%s, camera=%s)",
+                vision_model,
+                vision_weight,
+                vision_camera,
+            )
+            vision_candidates = {
+                "train": len(train_obs),
+                "normal_test": len(normal_labelled),
+                "legal_variation": len(legal_labelled),
+                "abnormal_a": len(anomaly_labelled),
+            }
+            vision_frames = {}
+            vision_frames["train"] = _attach_vision_frames(
+                normal_repo_id,
+                train_eps,
+                normal_by_episode,
+                train_obs,
+                vision_camera,
+                vision_subsample,
+                "train",
+            )
+            vision_frames["normal_test"] = _attach_vision_frames_labelled(
+                normal_repo_id,
+                normal_test_eps,
+                normal_by_episode,
+                normal_labelled,
+                vision_camera,
+                vision_subsample,
+                "normal_test",
+            )
+            vision_frames["legal_variation"] = _attach_vision_frames_labelled(
+                legal_repo_id,
+                sorted(legal_by_episode.keys()),
+                legal_by_episode,
+                legal_labelled,
+                vision_camera,
+                vision_subsample,
+                "legal_variation",
+            )
+            vision_frames["abnormal_a"] = _attach_vision_frames_labelled(
+                anomaly_repo_id,
+                sorted(anomaly_by_episode.keys()),
+                anomaly_by_episode,
+                anomaly_labelled,
+                vision_camera,
+                vision_subsample,
+                "abnormal_a",
+            )
+
+        kept_indices = {
+            "train": np.asarray(
+                [i for i, obs in enumerate(train_obs) if not vision_model or obs.images]
+            ),
+            "normal_test": np.asarray(
+                [i for i, row in enumerate(normal_labelled) if not vision_model or row[2].images]
+            ),
+            "legal_variation": np.asarray(
+                [i for i, row in enumerate(legal_labelled) if not vision_model or row[2].images]
+            ),
+            "abnormal_a": np.asarray(
+                [i for i, row in enumerate(anomaly_labelled) if not vision_model or row[2].images]
+            ),
+        }
+        if vision_model and any(len(indices) == 0 for indices in kept_indices.values()):
+            raise DatasetLoadError(
+                "Vision RQ1 requested, but one or more datasets provided no matching video "
+                "frames. Check the camera name and the dataset video assets."
+            )
+
+        # FeatureExtractor contains an untrained projection; seed it so equal
+        # input/configuration maps to one stable feature/model cache identity.
+        try:
+            import torch
+
+            torch.manual_seed(seed)
+        except ImportError:
+            pass
+        context = OODContext()
+        if vision_model:
+            context.configure_vision(vision_model, vision_weight, device="cpu")
+        runtime_extractor = context.feature_extractor
+
+        scored_train_obs = [train_obs[int(i)] for i in kept_indices["train"]]
+        LOGGER.info("Extracting train embeddings...")
+        train_vectors = context.features_batch(scored_train_obs)
+        scored_labelled = {
+            "normal_test": [normal_labelled[int(i)] for i in kept_indices["normal_test"]],
+            "legal_variation": [legal_labelled[int(i)] for i in kept_indices["legal_variation"]],
+            "abnormal_a": [anomaly_labelled[int(i)] for i in kept_indices["abnormal_a"]],
+        }
+        LOGGER.info("Extracting eval embeddings...")
+        eval_vectors = {
+            dataset: _vectors_for_observations(context, labelled)
+            for dataset, labelled in scored_labelled.items()
+        }
+        if feature_path is not None:
+            _save_feature_cache(
+                feature_path,
+                train_vectors=train_vectors,
+                eval_vectors=eval_vectors,
+                kept_indices=kept_indices,
+                vision_frames=vision_frames,
+                vision_candidates=vision_candidates,
+            )
+            assert feature_extractor_path is not None
+            context.feature_extractor.save(str(feature_extractor_path))
+            runtime_extractor_source_path = feature_extractor_path
+            LOGGER.info("Embedding cache saved: %s", feature_path)
+
+    train_obs = [train_obs[int(i)] for i in kept_indices["train"]]
+    normal_labelled = [normal_labelled[int(i)] for i in kept_indices["normal_test"]]
+    legal_labelled = [legal_labelled[int(i)] for i in kept_indices["legal_variation"]]
+    anomaly_labelled = [anomaly_labelled[int(i)] for i in kept_indices["abnormal_a"]]
+    if vision_frames:
+        LOGGER.info(
+            "Vision scoring frames: %s",
+            ", ".join(f"{name}={count}" for name, count in vision_frames.items()),
+        )
+
+    flow_backend = RealNVPFlowBackend(device="cpu")
     train_mean, train_std, model_cache_hit = _fit_or_load_real_nvp(
         flow_backend,
         train_vectors,
@@ -752,18 +1042,12 @@ def run_calibration(
         flow_epochs=flow_epochs,
         feature_config=feature_config,
     )
-    print(
-        f"  Trained Real-NVP: mean_train_nll={train_mean} std_train_nll={train_std} "
-        f"cache_hit={model_cache_hit}",
-        flush=True,
+    LOGGER.info(
+        "Real-NVP ready: mean_train_nll=%.4f std_train_nll=%.4f source=%s",
+        train_mean,
+        train_std,
+        "cache" if model_cache_hit else "trained",
     )
-
-    print("  Extracting eval embeddings...", flush=True)
-    eval_vectors = {
-        "normal_test": _vectors_for_observations(context, normal_labelled),
-        "legal_variation": _vectors_for_observations(context, legal_labelled),
-        "abnormal_a": _vectors_for_observations(context, anomaly_labelled),
-    }
     labelled_sets = {
         "normal_test": (normal_repo_id, normal_labelled),
         "legal_variation": (legal_repo_id, legal_labelled),
@@ -773,17 +1057,17 @@ def run_calibration(
     method_scores: dict[str, dict[str, np.ndarray]] = {"real_nvp": {}}
     method_score_names = {"real_nvp": "nll"}
     for dataset, vectors in eval_vectors.items():
-        print(f"  Scoring real_nvp/{dataset} ({len(vectors)} frames)...", flush=True)
+        LOGGER.info("Scoring real_nvp/%s (%d frames)...", dataset, len(vectors))
         method_scores["real_nvp"][dataset] = _real_nvp_nll_for_vectors(flow_backend, vectors)
 
     if compare_ood_methods:
         method_scores["memory_bank"] = {}
         for dataset, vectors in eval_vectors.items():
-            print(f"  Scoring memory_bank/{dataset} ({len(vectors)} frames)...", flush=True)
+            LOGGER.info("Scoring memory_bank/%s (%d frames)...", dataset, len(vectors))
             method_scores["memory_bank"][dataset] = _memory_bank_scores(train_vectors, vectors)
         method_scores["welford"] = {}
         for dataset, vectors in eval_vectors.items():
-            print(f"  Scoring welford/{dataset} ({len(vectors)} frames)...", flush=True)
+            LOGGER.info("Scoring welford/%s (%d frames)...", dataset, len(vectors))
             method_scores["welford"][dataset] = _welford_scores(train_vectors, vectors)
         method_score_names.update(
             {
@@ -812,11 +1096,22 @@ def run_calibration(
                 )
             )
 
-    nll_threshold = train_mean + nll_sigma * train_std
-    normal_fpr = float(np.mean(normal_nll > nll_threshold))
-    legal_fpr = float(np.mean(legal_nll > nll_threshold))
-    anomaly_detection_rate = float(np.mean(anomaly_nll > nll_threshold))
+    # ── ROC / AUROC / EER threshold calibration ────────────────────────────────
+    # Use normal_test as negatives (label=0) and abnormal_a as positives (label=1).
+    # Higher NLL → more likely OOD. EER is the operating point where FPR == FNR.
+    roc_result = _compute_roc_and_eer(normal_nll, anomaly_nll)
+    eer_threshold = roc_result["eer_threshold"]
+    auroc = roc_result["auroc"]
+    eer = roc_result["eer"]
+
+    # Evaluate all datasets at the EER threshold τ*
+    normal_fpr = float(np.mean(normal_nll > eer_threshold))
+    legal_fpr = float(np.mean(legal_nll > eer_threshold))
+    anomaly_detection_rate = float(np.mean(anomaly_nll > eer_threshold))
     anomaly_fnr = 1.0 - anomaly_detection_rate
+
+    # Legacy sigma-based threshold for comparison
+    sigma_threshold = train_mean + nll_sigma * train_std
 
     stats = {
         "normal_test": {"repo_id": normal_repo_id, **_summarise_scores(normal_nll)},
@@ -840,9 +1135,12 @@ def run_calibration(
     }
 
     for name, values in stats.items():
-        print(
-            f"  {name:<16} samples={values['samples']} "
-            f"median_nll={values.get('median')} p95_nll={values.get('p95')}"
+        LOGGER.info(
+            "%s samples=%s median_nll=%s p95_nll=%s",
+            name,
+            values["samples"],
+            values.get("median"),
+            values.get("p95"),
         )
 
     summary: dict = {
@@ -851,7 +1149,7 @@ def run_calibration(
         "feature_sources": ["observation.state"]
         + ([f"image:{vision_model}"] if vision_model else []),
         "feature_config": feature_config,
-        "not_consumed_fields": ["action"],
+        "not_scored_fields": ["action"],
         "trajectory_diagnostic": "joint_speed_magnitude_only_not_model_input",
         "trajectory_stats": trajectory_stats,
         "vision_model": vision_model,
@@ -865,8 +1163,14 @@ def run_calibration(
         "anomaly_repo_id": anomaly_repo_id,
         "train_mean_nll": round(train_mean, 4),
         "train_std_nll": round(train_std, 4),
+        "threshold_method": "EER",
+        "eer_threshold": round(eer_threshold, 4),
+        "eer": round(eer, 4),
+        "auroc": round(auroc, 4),
+        "roc_fpr": [round(x, 4) for x in roc_result["fpr"]],
+        "roc_tpr": [round(x, 4) for x in roc_result["tpr"]],
+        "sigma_threshold_legacy": round(sigma_threshold, 4),
         "nll_sigma": nll_sigma,
-        "nll_threshold": round(nll_threshold, 4),
         "compare_ood_methods": compare_ood_methods,
         "cache_dir": cache_dir,
         "real_nvp_model_cache_hit": model_cache_hit,
@@ -882,11 +1186,34 @@ def run_calibration(
         "legal_variation_observations": len(legal_labelled),
         "abnormal_a_observations": len(anomaly_labelled),
     }
+    if runtime_model_path:
+        summary.update(
+            _export_runtime_bundle(
+                backend=flow_backend,
+                runtime_model_path=runtime_model_path,
+                extractor=runtime_extractor,
+                extractor_source_path=runtime_extractor_source_path,
+                eer_threshold=eer_threshold,
+                feature_config=feature_config,
+                normal_repo_id=normal_repo_id,
+                legal_repo_id=legal_repo_id,
+                anomaly_repo_id=anomaly_repo_id,
+            )
+        )
 
-    print(f"\n  NLL threshold = {nll_threshold:.4f} (train mean + {nll_sigma:g}σ)")
-    print(
-        f"  FPR normal={normal_fpr:.3f} legal={legal_fpr:.3f} "
-        f"abnormal-A detection={anomaly_detection_rate:.3f}"
+    LOGGER.info(
+        "Threshold calibration (EER): AUROC=%.4f EER=%.4f threshold=%.4f "
+        "legacy_sigma_threshold=%.4f",
+        auroc,
+        eer,
+        eer_threshold,
+        sigma_threshold,
+    )
+    LOGGER.info(
+        "At EER threshold: fpr_normal=%.3f fpr_legal=%.3f abnormal_a_detection=%.3f",
+        normal_fpr,
+        legal_fpr,
+        anomaly_detection_rate,
     )
     return rows, summary
 
@@ -899,7 +1226,7 @@ def write_csv(rows: list[dict], path: Path) -> None:
         writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
         writer.writeheader()
         writer.writerows(rows)
-    print(f"CSV saved: {path}")
+    LOGGER.info("CSV saved: %s", path)
 
 
 def plot_results(rows: list[dict], outdir: Path) -> None:
@@ -909,7 +1236,7 @@ def plot_results(rows: list[dict], outdir: Path) -> None:
         matplotlib.use("Agg", force=True)
         import matplotlib.pyplot as plt
     except ImportError:
-        print("matplotlib not installed — skipping plot generation.")
+        LOGGER.warning("matplotlib not installed; skipping plot generation.")
         return
 
     methods = list(dict.fromkeys(str(r.get("method", "real_nvp")) for r in rows))
@@ -940,10 +1267,48 @@ def plot_results(rows: list[dict], outdir: Path) -> None:
     out = outdir / "l0_calibration.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
-    print(f"Plot saved: {out}")
+    LOGGER.info("Plot saved: %s", out)
+
+
+def plot_roc(summary: dict, outdir: Path) -> None:
+    """Plot ROC curve with EER point marked."""
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg", force=True)
+        import matplotlib.pyplot as plt
+    except ImportError:
+        return
+
+    fpr = summary.get("roc_fpr", [])
+    tpr = summary.get("roc_tpr", [])
+    if not fpr or not tpr:
+        return
+
+    fig, ax = plt.subplots(1, 1, figsize=(6, 6))
+    ax.plot(fpr, tpr, "b-", linewidth=2, label=f"ROC (AUROC={summary['auroc']:.4f})")
+    ax.plot([0, 1], [0, 1], "k--", alpha=0.3, label="Random")
+
+    eer_val = summary.get("eer", 0)
+    ax.plot(eer_val, 1 - eer_val, "ro", markersize=10, label=f"EER={eer_val:.4f}")
+
+    ax.set_xlabel("False Positive Rate (FPR)")
+    ax.set_ylabel("True Positive Rate (TPR)")
+    ax.set_title("RQ1 — L0 Real-NVP ROC Curve (Normal vs Abnormal)")
+    ax.legend(loc="lower right")
+    ax.set_xlim([-0.02, 1.02])
+    ax.set_ylim([-0.02, 1.02])
+    ax.grid(True, alpha=0.3)
+    ax.set_aspect("equal")
+    fig.tight_layout()
+    out = outdir / "l0_roc_curve.png"
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    LOGGER.info("ROC plot saved: %s", out)
 
 
 def main() -> None:
+    configure_cli_logging()
     parser = argparse.ArgumentParser(description="DAM L0 OOD Calibration (RQ1)")
     parser.add_argument(
         "--hf-repo",
@@ -1022,6 +1387,17 @@ def main() -> None:
     )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--outdir", type=str, default="data/experiments/l0_calibration")
+    parser.add_argument(
+        "--runtime-model-path",
+        type=str,
+        default=_DEFAULT_RUNTIME_MODEL_PATH,
+        help="Publish the calibrated extractor/flow for Stackfiles at this .pt path.",
+    )
+    parser.add_argument(
+        "--no-runtime-export",
+        action="store_true",
+        help="Do not publish a Stackfile-compatible OOD model bundle.",
+    )
     args = parser.parse_args()
 
     outdir = Path(args.outdir)
@@ -1044,10 +1420,14 @@ def main() -> None:
         vision_weight=args.vision_weight,
         vision_camera=args.vision_camera,
         vision_subsample=args.vision_subsample,
+        runtime_model_path=None if args.no_runtime_export else args.runtime_model_path,
     )
     write_csv(rows, outdir / "results.csv")
     plot_results(rows, outdir)
-    print(f"\nSummary: {summary}")
+    plot_roc(summary, outdir)
+    with open(outdir / "summary.json", "w") as f:
+        json.dump(summary, f, indent=2)
+    LOGGER.info("Summary saved: %s", outdir / "summary.json")
 
 
 if __name__ == "__main__":

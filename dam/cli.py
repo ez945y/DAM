@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import logging
 import sys
 from collections.abc import Callable, Sequence
 from typing import Any
@@ -422,8 +423,16 @@ def _cmd_experiment(args: argparse.Namespace) -> int:
         params["trials_per_scenario"] = args.trials_per_scenario
     if args.compare_ood_methods:
         params["compare_ood_methods"] = True
+    if args.no_runtime_export:
+        params["runtime_model_path"] = None
+    elif args.runtime_model_path is not None:
+        params["runtime_model_path"] = args.runtime_model_path
     if args.outdir is not None:
         params["outdir"] = args.outdir
+    if not logging.getLogger().handlers:
+        from dam.logging import setup_colored_logging
+
+        setup_colored_logging()
     result = run_experiment(args.experiment_id, params)
     print(f"experiment : {result.id}")
     print(f"status     : {result.status}")
@@ -633,6 +642,15 @@ def build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.Argument
         "--compare-ood-methods",
         action="store_true",
         help="RQ1: compare Welford, MemoryBank, and Real-NVP OOD scores",
+    )
+    p_exp_run.add_argument(
+        "--runtime-model-path",
+        help="RQ1: publish a Stackfile-compatible OOD model bundle to this .pt path",
+    )
+    p_exp_run.add_argument(
+        "--no-runtime-export",
+        action="store_true",
+        help="RQ1: skip publishing the calibrated model bundle for runtime use",
     )
     p_exp_run.add_argument(
         "--trials-per-scenario", type=int, help="usability trials per normal scenario"

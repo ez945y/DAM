@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import logging
 import sys
 import time
 from collections.abc import Callable
@@ -58,6 +59,9 @@ from scripts._bench_stackfiles import (
 from scripts._bench_stackfiles import (
     build_runtime as _build_runtime,
 )
+from scripts._experiment_logging import configure_cli_logging
+
+LOGGER = logging.getLogger(__name__)
 
 # ── Synthetic data helpers ────────────────────────────────────────────────────
 
@@ -224,7 +228,7 @@ def write_csv(results: list[dict], path: Path) -> None:
         writer.writeheader()
         for r in results:
             writer.writerow({k: r[k] for k in keys if k in r})
-    print(f"CSV saved: {path}")
+    LOGGER.info("CSV saved: %s", path)
 
 
 def plot_results(results: list[dict], outdir: Path) -> None:
@@ -234,7 +238,7 @@ def plot_results(results: list[dict], outdir: Path) -> None:
         matplotlib.use("Agg", force=True)
         import matplotlib.pyplot as plt
     except ImportError:
-        print("matplotlib not installed — skipping plot generation.")
+        LOGGER.warning("matplotlib not installed; skipping plot generation.")
         return
 
     fig, ax = plt.subplots(figsize=(9, 4.8))
@@ -286,34 +290,32 @@ def plot_results(results: list[dict], outdir: Path) -> None:
 
     out = outdir / "latency_bench.png"
     fig.savefig(out, dpi=150)
-    print(f"Plot saved: {out}")
+    LOGGER.info("Plot saved: %s", out)
     plt.close(fig)
 
 
 def print_table(results: list[dict]) -> None:
-    print(
-        f"\n{'FPS':>5} {'Config':<20} {'Mean':>8} {'Std':>7} "
-        f"{'p95':>7} {'p99':>7} {'Max':>7} {'Miss %':>8}"
-    )
-    print("-" * 84)
+    LOGGER.info("Latency results")
     for r in results:
-        print(
-            f"{float(r.get('target_fps', 0)):>5.0f} "
-            f"{r['config']:<20} "
-            f"{r['mean_ms']:>7.3f} "
-            f"{r['std_ms']:>7.3f} "
-            f"{r['p95_ms']:>7.3f} "
-            f"{r['p99_ms']:>7.3f} "
-            f"{r['max_ms']:>7.3f} "
-            f"{100 * r.get('deadline_miss_rate', 0.0):>7.2f}%"
+        LOGGER.info(
+            "fps=%.0f config=%s mean_ms=%.3f std_ms=%.3f p95_ms=%.3f "
+            "p99_ms=%.3f max_ms=%.3f miss_pct=%.2f",
+            float(r.get("target_fps", 0)),
+            r["config"],
+            r["mean_ms"],
+            r["std_ms"],
+            r["p95_ms"],
+            r["p99_ms"],
+            r["max_ms"],
+            100 * r.get("deadline_miss_rate", 0.0),
         )
-    print()
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 
 def main() -> None:
+    configure_cli_logging()
     parser = argparse.ArgumentParser(description="DAM Experiment 3 — Latency Benchmark")
     parser.add_argument("--frames", type=int, default=500, help="Frames per configuration")
     parser.add_argument("--fps", type=float, default=50.0, help="Control frequency budget")
@@ -339,27 +341,32 @@ def main() -> None:
 
     budget_ms = 1000.0 / args.fps
     if args.realtime:
-        print(f"Running all Guard configs for {args.frames} time steps at {args.fps:g} Hz…")
+        LOGGER.info("Running all Guard configs for %d time steps at %g Hz", args.frames, args.fps)
         suite = run_frequency(args.frames, rng, budget_ms, realtime=True)
     elif args.pace_seconds > 0:
-        print(
-            f"Running all Guard configs for {args.frames} time steps "
-            f"over {args.pace_seconds:g}s visual pacing…"
+        LOGGER.info(
+            "Running all Guard configs for %d time steps over %gs visual pacing",
+            args.frames,
+            args.pace_seconds,
         )
         suite = run_frequency(args.frames, rng, budget_ms, pace_seconds=args.pace_seconds)
     else:
         suite = []
         for label, guard_names in _CONFIGS:
-            print(f"Running {label} ({args.frames} frames)…")
+            LOGGER.info("Running %s (%d frames)", label, args.frames)
             suite.append(run_config(label, guard_names, args.frames, rng, budget_ms=budget_ms))
 
     for r in suite:
         r["target_fps"] = args.fps
         r["budget_ms"] = budget_ms
         results.append(r)
-        print(
-            f"  mean={r['mean_ms']:.3f}ms  p95={r['p95_ms']:.3f}ms  "
-            f"p99={r['p99_ms']:.3f}ms  max={r['max_ms']:.3f}ms"
+        LOGGER.info(
+            "%s mean_ms=%.3f p95_ms=%.3f p99_ms=%.3f max_ms=%.3f",
+            r["config"],
+            r["mean_ms"],
+            r["p95_ms"],
+            r["p99_ms"],
+            r["max_ms"],
         )
 
     write_csv(results, outdir / "results.csv")
@@ -367,7 +374,7 @@ def main() -> None:
     print_table(results)
 
     full = results[-1]
-    print(f"Full RSMF deadline miss rate: {100 * full['deadline_miss_rate']:.2f}%")
+    LOGGER.info("Full RSMF deadline miss rate: %.2f%%", 100 * full["deadline_miss_rate"])
 
 
 if __name__ == "__main__":

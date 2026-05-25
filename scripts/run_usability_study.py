@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import logging
 import sys
 import time
 from pathlib import Path
@@ -29,6 +30,9 @@ import numpy as np
 from dam.types.action import ActionProposal
 from dam.types.observation import Observation
 from dam.types.result import GuardDecision
+from scripts._experiment_logging import configure_cli_logging
+
+LOGGER = logging.getLogger(__name__)
 
 _N_JOINTS = 6
 _JOINT_UPPER = np.array([1.8243, 1.7691, 1.6026, 1.8067, 3.0741, 1.7453])
@@ -140,7 +144,7 @@ def write_csv(rows: list[dict], path: Path) -> None:
         writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
         writer.writeheader()
         writer.writerows(rows)
-    print(f"CSV saved: {path}")
+    LOGGER.info("CSV saved: %s", path)
 
 
 def plot_results(rows: list[dict], outdir: Path) -> None:
@@ -150,7 +154,7 @@ def plot_results(rows: list[dict], outdir: Path) -> None:
         matplotlib.use("Agg", force=True)
         import matplotlib.pyplot as plt
     except ImportError:
-        print("matplotlib not installed — skipping plot generation.")
+        LOGGER.warning("matplotlib not installed; skipping plot generation.")
         return
     fig, ax = plt.subplots(figsize=(8, 4))
     ax.bar(
@@ -165,10 +169,11 @@ def plot_results(rows: list[dict], outdir: Path) -> None:
     out = outdir / "usability_false_triggers.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
-    print(f"Plot saved: {out}")
+    LOGGER.info("Plot saved: %s", out)
 
 
 def main() -> None:
+    configure_cli_logging()
     parser = argparse.ArgumentParser(description="DAM Normal-Use False Trigger Study (RQ3)")
     parser.add_argument("--trials-per-scenario", type=int, default=30)
     parser.add_argument("--seed", type=int, default=42)
@@ -179,9 +184,12 @@ def main() -> None:
     outdir.mkdir(parents=True, exist_ok=True)
     rows = run_study(args.trials_per_scenario, args.seed)
     for r in rows:
-        print(
-            f"  {r['scenario']:<16} false={r['false_triggers']}/{r['trials']}  "
-            f"success={r['success_rate']:.3f}"
+        LOGGER.info(
+            "%s false=%d/%d success=%.3f",
+            r["scenario"],
+            r["false_triggers"],
+            r["trials"],
+            r["success_rate"],
         )
     write_csv(rows, outdir / "results.csv")
     plot_results(rows, outdir)

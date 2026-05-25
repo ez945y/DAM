@@ -15,6 +15,7 @@ it and subsequent cycles hit the cache.)
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -45,6 +46,7 @@ class OODContext:
         self._vision_extractor: VisionFeatureExtractor | None = None
         self._vision_model_name: str | None = None
         self._vision_weight: float = 0.3
+        self._vision_camera: str | None = None
         self._vision_pca: Any | None = None  # (mean, components) for projecting vision features
         self._vision_dim: int = 128
 
@@ -59,6 +61,7 @@ class OODContext:
         vision_model: str | None = None,
         vision_weight: float = 0.3,
         device: str = "cpu",
+        vision_camera: str | None = None,
     ) -> None:
         """Configure the optional vision feature extractor.
 
@@ -68,9 +71,11 @@ class OODContext:
         if not vision_model:
             self._vision_extractor = None
             self._vision_model_name = None
+            self._vision_camera = None
             return
         if vision_model == self._vision_model_name and self._vision_extractor is not None:
             self._vision_weight = vision_weight
+            self._vision_camera = vision_camera or None
             return
         from dam.guard.vision_feature_extractor import (
             VisionFeatureExtractor,
@@ -81,10 +86,12 @@ class OODContext:
         self._vision_extractor = VisionFeatureExtractor(cfg)
         self._vision_model_name = vision_model
         self._vision_weight = max(0.0, min(1.0, vision_weight))
+        self._vision_camera = vision_camera or None
         logger.info(
-            "OODContext: vision extractor configured: model=%s weight=%.2f",
+            "OODContext: vision extractor configured: model=%s weight=%.2f camera=%s",
             vision_model,
             self._vision_weight,
+            self._vision_camera or "first_available",
         )
 
     def set_vision_pca(self, mean: np.ndarray, components: np.ndarray) -> None:
@@ -102,11 +109,10 @@ class OODContext:
         When vision is configured but no image is available for this frame,
         pads with zeros to maintain consistent dimensionality.
         """
-        joint_z = self.feature_extractor.extract(obs)
-
         if self._vision_extractor is None:
-            return joint_z
+            return self.feature_extractor.extract(obs)
 
+        joint_z = self.feature_extractor.extract(replace(obs, images=None))
         vision_z = self._extract_vision(obs)
 
         alpha = self._vision_weight
@@ -132,18 +138,60 @@ class OODContext:
             fused = fused / norm
         return fused
 
+    def features_batch(
+        self, observations: list[Observation], vision_batch_size: int = 32
+    ) -> np.ndarray:
+        """Extract embeddings in batches, using batched pretrained vision inference."""
+        if self._vision_extractor is None:
+            return np.stack([self.feature_extractor.extract(obs) for obs in observations], axis=0)
+
+        joint = np.stack(
+            [self.feature_extractor.extract(replace(obs, images=None)) for obs in observations],
+            axis=0,
+        ).astype(np.float32)
+        vision = np.zeros((len(observations), 128), dtype=np.float32)
+        with_images: list[tuple[int, np.ndarray]] = []
+        for index, obs in enumerate(observations):
+            image = self._select_vision_image(obs)
+            if image is not None:
+                with_images.append((index, image))
+        for offset in range(0, len(with_images), vision_batch_size):
+            batch = with_images[offset : offset + vision_batch_size]
+            images = np.stack([image for _index, image in batch], axis=0)
+            raw_features = self._vision_extractor.extract(images)
+            for (index, _image), raw_feature in zip(batch, raw_features, strict=True):
+                vision[index] = self._project_vision_feature(raw_feature)
+
+        alpha = self._vision_weight
+        joint /= np.maximum(np.linalg.norm(joint, axis=1, keepdims=True), 1e-9)
+        vision /= np.maximum(np.linalg.norm(vision, axis=1, keepdims=True), 1e-9)
+        fused = np.concatenate([joint * (1.0 - alpha), vision * alpha], axis=1).astype(np.float32)
+        fused /= np.maximum(np.linalg.norm(fused, axis=1, keepdims=True), 1e-9)
+        result: np.ndarray = fused
+        return result
+
     def _extract_vision(self, obs: Observation) -> np.ndarray | None:
         """Extract and project vision features from the first available camera.
 
         Always returns a 128-dim vector (matching joint embedding dim) so the
         fused output has consistent dimensionality.
         """
-        if self._vision_extractor is None or obs.images is None:
+        if self._vision_extractor is None:
             return None
-        cam_img = next(iter(obs.images.values()), None)
+        cam_img = self._select_vision_image(obs)
         if cam_img is None:
             return None
         raw_feat = self._vision_extractor.extract_single(cam_img)
+        return self._project_vision_feature(raw_feat)
+
+    def _select_vision_image(self, obs: Observation) -> np.ndarray | None:
+        if not obs.images:
+            return None
+        if self._vision_camera:
+            return obs.images.get(self._vision_camera)
+        return next(iter(obs.images.values()), None)
+
+    def _project_vision_feature(self, raw_feat: np.ndarray) -> np.ndarray:
         if self._vision_pca is not None:
             mean, components = self._vision_pca
             raw_feat = ((raw_feat - mean) @ components.T).astype(np.float32)

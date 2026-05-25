@@ -285,13 +285,11 @@ def _run_latency_bench(params: dict[str, Any], outdir: Path) -> ExperimentResult
             f"{budget_ms:.1f} ms budget, {mode}"
         )
         LOGGER.info(message)
-        print(message, flush=True)
 
         def progress(done: int, total: int) -> None:
             pct = (done / total) * 100.0
             progress_message = f"RQ4 latency-bench: {fps:g} Hz {done}/{total} steps ({pct:.0f}%)"
             LOGGER.info(progress_message)
-            print(progress_message, flush=True)
 
         for stats in bench.run_frequency(
             frames,
@@ -305,7 +303,6 @@ def _run_latency_bench(params: dict[str, Any], outdir: Path) -> ExperimentResult
             rows.append({"target_fps": fps, "budget_ms": budget_ms, **stats})
         done_message = f"RQ4 latency-bench: done {fps:g} Hz"
         LOGGER.info(done_message)
-        print(done_message, flush=True)
 
     clean_rows = _numeric_rows(rows)
     bench.write_csv(clean_rows, outdir / "results.csv")
@@ -344,6 +341,8 @@ def _run_l0_calibration(params: dict[str, Any], outdir: Path) -> ExperimentResul
     vision_weight = float(params.get("vision_weight", 0.3))
     vision_camera = str(params.get("vision_camera", "top"))
     vision_subsample = int(params.get("vision_subsample", 30))
+    runtime_model_path = params.get("runtime_model_path", "data/ood_models/ood_model.pt")
+    runtime_model_path = str(runtime_model_path) if runtime_model_path else None
     outdir.mkdir(parents=True, exist_ok=True)
     started = time.perf_counter()
 
@@ -364,9 +363,11 @@ def _run_l0_calibration(params: dict[str, Any], outdir: Path) -> ExperimentResul
         vision_weight=vision_weight,
         vision_camera=vision_camera,
         vision_subsample=vision_subsample,
+        runtime_model_path=runtime_model_path,
     )
     cal.write_csv(rows, outdir / "results.csv")
     cal.plot_results(rows, outdir)
+    cal.plot_roc(summary, outdir)
     (outdir / "l0_calibration.svg").unlink(missing_ok=True)
     return ExperimentResult(
         id="l0-calibration",
@@ -375,7 +376,9 @@ def _run_l0_calibration(params: dict[str, Any], outdir: Path) -> ExperimentResul
         outdir=str(outdir),
         rows=_numeric_rows(rows),
         summary=summary,
-        artifacts=_artifact_paths(outdir, ("results.csv", "l0_calibration.png")),
+        artifacts=_artifact_paths(
+            outdir, ("results.csv", "l0_calibration.png", "l0_roc_curve.png")
+        ),
     )
 
 
@@ -480,14 +483,15 @@ _EXPERIMENTS: dict[
                 "nll_sigma": 3.0,
                 "compare_ood_methods": False,
                 "cache_dir": "data/experiments/l0_calibration/cache",
-                "vision_model": None,
+                "vision_model": "mobilenet_v3_large",
                 "vision_weight": 0.3,
                 "vision_camera": "top",
                 "vision_subsample": 30,
+                "runtime_model_path": "data/ood_models/ood_model.pt",
                 "seed": 42,
                 "outdir": "data/experiments/l0_calibration",
             },
-            outputs=("results.csv", "l0_calibration.png"),
+            outputs=("results.csv", "l0_calibration.png", "l0_roc_curve.png"),
         ),
         _run_l0_calibration,
     ),

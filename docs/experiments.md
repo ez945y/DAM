@@ -58,21 +58,31 @@ MemoryBank rows using the shared columns `method`, `score_name`, and
 RQ1 previews are generated as PNG (`l0_calibration.png`). The old SVG median
 bar preview is intentionally not generated because negative Real-NVP NLL values
 make the simple SVG bar chart misleading. RQ1 also uses a local cache for
-HuggingFace observations and the trained Real-NVP flow under
-`data/experiments/l0_calibration/cache`; pass `--no-cache` to force a full
-reload/retrain.
+HuggingFace observations, extracted embeddings, and the trained Real-NVP flow
+under `data/experiments/l0_calibration/cache`; pass `--no-cache` to force a
+full reload/retrain.
+
+After calibration, RQ1 publishes the matching feature extractor and flow to the
+runtime OOD model location: `data/ood_models/ood_model.pt` and
+`data/ood_models/ood_model_flow.pt`. The console reports Stackfile-ready
+parameters using that path and the EER threshold. Use `--runtime-model-path`
+to publish elsewhere, or `--no-runtime-export` when no runtime bundle is
+wanted.
 
 Default RQ1 features are derived from `observation.state`; the dataset
-`action` column is not currently model input and is reported as such in the
-console summary. When `--vision-model` is set, RQ1 loads video frames and
+`action` column is not scored by the current model and is shown as
+`not scored: action` in the console summary. When `--vision-model` is set, RQ1 loads video frames and
 fuses pretrained image embeddings with state features. With subsampling, only
 frames that actually carry an image are scored, and the console reports the
 attached/available frame count.
 
-`nll_sigma` controls the Real-NVP decision threshold:
-`threshold = training_NLL_mean + nll_sigma * training_NLL_std`. Larger values
-are more tolerant and usually reduce false positives; smaller values are more
-sensitive and usually detect abnormal frames earlier.
+**Threshold calibration:** RQ1 determines the operating threshold τ* via
+Equal Error Rate (EER) — the point where FPR equals FNR on the calibration
+set (normal_test vs abnormal_a). The output includes AUROC and a ROC curve
+plot (`l0_roc_curve.png`). Set the resulting τ* as `nll_threshold` in your
+stackfile boundary config. The legacy `nll_sigma` heuristic
+(`threshold = mean + σ × std`) is still reported for comparison but is not
+recommended for production use.
 
 ---
 
