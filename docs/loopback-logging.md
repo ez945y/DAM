@@ -228,6 +228,22 @@ Each `.mcap` file contains session-level metadata (written once at start):
 
 ### Python: mcap-reader
 
+For physical-robot incident triage, start with the read-only project helper
+instead of launching a new control run:
+
+```bash
+.venv/bin/python scripts/mcap_triage.py --json
+.venv/bin/python scripts/mcap_triage.py \
+  --compare data/robot/sessions/session_known_good.mcap --json
+```
+
+The report selects the latest session by default, counts clamp/reject guard
+outcomes, identifies joints that received validated commands without observable
+response, and can compare initial poses against a known-good session. It
+performs no control action; its optional backend request is a read-only
+`GET /api/control/status`. Compare sessions only when robot, task, and
+calibration match.
+
 ```bash
 pip install mcap[numpy]
 ```

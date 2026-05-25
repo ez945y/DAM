@@ -21,6 +21,23 @@
 
 ## 會話記錄
 
+### Session 2026-05-25 #3 (Read-only MCAP Incident Triage)
+
+- **本輪目標**: 將實機「不動／被擋」排查整理成 agent 可安全重複使用的唯讀工具
+- **已完成**:
+  - 新增 `scripts/mcap_triage.py`：預設選最新 MCAP、提供 human/JSON 輸出、唯讀 status GET、known-good session 起始姿態比較
+  - 同時支援 Rust combined msgpack 與 Python split-topic JSON session，不建立 session SQLite cache
+  - 報告區分 clamp、reject/no validated command、與「validated command sent but little observed response」關節
+  - 將 `scripts/joint_diagnostics.py` 預設改為分析最新現有 MCAP；只有顯式 `--run` 才能建立新控制 session
+  - 更新 agent 指引與 loopback 文件，規定實機 incident 第一動作必須唯讀
+- **執行過的驗證**:
+  - `.venv/bin/ruff check scripts/mcap_triage.py scripts/joint_diagnostics.py tests/unit/test_mcap_triage.py` — passed
+  - `.venv/bin/python -m pytest tests/unit/test_mcap_triage.py tests/unit/test_mcap_session_parsing.py tests/unit/test_lerobot_adapters.py tests/unit/test_lerobot_builder.py -q` — passed
+  - 以最新實機 MCAP `session_a28b7324_1779707257.mcap` 執行 human/JSON smoke run — 成功讀取 848 cycles，正確顯示全程 clamp 但未誤報無響應關節
+- **已知風險或未解決問題**:
+  - 最新 session 仍為 `joint_velocity_limit` 與 `task_gripper_sequence` 每幀 clamp；triage 僅提供證據，不應自行改安全參數
+  - ACT gripper unit 與 task gripper threshold 的一致性仍待獨立修復與驗證
+
 ### Session 2026-05-25 #2 (RQ1 Pipeline Cleanup)
 
 - **本輪目標**: 將 RQ1 從混用私有 guard state 的實驗腳本整理成可追蹤、可重現的 offline evaluation pipeline

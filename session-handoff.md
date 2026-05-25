@@ -1,9 +1,13 @@
 # session-handoff.md — 會話交接摘要
 
-> 最後更新: 2026-05-25 12:50
+> 最後更新: 2026-05-25 19:20
 
 ## 當前已驗證
 
+- Physical-robot incident triage now has a safe first command: `.venv/bin/python scripts/mcap_triage.py --json`.
+- `mcap_triage.py` is read-only, supports combined msgpack and split-topic JSON MCAP layouts, and never starts a task or sends actions.
+- `joint_diagnostics.py` no longer moves hardware by default; a new motion-producing session requires explicit `--run`.
+- Latest read-only smoke inspection of `session_a28b7324_1779707257.mcap` found 848/848 clamped cycles but observable motion on all six joints; it did not repeat the earlier non-responsive-joint finding.
 - RQ1 runner now uses DAM `OODContext` and public OOD backends rather than mutating private `OODGuard` flow state.
 - RQ1 output reports active signals and explicitly reports `action` as not scored.
 - Vision RQ1 only evaluates frames that actually have attached images; missing-image zero padding is no longer mixed into its evaluation set.
@@ -13,6 +17,8 @@
 
 ## 未驗證 / 待確認
 
+- **Persistent runtime clamps**: latest physical session still records `joint_velocity_limit` and `task_gripper_sequence` clamps on every cycle; diagnose policy/start state/guard configuration before relaxing safety.
+- **Gripper unit semantics**: the ACT output versus `task_gripper_sequence` threshold unit contract needs a focused correction and physical validation.
 - **RQ1 action feature 尚未實作**: HF dataset contains action, but current Real-NVP input remains `observation.state` plus optional vision. The UI now says so explicitly.
 - **State-only cannot identify recover-failure reliably**: full-dataset one-epoch UI smoke run produced abnormal detection=3.7%; this is evidence of an inadequate feature mode, not a final metric.
 - **Vision threshold calibration**: image-fused separation has been observed, but threshold strategy still needs held-out validation calibration before it can support conclusions.
@@ -22,6 +28,7 @@
 
 | Commit | 改動 |
 |--------|------|
+| current delivery | Read-only MCAP triage CLI, safe joint diagnostic default, agent/docs guidance |
 | current delivery | RQ1 public backend refactor, deterministic cache identity, honest UI feature provenance, vision frame filtering |
 
 ## 下一步最佳動作
@@ -33,6 +40,8 @@
 ## 命令速查
 
 ```bash
+.venv/bin/python scripts/mcap_triage.py --json       # 實機 incident 第一個唯讀診斷
+.venv/bin/python scripts/mcap_triage.py --compare data/robot/sessions/session_known_good.mcap --json
 make dev                                           # 開發模式
 make test                                          # 完整測試
 cd dam-console && npm run build                    # 重建前端

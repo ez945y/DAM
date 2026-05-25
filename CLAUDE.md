@@ -107,6 +107,41 @@ make docs-check         # 文檔品質檢查
 python -m pytest tests/unit/ -x   # 快速跑 unit test
 ```
 
+## 實機 Incident Protocol（Agent 必遵守）
+
+觸發條件：使用者回報實機不動、抖動、被 guard 擋住，或 UI 無法反映實機狀態。
+
+**第一輪只取證，不致動。**
+
+允許：
+```bash
+.venv/bin/python scripts/mcap_triage.py --json
+.venv/bin/python scripts/mcap_triage.py --no-api --json
+```
+
+禁止：
+- 呼叫 start/run/reconnect/calibrate 或任何可能送 action 的 API/CLI。
+- 使用 `scripts/joint_diagnostics.py --run`。
+- 在未確認原因前調寬 limit、停用 guard 或改 calibration。
+
+判讀後的下一步：
+
+| Finding | 意義 | 下一步 |
+| --- | --- | --- |
+| `runtime_not_running` | 控制 loop 已停，不能用此狀態推論執行中故障 | 回報狀態；等待使用者決定是否重新執行 |
+| `all_cycles_clamped` | action 被安全層修改，不代表馬達失效 | 查看 guard outcomes/reasons 與 active boundaries |
+| `command_without_response` | validated 命令存在，但關節幾乎沒有跟隨 | 檢查 calibration、起始姿態、torque/硬體；不可直接放寬 guard |
+| `rejected_without_validated_command` | action 根本未送至硬體 | 排查拒絕原因；不得描述為致動失敗 |
+| `hardware_guard_event` | 硬體監測已告警 | 停在唯讀排查，優先呈報風險 |
+
+只有已確認 robot、task、calibration 完全相同時，才執行 baseline 比較：
+```bash
+.venv/bin/python scripts/mcap_triage.py \
+  --compare data/robot/sessions/session_known_good.mcap --json
+```
+
+`scripts/joint_diagnostics.py` 無參數為唯讀；其 `--run` 視為致動操作，必須由使用者明確要求。
+
 ## 文檔策略
 
 文檔不跟隨每個 commit 更新。用事件驅動：

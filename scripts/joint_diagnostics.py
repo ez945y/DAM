@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""Joint velocity diagnostics — run 200 cycles and analyse per-joint behavior.
+"""Joint velocity diagnostics for an existing or explicitly requested session.
 
 Usage:
-    # Run fresh session + analyse:
+    # Analyse the newest existing session (read-only default):
     .venv/bin/python scripts/joint_diagnostics.py
 
     # Analyse an existing MCAP file:
     .venv/bin/python scripts/joint_diagnostics.py --mcap data/robot/sessions/session_xxx.mcap
 
-    # Custom cycles / stackfile:
-    .venv/bin/python scripts/joint_diagnostics.py --cycles 200 --stack examples/stackfiles/demo.yaml
+    # Explicitly run a fresh hardware session + analyse:
+    .venv/bin/python scripts/joint_diagnostics.py --run --cycles 200 --stack examples/stackfiles/demo.yaml
+
+For first-response incident triage prefer ``scripts/mcap_triage.py``. It
+emits agent-readable JSON and includes non-responsive-joint checks.
 """
 
 from __future__ import annotations
@@ -294,6 +297,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Joint velocity diagnostics")
     parser.add_argument("--mcap", type=str, help="Analyse an existing MCAP file")
     parser.add_argument(
+        "--run",
+        action="store_true",
+        help="Explicitly run a new control session before analysing (may move hardware)",
+    )
+    parser.add_argument(
         "--stack",
         default=".dam_stackfile.yaml",
         help="Stackfile path (default: .dam_stackfile.yaml)",
@@ -305,10 +313,21 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    mcap_path = Path(args.mcap) if args.mcap else run_session(args.stack, args.task, args.cycles)
+    if args.mcap and args.run:
+        parser.error("--mcap and --run cannot be used together")
+
+    if args.mcap:
+        mcap_path = Path(args.mcap)
+    elif args.run:
+        mcap_path = run_session(args.stack, args.task, args.cycles)
+    else:
+        mcap_path = _latest_mcap(ROOT / "data" / "robot" / "sessions")
 
     if mcap_path is None or not mcap_path.exists():
-        print("No MCAP file to analyse.", file=sys.stderr)
+        print(
+            "No MCAP file to analyse. Use --run only when new physical motion is intentional.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     print(f"\nReading: {mcap_path}")
