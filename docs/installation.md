@@ -29,7 +29,8 @@ make setup
 make run
 ```
 
-`make run` starts both the backend API (port 8080) and the dashboard UI (port 3000).
+`make run` starts both the backend API (port 8080) and the pre-built dashboard UI
+(port 3000). Run `make build` after frontend changes.
 Open **http://localhost:3000** in your browser to see the DAM Console.
 
 ---
@@ -70,7 +71,8 @@ After installing hardware extras, complete the no-hardware [Quick Start](getting
 |--------|-------------|
 | `make setup` | First-time setup: venv + Rust + npm |
 | `make setup-lerobot` | Setup with SO-ARM101 hardware support |
-| `make run` | Start backend + console (follows `.dam_stackfile.yaml`) |
+| `make build` | Build the production console after frontend changes |
+| `make run` | Start backend + pre-built console (follows `.dam_stackfile.yaml`) |
 | `make test` | Run full test suite (Python + Rust + frontend) |
 | `make build-rs` | Rebuild Rust extension only |
 | `make lint` | Run linters (ruff, mypy, cargo clippy) |

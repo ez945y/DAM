@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# run_prod.sh — Production mode: build Next.js frontend + start backend
+# run_prod.sh — Production mode: start backend + an existing Next.js build
 #
 # Differences from dev mode (run.sh):
-#   • Frontend is compiled once with `npm run build` (optimised, no hot-reload)
-#   • Frontend is served with `npm run start` (Next.js production server)
+#   • Frontend serves a pre-built production bundle (optimised, no hot-reload)
+#   • Frontend is served from Next.js standalone output
 #   • Backend uses scripts/dam_host.py (real hardware / stackfile config)
 #
 # Usage:
-#   make run          ← recommended
+#   make build        ← after frontend changes
+#   make run          ← start an existing production build
 #   bash scripts/run_prod.sh   ← direct
 set -euo pipefail
 

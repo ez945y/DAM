@@ -51,7 +51,8 @@ For the guided no-hardware path, see [Quick Start](docs/getting-started/quicksta
 | Command      | Description                                              |
 |--------------|----------------------------------------------------------|
 | `make setup` | Create venv, compile Rust extension, install dependencies |
-| `make run`   | Start backend (:8080) + frontend (:3000)                |
+| `make build` | Build the production frontend after UI changes           |
+| `make run`   | Start backend (:8080) + pre-built frontend (:3000)       |
 | `make validate` | Validate example Stackfiles                          |
 | `make docs-check` | Run strict MkDocs and documentation pattern checks |
 | `make test`  | Run full test suite (unit + integration + safety)       |

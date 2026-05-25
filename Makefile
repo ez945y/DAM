@@ -3,7 +3,8 @@
 # Quick start:
 #   make setup   ← run once after cloning
 #   make dev     ← hot-reload dev server (backend + Next.js dev)
-#   make run     ← production mode (build frontend + start backend)
+#   make build   ← build production frontend after UI changes
+#   make run     ← production mode using the existing frontend build
 #   make test    ← run the full test suite
 #   make docs    ← preview documentation (mkdocs serve)
 #
@@ -55,7 +56,7 @@ _DYLD_PREFIX   := $(if $(_AV_DYLIB_DIR),DYLD_LIBRARY_PATH="$(_AV_DYLIB_DIR):$$DY
 dev: _chmod _kill_port  ## Dev mode: hot-reload backend + Next.js dev server
 	@$(_DYLD_PREFIX)BACKEND_SCRIPT=scripts/dam_host.py bash scripts/run.sh
 
-run: _chmod _kill_port build  ## Production mode: build frontend + start backend
+run: _chmod _kill_port  ## Production mode: start backend + existing frontend build
 	@$(_DYLD_PREFIX)bash scripts/run_prod.sh
 
 docs:   ## Preview documentation locally at http://127.0.0.1:8002/DAM/

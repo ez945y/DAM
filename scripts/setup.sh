@@ -255,7 +255,7 @@ fi
 echo ""
 ok "Setup complete."
 echo -e "  Run ${GREEN}make dev${NC}          to start hot-reload dev server (backend + Next.js dev)."
-echo -e "  Run ${GREEN}make run${NC}          to build & start production server."
+echo -e "  Run ${GREEN}make build${NC}        after UI changes; ${GREEN}make run${NC} starts production server."
 if $WITH_LEROBOT; then
     echo -e "  Hardware support enabled — connect robot and run ${GREEN}make run${NC} or ${GREEN}make dev${NC}."
 else
