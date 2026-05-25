@@ -180,11 +180,15 @@ def test_host_health_pass_no_telemetry_in_metadata(HG):
 
 def test_guard_result_no_telemetry_data(HG):
     """Guard result metadata no longer carries raw sensor readings."""
-    status = {
-        "temperatures": {"m1": 45.0, "m2": 50.0},
-        "currents": {"m1": 0.3, "m2": 0.5},
-    }
-    result = HG.check(obs=_make_obs(), hardware_status=status)
+    obs = _make_obs(
+        metadata={
+            "hardware_status": {
+                "temperatures": {"m1": 45.0, "m2": 50.0},
+                "currents": {"m1": 0.3, "m2": 0.5},
+            }
+        }
+    )
+    result = HG.check(obs=obs)
     assert result.decision == GuardDecision.PASS
     assert "temperatures" not in (result.metadata or {})
     assert "currents" not in (result.metadata or {})

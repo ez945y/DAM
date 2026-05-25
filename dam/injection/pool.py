@@ -13,8 +13,6 @@ RUNTIME_POOL_KEYS: frozenset[str] = frozenset(
         # Phase 2 additions
         "active_containers",  # List[BoundaryContainer] — active this cycle
         "node_start_times",  # Dict[str, float] — {container_name: time node activated}
-        # Phase 3 additions
-        "hardware_status",  # Dict[str, Any] | None — from ActionAdapter.get_hardware_status()
         # Phase 4: shared kinematics — DynamicsContext refreshed by the
         # sensor adapter once per cycle.  Guards (workspace CBF, manipulability,
         # …) consume cached FK + Jacobian without recomputing.

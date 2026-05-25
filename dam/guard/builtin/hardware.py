@@ -32,7 +32,6 @@ class HardwareGuard(Guard):
     Injection keys
     --------------
     obs : Observation
-    hardware_status : dict | None
     now : float | None
     active_containers : list
     node_start_times : dict
@@ -43,7 +42,6 @@ class HardwareGuard(Guard):
     def check(
         self,
         obs: Observation,
-        hardware_status: dict[str, Any] | None = None,
         active_containers: list[Any] | None = None,
         node_start_times: dict[str, float] | None = None,
         now: float | None = None,
@@ -52,17 +50,12 @@ class HardwareGuard(Guard):
         layer = self.get_layer()
         name = self.get_name()
 
-        # Inject hardware_status from obs.metadata if adapter didn't provide it directly.
-        if hardware_status is None and hasattr(obs, "metadata") and obs.metadata:
-            hardware_status = obs.metadata.get("hardware_status")
-
         # Run L3 boundary callbacks.
         _, callback_res = evaluate_boundary_callbacks(
             containers=active_containers,
             base_kwargs={
                 "obs": obs,
                 "now": now,
-                "hardware_status": hardware_status,
                 "node_start_times": node_start_times or {},
             },
             expected_layer=layer.name,

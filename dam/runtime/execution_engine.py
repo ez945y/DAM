@@ -107,7 +107,6 @@ class ValidationContext:
     node_start_times    : copy of per-boundary node start timestamps (value-copy)
     active_task         : name of the currently running task
     kinematics_resolver : optional FK/IK resolver passed through to guards
-    hardware_status     : merged hardware health dict from sink + obs metadata
     risk_controller     : shared RiskController; .record() is called by engine
     """
 
@@ -120,7 +119,6 @@ class ValidationContext:
     node_start_times: dict[str, float]
     active_task: str | None
     kinematics_resolver: Any | None
-    hardware_status: dict[str, Any] | None
     risk_controller: RiskController
     sink: Any | None = None
     runtime: Any | None = None
@@ -286,7 +284,6 @@ class ExecutionEngine:
                 if n in ctx.boundary_containers
             },
             "node_start_times": ctx.node_start_times,
-            "hardware_status": ctx.hardware_status or None,
             "kinematics_resolver": ctx.kinematics_resolver,
             "dynamics": ctx.dynamics,
             "prev_validated_positions": ctx.prev_validated_positions,

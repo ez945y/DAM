@@ -599,7 +599,6 @@ class GuardRuntime:
             node_start_times=dict(self._node_start_times),
             active_task=self._active_task,
             kinematics_resolver=self._kinematics_resolver,
-            hardware_status=self._collect_hardware_status(obs),
             risk_controller=self._risk_controller,
             sink=self._sink,
             runtime=self,
@@ -663,7 +662,6 @@ class GuardRuntime:
             node_start_times=dict(self._node_start_times),
             active_task=self._active_task,
             kinematics_resolver=self._kinematics_resolver,
-            hardware_status=self._collect_hardware_status(obs),
             risk_controller=self._risk_controller,
             sink=self._sink,
             runtime=self,
@@ -693,16 +691,6 @@ class GuardRuntime:
             if d is not None and getattr(d, "available", False):
                 return d
         return None
-
-    def _collect_hardware_status(self, obs: Observation) -> dict[str, Any] | None:
-        """Return hardware status from observation metadata.
-
-        Telemetry (temperature, current, voltage) is read by the source
-        adapter during its ``read()`` call and bundled into
-        ``obs.metadata["hardware_status"]``.  No additional bus I/O here
-        — guards must never block on hardware reads.
-        """
-        return obs.metadata.get("hardware_status") or None
 
     @staticmethod
     def _build_hardware_snapshot(
