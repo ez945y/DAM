@@ -374,10 +374,8 @@ boundaries:
     type: single
     nodes:
       - callback: hardware_watchdog
-        timeout_sec: 0.5
         fallback: emergency_stop
         params:
-          max_temperature_c: 60.0
           max_staleness_ms: 1000
 ```
 
@@ -504,7 +502,6 @@ boundaries:
     type: single
     nodes:
       - callback: hardware_watchdog
-        timeout_sec: 0.5
         warn_frames: 3
         fallback: emergency_stop
         params:

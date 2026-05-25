@@ -22,6 +22,7 @@ describe('TEMPLATES', () => {
   it('every template includes L1-L3 with the standard hardware monitors', () => {
     for (const t of TEMPLATES) {
       const cfg = defaultConfig(t.id)
+      expect(cfg.tasks).toHaveLength(1)
       const layers = new Set(cfg.boundaries.map(b => b.layer))
       expect(layers).toEqual(new Set(['L1', 'L2', 'L3']))
       for (const boundary of ['hardware_watchdog', 'temperature_limit', 'current_limit', 'voltage_limit']) {
@@ -40,6 +41,9 @@ describe('TEMPLATES', () => {
         expect(byName[name].nodes[0].warn_frames).toBeGreaterThan(1)
       }
       expect(byName.voltage_limit.nodes[0].params).toMatchObject({ min_voltage_v: 10, max_voltage_v: 13 })
+      expect(byName.hardware_watchdog.nodes[0].timeout_sec).toBeNull()
+      expect(byName.host_health.nodes[0].timeout_sec).toBeNull()
+      expect(byName.host_health.nodes[0].fallback).toBe('slow_down')
     }
   })
 })
@@ -212,6 +216,8 @@ describe('generateYaml', () => {
   it('roundtrips warn_frames and emits the 12 V supply band', () => {
     const yaml = generateYaml(defaultConfig('dataset_replay_check'))
     expect(yaml).toMatch(/task_joint_speed_limit:[\s\S]*?warn_frames: 3/)
+    const l3Section = yaml.slice(yaml.indexOf('  hardware_watchdog:'), yaml.indexOf('\ntasks:'))
+    expect(l3Section).not.toContain('timeout_sec:')
     expect(yaml).toMatch(/voltage_limit:[\s\S]*?warn_frames: 3[\s\S]*?min_voltage_v: 10[\s\S]*?max_voltage_v: 13/)
     const parsed = parseConfigFromYaml(yaml)
     const voltage = parsed.boundaries!.find(b => b.name === 'voltage_limit')!

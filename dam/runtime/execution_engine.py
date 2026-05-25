@@ -453,6 +453,7 @@ class ExecutionEngine:
         g: Guard,
         boundary_name: str | None,
         runtime_pool: dict[str, Any],
+        boundary_names: list[str] | None = None,
     ) -> GuardResult:
         """Execute a single guard with boundary-specific param injection."""
         kwargs = dict(g._static_kwargs)
@@ -460,6 +461,10 @@ class ExecutionEngine:
 
         node_timeout = None
         active_map = runtime_pool.get("active_map", {})
+        if boundary_names is not None:
+            kwargs["active_containers"] = [
+                active_map[name] for name in boundary_names if name in active_map
+            ]
         lookup = boundary_name if boundary_name is not None else g.get_name()
         if lookup in active_map:
             container = active_map[lookup]
@@ -526,13 +531,11 @@ class ExecutionEngine:
                             results.append(self._run_one_guard(g, bn, runtime_pool))
                         continue
                     # Pipeline-driven guards (MotionGuard/ExecutionGuard) need
-                    # to see *all* active containers for their layer at once so
-                    # their clamp aggregator can fuse contributions across
-                    # boundaries.  Pass ``boundary_name=None`` to skip the
-                    # per-boundary active_containers narrowing in
-                    # _run_one_guard; the result is still fanned out below for
-                    # per-boundary metric reporting.
-                    result = self._run_one_guard(g, None, runtime_pool)
+                    # every container in this layer's group at once so their
+                    # aggregator can fuse contributions across boundaries.
+                    # They must not see containers owned by another layer:
+                    # an L3 watchdog timeout is not an L2 task timeout.
+                    result = self._run_one_guard(g, None, runtime_pool, bnames)
                 except Exception as exc:
                     result = GuardResult.fault(exc, "guard_code", primary, g.get_layer())
                     logger.error("Stage '%s' guard '%s' raised: %s", stage.name, primary, exc)
@@ -569,14 +572,14 @@ class ExecutionEngine:
     ) -> list[GuardResult]:
         # Build a flat list for the thread pool — one entry per group
         if stage.guard_boundary_pairs:
-            flat_pairs: list[tuple[Guard, str]] = []
+            flat_pairs: list[tuple[Guard, str | None, list[str] | None]] = []
             for g, bnames in stage.guard_boundary_pairs:
                 if self._is_boundary_specific_guard(g):
-                    flat_pairs.extend((g, bn) for bn in bnames)
+                    flat_pairs.extend((g, bn, None) for bn in bnames)
                 else:
-                    flat_pairs.append((g, bnames[0] if bnames else g.get_name()))
+                    flat_pairs.append((g, None, bnames))
         else:
-            flat_pairs = [(g, g.get_name()) for g in stage.guards]
+            flat_pairs = [(g, g.get_name(), None) for g in stage.guards]
 
         if not flat_pairs:
             logger.warning(
@@ -587,8 +590,8 @@ class ExecutionEngine:
         raw_results: list[GuardResult | None] = [None] * len(flat_pairs)
         executor = self._get_executor(max_workers=max(len(flat_pairs), 8))
         futures = {
-            executor.submit(self._run_parallel_entry, stage.name, i, g, bn, runtime_pool): i
-            for i, (g, bn) in enumerate(flat_pairs)
+            executor.submit(self._run_parallel_entry, stage.name, i, g, bn, bnames, runtime_pool): i
+            for i, (g, bn, bnames) in enumerate(flat_pairs)
         }
         try:
             for future in as_completed(futures, timeout=timeout_s):
@@ -598,10 +601,10 @@ class ExecutionEngine:
             # Fill timed-out entries
             for _fut, idx in futures.items():
                 if raw_results[idx] is None:
-                    g, _ = flat_pairs[idx]
+                    g, bn, _ = flat_pairs[idx]
                     raw_results[idx] = GuardResult(
                         decision=GuardDecision.FAULT,
-                        guard_name=flat_pairs[idx][1],
+                        guard_name=bn or g.get_name(),
                         layer=g.get_layer(),
                         reason=f"Stage '{stage.name}' parallel timeout ({stage.timeout_ms}ms)",
                         fault_source="timeout",
@@ -655,11 +658,12 @@ class ExecutionEngine:
         idx: int,
         g: Guard,
         boundary_name: str | None,
+        boundary_names: list[str] | None,
         runtime_pool: dict[str, Any],
     ) -> tuple[int, GuardResult]:
         result_name = boundary_name if boundary_name is not None else g.get_name()
         try:
-            result = self._run_one_guard(g, boundary_name, runtime_pool)
+            result = self._run_one_guard(g, boundary_name, runtime_pool, boundary_names)
         except Exception as exc:
             result = GuardResult.fault(exc, "guard_code", result_name, g.get_layer())
             logger.error("Stage '%s' guard '%s' raised: %s", stage_name, result_name, exc)

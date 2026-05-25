@@ -82,8 +82,9 @@ from a function name.
 L2 and L3 nodes use the shared structural field `warn_frames` to require
 consecutive violating cycles before escalation. A healthy cycle resets the
 streak. Use this for transient sensor spikes or momentary task deviations;
-do not use `timeout_sec` as a debounce value, because it is the maximum time
-a workflow node may remain active.
+do not use `timeout_sec` as a debounce value. `timeout_sec` is only for an
+explicitly timed L2 workflow phase, not for cycle-by-cycle L2 limits or L3
+hardware health monitoring.
 
 ```yaml
 boundaries:

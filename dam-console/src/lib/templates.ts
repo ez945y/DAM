@@ -157,7 +157,7 @@ const BASE_BOUNDARIES: BoundaryDef[] = [
       },
       callback: 'hardware_watchdog',
       fallback: 'emergency_stop',
-      timeout_sec: 0.5,
+      timeout_sec: null,
       warn_frames: 3,
     }]
   },
@@ -175,7 +175,7 @@ const BASE_BOUNDARIES: BoundaryDef[] = [
   },
   {
     name: 'host_health', layer: 'L3', type: 'single',
-    nodes: [{ node_id: 'default', params: { max_cpu_percent: 99, max_memory_percent: 98, max_temperature_c: 95, max_gpu_percent: 99, max_gpu_temperature_c: 95 }, callback: 'host_health_limit', fallback: 'emergency_stop', timeout_sec: 0.5, warn_frames: 3 }]
+    nodes: [{ node_id: 'default', params: { max_cpu_percent: 99, max_memory_percent: 98, max_temperature_c: 95, max_gpu_percent: 99, max_gpu_temperature_c: 95 }, callback: 'host_health_limit', fallback: 'slow_down', timeout_sec: null, warn_frames: 3 }]
   },
 ]
 

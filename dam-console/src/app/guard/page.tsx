@@ -41,10 +41,6 @@ const LAYER_COLORS: { [key: string]: string } = {
 
 // ── Factory helpers ───────────────────────────────────────────────────────────
 
-function makeTask(existingBoundaries: string[] = []): TaskDef {
-  return { id: crypto.randomUUID(), name: 'new_task', description: '', boundaries: existingBoundaries }
-}
-
 function makeNode(): ConstraintNodeDef {
   return {
     node_id: '',
@@ -115,6 +111,21 @@ function normalizeGripperNode(node: ConstraintNodeDef): ConstraintNodeDef {
   // A gripper task node is an explicit workflow phase, not a one-second
   // callback deadline. Runtime advances it when the task progresses.
   return { ...node, params: nextParams, timeout_sec: null }
+}
+
+const STATELESS_L2_CALLBACKS = new Set([
+  'task_joint_speed_limit',
+  'task_workspace_bounds',
+  'check_gripper_clear',
+  'task_gripper_command_guard',
+])
+
+function normalizeTaskNode(node: ConstraintNodeDef): ConstraintNodeDef {
+  const next = normalizeGripperNode(node)
+  if (next.callback && STATELESS_L2_CALLBACKS.has(next.callback) && next.timeout_sec !== null) {
+    return { ...next, timeout_sec: null }
+  }
+  return next
 }
 
 function fallbackTitle(fallback: FallbackDef): string {
@@ -247,7 +258,7 @@ function NodeForm({
                 ? (nextBoundaryName || newCallback || 'default')
                 : node.node_id
 
-              onChange(normalizeGripperNode({ ...node, node_id: nextId, callback: newCallback, params: newParams }))
+              onChange(normalizeTaskNode({ ...node, node_id: nextId, callback: newCallback, params: newParams }))
             }}
             className={`w-full ${inputCls}`}
           >
@@ -306,15 +317,19 @@ function NodeForm({
           })()}
         </div>
         <div className="space-y-0.5">
-          <label htmlFor={`node-${index}-timeout`} className="text-dam-muted text-[10px]">Timeout (sec)</label>
+          <label htmlFor={`node-${index}-timeout`} className="text-dam-muted text-[10px]">
+            Timeout (sec){node.callback && STATELESS_L2_CALLBACKS.has(node.callback) ? ' - n/a' : ''}
+          </label>
           <input
             id={`node-${index}-timeout`}
             type="number"
             step="0.5"
             value={node.timeout_sec ?? ''}
-            onChange={e => onChange({ ...node, timeout_sec: e.target.value === '' ? null : Number(e.target.value) })}
+            onChange={e => onChange(normalizeTaskNode({ ...node, timeout_sec: e.target.value === '' ? null : Number(e.target.value) }))}
             placeholder="none"
-            className={`w-full ${inputCls}`}
+            disabled={!!node.callback && STATELESS_L2_CALLBACKS.has(node.callback)}
+            title={node.callback && STATELESS_L2_CALLBACKS.has(node.callback) ? 'This callback is evaluated each cycle; use Warn Frames for consecutive violations.' : undefined}
+            className={`w-full ${inputCls} disabled:opacity-50 disabled:cursor-not-allowed`}
           />
         </div>
         <div className="space-y-0.5">
@@ -957,12 +972,10 @@ function TaskForm({
   task,
   boundaries,
   onChange,
-  onRemove,
 }: {
   task: TaskDef
   boundaries: BoundaryDef[]
   onChange: (t: TaskDef) => void
-  onRemove: () => void
 }) {
   const [isPickerOpen, setIsPickerOpen] = useState(false)
 
@@ -980,18 +993,13 @@ function TaskForm({
       <div className="grid grid-cols-1 sm:grid-cols-[1fr_2fr] gap-3">
         <div className="space-y-1">
           <label htmlFor={`task-${task.id}-name`} className="text-dam-muted text-[10px] uppercase tracking-wider">Task ID / Name</label>
-          <div className="flex items-center gap-2">
-            <input
-              id={`task-${task.id}-name`}
-              value={task.name}
-              onChange={e => onChange({ ...task, name: e.target.value })}
-              placeholder="task_name"
-              className={`flex-1 ${inputCls}`}
-            />
-            <button onClick={onRemove} className="text-dam-muted hover:text-dam-red transition-colors shrink-0">
-              <Trash2 size={13} />
-            </button>
-          </div>
+          <input
+            id={`task-${task.id}-name`}
+            value={task.name}
+            onChange={e => onChange({ ...task, name: e.target.value })}
+            placeholder="task_name"
+            className={`w-full ${inputCls}`}
+          />
         </div>
         <div className="space-y-1">
           <label htmlFor={`task-${task.id}-desc`} className="text-dam-muted text-[10px] uppercase tracking-wider">Description</label>
@@ -1070,7 +1078,7 @@ function migrateNode(node: ConstraintNodeDef): ConstraintNodeDef {
     if (jl.lower) next.params.lower = jl.lower
     delete next.params.joint_position_limits
   }
-  return normalizeGripperNode(next)
+  return normalizeTaskNode(next)
 }
 
 function migrateConfig(parsed: any) {
@@ -1146,8 +1154,9 @@ export default function GuardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Boundaries referenced by ANY task = "active"
-  const activeBoundaryNames = new Set(tasks.flatMap(t => t.boundaries))
+  // Templates intentionally expose one active task. Advanced multi-task
+  // stackfiles remain a YAML/runtime feature rather than an editor preset.
+  const activeBoundaryNames = new Set(tasks[0]?.boundaries ?? [])
 
   // Hydrate state from localStorage on mount to avoid SSR mismatch
   useEffect(() => {
@@ -1171,7 +1180,7 @@ export default function GuardPage() {
               },
               callback: 'workspace',
               fallback: 'emergency_stop',
-              timeout_sec: 1,
+              timeout_sec: null,
             }],
           },
         ])
@@ -1192,7 +1201,7 @@ export default function GuardPage() {
               },
               callback: 'workspace',
               fallback: 'emergency_stop',
-              timeout_sec: 1,
+              timeout_sec: null,
             }],
           },
         ])
@@ -1231,30 +1240,17 @@ export default function GuardPage() {
       if (templateData.templates) setBoundaryTemplates(templateData.templates)
 
       if (cdata.callbacks) {
-        // Only perform mandatory cleanup and metadata updates, NO AUTO-ADDING
+        // Clear meaningless task-callback timeouts; consecutive violations
+        // are configured with warn_frames instead.
         setBoundaries(prev => {
-          const next = [...prev]
           let globalChanged = false
-
-          next.forEach(b => {
-             const node = b.nodes[0]
-             if (node) {
-               // Preserve explicit phase semantics for gripper workflow nodes.
-               if (node.callback === 'task_gripper_command_guard') {
-                 if (node.timeout_sec !== null) {
-                   node.timeout_sec = null
-                   globalChanged = true
-                 }
-               } else if (node.timeout_sec === null) {
-                 node.timeout_sec = 1
-                 globalChanged = true
-               }
-               // Sync specialized callback logic if missing
-               const cb = cdata.callbacks.find(c => c.name === node.callback)
-               if (cb && !node.params?.[cb.name] && (cb.name === 'joint_position_limits' || cb.name === 'workspace')) {
-                 // Skip auto-injecting nested objects here to avoid duplicates
-               }
-             }
+          const next = prev.map(b => {
+            const nodes = b.nodes.map(node => {
+              const normalized = normalizeTaskNode(node)
+              if (normalized !== node) globalChanged = true
+              return normalized
+            })
+            return globalChanged && nodes.some((node, i) => node !== b.nodes[i]) ? { ...b, nodes } : b
           })
           return globalChanged ? next : prev
         })
@@ -1300,8 +1296,6 @@ export default function GuardPage() {
     return () => clearTimeout(t)
   }, [tasks, boundaries, guardsEnabled, lib])
 
-  const addTask = () => setTasks(prev => [...prev, makeTask()])
-  const removeTask = (id: string) => setTasks(prev => prev.filter(t => t.id !== id))
   const updateTask = (t: TaskDef) => setTasks(prev => prev.map(x => x.id === t.id ? t : x))
 
   const addBoundary = (layer = 'L1') => setBoundaries(prev => [...prev, makeBoundary(layer)])
@@ -1403,8 +1397,8 @@ export default function GuardPage() {
           <div className="flex-1 flex items-center gap-3">
             <LayoutDashboard size={14} className="text-dam-blue" />
             <div className="flex flex-col">
-              <span className="text-[10px] text-dam-muted uppercase font-bold leading-none">Tasks</span>
-              <span className="text-xs font-mono font-bold text-dam-text">{tasks.length} defined</span>
+              <span className="text-[10px] text-dam-muted uppercase font-bold leading-none">Task</span>
+              <span className="text-xs font-mono font-bold text-dam-text">{tasks[0].name}</span>
             </div>
           </div>
           <div className="w-px h-8 bg-dam-border" />
@@ -1412,7 +1406,7 @@ export default function GuardPage() {
             <Layout size={14} className="text-dam-blue" />
             <div className="flex flex-col">
               <span className="text-[10px] text-dam-muted uppercase font-bold leading-none">Active Boundaries</span>
-              <span className="text-xs font-mono font-bold text-dam-text">{activeBoundaryNames.size} across all tasks</span>
+              <span className="text-xs font-mono font-bold text-dam-text">{activeBoundaryNames.size} in task</span>
             </div>
           </div>
           <div className="w-px h-8 bg-dam-border" />
@@ -1552,28 +1546,25 @@ export default function GuardPage() {
         </div>
       </div>
 
-      {/* ── Tasks ─────────────────────────────────────────────────────────────── */}
+      {/* ── Task ──────────────────────────────────────────────────────────────── */}
       <div className="glass-card p-6 space-y-4">
-        <div className="flex items-center justify-between relative z-10">
-          <h2 className="text-dam-muted text-xs uppercase tracking-widest font-semibold">Tasks</h2>
-          <button
-            onClick={addTask}
-            className="flex items-center gap-1 text-xs text-dam-muted hover:text-dam-blue transition-colors"
-          >
-            <Plus size={12} /> New Task
-          </button>
-        </div>
+        <h2 className="text-dam-muted text-xs uppercase tracking-widest font-semibold relative z-10">Task</h2>
+        <p className="text-dam-muted text-[11px] relative z-10">Each built-in template configures one active task.</p>
+        {tasks.length > 1 && (
+          <p className="text-dam-muted text-[11px] relative z-10">
+            Additional hand-authored tasks are preserved in YAML; this editor shows the template task only.
+          </p>
+        )}
         {tasks.length === 0 && (
-          <p className="text-dam-muted text-xs italic">No tasks. Click &ldquo;New Task&rdquo; to create one.</p>
+          <p className="text-dam-muted text-xs italic">No task configured.</p>
         )}
         <div className="space-y-2 relative z-10">
-          {tasks.map(t => (
+          {tasks.slice(0, 1).map(t => (
             <TaskForm
               key={t.id}
               task={t}
               boundaries={boundaries}
               onChange={updateTask}
-              onRemove={() => removeTask(t.id)}
             />
           ))}
         </div>

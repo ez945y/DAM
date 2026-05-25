@@ -1,3 +1,5 @@
+import time
+
 import numpy as np
 import yaml
 
@@ -190,3 +192,69 @@ def test_l3_boundaries_receive_separate_metadata(tmp_path, monkeypatch):
     assert host_result.decision == GuardDecision.PASS
     assert "voltages" not in (watchdog_result.metadata or {})
     assert "host_health" not in (host_result.metadata or {})
+
+
+def test_l3_watchdog_timeout_is_not_reported_as_l2_task_timeout(tmp_path):
+    from dam.boundary.builtin_callbacks import register_all as reg_callbacks
+    from dam.guard.builtin import register_all as reg_guards
+
+    reg_callbacks()
+    reg_guards()
+
+    stack_content = {
+        "version": "1",
+        "guards": [{"L2": "execution"}, {"L3": "hardware", "always": True}],
+        "boundaries": {
+            "task_joint_speed_limit": {
+                "layer": "L2",
+                "type": "single",
+                "nodes": [
+                    {
+                        "node_id": "default",
+                        "callback": "task_joint_speed_limit",
+                        "params": {"max_speed": 3.0},
+                        "fallback": "hold_position",
+                        "warn_frames": 3,
+                    }
+                ],
+            },
+            "hardware_watchdog": {
+                "layer": "L3",
+                "type": "single",
+                "nodes": [
+                    {
+                        "node_id": "default",
+                        "callback": "hardware_watchdog",
+                        "params": {"max_staleness_ms": 1000.0},
+                        "fallback": "emergency_stop",
+                        "timeout_sec": 0.5,
+                    }
+                ],
+            },
+        },
+        "tasks": {"default": {"boundaries": ["task_joint_speed_limit", "hardware_watchdog"]}},
+        "safety": {"control_frequency_hz": 30.0, "enforcement_mode": "enforce"},
+    }
+
+    sf_path = tmp_path / "stack.yaml"
+    with open(sf_path, "w") as f:
+        yaml.dump(stack_content, f)
+
+    runtime = GuardRuntime.from_stackfile(str(sf_path))
+    runtime.start_task("default")
+    # This L3 node has exceeded its historical timeout. It must never be
+    # evaluated by ExecutionGuard and attributed to the L2 speed boundary.
+    runtime._node_start_times["hardware_watchdog"] = time.monotonic() - 1.0
+
+    obs = Observation(
+        timestamp=100.0,
+        joint_positions=np.zeros(6),
+        joint_velocities=np.zeros(6),
+    )
+    action = ActionProposal(target_joint_positions=np.zeros(6))
+    validated, results = runtime.validate(obs, action, "test-trace", now=100.0)
+
+    speed_result = next(r for r in results if r.guard_name == "task_joint_speed_limit")
+    assert speed_result.decision == GuardDecision.PASS
+    assert "timeout" not in speed_result.reason
+    assert validated is not None
