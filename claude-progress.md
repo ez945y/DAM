@@ -6,20 +6,60 @@
 - **倉庫根目錄**: `/Users/chenyizhong/Documents/Claude/Projects/Security Guard.nosync`
 - **標準啟動路徑**: `make dev`
 - **標準驗證路徑**: `make test`
-- **基線狀態**: unit tests passing（截至 2026-05-24）
+- **基線狀態**: unit tests passing（截至 2026-05-25, 585 passed）
 
 ## 當前最高優先級未完成功能
 
 1. **Vision OOD 閾值校準**：Vision fusion 跨場景分離力極好（abnormal detection=100%），但 mean+3σ 閾值策略過於保守導致 FPR 過高。需改用 percentile-based 閾值或 normal_test 校準。
 2. **機器人微振盪**：模型輸出高頻方向翻轉（~60% cycles 有 sign change），幅度 <1° 所以 guard PASS，但肉眼抖動明顯。這不是 guard pipeline 問題，是模型輸出問題。可能需要 action smoothing / EMA filter。
-3. **Guard Status 前端驗證**：fix 已 commit 但需要重建前端 (`cd dam-console && npm run build`) 才生效。用戶尚未確認。
-4. **MCAP 回讀 Risk Log**：用戶提到想從 MCAP 讀取歷史 risk data，尚未實作。
+3. **MCAP 回讀 Risk Log**：用戶提到想從 MCAP 讀取歷史 risk data，尚未實作。
 
 ## 當前 blocker
 
 無
 
 ## 會話記錄
+
+### Session 2026-05-25 #6 (L3 Hardware Guard Redesign)
+
+- **本輪目標**: 將 hardware_watchdog 拆成多個獨立 callback，加入 category 分組機制，統一 fallback 場景設計，移除死代碼
+- **已完成**:
+  - `@boundary_callback` decorator 新增 `category` 欄位，存入 catalog 及 fn attr
+  - 所有 callback 標記 category: hardware/host/kinematics/execution/anomaly
+  - Catalog API 支援 `?group_by=category` 分組查詢
+  - `event_class` 加入 telemetry guard_statuses 序列化（含 bugfix: 缺少 `()`）
+  - `hardware_snapshot` 改為 flat 結構（top-level temperatures/currents/voltages + host_health）
+  - HardwarePanel 直讀 flat data，移除 MetaTree/ScalarGrid/isHostHealthGuardName 死代碼
+  - CycleSafetyInspector 新增 `GroupedGuardCards` 按 event_class 分組顯示
+  - 移除 `hardware_status` injection pool key、StepContext field、HardwareGuard param
+  - 所有 stackfile 拆分 L3 boundaries: temperature→slow_down, current→hold_position, voltage→emergency_stop, host→slow_down
+  - 修正 so101_qp.yaml: temperature/current params 原錯放在 hardware_watchdog callback
+- **執行過的驗證**:
+  - `.venv/bin/python -m pytest tests/unit/ -x -q` — 585 passed
+  - `make lint` — all checks passed
+  - `cd dam-console && npx tsc --noEmit --skipLibCheck` — no errors
+  - `cd dam-console && npm test -- --ci` — 100 passed
+  - `cd dam-console && npm run build` — passed
+  - `.venv/bin/dam validate examples/stackfiles/*.yaml` — 5/5 valid
+  - `.venv/bin/python scripts/check_docs.py` — passed
+- **commits**: `7a1e889`, `35457ff`, `3cbf2c0`, `64aca96`
+
+### Session 2026-05-25 #5 (Hardware Telemetry Separation)
+
+- **本輪目標**: 將 hardware telemetry 從 guard decision path 分離——guard 只負責判斷，數據走觀測層
+- **已完成**:
+  - `CycleResult` 新增 `hardware_snapshot` field，由 runtime 從 `obs.metadata` 組裝
+  - `_serialise_cycle()` 從 `result.hardware_snapshot` 直接讀取，刪除 ~100 行 guard metadata mining 代碼
+  - `HardwareGuard` 移除 `_extract_telemetry()` / `_telemetry_summary()` / `_collect_host_health_if_active()`
+  - `host_health_limit` callback 改從 `obs.metadata["host_health"]` 讀取（與其他 L3 callback 一致）
+  - Runtime 在觀測階段注入 `collect_host_health()` 結果到 `obs.metadata["host_health"]`（built-in source）
+  - PASS path 的 GuardResult 不再攜帶 telemetry metadata
+- **執行過的驗證**:
+  - `python -m pytest tests/unit/ -x -q` — 550 passed, 21 skipped
+  - `make lint` — all checks passed
+- **未完成的清理（已 spawn_task）**:
+  - `hardware_status` injection pool key 可移除——沒有 callback 消費它
+- **commit**: c870cd2
 
 ### Session 2026-05-25 #4 (Unified L0 OOD Boundary Authoring)
 
