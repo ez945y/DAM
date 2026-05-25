@@ -210,6 +210,7 @@ export interface ConstraintNodeDef {
   callback: string | null
   fallback?: string | null
   timeout_sec?: number | null
+  warn_frames?: number | null
 }
 
 export interface BoundaryDef {

@@ -28,6 +28,7 @@ class NodeConfig(BaseModel):
     callback: str | None = None
     fallback: str | None = None
     timeout_sec: float | None = None
+    warn_frames: int = 1
 
 
 class FallbackConfig(BaseModel):

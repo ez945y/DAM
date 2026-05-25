@@ -209,7 +209,7 @@ class TestOODGuardNormalizingFlow:
         mid = (nll_in + nll_ood) / 2.0
         result = g.check(ood_obs, nll_threshold=mid)
         assert result.decision == GuardDecision.REJECT
-        assert "nll" in result.reason
+        assert "normalizing_flow" in result.reason
 
 
 # ── Backend comparison — same data, same conclusion ───────────────────────────

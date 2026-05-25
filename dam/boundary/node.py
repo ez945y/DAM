@@ -11,3 +11,4 @@ class BoundaryNode:
     constraint: BoundaryConstraint
     fallback: str = "emergency_stop"
     timeout_sec: float | None = None
+    warn_frames: int = 1

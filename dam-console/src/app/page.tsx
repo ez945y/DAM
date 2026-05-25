@@ -181,6 +181,9 @@ export default function DashboardPage() {
 
   const activeTask = teleCycle?.active_task ?? ctrlStatus.active_task ?? ctrlStatus.planned_task
 
+  const activeContext = teleCycle?.active_context ?? teleCycle?.fallback_triggered ?? null
+  const isInFallback = activeContext != null && activeContext !== 'normal'
+
   // Determine active boundaries without nested ternaries
   let activeBoundaries = ctrlStatus.planned_boundaries ?? []
   if (teleCycle?.active_boundaries?.length) {
@@ -270,6 +273,12 @@ export default function DashboardPage() {
                 <span className="text-[11px] text-dam-muted">Active Boundaries</span>
                 <span className={`text-[11px] font-mono font-bold ${isTaskLive ? 'text-dam-blue' : 'text-dam-muted'}`}>
                   {activeBoundaries.length} {isTaskLive ? 'Active' : 'Configured'}
+                </span>
+              </div>
+              <div className={`flex justify-between items-center rounded-lg px-3 py-2 border ${isInFallback ? 'bg-orange-950/30 border-dam-orange/40' : 'bg-dam-surface-2 border-dam-border/40'}`}>
+                <span className="text-[11px] text-dam-muted">Safety Context</span>
+                <span className={`text-[11px] font-mono font-bold ${isInFallback ? 'text-dam-orange' : 'text-dam-green'}`}>
+                  {isInFallback ? activeContext!.replace(/_/g, ' ').toUpperCase() : 'NORMAL'}
                 </span>
               </div>
               <div className="flex justify-between items-center bg-dam-surface-2 rounded-lg px-3 py-2 border border-dam-border/40">

@@ -52,6 +52,7 @@ function makeNode(): ConstraintNodeDef {
     callback: null,
     fallback: 'emergency_stop',
     timeout_sec: null,
+    warn_frames: null,
   }
 }
 
@@ -311,6 +312,19 @@ function NodeForm({
             value={node.timeout_sec ?? ''}
             onChange={e => onChange({ ...node, timeout_sec: e.target.value === '' ? null : Number(e.target.value) })}
             placeholder="none"
+            className={`w-full ${inputCls}`}
+          />
+        </div>
+        <div className="space-y-0.5">
+          <label htmlFor={`node-${index}-warn-frames`} className="text-dam-muted text-[10px]">Warn Frames</label>
+          <input
+            id={`node-${index}-warn-frames`}
+            type="number"
+            step="1"
+            min="1"
+            value={node.warn_frames ?? ''}
+            onChange={e => onChange({ ...node, warn_frames: e.target.value === '' ? null : Math.max(1, Math.round(Number(e.target.value))) })}
+            placeholder="1"
             className={`w-full ${inputCls}`}
           />
         </div>

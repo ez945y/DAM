@@ -29,8 +29,11 @@ def make_action():
 
 
 def _make_runtime_with_hardware_guard():
-    """Build a GuardRuntime with HardwareGuard and a mock sink with bad status."""
+    """Build a GuardRuntime with HardwareGuard and a temperature_limit boundary."""
+    from dam.boundary.builtin_callbacks import register_all
     from dam.runtime.guard_runtime import GuardRuntime
+
+    register_all()
 
     g = HardwareGuard()
     g.set_name("hw")
@@ -40,11 +43,14 @@ def _make_runtime_with_hardware_guard():
     from dam.boundary.node import BoundaryNode
     from dam.boundary.single import SingleNodeContainer
 
+    constraint = BoundaryConstraint(
+        callback="temperature_limit", params={"max_temperature_c": 55.0}
+    )
+    container = SingleNodeContainer(BoundaryNode("hwnode", constraint))
+
     rt = GuardRuntime(
         guards=[g],
-        boundary_containers={
-            "hw": SingleNodeContainer(BoundaryNode("hwnode", BoundaryConstraint()))
-        },
+        boundary_containers={"hw": container},
         task_config={"default": ["hw"]},
         always_active=[],
         config_pool={},
@@ -64,7 +70,7 @@ def test_hardware_fault_propagates_to_reject():
         timestamp=time.monotonic(),
         joint_positions=np.zeros(6),
         joint_velocities=np.zeros(6),
-        metadata={"hardware_status": {"temperature_c": 100.0, "current_a": 1.0, "error_codes": []}},
+        channels={"temperature": np.array([100.0])},
     )
     action = make_action()
 

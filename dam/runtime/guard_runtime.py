@@ -415,6 +415,7 @@ class GuardRuntime:
         self._active_containers = []
         self._active_container_names = []
         self._node_start_times = {}
+        self._reset_context_stack()
         self.stop_recording()
 
     def start_recording(self) -> None:
@@ -837,6 +838,16 @@ class GuardRuntime:
             trigger.reason if trigger is not None else None,
             len(self._context_stack),
         )
+
+    def _reset_context_stack(self) -> None:
+        """Collapse the context stack back to NormalContext.
+
+        Called on stop_task so a fresh start always begins in normal mode.
+        Fires exit transitions for each popped context so MCAP / telemetry
+        records the unwind.
+        """
+        while len(self._context_stack) > 1:
+            self._pop_context()
 
     def _consume_pending_context_event(self) -> ContextEvent | None:
         ev = self._pending_context_event
@@ -1456,9 +1467,7 @@ class GuardRuntime:
             default_fallback=config.safety.no_task_behavior,
         )
 
-        # Per-guard phase/always override (Task #8). cfg.guards items shaped
-        # like {"L1": "motion", "phase": 0, "always": false} → set instance
-        # attrs on the matching guard kind.
+        # Per-guard phase/always override from stackfile guards section.
         _LAYER_KEYS = {"L0", "L1", "L2", "L3"}
         for item in config.guards if isinstance(config.guards, list) else []:
             if not isinstance(item, dict):
@@ -1653,6 +1662,7 @@ class GuardRuntime:
             constraint=constraint,
             fallback=ncfg.fallback or config.safety.no_task_behavior,
             timeout_sec=ncfg.timeout_sec,
+            warn_frames=max(1, int(ncfg.warn_frames)),
         )
 
     @classmethod

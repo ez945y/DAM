@@ -43,10 +43,14 @@ def make_gripper_action(value):
     )
 
 
-def make_container(callback=None, **params):
+def make_container(callback=None, timeout_sec=None, warn_frames=1, **params):
     constraint = BoundaryConstraint(callback=callback, params=params)
     node = BoundaryNode(
-        "n0", constraint, fallback="hold_position", timeout_sec=params.get("timeout_sec")
+        "n0",
+        constraint,
+        fallback="hold_position",
+        timeout_sec=timeout_sec,
+        warn_frames=warn_frames,
     )
     return SingleNodeContainer(node)
 
@@ -283,3 +287,73 @@ def test_callback_with_params_passes(EG):
     result_fail = g.check(obs=obs_fail, active_containers=[container], node_start_times={})
     assert result_fail.decision == GuardDecision.REJECT
     assert "test_cb" in result_fail.reason
+
+
+def test_timeout_warn_frames_clamp_then_reject(EG):
+    """With warn_frames > 1, timeout emits CLAMP first and only promotes
+    to REJECT after enough consecutive cycles."""
+    import time
+
+    g = EG()
+    precompute_injection(g, {})
+    container = make_container(timeout_sec=0.001, warn_frames=5)
+    container._runtime_boundary_name = "slow_task"
+    node_start_times = {"slow_task": time.monotonic() - 1.0}
+
+    # First 4 cycles: CLAMP (warning)
+    for i in range(4):
+        result = g.check(
+            obs=make_obs(),
+            active_containers=[container],
+            node_start_times=node_start_times,
+        )
+        assert result.decision == GuardDecision.CLAMP, f"cycle {i}: expected CLAMP"
+        assert "timeout" in result.reason
+
+    # 5th cycle: REJECT
+    result = g.check(
+        obs=make_obs(),
+        active_containers=[container],
+        node_start_times=node_start_times,
+    )
+    assert result.decision == GuardDecision.REJECT
+    assert "warn 5/5" in result.reason
+
+
+def test_timeout_streak_resets_when_no_longer_timed_out(EG):
+    """If the node is no longer timed out (e.g. node advanced), the streak
+    resets so a future timeout starts from zero."""
+    import time
+
+    g = EG()
+    precompute_injection(g, {})
+    container = make_container(timeout_sec=0.001, warn_frames=5)
+    container._runtime_boundary_name = "resettable"
+
+    # Build up 2 CLAMPs
+    old_start = {"resettable": time.monotonic() - 1.0}
+    for _ in range(2):
+        g.check(
+            obs=make_obs(),
+            active_containers=[container],
+            node_start_times=old_start,
+        )
+
+    # Node advances → no longer timed out
+    fresh_start = {"resettable": time.monotonic()}
+    result = g.check(
+        obs=make_obs(),
+        active_containers=[container],
+        node_start_times=fresh_start,
+    )
+    assert result.decision == GuardDecision.PASS
+
+    # Next timeout starts from warn 1, not 3
+    old_start2 = {"resettable": time.monotonic() - 1.0}
+    result = g.check(
+        obs=make_obs(),
+        active_containers=[container],
+        node_start_times=old_start2,
+    )
+    assert result.decision == GuardDecision.CLAMP
+    assert "warn 1/5" in result.reason

@@ -6,10 +6,9 @@ Task-level constraints (joint speed cap, workspace box, …) are ordinary L2
 the guard itself owns no constraint logic — adding a new task limit means
 writing one callback, not editing this file.
 
-The only thing the guard does beyond dispatching callbacks is enforce
-``node.timeout_sec``, which is a property of the boundary-node lifecycle
-(how long a node may stay active) rather than an observation-level constraint,
-so it can't be expressed as a stateless callback.
+Timeout emits CLAMP (warning) first.  The boundary node's ``warn_frames``
+controls how many consecutive warning cycles before the decision is promoted
+to REJECT, which triggers the node's configured fallback.
 """
 
 from __future__ import annotations
@@ -34,7 +33,8 @@ class ExecutionGuard(Guard):
 
     Checks (in order):
     1. callback: the node's registered L2 callback; if it violates → REJECT.
-    2. timeout_sec: if the node has been active > timeout_sec → REJECT.
+    2. timeout_sec: if the node has been active > timeout_sec → CLAMP first,
+       REJECT after ``warn_frames`` consecutive cycles.
 
     Injection keys:
         obs: Observation (runtime)
@@ -63,6 +63,7 @@ class ExecutionGuard(Guard):
             node = container.get_active_node()
             constraint = node.constraint
             boundary_name = getattr(container, "_runtime_boundary_name", None) or name
+            threshold = max(1, node.warn_frames)
 
             # 1. callback check
             if constraint.callback:
@@ -76,25 +77,64 @@ class ExecutionGuard(Guard):
                     fault_source="guard_code",
                 )
                 if callback_res:
+                    if callback_res.decision in (GuardDecision.REJECT, GuardDecision.FAULT):
+                        streak = self.bump_streak(boundary_name)
+                        if streak < threshold:
+                            return GuardResult(
+                                decision=GuardDecision.CLAMP,
+                                guard_name=boundary_name,
+                                layer=layer,
+                                reason=f"{callback_res.reason} (warn {streak}/{threshold})",
+                                metadata={
+                                    **callback_res.metadata,
+                                    "warn_streak": streak,
+                                    "warn_frames": threshold,
+                                },
+                            )
                     return callback_res
 
-            # 2. timeout_sec check (Temporal watchdog)
+            # 2. timeout_sec check
             if node.timeout_sec is not None and node_start_times:
-                boundary_name = getattr(container, "_runtime_boundary_name", None)
+                bname_key = getattr(container, "_runtime_boundary_name", None)
                 start_time = node_start_times.get(node.node_id)
-                if start_time is None and isinstance(boundary_name, str):
-                    start_time = node_start_times.get(boundary_name)
+                if start_time is None and isinstance(bname_key, str):
+                    start_time = node_start_times.get(bname_key)
                 if start_time is not None:
                     elapsed = time.monotonic() - start_time
                     if elapsed > node.timeout_sec:
-                        reject_name = boundary_name or name
-                        return GuardResult.reject(
-                            reason=(
-                                f"node '{node.node_id}' timed out "
-                                f"({elapsed:.3f}s > {node.timeout_sec}s)"
-                            ),
+                        reject_name = bname_key or name
+                        streak = self.bump_streak(f"_timeout:{reject_name}")
+                        reason = (
+                            f"node '{node.node_id}' timeout "
+                            f"({elapsed:.3f}s > {node.timeout_sec}s, "
+                            f"warn {streak}/{threshold})"
+                        )
+                        if streak >= threshold:
+                            return GuardResult(
+                                decision=GuardDecision.REJECT,
+                                guard_name=reject_name,
+                                layer=layer,
+                                reason=reason,
+                                metadata={
+                                    "warn_streak": streak,
+                                    "warn_frames": threshold,
+                                    "required_frames": threshold,
+                                },
+                            )
+                        return GuardResult(
+                            decision=GuardDecision.CLAMP,
                             guard_name=reject_name,
                             layer=layer,
+                            reason=reason,
+                            metadata={
+                                "warn_streak": streak,
+                                "warn_frames": threshold,
+                            },
                         )
+                    else:
+                        bname_clear = bname_key or name
+                        self.reset_streak(f"_timeout:{bname_clear}")
+
+            self.reset_streak(boundary_name)
 
         return GuardResult.success(guard_name=name, layer=layer)

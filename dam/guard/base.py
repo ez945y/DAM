@@ -37,6 +37,8 @@ class Guard(ABC):
     _static_kwargs: dict[str, Any]
     _runtime_keys: list[str]
 
+    # Per-boundary violation streak counter for warn_frames support.
+
     if TYPE_CHECKING:
         check: Any
     else:
@@ -65,6 +67,19 @@ class Guard(ABC):
 
     def set_name(self, name: str) -> None:
         self._guard_name = name
+
+    def bump_streak(self, boundary_name: str) -> int:
+        """Increment and return the violation streak for a boundary."""
+        streaks: dict[str, int] = self.__dict__.setdefault("_warn_streaks", {})
+        s = streaks.get(boundary_name, 0) + 1
+        streaks[boundary_name] = s
+        return s
+
+    def reset_streak(self, boundary_name: str) -> None:
+        """Clear the violation streak for a boundary."""
+        streaks = self.__dict__.get("_warn_streaks")
+        if streaks:
+            streaks.pop(boundary_name, None)
 
     def on_violation(self, result: GuardResult) -> None:  # noqa: B027
         """Handle violation event. Override in subclass if needed."""

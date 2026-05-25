@@ -269,3 +269,27 @@ def test_context_event_dataclass_fields():
     )
     assert ev.event == "preempt"
     assert ev.extra == {}  # default factory
+
+
+def test_stop_task_resets_context_stack_to_normal():
+    """stop_task must collapse any fallback context back to NormalContext so a
+    fresh start begins in normal mode."""
+    from dam.runtime.guard_runtime import GuardRuntime
+
+    rt = GuardRuntime(
+        guards=[],
+        boundary_containers={},
+        task_config={"default": []},
+        always_active=[],
+        config_pool={},
+    )
+    rt.start_task("default")
+
+    hp = HoldPositionContext()
+    rt._push_context(hp, trigger=None, event="enter")
+    assert isinstance(rt._active_context, HoldPositionContext)
+    assert len(rt._context_stack) == 2
+
+    rt.stop_task()
+    assert isinstance(rt._active_context, NormalContext)
+    assert len(rt._context_stack) == 1

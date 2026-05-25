@@ -16,25 +16,32 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_RustImageHub: Any
-try:
-    import dam_rs
-except ImportError as exc:
-    raise ImportError(
-        "dam_rs.ImageHub is required for DAM 0.4.0 camera recording/live preview. "
-        "Run make setup or cd dam-rust/dam-py && maturin develop --release in the "
-        "same Python environment used by make run."
-    ) from exc
+_RustImageHub: Any = None
 
-_RustImageHub = getattr(dam_rs, "ImageHub", None)
-if _RustImageHub is None:
-    _dam_rs_path = getattr(dam_rs, "__file__", "unknown")
-    raise ImportError(
-        "dam_rs.ImageHub is required for DAM 0.4.0 camera recording/live preview. "
-        f"The imported dam_rs at {_dam_rs_path!r} does not provide it. "
-        "Rebuild the Rust extension in the same Python environment used by make run: "
-        "cd dam-rust/dam-py && maturin develop --release"
-    )
+
+def _get_rust_image_hub() -> Any:
+    global _RustImageHub
+    if _RustImageHub is not None:
+        return _RustImageHub
+    try:
+        import dam_rs
+    except ImportError as exc:
+        raise ImportError(
+            "dam_rs.ImageHub is required for DAM 0.4.0 camera recording/live preview. "
+            "Run make setup or cd dam-rust/dam-py && maturin develop --release in the "
+            "same Python environment used by make run."
+        ) from exc
+    hub_cls = getattr(dam_rs, "ImageHub", None)
+    if hub_cls is None:
+        _dam_rs_path = getattr(dam_rs, "__file__", "unknown")
+        raise ImportError(
+            "dam_rs.ImageHub is required for DAM 0.4.0 camera recording/live preview. "
+            f"The imported dam_rs at {_dam_rs_path!r} does not provide it. "
+            "Rebuild the Rust extension in the same Python environment used by make run: "
+            "cd dam-rust/dam-py && maturin develop --release"
+        )
+    _RustImageHub = hub_cls
+    return _RustImageHub
 
 
 @dataclass(frozen=True)
@@ -54,7 +61,7 @@ class CameraFrameHub:
         self._latest_arrays: dict[str, Any] = {}
         self._seen_cameras: set[str] = set()
         self._lock = threading.Lock()
-        self._rust_hub = _RustImageHub(self._window_sec)
+        self._rust_hub = _get_rust_image_hub()(self._window_sec)
 
     def put_frame(
         self,
