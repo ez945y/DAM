@@ -140,6 +140,13 @@ class TestTelemetryService:
         assert d["type"] == "cycle"
         assert "latency_ms" in d
 
+    def test_serialise_cycle_guard_event_class(self):
+        """Guard statuses include resolved event_class as a string."""
+        result = _make_cycle_result(45)
+        d = _serialise_cycle(result)
+        for gs in d["guard_statuses"]:
+            assert isinstance(gs["event_class"], str)
+
     def test_serialise_cycle_hardware_snapshot_passthrough(self):
         """Hardware telemetry comes from CycleResult.hardware_snapshot, not guard metadata."""
         result = _make_cycle_result(43)
