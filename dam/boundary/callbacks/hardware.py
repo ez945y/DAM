@@ -292,7 +292,7 @@ def check_force_torque_safe(
 )
 def host_health_limit(
     *,
-    host_health: dict | None = None,
+    obs: Observation | None = None,
     max_cpu_percent: float | None = 95.0,
     max_memory_percent: float | None = 95.0,
     max_temperature_c: float | None = 90.0,
@@ -301,10 +301,13 @@ def host_health_limit(
 ) -> GuardResult:
     """Check computer health via the standard L3 boundary path.
 
-    This callback intentionally returns a ``GuardResult`` so the sampled host
-    metrics are preserved as MCAP guard metadata whenever the boundary fires.
+    Reads from ``obs.metadata["host_health"]`` — the runtime injects host
+    health at the observation phase, just like adapter-provided channels.
+    Falls back to direct collection when obs is unavailable (e.g. tests).
     """
-    health = host_health or collect_host_health()
+    health: dict = (
+        obs.metadata.get("host_health") if obs is not None and obs.metadata else None
+    ) or collect_host_health()
     reasons: list[str] = []
 
     cpu = health.get("cpu_percent")
@@ -344,5 +347,4 @@ def host_health_limit(
         guard_name="host_health",
         layer=GuardLayer.L3,
         reason="host health within limits",
-        metadata={"host_health": health},
     )

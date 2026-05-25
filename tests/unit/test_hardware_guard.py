@@ -156,42 +156,35 @@ def test_watchdog_fault(HG):
     assert "limit 500ms" in result.reason
 
 
-def test_host_health_fault(HG, monkeypatch):
-    import importlib
-
-    hw_module = importlib.import_module("dam.guard.builtin.hardware")
-    monkeypatch.setattr(
-        hw_module,
-        "collect_host_health",
-        lambda: {"cpu_percent": 99.5, "memory_percent": 30.0, "timestamp": 1.0},
+def test_host_health_fault(HG):
+    obs = _make_obs(
+        metadata={"host_health": {"cpu_percent": 99.5, "memory_percent": 30.0, "timestamp": 1.0}},
     )
-    result = HG.check(obs=_make_obs(), active_containers=[_host_health_container(90.0)])
+    result = HG.check(obs=obs, active_containers=[_host_health_container(90.0)])
     assert result.decision == GuardDecision.FAULT
     assert "CPU" in result.reason
 
 
-def test_host_health_pass_records_metadata(HG, monkeypatch):
-    import importlib
-
-    hw_module = importlib.import_module("dam.guard.builtin.hardware")
-    monkeypatch.setattr(
-        hw_module,
-        "collect_host_health",
-        lambda: {"cpu_percent": 12.0, "memory_percent": 30.0, "timestamp": 1.0},
+def test_host_health_pass_no_telemetry_in_metadata(HG):
+    """Guard result no longer carries telemetry data — that's the runtime's job."""
+    obs = _make_obs(
+        metadata={"host_health": {"cpu_percent": 12.0, "memory_percent": 30.0, "timestamp": 1.0}},
     )
-    result = HG.check(obs=_make_obs(), active_containers=[_host_health_container(90.0)])
+    result = HG.check(obs=obs, active_containers=[_host_health_container(90.0)])
     assert result.decision == GuardDecision.PASS
-    assert result.metadata["host_health"]["cpu_percent"] == 12.0
+    assert "host_health" not in (result.metadata or {})
 
 
 # ── Telemetry summary ─────────────────────────────────────────────────────────
 
 
-def test_telemetry_summary_in_metadata(HG):
+def test_guard_result_no_telemetry_data(HG):
+    """Guard result metadata no longer carries raw sensor readings."""
     status = {
         "temperatures": {"m1": 45.0, "m2": 50.0},
         "currents": {"m1": 0.3, "m2": 0.5},
     }
     result = HG.check(obs=_make_obs(), hardware_status=status)
     assert result.decision == GuardDecision.PASS
-    assert "temperatures" in result.metadata
+    assert "temperatures" not in (result.metadata or {})
+    assert "currents" not in (result.metadata or {})

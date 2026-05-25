@@ -127,16 +127,6 @@ def test_l3_boundaries_receive_separate_metadata(tmp_path, monkeypatch):
     reg_callbacks()
     reg_guards()
 
-    import importlib
-
-    hardware_mod = importlib.import_module("dam.guard.builtin.hardware")
-
-    monkeypatch.setattr(
-        hardware_mod,
-        "collect_host_health",
-        lambda: {"cpu_percent": 12.0, "memory_percent": 30.0, "timestamp": 1.0},
-    )
-
     stack_content = {
         "version": "1",
         "guards": [{"hardware": "hardware"}],
@@ -182,19 +172,26 @@ def test_l3_boundaries_receive_separate_metadata(tmp_path, monkeypatch):
     runtime = GuardRuntime.from_stackfile(str(sf_path))
     runtime.start_task("default")
 
+    # host_health is injected into obs.metadata by the runtime (built-in
+    # source), just like hardware_status is injected by the adapter.
     obs = Observation(
         timestamp=100.0,
         joint_positions=np.zeros(6),
         joint_velocities=np.zeros(6),
-        metadata={"hardware_status": {"voltages": {"m1": 12.0, "m2": 12.1}}},
+        metadata={
+            "hardware_status": {"voltages": {"m1": 12.0, "m2": 12.1}},
+            "host_health": {"cpu_percent": 12.0, "memory_percent": 30.0, "timestamp": 1.0},
+        },
     )
     action = ActionProposal(target_joint_positions=np.zeros(6))
 
     _, results = runtime.validate(obs, action, "test-trace", now=100.0)
 
+    # Guard results carry decisions only — telemetry data flows through
+    # CycleResult.hardware_snapshot (populated from obs.metadata).
     watchdog_result = next(r for r in results if r.guard_name == "hardware_watchdog")
     host_result = next(r for r in results if r.guard_name == "host_health")
-    assert "voltages" in watchdog_result.metadata
-    assert "host_health" not in watchdog_result.metadata
-    assert "host_health" in host_result.metadata
-    assert "voltages" not in host_result.metadata
+    assert watchdog_result.decision == GuardDecision.PASS
+    assert host_result.decision == GuardDecision.PASS
+    assert "voltages" not in (watchdog_result.metadata or {})
+    assert "host_health" not in (host_result.metadata or {})

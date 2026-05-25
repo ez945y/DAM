@@ -41,28 +41,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 BINARY_PROTOCOL_VERSION = b"\x02"
-_HOST_HEALTH_KEYS = {
-    "cpu_percent",
-    "memory_percent",
-    "memory_available_mb",
-    "temperature_c",
-    "gpus",
-    "timestamp",
-}
-_HARDWARE_READING_KEYS = {
-    "temperatures",
-    "currents",
-    "voltages",
-    "temperature_c",
-    "current_a",
-    "voltage_v",
-    "error_codes",
-    "exception_joints",
-}
-_HARDWARE_UI_SKIP_KEYS = {
-    "_latency_ms",
-    "latency_ms",
-}
 
 
 def _layer_int(layer: Any) -> int | None:
@@ -83,21 +61,6 @@ def _layer_int(layer: Any) -> int | None:
     return None
 
 
-def _looks_like_host_health(value: Any) -> bool:
-    return isinstance(value, dict) and bool(_HOST_HEALTH_KEYS.intersection(value.keys()))
-
-
-def _hardware_guard_name(raw_name: str, meta: dict[str, Any]) -> str:
-    normalized = raw_name.lower()
-    if normalized in {"host_health", "host_health_limit"}:
-        return "host_health"
-    if normalized in {"hardwareguard", "hardware", "hardware_guard"} and (
-        _HARDWARE_READING_KEYS.intersection(meta.keys())
-    ):
-        return "hardware_watchdog"
-    return raw_name
-
-
 def _serialise_cycle(
     result: CycleResult,
     camera_jpegs: dict[str, bytes] | None = None,
@@ -110,13 +73,6 @@ def _serialise_cycle(
             the JSON cycle event; bytes are sent as binary WebSocket payloads.
     """
     guard_statuses = []
-    # Flexible hardware view: surface the JSON-safe metadata of every L3 /
-    # hardware-reporting guard (e.g. hardware_watchdog temps/currents/voltages,
-    # host_health CPU/GPU/mem) so the console can render whatever is present
-    # without a fixed schema. `host_health` is also hoisted to the top level
-    # for the typed CPU/mem/temp tiles.
-    hardware: dict[str, Any] = {}
-    hw_guards: dict[str, Any] = {}
     for gr in result.guard_results:
         layer_val = _layer_int(gr.layer)
         guard_statuses.append(
@@ -127,28 +83,7 @@ def _serialise_cycle(
                 "reason": gr.reason,
             }
         )
-        meta = gr.metadata if isinstance(gr.metadata, dict) else {}
-        if not meta:
-            continue
-        host_health = meta.get("host_health")
-        if _looks_like_host_health(host_health):
-            hardware["host_health"] = host_health
-        if layer_val == 3 or "host_health" in meta:
-            if isinstance(meta, dict):
-                # UI skip keys filtering on raw metadata dict
-                safe_meta = {
-                    k: v
-                    for k, v in meta.items()
-                    if k != "host_health" and k not in _HARDWARE_UI_SKIP_KEYS
-                }
-            else:
-                safe_meta = meta
-            if safe_meta:
-                name = _hardware_guard_name(str(gr.guard_name), safe_meta)
-                if name != "host_health":
-                    hw_guards[name] = safe_meta
-    if hw_guards:
-        hardware["guards"] = hw_guards
+
     event: dict[str, Any] = {
         "type": "cycle",
         "cycle_id": result.cycle_id,
@@ -168,8 +103,12 @@ def _serialise_cycle(
         "active_boundaries": result.active_boundaries,
         "timestamp": time.time(),
     }
-    if hardware:
-        event["hardware"] = hardware
+
+    # Hardware telemetry comes directly from the data layer (obs.channels +
+    # host_health), not from guard result metadata.  This separation keeps
+    # guards responsible only for pass/fault decisions.
+    if result.hardware_snapshot:
+        event["hardware"] = result.hardware_snapshot
     if camera_jpegs:
         # We send camera names so the frontend knows how many binary payloads to expect.
         event["active_cameras"] = list(camera_jpegs.keys())

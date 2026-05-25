@@ -704,6 +704,28 @@ class GuardRuntime:
         """
         return obs.metadata.get("hardware_status") or None
 
+    @staticmethod
+    def _build_hardware_snapshot(
+        obs: Observation,
+    ) -> dict[str, Any] | None:
+        """Assemble a hardware telemetry snapshot from observation metadata.
+
+        Both sources are injected into ``obs.metadata`` at the observation
+        phase — adapter-provided motor readings and the built-in host health
+        source — so this method is a pure pass-through with no I/O.
+        """
+        snapshot: dict[str, Any] = {}
+
+        hw_status = obs.metadata.get("hardware_status")
+        if hw_status:
+            snapshot["guards"] = {"hardware_watchdog": hw_status}
+
+        host = obs.metadata.get("host_health")
+        if host:
+            snapshot["host_health"] = host
+
+        return snapshot or None
+
     # ── Context state machine helpers ───────────────────────────────────────
 
     @property
@@ -925,6 +947,15 @@ class GuardRuntime:
                 object.__setattr__(obs, "images", camera_images)
                 images_from_hub = True
         active_camera_names = tuple(obs.images.keys()) if obs.images else ()
+
+        # Built-in host health source — same role as a source adapter but
+        # provided by the framework.  Injected into obs.metadata so L3
+        # callbacks and the telemetry service both read from the observation
+        # layer, just like motor channels.
+        from dam.boundary.callbacks.hardware import collect_host_health
+
+        obs.metadata["host_health"] = collect_host_health()
+
         t_obs = time.monotonic()
 
         # ── Context state machine: auto-escalate then pop done contexts ──
@@ -1098,6 +1129,7 @@ class GuardRuntime:
             active_task=self._active_task,
             active_boundaries=list(self._active_container_names),
             mcap_filename=self._loopback.current_filename if self._loopback else None,
+            hardware_snapshot=self._build_hardware_snapshot(obs),
         )
 
     def _publish_frames_to_hub(self, images: dict[str, Any], timestamp: float) -> None:

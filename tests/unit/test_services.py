@@ -140,43 +140,30 @@ class TestTelemetryService:
         assert d["type"] == "cycle"
         assert "latency_ms" in d
 
-    def test_serialise_cycle_hardware_metadata_is_json_safe_and_deduped(self):
+    def test_serialise_cycle_hardware_snapshot_passthrough(self):
+        """Hardware telemetry comes from CycleResult.hardware_snapshot, not guard metadata."""
         result = _make_cycle_result(43)
-        result.guard_results = [
-            GuardResult.success(
-                guard_name="HardwareGuard",
-                layer=GuardLayer.L3,
-                reason="ok",
-                metadata={
-                    "host_health": {"cpu_percent": np.float32(12.5)},
-                    "temperatures": {"m1": np.float64(31.2)},
-                    "currents": np.array([0.1, 0.2]),
-                    "voltages": {"m1": np.float32(7.4)},
-                    "_latency_ms": np.float64(201.0),
-                },
-            ),
-            GuardResult.success(
-                guard_name="host_health",
-                layer="L3",
-                reason="ok",
-                metadata={"host_health": {"memory_percent": np.float64(44.0)}},
-            ),
-        ]
+        result.hardware_snapshot = {
+            "host_health": {"cpu_percent": 12.5, "memory_percent": 44.0},
+            "guards": {
+                "hardware_watchdog": {
+                    "temperature": [31.2, 33.0],
+                    "current": [0.1, 0.2],
+                    "voltage": [7.4, 7.5],
+                }
+            },
+        }
 
         d = _serialise_cycle(result)
 
-        import msgspec
+        assert d["hardware"]["host_health"]["cpu_percent"] == 12.5
+        assert d["hardware"]["guards"]["hardware_watchdog"]["current"] == [0.1, 0.2]
 
-        from dam.services.serialization import msgspec_enc_hook
-
-        serialized = msgspec.json.encode(d, enc_hook=msgspec_enc_hook)
-        parsed = json.loads(serialized)
-
-        assert parsed["hardware"]["host_health"] == {"memory_percent": 44.0}
-        assert parsed["hardware"]["guards"]["hardware_watchdog"]["currents"] == [0.1, 0.2]
-        assert "host_health" not in parsed["hardware"]["guards"]["hardware_watchdog"]
-        assert "_latency_ms" not in parsed["hardware"]["guards"]["hardware_watchdog"]
-        assert "host_health" not in parsed["hardware"]["guards"]
+    def test_serialise_cycle_no_hardware_when_snapshot_is_none(self):
+        result = _make_cycle_result(44)
+        result.hardware_snapshot = None
+        d = _serialise_cycle(result)
+        assert "hardware" not in d
 
     def test_push_raw(self):
         svc = TelemetryService()

@@ -17,7 +17,6 @@ import logging
 from typing import Any
 
 import dam
-from dam.boundary.callbacks.hardware import collect_host_health
 from dam.guard.base import Guard
 from dam.guard.callbacks import evaluate_boundary_callbacks
 from dam.types.observation import Observation
@@ -52,7 +51,6 @@ class HardwareGuard(Guard):
     ) -> GuardResult:
         layer = self.get_layer()
         name = self.get_name()
-        host_health = self._collect_host_health_if_active(active_containers)
 
         # Inject hardware_status from obs.metadata if adapter didn't provide it directly.
         if hardware_status is None and hasattr(obs, "metadata") and obs.metadata:
@@ -65,7 +63,6 @@ class HardwareGuard(Guard):
                 "obs": obs,
                 "now": now,
                 "hardware_status": hardware_status,
-                "host_health": host_health,
                 "node_start_times": node_start_times or {},
             },
             expected_layer=layer.name,
@@ -125,13 +122,7 @@ class HardwareGuard(Guard):
                 if bname:
                     self.reset_streak(bname)
 
-        if host_health is not None:
-            telemetry: dict[str, Any] = {"host_health": host_health}
-            reason = ""
-        else:
-            telemetry = self._extract_telemetry(hardware_status)
-            reason = self._telemetry_summary(hardware_status)
-        return GuardResult.success(guard_name=name, layer=layer, metadata=telemetry, reason=reason)
+        return GuardResult.success(guard_name=name, layer=layer)
 
     @staticmethod
     def _warn_frames_for(active_containers: list[Any] | None, boundary_name: str) -> int:
@@ -146,41 +137,3 @@ class HardwareGuard(Guard):
         # Fallback: check first container.
         node = active_containers[0].get_active_node()
         return max(1, int(getattr(node, "warn_frames", 1)))
-
-    @staticmethod
-    def _collect_host_health_if_active(
-        active_containers: list[Any] | None,
-    ) -> dict[str, Any] | None:
-        if not active_containers:
-            return None
-        for container in active_containers:
-            node = container.get_active_node()
-            callback = node.constraint.callback if node.constraint else None
-            if callback == "host_health_limit":
-                return collect_host_health()
-        return None
-
-    @staticmethod
-    def _extract_telemetry(hardware_status: dict[str, Any] | None) -> dict[str, Any]:
-        if not hardware_status:
-            return {}
-        out: dict[str, Any] = {}
-        for key in ("temperatures", "currents", "voltages", "error_codes"):
-            if key in hardware_status:
-                out[key] = hardware_status[key]
-        return out
-
-    @staticmethod
-    def _telemetry_summary(hardware_status: dict[str, Any] | None) -> str:
-        if not hardware_status:
-            return ""
-        parts: list[str] = []
-        temps = hardware_status.get("temperatures")
-        if temps:
-            vals = list(temps.values())
-            parts.append(f"T:{max(vals):.0f}°")
-        currents = hardware_status.get("currents")
-        if currents:
-            vals = list(currents.values())
-            parts.append(f"I:{max(vals):.2f}A")
-        return " ".join(parts)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from dam.types.action import ActionProposal, ValidatedAction
@@ -31,3 +31,4 @@ class CycleResult:
     active_task: str | None = None
     active_boundaries: list[str] = field(default_factory=list)
     mcap_filename: str | None = None
+    hardware_snapshot: dict[str, Any] | None = None
