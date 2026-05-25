@@ -136,6 +136,10 @@ class DynamicsContext:
         # live outside the reduced model).
         if q.shape[0] > self.nq:
             q = q[: self.nq]
+        elif q.shape[0] < self.nq:
+            padded = np.zeros(self.nq, dtype=np.float64)
+            padded[: q.shape[0]] = q
+            q = padded
         if self._last_q is not None and np.array_equal(q, self._last_q):
             return
         import pinocchio as pin

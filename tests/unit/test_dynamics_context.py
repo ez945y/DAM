@@ -77,3 +77,26 @@ def test_update_cache_invalidates_on_new_q():
     ctx.update(np.array([1.0, 1.0]))
     J1 = ctx.frame_jacobian(fid)
     assert J0 is not J1  # cache flushed → new array
+
+
+def test_update_pads_short_q():
+    """q shorter than nq should be zero-padded, not crash pinocchio."""
+    pytest.importorskip("pinocchio")
+    model, data, fid = _make_two_joint_model()
+    ctx = DynamicsContext(model=model, data=data, joint_names=["j0", "j1"])
+    assert ctx.nq == 2
+
+    ctx.update(np.array([0.5]))
+    placement = ctx.frame_placement(fid)
+    assert placement.translation.shape == (3,)
+
+
+def test_update_truncates_long_q():
+    """q longer than nq should be truncated, not crash pinocchio."""
+    pytest.importorskip("pinocchio")
+    model, data, fid = _make_two_joint_model()
+    ctx = DynamicsContext(model=model, data=data, joint_names=["j0", "j1"])
+
+    ctx.update(np.array([0.1, 0.2, 0.3, 0.4]))
+    placement = ctx.frame_placement(fid)
+    assert placement.translation.shape == (3,)
