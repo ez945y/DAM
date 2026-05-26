@@ -25,6 +25,8 @@ hardware:
       dataset_repo_id: MikeChenYZ/soarm-fmb-v2
       episode: 0
       degrees_mode: true
+      # Preserve both recorded and live streams when they share camera names.
+      image_namespace: replay
     arm:
       type: motor
       port: /dev/tty.usbmodem5AA90244141

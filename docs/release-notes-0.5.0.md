@@ -16,6 +16,9 @@ hardware and multi-camera inspection.
 - `dataset_replay_check.yaml` is the focused hardware-validation example:
   recorded actions, real SO-101 output, and four visible/recordable streams:
   dataset `replay_top` / `replay_wrist` plus live `top` / `wrist`.
+- Image stream namespacing is a composition setting (`image_namespace:
+  replay`) rather than dataset-specific rewriting; colliding streams now fail
+  fast instead of silently overwriting recorded observations.
 - Dataset-to-hardware replay runs in strict mode: absent recorded actions fail
   closed instead of falling back to synthetic actions.
 

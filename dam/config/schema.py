@@ -144,6 +144,8 @@ class HardwareSourceConfig(BaseModel):
     # Native joint-angle unit mode for motor/dataset sources.  When True,
     # adapters convert external degrees into DAM's internal radians.
     degrees_mode: bool | None = None
+    # Composition-level namespace for image keys when sources share a frame hub.
+    image_namespace: str | None = None
 
 
 class HardwareSinkConfig(BaseModel):

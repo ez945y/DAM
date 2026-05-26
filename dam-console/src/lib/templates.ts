@@ -59,6 +59,7 @@ export interface DamConfig {
   simulation_dataset_repo_id?: string
   simulation_episode?: number
   dataset_replay_to_hardware?: boolean
+  dataset_image_namespace?: string
   observation_channels: string[]
   /** Optional override map: channel name → ROS2/MCAP topic.  Empty / missing
    *  entries fall back to the adapter's default topic for that channel. */
@@ -254,6 +255,7 @@ export const TEMPLATES: TemplatePreset[] = [
       lerobot_degrees_mode: true,
       simulation_dataset_repo_id: 'MikeChenYZ/soarm-fmb-v2', simulation_episode: 0,
       dataset_replay_to_hardware: true,
+      dataset_image_namespace: 'replay',
       observation_channels: SO101_HEALTH_CHANNELS,
       policy: { type: 'noop', pretrained_path: '', device: 'cpu' },
       joints: SO101_JOINTS, controlFrequencyHz: 30, enforcement_mode: 'enforce',
@@ -478,6 +480,7 @@ const SCHEMA: YamlSection[] = [
         scalar('dataset_repo_id', cfg => cfg.simulation_dataset_repo_id ?? null),
         scalar('episode', cfg => cfg.simulation_episode ?? 0),
         scalar('degrees_mode', () => 'true'),
+        scalar('image_namespace', cfg => cfg.dataset_image_namespace ?? 'replay'),
       ], cfg => cfg.adapter === 'lerobot' && !!cfg.dataset_replay_to_hardware && !!cfg.simulation_dataset_repo_id),
       block(MAIN_SOURCE_NAME.lerobot, [
         scalar('type', () => 'motor'), scalar('port', cfg => cfg.lerobot_port),
@@ -613,6 +616,7 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
       result.dataset_replay_to_hardware = true
       result.simulation_dataset_repo_id = getVal(/dataset_repo_id:\s*(.*)/) ?? undefined
       const ep = getVal(/episode:\s*(\d+)/); if (ep != null) result.simulation_episode = Number(ep)
+      result.dataset_image_namespace = getVal(/image_namespace:\s*(.*)/) ?? undefined
     }
   } else if (yaml.includes('type: ros2')) {
     result.adapter = 'ros2'

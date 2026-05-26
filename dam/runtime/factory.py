@@ -266,7 +266,9 @@ class RuntimeFactory:
             config.simulation,
             float(hz),
             strict=True,
-            camera_prefix="replay_",
+        )
+        replay_observation_source = RuntimeFactory._with_image_namespace(
+            dataset_source, dataset_cfg
         )
 
         builder = LeRobotBuilder(config.hardware, None, control_frequency_hz=hz)
@@ -288,7 +290,9 @@ class RuntimeFactory:
 
         # Keep the dataset first: its state/images are the replay observation;
         # the motor source contributes current hardware telemetry and is the sink.
-        runtime.register_source(dataset_name, dataset_source)
+        # The policy follows the native dataset cursor; only the observation
+        # view namespaces image keys before multi-source composition.
+        runtime.register_source(dataset_name, replay_observation_source)
         runtime.register_source(motor_name, motor)
         runtime.register_policy(DatasetReplayPolicy(dataset_source))
         runtime.register_sink(motor)
@@ -552,6 +556,7 @@ class RuntimeFactory:
         source_cfg = RuntimeFactory._find_sim_source_cfg(config)
         dataset_repo = RuntimeFactory._resolve_dataset_repo(source_cfg, sim_cfg)
         source = RuntimeFactory._build_sim_source(dataset_repo, source_cfg, sim_cfg, hz)
+        source = RuntimeFactory._with_image_namespace(source, source_cfg)
         policy = RuntimeFactory._build_sim_policy(config)
         return source, policy, SimSink()
 
@@ -583,7 +588,6 @@ class RuntimeFactory:
         hz: float,
         *,
         strict: bool = False,
-        camera_prefix: str = "",
     ) -> Any:
         if dataset_repo:
             from dam.adapter.dataset import DatasetSimSource
@@ -605,12 +609,20 @@ class RuntimeFactory:
                 hz=hz,
                 degrees_mode=degrees_mode,
                 strict=strict,
-                camera_prefix=camera_prefix,
             )
         from dam.testing.sim_adapters import SimSource
 
         logger.info("Simulation: using SimSource (random walk)")
         return SimSource(hz=hz)
+
+    @staticmethod
+    def _with_image_namespace(source: Any, source_cfg: Any) -> Any:
+        namespace = getattr(source_cfg, "image_namespace", None) if source_cfg else None
+        if not namespace:
+            return source
+        from dam.adapter.transforms import ImageNamespaceSource
+
+        return ImageNamespaceSource(source, namespace)
 
     @staticmethod
     def _build_sim_policy(config: StackfileConfig) -> Any:

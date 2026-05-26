@@ -63,7 +63,6 @@ class DatasetSimSource:
         degrees_mode: bool = True,
         *,
         strict: bool = False,
-        camera_prefix: str = "",
     ) -> None:
         self._repo_id = repo_id
         self._episode = episode
@@ -74,7 +73,6 @@ class DatasetSimSource:
         self._start_index: int = 0
         self._current_frame: dict[str, Any] | None = None
         self._strict = strict
-        self._camera_prefix = camera_prefix
 
         # Pre-loaded episode data: list of {"joint_positions", "images"?, "action"?}
         self._frames: list[dict[str, Any]] = []
@@ -151,15 +149,11 @@ class DatasetSimSource:
             velocity = np.zeros_like(joint_pos)
         self._prev_pos = joint_pos
 
-        images = frame.get("images")
-        if images and self._camera_prefix:
-            images = {f"{self._camera_prefix}{name}": image for name, image in images.items()}
-
         return Observation(
             timestamp=time.monotonic(),
             joint_positions=joint_pos.copy(),
             joint_velocities=velocity,
-            images=images,  # dict[str, np.ndarray HWC uint8] or None
+            images=frame.get("images"),  # dict[str, np.ndarray HWC uint8] or None
         )
 
     def current_action(self) -> np.ndarray:

@@ -936,6 +936,14 @@ class GuardRuntime:
         if self._frame_hub is not None and hasattr(self._frame_hub, "latest_arrays"):
             camera_images = self._frame_hub.latest_arrays()
             if camera_images:
+                collisions = set(source_embedded_images).intersection(camera_images)
+                if collisions:
+                    names = ", ".join(sorted(collisions))
+                    raise RuntimeError(
+                        "Camera stream name collision while composing observation: "
+                        f"{names}. Configure image_namespace on the dataset source "
+                        "or give live camera sources unique names."
+                    )
                 object.__setattr__(obs, "images", {**source_embedded_images, **camera_images})
         active_camera_names = tuple(obs.images.keys()) if obs.images else ()
 

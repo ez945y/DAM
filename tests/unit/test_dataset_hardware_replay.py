@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import numpy as np
 
 from dam.adapter.dataset import DatasetReplayPolicy, DatasetSimSource
+from dam.adapter.transforms import ImageNamespaceSource
 from dam.config.schema import NodeConfig, StackfileConfig
 from dam.runtime.factory import RuntimeFactory
 from dam.runtime.guard_runtime import GuardRuntime
@@ -45,7 +46,7 @@ def test_dataset_hardware_replay_requires_recorded_actions(monkeypatch):
         DatasetSimSource("demo/repo", strict=True)
 
 
-def test_dataset_camera_prefix_distinguishes_replay_from_live_frames(monkeypatch):
+def test_composed_image_namespace_distinguishes_replay_from_live_frames(monkeypatch):
     frames = [
         {
             "joint_positions": np.zeros(2),
@@ -57,10 +58,12 @@ def test_dataset_camera_prefix_distinguishes_replay_from_live_frames(monkeypatch
         DatasetSimSource, "_load_episode", staticmethod(lambda _repo, _ep: (frames, 30.0))
     )
 
-    source = DatasetSimSource("demo/repo", strict=True, camera_prefix="replay_")
-    source.connect()
+    source = DatasetSimSource("demo/repo", strict=True)
+    namespaced_source = ImageNamespaceSource(source, "replay")
+    namespaced_source.connect()
 
-    assert set(source.read().images or {}) == {"replay_top"}
+    assert set(namespaced_source.read().images or {}) == {"replay_top"}
+    assert set(source.read().images or {}) == {"top"}
 
 
 def _hybrid_config() -> StackfileConfig:
@@ -70,7 +73,11 @@ def _hybrid_config() -> StackfileConfig:
             "hardware": {
                 "preset": "so101_follower",
                 "sources": {
-                    "replay": {"type": "dataset", "dataset_repo_id": "demo/repo"},
+                    "replay": {
+                        "type": "dataset",
+                        "dataset_repo_id": "demo/repo",
+                        "image_namespace": "replay",
+                    },
                     "arm": {"type": "motor"},
                     "current": {"type": "current", "ref": "arm"},
                 },
@@ -105,13 +112,14 @@ def test_factory_routes_dataset_plus_motor_to_hardware_sink(monkeypatch):
     runner = RuntimeFactory.build_from_config(_hybrid_config())
 
     assert isinstance(runner, LeRobotRunner)
-    assert runner.runtime._sources["replay"] is source
+    assert isinstance(runner.runtime._sources["replay"], ImageNamespaceSource)
+    assert runner.runtime._sources["replay"]._source is source
     motor = runner.runtime._sources["arm"]
     assert isinstance(motor, LeRobotAdapter)
     assert runner.runtime._sink is motor
     assert isinstance(runner.runtime._policy, DatasetReplayPolicy)
     assert motor._observation_channels == ["current"]
-    assert build_kwargs["camera_prefix"] == "replay_"
+    assert "camera_prefix" not in build_kwargs
 
 
 def test_secondary_hardware_source_channels_are_visible_to_policy():
@@ -202,6 +210,31 @@ def test_dataset_and_live_camera_images_reach_policy_without_republishing_live_f
 
     assert policy.seen_images == {"replay_top", "top"}
     assert published == ["replay_top"]
+
+
+def test_colliding_image_sources_fail_instead_of_silently_overwriting_dataset_frame():
+    config = StackfileConfig(
+        **{"guards": [], "tasks": {"default": {"boundaries": []}}, "boundaries": {}}
+    )
+
+    class FrameHub:
+        def latest_arrays(self):
+            return {"top": np.ones((2, 2, 3), dtype=np.uint8)}
+
+    class Source:
+        def read(self):
+            return Observation(
+                timestamp=1.0,
+                joint_positions=np.zeros(2),
+                images={"top": np.zeros((2, 2, 3), dtype=np.uint8)},
+            )
+
+    runtime = GuardRuntime._from_config(config, frame_hub=FrameHub())
+    runtime.register_source("replay", Source())
+    runtime.start_task("default")
+
+    with np.testing.assert_raises_regex(RuntimeError, "image_namespace"):
+        runtime.step()
 
 
 def test_legacy_gripper_phase_timeout_is_ignored_at_runtime():

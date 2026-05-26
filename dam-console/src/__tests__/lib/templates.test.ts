@@ -179,6 +179,7 @@ describe('generateYaml', () => {
     const cfg = defaultConfig('dataset_replay_check')
     const yaml = generateYaml(cfg)
     expect(yaml).toMatch(/replay:\s*\n\s*type: dataset/)
+    expect(yaml).toMatch(/replay:[\s\S]*?image_namespace: replay/)
     expect(yaml).toMatch(/arm:\s*\n\s*type: motor/)
     expect(yaml).toMatch(/command:\s*\n\s*ref: sources\.arm/)
     expect(yaml).toMatch(/top:\s*\n\s*type: opencv/)
@@ -187,6 +188,7 @@ describe('generateYaml', () => {
     const parsed = parseConfigFromYaml(yaml)
     expect(parsed.dataset_replay_to_hardware).toBe(true)
     expect(parsed.simulation_dataset_repo_id).toBe('MikeChenYZ/soarm-fmb-v2')
+    expect(parsed.dataset_image_namespace).toBe('replay')
     expect(parsed.lerobot_cameras).toHaveLength(2)
 
     const mixedUnits = yaml.replace(
