@@ -323,8 +323,12 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
             return obs
         except Exception as e:
             logger.error("LeRobotAdapter hardware read failure: %s", e)
+            # Keep the *old* timestamp so watchdog staleness accumulates
+            # across consecutive failures.  If no previous read succeeded,
+            # use epoch-zero to trigger an immediate staleness reject.
+            fail_ts = self._prev_time if self._prev_time is not None else 0.0
             return Observation(
-                timestamp=self._prev_time if self._prev_time is not None else time.monotonic(),
+                timestamp=fail_ts,
                 joint_positions=self._prev_positions
                 if self._prev_positions is not None
                 else np.zeros(len(self._joint_names), dtype=np.float64),
@@ -332,7 +336,8 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
                 end_effector_pose=self._prev_ee_pose,
                 images=None,
                 metadata={
-                    "hardware_status": {"error_codes": [-1], "reason": f"Hardware read error: {e}"}
+                    "read_failure": True,
+                    "hardware_status": {"error_codes": [-1], "reason": f"Hardware read error: {e}"},
                 },
             )
 
@@ -520,9 +525,18 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
         self.apply(action)
 
     def emergency_stop(self) -> None:
-        logger.error("LeRobotAdapter: EMERGENCY STOP")
+        """Disable motor torque so joints go limp, then disconnect."""
+        logger.error("LeRobotAdapter: EMERGENCY STOP — releasing motors")
         if hasattr(self._robot, "emergency_stop"):
             self._robot.emergency_stop()
+        # Release torque on every motor bus so the arm goes limp.
+        for bus in getattr(self._robot, "buses", {}).values():
+            if hasattr(bus, "disable_torque"):
+                try:
+                    bus.disable_torque()
+                except Exception as e:  # noqa: BLE001
+                    logger.error("emergency_stop: disable_torque failed on %s: %s", bus, e)
+        self.disconnect()
 
     @property
     def last_action(self) -> ValidatedAction | None:
