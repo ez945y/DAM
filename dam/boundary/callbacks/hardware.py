@@ -8,6 +8,7 @@ state.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 import time
@@ -30,10 +31,14 @@ def _indexed_map(arr: np.ndarray) -> dict[str, float]:
     return {f"J{i + 1}": round(float(v), 3) for i, v in enumerate(np.ravel(arr))}
 
 
+logger = logging.getLogger(__name__)
+
+
 def _try_psutil_host_health() -> dict[str, Any]:
     try:
         import psutil  # type: ignore[import-untyped]
     except Exception:
+        logger.debug("psutil unavailable, host health metrics disabled")
         return {}
 
     out: dict[str, Any] = {}

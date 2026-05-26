@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { api } from '@/lib/api'
 import { Database, Loader2, Play, Trash2, Settings2, Info } from 'lucide-react'
 
 export function OODTrainer({
@@ -29,20 +30,15 @@ export function OODTrainer({
 
   const wsRef = useRef<WebSocket | null>(null)
 
-  // Use effect to fetch models on load
-  useEffect(() => {
-    fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/api/ood/models`)
-      .then(res => res.json())
+  const refreshModels = () =>
+    api.listOodModels()
       .then(data => setModels(data.models || []))
       .catch(() => {})
-  }, [])
 
-  // Reconnection logic
+  useEffect(() => { refreshModels() }, [])
+
   useEffect(() => {
-    let baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
-    const wsUrl = baseUrl.replace(/^http/, 'ws') + '/api/ood/train/ws'
-
-    const ws = new WebSocket(wsUrl)
+    const ws = new WebSocket(api.oodTrainWsUrl())
     wsRef.current = ws
 
     ws.onopen = () => {
@@ -69,11 +65,7 @@ export function OODTrainer({
           setResult(msg.result)
           setLoading(false)
           setProgressMsg('')
-          // Refresh models list immediately on success
-          fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/api/ood/models`)
-            .then(res => res.json())
-            .then(data => setModels(data.models || []))
-            .catch(() => {})
+          refreshModels()
         } else if (msg.status === 'error') {
           setError(msg.message)
           setLoading(false)
@@ -114,13 +106,9 @@ export function OODTrainer({
   const handleDeleteModel = async (name: string) => {
     if (!confirm(`Delete model ${name}?`)) return
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/api/ood/models/${name.replaceAll('.pt', '')}`, {
-        method: 'DELETE'
-      })
-      if (res.ok) {
-        setModels(prev => prev.filter(m => m.name !== name))
-      }
-    } catch (err) { /* ignore */ }
+      await api.deleteOodModel(name)
+      setModels(prev => prev.filter(m => m.name !== name))
+    } catch { /* ignore */ }
   }
 
   const handleCancel = () => {

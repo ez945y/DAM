@@ -900,6 +900,9 @@ class GuardRuntime:
 
         # ── Read and Merge Multi-Source Observations ───────────────────────
         full_obs = None
+        extra_images: dict[str, np.ndarray] = {}
+        extra_channels: dict[str, np.ndarray] = {}
+        extra_metadata: dict[str, Any] = {}
         source_latencies: dict[str, float] = {}
         for name, src in self._sources.items():
             t_source = time.monotonic()
@@ -908,37 +911,21 @@ class GuardRuntime:
             if full_obs is None:
                 full_obs = s_obs
             else:
-                # Merge logic: prioritize base keys, merge images
                 if hasattr(s_obs, "images") and s_obs.images:
-                    if full_obs.images is None:
-                        object.__setattr__(full_obs, "images", {})
-                    full_obs.images.update(s_obs.images)
-                # If the secondary source provides images but is an OpenCV adapter,
-                # it might just return a single frame. Ensure it lands in .images
+                    extra_images.update(s_obs.images)
                 if not hasattr(s_obs, "images") and hasattr(s_obs, "frame"):
-                    if full_obs.images is None:
-                        object.__setattr__(full_obs, "images", {})
-                    full_obs.images[name] = s_obs.frame
-
-                # Merge metadata
+                    extra_images[name] = s_obs.frame
                 if s_obs.metadata:
-                    if full_obs.metadata is None:
-                        object.__setattr__(full_obs, "metadata", {})
-                    full_obs.metadata.update(s_obs.metadata)
+                    extra_metadata.update(s_obs.metadata)
                 if s_obs.channels:
-                    if full_obs.channels is None:
-                        object.__setattr__(full_obs, "channels", {})
-                    full_obs.channels.update(s_obs.channels)
+                    extra_channels.update(s_obs.channels)
 
         if full_obs is None:
             raise RuntimeError("No hardware sources registered to GuardRuntime")
 
-        obs = full_obs
-        # Hardware cameras publish through the frame hub; dataset/simulation
-        # cameras arrive embedded in the observation. Keep both available to
-        # policy/inspection, while publishing only embedded frames into the
-        # hub so existing hardware JPEGs are not encoded a second time.
-        source_embedded_images = dict(obs.images or {})
+        # Images from source adapters only (published to hub, not re-publishing hub frames).
+        source_embedded_images = {**(full_obs.images or {}), **extra_images}
+        all_images = dict(source_embedded_images)
         if self._frame_hub is not None and hasattr(self._frame_hub, "latest_arrays"):
             camera_images = self._frame_hub.latest_arrays()
             if camera_images:
@@ -950,19 +937,22 @@ class GuardRuntime:
                         f"{names}. Configure image_namespace on the dataset source "
                         "or give live camera sources unique names."
                     )
-                object.__setattr__(obs, "images", {**source_embedded_images, **camera_images})
-        active_camera_names = tuple(obs.images.keys()) if obs.images else ()
+                all_images.update(camera_images)
+        active_camera_names = tuple(all_images.keys()) if all_images else ()
 
         t_obs = time.monotonic()
 
-        # Built-in host health source — same role as a source adapter but
-        # provided by the framework.  Injected into obs.metadata so L3
-        # callbacks and the telemetry service both read from the observation
-        # layer, just like motor channels.
+        # Built-in host health source
         from dam.boundary.callbacks.hardware import collect_host_health
 
-        obs.metadata["host_health"] = collect_host_health()
+        extra_metadata["host_health"] = collect_host_health()
         _host_health_ms = (time.monotonic() - t_obs) * 1000.0
+
+        obs = full_obs.merged(
+            images=all_images or None,
+            channels=extra_channels or None,
+            metadata=extra_metadata,
+        )
 
         # ── Context state machine: auto-escalate then pop done contexts ──
         # Only active in ENFORCE mode — monitor / log_only must observe without
@@ -1051,9 +1041,8 @@ class GuardRuntime:
             # both see them — exactly as the hardware camera-adapter path
             # already does, but owned here once instead of per source.
             self._publish_frames_to_hub(source_embedded_images, obs.timestamp)
-        if obs.images:
-            object.__setattr__(obs, "images", None)
-        self._obs_bus.write(obs)  # scalar observation ring buffer for loopback / MCAP capture
+        bus_obs = obs.merged(images=None) if obs.images else obs
+        self._obs_bus.write(bus_obs)  # scalar observation ring buffer for loopback / MCAP capture
         _obs_bus_ms = (time.monotonic() - t_bus) * 1000.0
 
         risk = self._compute_risk()

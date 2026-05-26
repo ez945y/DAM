@@ -43,7 +43,7 @@ def _load_calibrated_threshold(model_path: str) -> float | None:
         if sp.get("nll_sigma", -1) == 0 and "nll_threshold" in sp:
             return float(sp["nll_threshold"])
     except Exception:  # noqa: BLE001
-        pass
+        _logger.debug("Failed to read calibrated threshold from %s", meta_path, exc_info=True)
     return None
 
 

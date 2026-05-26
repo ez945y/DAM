@@ -36,7 +36,7 @@ class GuardResult:
         return LAYER_TO_EVENT_CLASS[self.layer]
 
     @classmethod
-    def success(
+    def pass_result(
         cls,
         guard_name: str,
         layer: GuardLayer,
@@ -50,6 +50,9 @@ class GuardResult:
             reason=reason,
             metadata=metadata or {},
         )
+
+    # Backwards-compatible alias — prefer pass_result() in new code.
+    success = pass_result
 
     @classmethod
     def reject(cls, guard_name: str, layer: GuardLayer, reason: str = "") -> GuardResult:

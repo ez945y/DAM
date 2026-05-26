@@ -193,6 +193,16 @@ export const api = {
   mcapDownloadUrl: (filename: string) =>
     `${API_BASE}/api/mcap/sessions/${encodeURIComponent(filename)}/download`,
 
+  // ── OOD models ──────────────────────────────────────────────────────────────
+  listOodModels: () =>
+    apiFetch<{ models: { name: string; path: string; metadata?: Record<string, unknown> }[] }>('/ood/models'),
+  deleteOodModel: (name: string) =>
+    apiFetch<void>(`/ood/models/${encodeURIComponent(name.replace(/\.pt$/, ''))}`, { method: 'DELETE' }),
+  oodTrainWsUrl: () => {
+    const base = API_BASE.replace(/^http/, 'ws')
+    return `${base}/api/ood/train/ws`
+  },
+
   // ── Stackfile library (data/stackfiles, separate from live) ───────────────
   listStackfiles: () =>
     apiFetch<{

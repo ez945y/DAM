@@ -70,6 +70,51 @@ class Observation:
         "force_torque",
     )
 
+    _UNSET: Any = object()
+
+    def merged(
+        self,
+        *,
+        images: dict[str, np.ndarray] | None = _UNSET,
+        channels: dict[str, np.ndarray] | None = _UNSET,
+        metadata: dict[str, Any] | None = _UNSET,
+    ) -> Observation:
+        """Return a new Observation with dicts merged (new keys win).
+
+        Pass an explicit ``None`` to clear a field; omit to keep current value.
+        """
+        if images is self._UNSET:
+            new_images = self.images
+        elif images is None:
+            new_images = None
+        else:
+            new_images = {**(self.images or {}), **images} or None
+
+        if channels is self._UNSET:
+            new_channels = self.channels
+        elif channels is None:
+            new_channels = None
+        else:
+            new_channels = {**(self.channels or {}), **channels} or None
+
+        if metadata is self._UNSET:
+            new_metadata = dict(self.metadata)
+        elif metadata is None:
+            new_metadata = {}
+        else:
+            new_metadata = {**self.metadata, **metadata}
+
+        return Observation(
+            timestamp=self.timestamp,
+            joint_positions=self.joint_positions,
+            joint_velocities=self.joint_velocities,
+            end_effector_pose=self.end_effector_pose,
+            force_torque=self.force_torque,
+            images=new_images,
+            channels=new_channels,
+            metadata=new_metadata,
+        )
+
     def iter_channels(self) -> Iterator[tuple[str, np.ndarray]]:
         """Yield every named array carried by this Observation.
 

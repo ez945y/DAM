@@ -6,7 +6,7 @@
 - **倉庫根目錄**: `/Users/chenyizhong/Documents/Claude/Projects/Security Guard.nosync`
 - **標準啟動路徑**: `make dev`
 - **標準驗證路徑**: `make test`
-- **基線狀態**: unit tests passing（截至 2026-05-25, 585 passed）
+- **基線狀態**: unit tests passing（截至 2026-05-26, 668 passed + 109 frontend）
 
 ## 當前最高優先級未完成功能
 
@@ -19,6 +19,44 @@
 無
 
 ## 會話記錄
+
+### Session 2026-05-26 #2 (Deep DX Audit & Architectural Fixes)
+
+- **本輪目標**: 深度開發者體驗審查——找出「傻眼」設計並強化「驚嘆」亮點
+- **已完成**:
+  - 4 agent 平行審查: Python API onboarding / 架構隱藏耦合 / 前端 DX / 測試安全
+  - `GuardResult.pass_result()` alias（與 `GuardDecision.PASS` 對齊命名）
+  - `Observation.merged()` factory 方法，消除 `guard_runtime.py` 中 6 處 `object.__setattr__` frozen dataclass 突破
+  - `examples/hello_guard.py` — 新開發者 5 分鐘可跑的最小範例
+  - `OODTrainer.tsx` 4 處硬編 `fetch()` → 用集中化 `api.ts`，新增 `listOodModels/deleteOodModel/oodTrainWsUrl`
+  - `hardware.py` / `ood.py` silent exception → 加 `logger.debug()` 可追蹤
+  - Spawn 3 個獨立改善任務（ObservationCompositor 抽取 / 併發測試 / 負面 config 測試）
+- **執行過的驗證**:
+  - `.venv/bin/python -m pytest tests/unit/ tests/safety/ -x -q` — 668 passed
+  - `ruff check dam/` — all checks passed
+  - `cd dam-console && npx tsc --noEmit --skipLibCheck` — no errors
+  - `cd dam-console && npm test -- --ci` — 109 passed
+  - `python examples/hello_guard.py` — PASS/CLAMP 正確輸出
+
+### Session 2026-05-26 #1 (Developer Experience Audit)
+
+- **本輪目標**: 以開發者角度全面審查專案，修復會讓開發者困惑的設計，強化值得驚嘆的亮點
+- **已完成**:
+  - 4 agent 平行審查: Python API DX / 架構命名 / 前端 DX / 測試安全
+  - `GuardResult.reject()` 參數順序統一為 `(guard_name, layer, reason)`
+  - 移除 `@guard` 死參數 `_process_group`
+  - 清理 `builtin_callbacks.py __all__` 私有符號
+  - `Guard.check()` 加 injection kwargs docstring
+  - 前端 `gGuardMap` 型別安全化 `Record<string, GuardStatus>`
+  - `GuardDecision` 加入 `STANDBY`，EventLog 改用 `RuntimeDecision`
+  - `runtime/contexts.py` → `runtime/builtin_contexts.py`
+  - Spawn 3 個獨立改善任務（property testing / shim 消除 / safety markers）
+- **執行過的驗證**:
+  - `.venv/bin/python -m pytest tests/unit/ tests/safety/ -x -q` — 668 passed
+  - `make lint` — all checks passed
+  - `cd dam-console && npx tsc --noEmit --skipLibCheck` — no errors
+  - `cd dam-console && npm test -- --ci` — 109 passed
+- **commit**: `de3aca6`
 
 ### Session 2026-05-25 #6 (L3 Hardware Guard Redesign)
 
