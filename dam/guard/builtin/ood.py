@@ -909,7 +909,8 @@ class OODGuard(Guard):
         device: str,
         vision_model: str | None = None,
         vision_weight: float = 0.3,
-        vision_camera: str | None = None,
+        vision_cameras: list[str] | None = None,
+        vision_camera: str | None = None,  # backward compat
     ) -> Any:
         """Synthesize a SingleNodeContainer wired to unified OOD callback."""
         from dam.boundary.constraint import BoundaryConstraint
@@ -932,8 +933,9 @@ class OODGuard(Guard):
         if vision_model:
             params["vision_model"] = vision_model
             params["vision_weight"] = vision_weight
-            if vision_camera:
-                params["vision_camera"] = vision_camera
+            cameras = vision_cameras or ([vision_camera] if vision_camera else None)
+            if cameras:
+                params["vision_cameras"] = cameras
         node = BoundaryNode(
             node_id=f"ood_default/{callback_name}",
             constraint=BoundaryConstraint(callback=callback_name, params=params),
@@ -1009,13 +1011,38 @@ class OODGuard(Guard):
         ood_model_path: str | None = None,
         bank_path: str | None = None,
         device: str = "cpu",
-        temporal_smoothing_frames: int = 1,
+        warn_frames: int = 3,
+        temporal_smoothing_frames: int | None = None,  # deprecated alias
         vision_model: str | None = None,
         vision_weight: float = 0.3,
-        vision_camera: str | None = None,
+        vision_cameras: list[str] | None = None,
+        vision_camera: str | None = None,  # deprecated alias
     ) -> GuardResult:
         layer = self.get_layer()
         name = self.get_name()
+
+        # Backward compat: temporal_smoothing_frames is a deprecated alias.
+        effective_warn_frames = (
+            temporal_smoothing_frames if temporal_smoothing_frames is not None else warn_frames
+        )
+        # When active_containers are provided, read warn_frames from the first
+        # node (consistent with how L1 execution and L3 hardware guards work).
+        if active_containers:
+            # Try both attribute access patterns used by different container types.
+            for container in active_containers[:1]:
+                node = getattr(container, "node", None)
+                if node is None:
+                    # List containers expose nodes differently
+                    nodes = getattr(container, "nodes", [])
+                    node = nodes[0] if nodes else None
+                if node is not None:
+                    nwf = getattr(node, "warn_frames", None)
+                    if nwf is not None:
+                        effective_warn_frames = max(1, int(nwf))
+                        break
+
+        # Resolve cameras: new param > deprecated single-camera alias.
+        effective_cameras = vision_cameras or ([vision_camera] if vision_camera else None)
 
         # Single execution path: stackfile-provided containers when present,
         # otherwise a synthesized unified OOD node configured with this
@@ -1031,7 +1058,7 @@ class OODGuard(Guard):
                 device=device,
                 vision_model=vision_model,
                 vision_weight=vision_weight,
-                vision_camera=vision_camera,
+                vision_cameras=effective_cameras,
             )
         ]
         if not active_containers:
@@ -1044,7 +1071,7 @@ class OODGuard(Guard):
             guard_name=name,
             guard_layer=layer,
         )
-        return self._apply_temporal_smoothing(final, temporal_smoothing_frames, name, layer)
+        return self._apply_temporal_smoothing(final, effective_warn_frames, name, layer)
 
     def _apply_temporal_smoothing(
         self,

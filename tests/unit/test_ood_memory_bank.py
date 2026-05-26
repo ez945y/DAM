@@ -172,9 +172,9 @@ class TestOODGuard:
         g.train(normal_obs)
         assert g._bank.is_trained
 
-        # Query far from training distribution → should REJECT
+        # Query far from training distribution → should REJECT.
         ood_obs = _obs([1000.0] * 6)
-        result = g.check(ood_obs, nn_threshold=0.01)  # tight threshold
+        result = g.check(ood_obs, nn_threshold=0.01, warn_frames=1)
         assert result.decision == GuardDecision.REJECT
         assert "memory_bank" in result.reason
 
@@ -208,7 +208,7 @@ class TestOODGuard:
             g.check(obs, nn_threshold=0.5)
         # Extreme observation
         extreme = _obs([1000.0] * 6, [0.0] * 6)
-        result = g.check(extreme, nn_threshold=0.5)
+        result = g.check(extreme, nn_threshold=0.5, warn_frames=1)
         assert result.decision == GuardDecision.REJECT
 
     def test_fault_on_broken_obs(self):

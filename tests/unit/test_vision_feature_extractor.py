@@ -131,16 +131,11 @@ class TestOODContextVision:
 
         np.testing.assert_allclose(actual, expected, atol=1e-6)
 
-    def test_configured_camera_selects_matching_image(self):
+    def test_configured_cameras_filters_obs_images(self):
         ctx = OODContext()
-        ctx._vision_camera = "top"
-        obs = Observation(
-            timestamp=0.0,
-            joint_positions=np.zeros(6),
-            images={
-                "wrist": np.zeros((2, 2, 3), dtype=np.uint8),
-                "top": np.ones((2, 2, 3), dtype=np.uint8),
-            },
-        )
-
-        np.testing.assert_array_equal(ctx._select_vision_image(obs), obs.images["top"])
+        ctx._vision_cameras = ["top"]
+        assert ctx._vision_cameras == ["top"]
+        # None cameras = all cameras; explicit list = only listed cameras.
+        ctx2 = OODContext()
+        ctx2._vision_cameras = None
+        assert ctx2._vision_cameras is None

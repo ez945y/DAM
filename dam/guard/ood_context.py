@@ -46,7 +46,7 @@ class OODContext:
         self._vision_extractor: VisionFeatureExtractor | None = None
         self._vision_model_name: str | None = None
         self._vision_weight: float = 0.3
-        self._vision_camera: str | None = None
+        self._vision_cameras: list[str] | None = None  # None = use all available in obs.images
         self._vision_pca: Any | None = None  # (mean, components) for projecting vision features
         self._vision_dim: int = 128
 
@@ -61,21 +61,42 @@ class OODContext:
         vision_model: str | None = None,
         vision_weight: float = 0.3,
         device: str = "cpu",
-        vision_camera: str | None = None,
+        vision_cameras: list[str] | str | None = None,
+        *,
+        vision_camera: str | None = None,  # backward compat — converted to [camera]
     ) -> None:
         """Configure the optional vision feature extractor.
 
-        When set, ``features()`` returns a fused vector: joint + vision embeddings
-        weighted by ``vision_weight``.  When None, behaviour is unchanged.
+        When set, ``features()`` returns a fused vector combining joint and the
+        **mean** of all configured camera embeddings, weighted by
+        ``vision_weight``.  Dimension is always 256 regardless of camera count.
+
+        Args:
+            vision_cameras: Explicit camera list, or None to auto-use every key
+                present in ``obs.images`` at inference time.
+            vision_camera: Deprecated single-camera alias.  Pass
+                ``vision_cameras`` instead.
         """
+        # Resolve camera list: new param takes priority over legacy alias.
+        cameras: list[str] | None
+        if vision_cameras is not None:
+            if isinstance(vision_cameras, str):
+                cameras = [vision_cameras] if vision_cameras else None
+            else:
+                cameras = list(vision_cameras) if vision_cameras else None
+        elif vision_camera:
+            cameras = [vision_camera]
+        else:
+            cameras = None  # None = use all cameras present in obs at inference time
+
         if not vision_model:
             self._vision_extractor = None
             self._vision_model_name = None
-            self._vision_camera = None
+            self._vision_cameras = None
             return
         if vision_model == self._vision_model_name and self._vision_extractor is not None:
             self._vision_weight = vision_weight
-            self._vision_camera = vision_camera or None
+            self._vision_cameras = cameras
             return
         from dam.guard.vision_feature_extractor import (
             VisionFeatureExtractor,
@@ -86,12 +107,12 @@ class OODContext:
         self._vision_extractor = VisionFeatureExtractor(cfg)
         self._vision_model_name = vision_model
         self._vision_weight = max(0.0, min(1.0, vision_weight))
-        self._vision_camera = vision_camera or None
+        self._vision_cameras = cameras
         logger.info(
-            "OODContext: vision extractor configured: model=%s weight=%.2f camera=%s",
+            "OODContext: vision extractor configured: model=%s weight=%.2f cameras=%s",
             vision_model,
             self._vision_weight,
-            self._vision_camera or "first_available",
+            cameras or "all_available",
         )
 
     def set_vision_pca(self, mean: np.ndarray, components: np.ndarray) -> None:
@@ -113,7 +134,12 @@ class OODContext:
             return self.feature_extractor.extract(obs)
 
         joint_z = self.feature_extractor.extract(replace(obs, images=None))
-        vision_z = self._extract_vision(obs)
+
+        # Determine which cameras to use for this observation.
+        cameras = self._vision_cameras
+        if cameras is None and obs.images:
+            cameras = sorted(obs.images.keys())
+        vision_z = self._extract_vision_averaged(obs, cameras or [])
 
         alpha = self._vision_weight
         joint_norm = np.linalg.norm(joint_z)
@@ -141,7 +167,12 @@ class OODContext:
     def features_batch(
         self, observations: list[Observation], vision_batch_size: int = 32
     ) -> np.ndarray:
-        """Extract embeddings in batches, using batched pretrained vision inference."""
+        """Extract embeddings in batches, using batched pretrained vision inference.
+
+        Multiple cameras are each processed in a separate batch pass and then
+        averaged together before fusion, keeping the output dimension fixed at
+        256 regardless of how many cameras are present.
+        """
         if self._vision_extractor is None:
             return np.stack([self.feature_extractor.extract(obs) for obs in observations], axis=0)
 
@@ -149,47 +180,69 @@ class OODContext:
             [self.feature_extractor.extract(replace(obs, images=None)) for obs in observations],
             axis=0,
         ).astype(np.float32)
+
+        # Determine camera list: explicit or union of all cameras seen across batch.
+        cameras = self._vision_cameras
+        if cameras is None:
+            cam_set: set[str] = set()
+            for obs in observations:
+                if obs.images:
+                    cam_set.update(obs.images.keys())
+            cameras = sorted(cam_set)
+
+        # Accumulate per-camera vision embeddings then average.
+        vision_sum = np.zeros((len(observations), 128), dtype=np.float32)
+        vision_count = np.zeros(len(observations), dtype=np.float32)
+
+        for camera in cameras:
+            with_images: list[tuple[int, np.ndarray]] = [
+                (i, obs.images[camera])
+                for i, obs in enumerate(observations)
+                if obs.images and camera in obs.images
+            ]
+            cam_vision = np.zeros((len(observations), 128), dtype=np.float32)
+            for offset in range(0, len(with_images), vision_batch_size):
+                batch = with_images[offset : offset + vision_batch_size]
+                images = np.stack([img for _idx, img in batch], axis=0)
+                raw_features = self._vision_extractor.extract(images)
+                for (idx, _img), raw_feat in zip(batch, raw_features, strict=True):
+                    cam_vision[idx] = self._project_vision_feature(raw_feat)
+            has_cam = np.array(
+                [obs.images is not None and camera in (obs.images or {}) for obs in observations],
+                dtype=bool,
+            )
+            vision_sum[has_cam] += cam_vision[has_cam]
+            vision_count[has_cam] += 1
+
         vision = np.zeros((len(observations), 128), dtype=np.float32)
-        with_images: list[tuple[int, np.ndarray]] = []
-        for index, obs in enumerate(observations):
-            image = self._select_vision_image(obs)
-            if image is not None:
-                with_images.append((index, image))
-        for offset in range(0, len(with_images), vision_batch_size):
-            batch = with_images[offset : offset + vision_batch_size]
-            images = np.stack([image for _index, image in batch], axis=0)
-            raw_features = self._vision_extractor.extract(images)
-            for (index, _image), raw_feature in zip(batch, raw_features, strict=True):
-                vision[index] = self._project_vision_feature(raw_feature)
+        valid = vision_count > 0
+        vision[valid] = vision_sum[valid] / vision_count[valid, np.newaxis]
 
         alpha = self._vision_weight
         joint /= np.maximum(np.linalg.norm(joint, axis=1, keepdims=True), 1e-9)
         vision /= np.maximum(np.linalg.norm(vision, axis=1, keepdims=True), 1e-9)
         fused = np.concatenate([joint * (1.0 - alpha), vision * alpha], axis=1).astype(np.float32)
         fused /= np.maximum(np.linalg.norm(fused, axis=1, keepdims=True), 1e-9)
-        result: np.ndarray = fused
-        return result
+        return np.asarray(fused)
 
-    def _extract_vision(self, obs: Observation) -> np.ndarray | None:
-        """Extract and project vision features from the first available camera.
+    def _extract_vision_averaged(self, obs: Observation, cameras: list[str]) -> np.ndarray | None:
+        """Extract and average vision features across multiple cameras.
 
-        Always returns a 128-dim vector (matching joint embedding dim) so the
-        fused output has consistent dimensionality.
+        Always returns a 128-dim vector regardless of how many cameras are
+        present so the fused output maintains consistent dimensionality.
+        Returns None when no camera images are available.
         """
-        if self._vision_extractor is None:
+        if self._vision_extractor is None or not obs.images:
             return None
-        cam_img = self._select_vision_image(obs)
-        if cam_img is None:
+        zs: list[np.ndarray] = []
+        for cam in cameras:
+            img = obs.images.get(cam)
+            if img is not None:
+                raw_feat = self._vision_extractor.extract_single(img)
+                zs.append(self._project_vision_feature(raw_feat))
+        if not zs:
             return None
-        raw_feat = self._vision_extractor.extract_single(cam_img)
-        return self._project_vision_feature(raw_feat)
-
-    def _select_vision_image(self, obs: Observation) -> np.ndarray | None:
-        if not obs.images:
-            return None
-        if self._vision_camera:
-            return obs.images.get(self._vision_camera)
-        return next(iter(obs.images.values()), None)
+        return np.asarray(np.mean(zs, axis=0), dtype=np.float32)
 
     def _project_vision_feature(self, raw_feat: np.ndarray) -> np.ndarray:
         if self._vision_pca is not None:
@@ -267,6 +320,9 @@ class OODContext:
         out: dict[str, Any] = {
             "torch_available": getattr(self.feature_extractor, "_torch_available", False),
             "n_backends": len(self._backends),
+            "vision_model": self._vision_model_name,
+            "vision_cameras": self._vision_cameras,
+            "vision_weight": self._vision_weight if self._vision_model_name else None,
         }
         for key, backend in self._backends.items():
             out[key] = backend.diagnostics()

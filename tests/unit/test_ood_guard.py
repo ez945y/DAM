@@ -49,8 +49,7 @@ def test_ood_rejects_extreme_obs_after_warmup(OG):
     # Build baseline with small values
     for _ in range(40):
         g.check(obs=make_obs([0.01] * 6), nn_threshold=0.5)
-    # Extreme observation — very different from baseline
-    result = g.check(obs=make_obs([100.0] * 6), nn_threshold=0.5)
+    result = g.check(obs=make_obs([100.0] * 6), nn_threshold=0.5, warn_frames=1)
     assert result.decision == GuardDecision.REJECT
 
 

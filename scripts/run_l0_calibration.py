@@ -157,6 +157,34 @@ def load_observations_from_hf(
     return by_episode
 
 
+def detect_cameras_from_hf(repo_id: str) -> list[str]:
+    """Detect available camera names from the first row of a lerobot HF dataset.
+
+    Lerobot v3 stores video metadata as ``observation.images.{camera}`` columns
+    in the parquet data (or ``videos/observation.images.{camera}/...`` paths).
+    Returns a sorted list of discovered camera names, e.g. ``["top", "wrist"]``.
+    Returns an empty list when no camera columns are found.
+    """
+    import datasets
+
+    try:
+        ds = datasets.load_dataset(repo_id, split="train", streaming=True)
+        sample = next(iter(ds), None)
+        if sample is None:
+            return []
+        prefix = "observation.images."
+        cameras = sorted(k[len(prefix) :] for k in sample if k.startswith(prefix))
+        if cameras:
+            return cameras
+        # Fallback: check dataset features for the prefix in column names
+        if hasattr(ds, "features"):
+            cameras = sorted(k[len(prefix) :] for k in (ds.features or {}) if k.startswith(prefix))
+        return cameras
+    except Exception as exc:
+        LOGGER.warning("Could not detect cameras from %s: %s", repo_id, exc)
+        return []
+
+
 def _cache_key(payload: dict) -> str:
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()[:16]
@@ -530,8 +558,9 @@ def _export_runtime_bundle(
                 "vision_weight": feature_config["vision_weight"],
             }
         )
-        if feature_config.get("vision_camera"):
-            stackfile_params["vision_camera"] = feature_config["vision_camera"]
+        cams = feature_config.get("vision_cameras")
+        if cams:
+            stackfile_params["vision_cameras"] = list(cams)
     metadata = {
         "callback": "ood_detector",
         "backend": "normalizing_flow",
@@ -698,46 +727,59 @@ def _attach_vision_frames(
     episode_ids: list[int],
     by_episode: dict[int, list[Observation]],
     obs_list: list[Observation],
-    camera: str,
+    cameras: list[str],
     subsample: int,
     label: str,
 ) -> int:
-    """Load video frames and attach them to Observation objects in-place.
+    """Load video frames for one or more cameras and attach them to Observation objects in-place.
 
-    Since Observation is frozen, we replace items in obs_list with new instances.
+    Each Observation is replaced with a new instance whose ``images`` dict
+    contains all successfully loaded camera frames for that timestep.
     Only loads every Nth frame (subsample) to keep memory/time reasonable.
     """
     from dam.guard.lerobot_video_loader import LeRobotVideoLoader
 
-    LOGGER.info("Loading %s video frames (%s, camera=%s)...", label, repo_id, camera)
-    loader = LeRobotVideoLoader(repo_id, camera=camera)
+    # Collect frames per camera first, then merge into each observation.
+    frames_by_camera: dict[str, dict[int, list[np.ndarray]]] = {}
+    for camera in cameras:
+        LOGGER.info("Loading %s video frames (%s, camera=%s)...", label, repo_id, camera)
+        loader = LeRobotVideoLoader(repo_id, camera=camera)
+        cam_frames: dict[int, list[np.ndarray]] = {}
+        for ep_id in episode_ids:
+            try:
+                cam_frames[ep_id] = loader.load_episode_frames(ep_id, subsample=subsample)
+            except Exception as exc:
+                LOGGER.warning(
+                    "Could not load video for episode %s camera %s: %s", ep_id, camera, exc
+                )
+        frames_by_camera[camera] = cam_frames
 
     obs_idx = 0
     for ep_id in episode_ids:
         ep_obs = by_episode.get(ep_id, [])
-        try:
-            frames = loader.load_episode_frames(ep_id, subsample=subsample)
-        except Exception as exc:
-            LOGGER.warning("Could not load video for episode %s: %s", ep_id, exc)
-            obs_idx += len(ep_obs)
-            continue
-
         for frame_idx, obs in enumerate(ep_obs):
             if obs_idx >= len(obs_list):
                 break
+            if frame_idx % subsample != 0:
+                obs_idx += 1
+                continue
             video_frame_idx = frame_idx // subsample
-            if video_frame_idx < len(frames) and frame_idx % subsample == 0:
-                new_obs = Observation(
+            images: dict[str, np.ndarray] = {}
+            for camera, cam_ep_frames in frames_by_camera.items():
+                ep_frames = cam_ep_frames.get(ep_id, [])
+                if video_frame_idx < len(ep_frames):
+                    images[camera] = ep_frames[video_frame_idx]
+            if images:
+                obs_list[obs_idx] = Observation(
                     timestamp=obs.timestamp,
                     joint_positions=obs.joint_positions,
                     joint_velocities=obs.joint_velocities,
                     end_effector_pose=obs.end_effector_pose,
                     force_torque=obs.force_torque,
-                    images={camera: frames[video_frame_idx]},
+                    images=images,
                     channels=obs.channels,
                     metadata=obs.metadata,
                 )
-                obs_list[obs_idx] = new_obs
             obs_idx += 1
 
     n_with_images = sum(1 for o in obs_list if o.images is not None)
@@ -750,41 +792,53 @@ def _attach_vision_frames_labelled(
     episode_ids: list[int],
     by_episode: dict[int, list[Observation]],
     labelled: list[tuple[int, int, Observation]],
-    camera: str,
+    cameras: list[str],
     subsample: int,
     label: str,
 ) -> int:
-    """Attach video frames to labelled observation tuples."""
+    """Attach video frames from multiple cameras to labelled observation tuples."""
     from dam.guard.lerobot_video_loader import LeRobotVideoLoader
 
-    LOGGER.info("Loading %s video frames (%s, camera=%s)...", label, repo_id, camera)
-    loader = LeRobotVideoLoader(repo_id, camera=camera)
-
-    frames_by_episode: dict[int, list[np.ndarray]] = {}
-    for ep_id in episode_ids:
-        try:
-            frames_by_episode[ep_id] = loader.load_episode_frames(ep_id, subsample=subsample)
-        except Exception as exc:
-            LOGGER.warning("Could not load video for episode %s: %s", ep_id, exc)
+    # Load all cameras up front.
+    frames_by_camera: dict[str, dict[int, list[np.ndarray]]] = {}
+    for camera in cameras:
+        LOGGER.info("Loading %s video frames (%s, camera=%s)...", label, repo_id, camera)
+        loader = LeRobotVideoLoader(repo_id, camera=camera)
+        cam_frames: dict[int, list[np.ndarray]] = {}
+        for ep_id in episode_ids:
+            try:
+                cam_frames[ep_id] = loader.load_episode_frames(ep_id, subsample=subsample)
+            except Exception as exc:
+                LOGGER.warning(
+                    "Could not load video for episode %s camera %s: %s", ep_id, camera, exc
+                )
+        frames_by_camera[camera] = cam_frames
 
     n_attached = 0
     for i, (ep, frame_idx, obs) in enumerate(labelled):
-        frames = frames_by_episode.get(ep)
-        if frames is None:
-            continue
         video_frame_idx = frame_idx // subsample
-        if video_frame_idx < len(frames) and frame_idx % subsample == 0:
-            new_obs = Observation(
-                timestamp=obs.timestamp,
-                joint_positions=obs.joint_positions,
-                joint_velocities=obs.joint_velocities,
-                end_effector_pose=obs.end_effector_pose,
-                force_torque=obs.force_torque,
-                images={camera: frames[video_frame_idx]},
-                channels=obs.channels,
-                metadata=obs.metadata,
+        if frame_idx % subsample != 0:
+            continue
+        images: dict[str, np.ndarray] = {}
+        for camera, cam_ep_frames in frames_by_camera.items():
+            ep_frames = cam_ep_frames.get(ep, [])
+            if video_frame_idx < len(ep_frames):
+                images[camera] = ep_frames[video_frame_idx]
+        if images:
+            labelled[i] = (
+                ep,
+                frame_idx,
+                Observation(
+                    timestamp=obs.timestamp,
+                    joint_positions=obs.joint_positions,
+                    joint_velocities=obs.joint_velocities,
+                    end_effector_pose=obs.end_effector_pose,
+                    force_torque=obs.force_torque,
+                    images=images,
+                    channels=obs.channels,
+                    metadata=obs.metadata,
+                ),
             )
-            labelled[i] = (ep, frame_idx, new_obs)
             n_attached += 1
 
     LOGGER.info("Attached images for %s: %d/%d observations", label, n_attached, len(labelled))
@@ -809,7 +863,7 @@ def run_calibration(
     cache_dir: str | None = _DEFAULT_CACHE_DIR,
     vision_model: str | None = None,
     vision_weight: float = 0.3,
-    vision_camera: str = "top",
+    vision_cameras: list[str] | None = None,  # None = auto-detect from dataset
     vision_subsample: int = 30,
     runtime_model_path: str | None = _DEFAULT_RUNTIME_MODEL_PATH,
 ) -> tuple[list[dict], dict]:
@@ -867,12 +921,15 @@ def run_calibration(
         len(anomaly_labelled),
     )
 
+    # Determine effective camera list early so it's available in all code paths.
+    effective_cameras: list[str] = vision_cameras or []  # may be refined below via auto-detect
+
     feature_config: dict[str, object] = {
         "state": "observation.state",
         "feature_seed": seed,
         "vision_model": vision_model,
         "vision_weight": vision_weight if vision_model else None,
-        "vision_camera": vision_camera if vision_model else None,
+        "vision_cameras": None,  # filled below after auto-detect
         "vision_subsample": vision_subsample if vision_model else None,
     }
     vision_frames: dict[str, int] | None = None
@@ -913,12 +970,24 @@ def run_calibration(
     else:
         # Vision mode evaluates only observations with an actual video frame. It
         # must not compare image embeddings against zero-padded missing-image rows.
+        # Auto-detect cameras when not explicitly specified.
+        effective_cameras: list[str] = vision_cameras or []
+        if vision_model and not effective_cameras:
+            LOGGER.info("Auto-detecting cameras from %s...", normal_repo_id)
+            effective_cameras = detect_cameras_from_hf(normal_repo_id)
+            if effective_cameras:
+                LOGGER.info("Detected cameras: %s", effective_cameras)
+            else:
+                LOGGER.warning("Could not auto-detect cameras; falling back to 'top'.")
+                effective_cameras = ["top"]
+        feature_config["vision_cameras"] = effective_cameras if vision_model else None
+
         if vision_model:
             LOGGER.info(
-                "Vision model: %s (weight=%s, camera=%s)",
+                "Vision model: %s (weight=%s, cameras=%s)",
                 vision_model,
                 vision_weight,
-                vision_camera,
+                effective_cameras,
             )
             vision_candidates = {
                 "train": len(train_obs),
@@ -932,7 +1001,7 @@ def run_calibration(
                 train_eps,
                 normal_by_episode,
                 train_obs,
-                vision_camera,
+                effective_cameras,
                 vision_subsample,
                 "train",
             )
@@ -941,7 +1010,7 @@ def run_calibration(
                 normal_test_eps,
                 normal_by_episode,
                 normal_labelled,
-                vision_camera,
+                effective_cameras,
                 vision_subsample,
                 "normal_test",
             )
@@ -950,7 +1019,7 @@ def run_calibration(
                 sorted(legal_by_episode.keys()),
                 legal_by_episode,
                 legal_labelled,
-                vision_camera,
+                effective_cameras,
                 vision_subsample,
                 "legal_variation",
             )
@@ -959,7 +1028,7 @@ def run_calibration(
                 sorted(anomaly_by_episode.keys()),
                 anomaly_by_episode,
                 anomaly_labelled,
-                vision_camera,
+                effective_cameras,
                 vision_subsample,
                 "abnormal_a",
             )
@@ -994,7 +1063,9 @@ def run_calibration(
             pass
         context = OODContext()
         if vision_model:
-            context.configure_vision(vision_model, vision_weight, device="cpu")
+            context.configure_vision(
+                vision_model, vision_weight, device="cpu", vision_cameras=effective_cameras or None
+            )
         runtime_extractor = context.feature_extractor
 
         scored_train_obs = [train_obs[int(i)] for i in kept_indices["train"]]
@@ -1157,7 +1228,7 @@ def run_calibration(
         "trajectory_stats": trajectory_stats,
         "vision_model": vision_model,
         "vision_weight": vision_weight if vision_model else None,
-        "vision_camera": vision_camera if vision_model else None,
+        "vision_cameras": effective_cameras if vision_model else None,
         "vision_subsample": vision_subsample if vision_model else None,
         "vision_frames_attached": vision_frames,
         "vision_candidate_frames": vision_candidates,
@@ -1377,10 +1448,10 @@ def main() -> None:
         help="Weight of vision features in fused embedding (0.0-1.0).",
     )
     parser.add_argument(
-        "--vision-camera",
+        "--vision-cameras",
         type=str,
-        default="top",
-        help="Camera name to use for vision (top or wrist).",
+        default=None,
+        help="Comma-separated camera names for vision fusion (e.g. top,wrist). Omit to auto-detect from the dataset.",
     )
     parser.add_argument(
         "--vision-subsample",
@@ -1421,7 +1492,9 @@ def main() -> None:
         cache_dir=None if args.no_cache else args.cache_dir,
         vision_model=args.vision_model,
         vision_weight=args.vision_weight,
-        vision_camera=args.vision_camera,
+        vision_cameras=[c.strip() for c in args.vision_cameras.split(",") if c.strip()]
+        if args.vision_cameras
+        else None,
         vision_subsample=args.vision_subsample,
         runtime_model_path=None if args.no_runtime_export else args.runtime_model_path,
     )

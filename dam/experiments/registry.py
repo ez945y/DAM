@@ -339,7 +339,12 @@ def _run_l0_calibration(params: dict[str, Any], outdir: Path) -> ExperimentResul
     cache_dir = str(cache_dir) if cache_dir else None
     vision_model = params.get("vision_model") or None
     vision_weight = float(params.get("vision_weight", 0.3))
-    vision_camera = str(params.get("vision_camera", "top"))
+    vision_cameras_raw = params.get("vision_cameras") or params.get("vision_camera") or "top"
+    vision_cameras = (
+        [c.strip() for c in str(vision_cameras_raw).split(",") if c.strip()]
+        if isinstance(vision_cameras_raw, str)
+        else list(vision_cameras_raw)
+    )
     vision_subsample = int(params.get("vision_subsample", 30))
     runtime_model_path = params.get("runtime_model_path", "data/ood_models/ood_model.pt")
     runtime_model_path = str(runtime_model_path) if runtime_model_path else None
@@ -361,7 +366,7 @@ def _run_l0_calibration(params: dict[str, Any], outdir: Path) -> ExperimentResul
         cache_dir=cache_dir,
         vision_model=vision_model,
         vision_weight=vision_weight,
-        vision_camera=vision_camera,
+        vision_cameras=vision_cameras,
         vision_subsample=vision_subsample,
         runtime_model_path=runtime_model_path,
     )
@@ -485,7 +490,7 @@ _EXPERIMENTS: dict[
                 "cache_dir": "data/experiments/l0_calibration/cache",
                 "vision_model": "mobilenet_v3_large",
                 "vision_weight": 0.3,
-                "vision_camera": "top",
+                "vision_cameras": "top",
                 "vision_subsample": 30,
                 "runtime_model_path": "data/ood_models/ood_model.pt",
                 "seed": 42,

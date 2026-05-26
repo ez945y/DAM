@@ -210,7 +210,7 @@ def test_export_runtime_bundle_matches_stackfile_model_convention(tmp_path) -> N
             "state": "observation.state",
             "vision_model": "mobilenet_v3_large",
             "vision_weight": 0.3,
-            "vision_camera": "top",
+            "vision_cameras": ["top"],
         },
         normal_repo_id="normal",
         legal_repo_id="legal",
@@ -230,7 +230,7 @@ def test_export_runtime_bundle_matches_stackfile_model_convention(tmp_path) -> N
         "nll_threshold": -12.3457,
         "vision_model": "mobilenet_v3_large",
         "vision_weight": 0.3,
-        "vision_camera": "top",
+        "vision_cameras": ["top"],
     }
 
 

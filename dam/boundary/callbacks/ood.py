@@ -97,8 +97,8 @@ def _welford_verdict(
         "warmup": "Number of Welford warm-up observations before online rejection.",
         "vision_model": "Optional pretrained vision model fused with robot-state features.",
         "vision_weight": "Weight of vision features in the fused embedding.",
-        "vision_camera": "Camera image key used for pretrained vision features.",
-        "temporal_smoothing_frames": "Consecutive OOD frames required before rejecting.",
+        "vision_cameras": "Camera name(s) for vision fusion (list or comma-separated string). Empty = all cameras in obs.",
+        "temporal_smoothing_frames": "Deprecated. Consecutive violation frames before rejection; use warn_frames on the boundary node instead.",
     },
 )
 def ood_detector(
@@ -118,15 +118,18 @@ def ood_detector(
     warmup: int = 30,
     vision_model: str = "",
     vision_weight: float = 0.3,
-    vision_camera: str = "",
-    temporal_smoothing_frames: int = 3,
+    vision_cameras: list[str] | str = "",  # NEW: list or comma-sep string; None = all
+    vision_camera: str = "",  # backward compat — converted to [vision_camera]
+    temporal_smoothing_frames: int = 3,  # deprecated — use warn_frames at node level
 ) -> CallbackResult:
     """Score one observation using the configured OOD backend."""
-    del temporal_smoothing_frames  # Applied by OODGuard after callback aggregation.
+    del temporal_smoothing_frames  # Applied via node.warn_frames at guard level.
 
-    # Resolve effective sigma from legacy params when sigma is at default.
+    # User-set sigma always wins.  Legacy params only apply when sigma is
+    # still at its default AND the frontend hasn't cleared them.
+    user_set_sigma = sigma != _DEFAULT_SIGMA
     effective_sigma = sigma
-    if sigma == _DEFAULT_SIGMA:
+    if not user_set_sigma:
         if nll_sigma is not None and nll_sigma > 0:
             effective_sigma = nll_sigma
         elif z_threshold is not None:
@@ -146,8 +149,19 @@ def ood_detector(
             )
 
         if vision_model:
+            # Resolve cameras: new list-form takes priority over legacy string alias.
+            effective_cameras: list[str] | None
+            if vision_cameras:
+                if isinstance(vision_cameras, str):
+                    effective_cameras = [c.strip() for c in vision_cameras.split(",") if c.strip()]
+                else:
+                    effective_cameras = [c for c in vision_cameras if c]
+            elif vision_camera:
+                effective_cameras = [vision_camera]
+            else:
+                effective_cameras = None  # auto-use all cameras in obs
             ood_context.configure_vision(
-                vision_model, vision_weight, device, vision_camera=vision_camera or None
+                vision_model, vision_weight, device, vision_cameras=effective_cameras
             )
         key = _key(bname, ood_model_path, bank_path, kind.value)
         detector = ood_context.get_backend(kind=kind, key=key, device=device)
@@ -171,16 +185,17 @@ def ood_detector(
 
         score = detector.score(ood_context.features(obs))
 
-        # Calibrated threshold from RQ1 bundle overrides sigma-derived value.
+        # RQ1 calibrated threshold is used only when the user hasn't
+        # overridden sigma.  An explicit sigma always takes precedence.
         calibrated = None
-        if kind is OODBackendKind.NORMALIZING_FLOW and ood_model_path:
+        if not user_set_sigma and kind is OODBackendKind.NORMALIZING_FLOW and ood_model_path:
             if nll_sigma is not None and nll_sigma <= 0 and nll_threshold is not None:
                 calibrated = nll_threshold
             else:
                 calibrated = _load_calibrated_threshold(ood_model_path)
 
         if kind is OODBackendKind.MEMORY_BANK:
-            if nn_threshold is not None:
+            if not user_set_sigma and nn_threshold is not None:
                 threshold = nn_threshold
             else:
                 threshold = detector.threshold(effective_sigma)  # type: ignore[attr-defined]

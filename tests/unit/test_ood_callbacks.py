@@ -95,6 +95,75 @@ def test_ood_detector_memory_bank_uses_bank_when_trained() -> None:
     assert r2.decision == GuardDecision.REJECT
 
 
+def test_user_sigma_overrides_legacy_and_calibrated() -> None:
+    """When the user sets sigma != default (3.0), it takes precedence over
+    legacy nll_sigma/z_threshold AND over RQ1 calibrated thresholds."""
+    ctx = OODContext.default()
+    # Welford: warm up with normal data
+    for _ in range(35):
+        ood_detector(obs=_obs([0.01] * 6), ood_context=ctx, backend="welford")
+    # Mild outlier that passes default sigma=3 welford but fails a tiny
+    # legacy z_threshold.  The welford z-score for this observation is
+    # around 4-5 (slightly above 3σ) so z_threshold=0.001 rejects it.
+    outlier = _obs([0.02] * 6)
+    r = ood_detector(
+        obs=outlier,
+        ood_context=ctx,
+        backend="welford",
+        sigma=3.0,
+        z_threshold=0.001,
+    )
+    assert r.decision == GuardDecision.REJECT, "legacy z_threshold should override default sigma"
+
+    # With user-set sigma (large), legacy z_threshold is ignored → PASS.
+    r2 = ood_detector(
+        obs=outlier,
+        ood_context=ctx,
+        backend="welford",
+        sigma=999999.0,
+        z_threshold=0.001,
+    )
+    assert r2.decision == GuardDecision.PASS, "user sigma should override legacy z_threshold"
+
+
+def test_memory_bank_user_sigma_overrides_nn_threshold() -> None:
+    """nn_threshold is ignored when user explicitly sets sigma."""
+    ctx = OODContext.default()
+    key = _key("ood_detector", "", "", "memory_bank")
+    backend = ctx.get_backend(kind="memory_bank", key=key)
+    rng = np.random.RandomState(0)
+    vectors = rng.randn(40, _EMBED_DIM).astype(np.float32)
+    vectors /= np.linalg.norm(vectors, axis=1, keepdims=True)
+    backend.train(vectors)
+    # Default sigma → nn_threshold=-1 forces REJECT
+    r = ood_detector(
+        obs=_obs([0.1] * 6),
+        ood_context=ctx,
+        backend="memory_bank",
+        nn_threshold=-1.0,
+    )
+    assert r.decision == GuardDecision.REJECT
+    # Default sigma → generous nn_threshold=999 → PASS
+    r2 = ood_detector(
+        obs=_obs([0.1] * 6),
+        ood_context=ctx,
+        backend="memory_bank",
+        nn_threshold=999.0,
+    )
+    assert r2.decision == GuardDecision.PASS
+    # User-set sigma → nn_threshold is ignored.
+    # Here nn_threshold=999 is generous but sigma=0.001 is tight →
+    # sigma wins → REJECT.
+    r3 = ood_detector(
+        obs=_obs([0.1] * 6),
+        ood_context=ctx,
+        backend="memory_bank",
+        sigma=0.001,
+        nn_threshold=999.0,
+    )
+    assert r3.decision == GuardDecision.REJECT, "user sigma should override nn_threshold"
+
+
 def test_builtin_callbacks_exports_l0_ood_callbacks() -> None:
     from dam.boundary import builtin_callbacks
 
@@ -114,7 +183,7 @@ def test_ood_guard_runs_l0_callback_pipeline() -> None:
     for _ in range(30):
         result = g.check(obs=_obs([0.01] * 6), active_containers=[container])
         assert result.decision == GuardDecision.PASS
-    result = g.check(obs=_obs([100.0] * 6), active_containers=[container])
+    result = g.check(obs=_obs([100.0] * 6), active_containers=[container], warn_frames=1)
     assert result.decision == GuardDecision.REJECT
 
 
@@ -125,7 +194,7 @@ def test_ood_guard_synthesizes_default_container_without_l0_callback() -> None:
     g = OODGuard()
     for _ in range(30):
         assert g.check(obs=_obs([0.01] * 6)).decision == GuardDecision.PASS
-    assert g.check(obs=_obs([100.0] * 6)).decision == GuardDecision.REJECT
+    assert g.check(obs=_obs([100.0] * 6), warn_frames=1).decision == GuardDecision.REJECT
 
 
 def test_ood_guard_default_path_handles_missing_model_files() -> None:

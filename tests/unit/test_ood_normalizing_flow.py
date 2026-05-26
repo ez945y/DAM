@@ -207,7 +207,7 @@ class TestOODGuardNormalizingFlow:
         )
         # check() must REJECT with a threshold between in-dist and OOD NLL.
         mid = (nll_in + nll_ood) / 2.0
-        result = g.check(ood_obs, nll_threshold=mid)
+        result = g.check(ood_obs, nll_threshold=mid, warn_frames=1)
         assert result.decision == GuardDecision.REJECT
         assert "normalizing_flow" in result.reason
 
@@ -225,11 +225,11 @@ class TestBothBackendsConsistent:
 
         g_mb = _make_guard("memory_bank")
         g_mb.train(normal_obs)
-        r_mb = g_mb.check(ood_obs, nn_threshold=0.01)
+        r_mb = g_mb.check(ood_obs, nn_threshold=0.01, warn_frames=1)
 
         g_nf = _make_guard("normalizing_flow")
         g_nf.train(normal_obs, flow_epochs=5)
-        r_nf = g_nf.check(ood_obs, nll_threshold=0.0)
+        r_nf = g_nf.check(ood_obs, nll_threshold=0.0, warn_frames=1)
 
         assert r_mb.decision == GuardDecision.REJECT, "MemoryBank missed extreme OOD"
         assert r_nf.decision == GuardDecision.REJECT, "NormFlow missed extreme OOD"
