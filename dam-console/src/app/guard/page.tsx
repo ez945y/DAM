@@ -1124,6 +1124,8 @@ export default function GuardPage() {
   const [boundaries, setBoundaries] = useState<BoundaryDef[]>([])
 
   const [guardsEnabled, setGuardsEnabled] = useState<Record<string, boolean>>({})
+  const [fallbacks, setFallbacks] = useState<FallbackDef[]>([])
+  const [guardRouting, setGuardRouting] = useState<Partial<Record<'ood' | 'motion' | 'execution' | 'hardware', { phase?: number; always?: boolean }>>>({})
 
 
   // Expand/collapse for Boundaries section (per layer)
@@ -1146,6 +1148,8 @@ export default function GuardPage() {
     if (parsed.tasks && parsed.tasks.length > 0) setTasks(parsed.tasks)
     if (parsed.boundaries && parsed.boundaries.length > 0) setBoundaries(parsed.boundaries)
     if (parsed.guardsEnabled) setGuardsEnabled(parsed.guardsEnabled)
+    if (parsed.fallbacks) setFallbacks(parsed.fallbacks)
+    if (parsed.guardRouting) setGuardRouting(parsed.guardRouting)
     // Keep the localStorage working copy in sync so the YAML preview and
     // autosave (which merge from it) reflect the loaded stackfile.
     try {
@@ -1193,6 +1197,8 @@ export default function GuardPage() {
         ])
 
         if (migrated.guardsEnabled) setGuardsEnabled(migrated.guardsEnabled)
+        if (migrated.fallbacks) setFallbacks(migrated.fallbacks)
+        if (migrated.guardRouting) setGuardRouting(migrated.guardRouting)
       } else {
         // Init defaults if nothing in localStorage
         setTasks([{ id: crypto.randomUUID(), name: 'default', description: '', boundaries: ['workspace'] }])
@@ -1287,7 +1293,8 @@ export default function GuardPage() {
         cfg.tasks = tasks
         cfg.boundaries = boundaries
         cfg.guardsEnabled = guardsEnabled
-        cfg.guardsEnabled = guardsEnabled
+        cfg.fallbacks = fallbacks.length > 0 ? fallbacks : cfg.fallbacks
+        cfg.guardRouting = guardRouting
 
         const yaml = generateYaml(cfg)
         localStorage.setItem('dam_config_v1', JSON.stringify(cfg))
@@ -1301,7 +1308,7 @@ export default function GuardPage() {
       } catch {}
     }, 500)
     return () => clearTimeout(t)
-  }, [tasks, boundaries, guardsEnabled, lib])
+  }, [tasks, boundaries, guardsEnabled, fallbacks, guardRouting, lib])
 
   const updateTask = (t: TaskDef) => setTasks(prev => prev.map(x => x.id === t.id ? t : x))
 
@@ -1322,6 +1329,8 @@ export default function GuardPage() {
     cfg.tasks = tasks
     cfg.boundaries = boundaries
     cfg.guardsEnabled = guardsEnabled
+    cfg.fallbacks = fallbacks.length > 0 ? fallbacks : cfg.fallbacks
+    cfg.guardRouting = guardRouting
     const blob = new Blob([JSON.stringify(cfg, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -1341,6 +1350,8 @@ export default function GuardPage() {
         if (parsed.tasks) setTasks(parsed.tasks)
         if (parsed.boundaries) setBoundaries(parsed.boundaries)
         if (parsed.guardsEnabled) setGuardsEnabled(parsed.guardsEnabled)
+        if (parsed.fallbacks) setFallbacks(parsed.fallbacks)
+        if (parsed.guardRouting) setGuardRouting(parsed.guardRouting)
       } catch {}
     })
   }
@@ -1352,6 +1363,8 @@ export default function GuardPage() {
       cfg.tasks = tasks
       cfg.boundaries = boundaries
       cfg.guardsEnabled = guardsEnabled
+      cfg.fallbacks = fallbacks.length > 0 ? fallbacks : cfg.fallbacks
+      cfg.guardRouting = guardRouting
       return generateYaml(cfg)
     } catch {
       return ''
@@ -1368,6 +1381,8 @@ export default function GuardPage() {
       cfg.tasks = tasks
       cfg.boundaries = boundaries
       cfg.guardsEnabled = guardsEnabled
+      cfg.fallbacks = fallbacks.length > 0 ? fallbacks : cfg.fallbacks
+      cfg.guardRouting = guardRouting
       localStorage.setItem('dam_config_v1', JSON.stringify(cfg))
 
       const fullYaml = generateYaml(cfg)
@@ -1574,6 +1589,126 @@ export default function GuardPage() {
               onChange={updateTask}
             />
           ))}
+        </div>
+      </div>
+
+      {/* ── Fallback Contexts ────────────────────────────────────────────────── */}
+      <div className="glass-card p-6 space-y-4">
+        <h2 className="text-dam-muted text-xs uppercase tracking-widest font-semibold relative z-10">Fallback Contexts</h2>
+        {fallbacks.length === 0 ? (
+          <p className="text-dam-muted text-xs italic">No fallbacks defined. Select a template to populate defaults.</p>
+        ) : (
+          <div className="space-y-1.5 relative z-10">
+            {fallbacks.map((f, i) => {
+              const params = f.params ?? {}
+              const paramKeys = Object.keys(params)
+              const setFallbackParam = (key: string, value: unknown) => {
+                const next = [...fallbacks]
+                next[i] = { ...next[i], params: { ...params, [key]: value } }
+                setFallbacks(next)
+              }
+              return (
+                <div key={f.name} className="bg-dam-surface-2 border border-dam-border rounded-lg px-3 py-2 space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs text-dam-text font-semibold min-w-[10rem]">{f.name}</span>
+                    <span className="text-[10px] text-dam-muted">sev {f.severity ?? '?'}</span>
+                    {f.requires_proposal && (
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-blue-500/10 border border-blue-500/20 text-dam-blue">proposal</span>
+                    )}
+                    {f.monitors_hardware && (
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-orange-500/10 border border-orange-500/20 text-dam-orange">HW</span>
+                    )}
+                    <div className="ml-auto flex items-center gap-1.5">
+                      <span className="text-[10px] text-dam-muted">escalate</span>
+                      <select
+                        value={f.escalate_to ?? ''}
+                        onChange={e => {
+                          const next = [...fallbacks]
+                          next[i] = { ...next[i], escalate_to: e.target.value || null }
+                          setFallbacks(next)
+                        }}
+                        className="bg-dam-surface border border-dam-border rounded px-1.5 py-0.5 text-[10px] text-dam-text"
+                      >
+                        <option value="">none</option>
+                        {fallbacks.filter(o => o.name !== f.name && (o.severity ?? 0) > (f.severity ?? 0)).map(o => (
+                          <option key={o.name} value={o.name}>{o.name} (sev {o.severity})</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  {paramKeys.length > 0 && (
+                    <div className="flex items-center gap-3 pl-2 border-l-2 border-dam-border/40">
+                      {paramKeys.map(key => (
+                        <label key={key} className="flex items-center gap-1">
+                          <span className="text-[10px] text-dam-muted">{key}</span>
+                          <input
+                            type="number"
+                            step="any"
+                            value={Number(params[key] ?? 0)}
+                            onChange={e => setFallbackParam(key, Number(e.target.value))}
+                            className="w-16 bg-dam-surface border border-dam-border rounded px-1.5 py-0.5 text-[10px] text-dam-text font-mono"
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ── Guard Routing ────────────────────────────────────────────────────── */}
+      <div className="glass-card p-6 space-y-4">
+        <h2 className="text-dam-muted text-xs uppercase tracking-widest font-semibold relative z-10">Guard Routing</h2>
+        <p className="text-dam-muted text-[11px] relative z-10">
+          Override when each guard runs during fallback contexts. <strong>always</strong>: run in every context. <strong>phase</strong>: only run in contexts at or above this phase.
+        </p>
+        <div className="space-y-1.5 relative z-10">
+          {(['ood', 'motion', 'execution', 'hardware'] as const).map(gid => {
+            const layer = { ood: 'L0', motion: 'L1', execution: 'L2', hardware: 'L3' }[gid]
+            const defaults: Record<string, { phase?: number; always?: boolean }> = {
+              ood: { phase: 0 }, motion: { phase: 0 }, execution: { phase: 1 }, hardware: { always: true },
+            }
+            const routing = guardRouting[gid] ?? defaults[gid] ?? {}
+            return (
+              <div key={gid} className="flex items-center gap-3 bg-dam-surface-2 border border-dam-border rounded-lg px-3 py-2">
+                <span className={`text-[9px] px-1.5 py-0.5 rounded border font-mono shrink-0 ${LAYER_COLORS[layer] ?? ''}`}>{layer}</span>
+                <span className="text-xs text-dam-muted w-20">{gid}</span>
+                <label className="flex items-center gap-1">
+                  <span className="text-[10px] text-dam-muted">phase</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={3}
+                    value={routing.phase ?? ''}
+                    placeholder="—"
+                    onChange={e => {
+                      const val = e.target.value ? Number(e.target.value) : undefined
+                      const next = { ...guardRouting, [gid]: { ...routing, phase: val } }
+                      if (val == null) delete next[gid]!.phase
+                      setGuardRouting(next)
+                    }}
+                    className="w-12 bg-dam-surface border border-dam-border rounded px-1.5 py-0.5 text-[10px] text-dam-text font-mono text-center"
+                  />
+                </label>
+                <label className="flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={routing.always ?? false}
+                    onChange={e => {
+                      const next = { ...guardRouting, [gid]: { ...routing, always: e.target.checked || undefined } }
+                      if (!e.target.checked) delete next[gid]!.always
+                      setGuardRouting(next)
+                    }}
+                    className="h-3.5 w-3.5 accent-dam-blue"
+                  />
+                  <span className="text-[10px] text-dam-muted">always</span>
+                </label>
+              </div>
+            )
+          })}
         </div>
       </div>
 
