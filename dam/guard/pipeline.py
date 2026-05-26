@@ -31,6 +31,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from dam.guard.base import PER_BOUNDARY_KEY
 from dam.types.result import GuardDecision, GuardResult
 
 if TYPE_CHECKING:
@@ -351,11 +352,6 @@ def aggregate(
     )
 
 
-# Reserved metadata key — execution engine reads this to produce a distinct
-# GuardResult per boundary instead of replicating the aggregated one.
-PER_BOUNDARY_KEY = "_per_boundary"
-
-
 def _merge_metadata(
     results: list[CallbackResult],
     *,
@@ -364,17 +360,19 @@ def _merge_metadata(
     """Flatten per-boundary metadata under each boundary's name and stash
     PER_BOUNDARY_KEY covering *every* callback (not just the winning
     decision), so the engine's fan-out can give each boundary its actual
-    decision and metadata — PASS boundaries included."""
+    decision and metadata — PASS boundaries included.
+    """
     out: dict[str, Any] = {}
     for r in results:
         if r.metadata:
             out[r.boundary_name] = r.metadata
     per_boundary: dict[str, dict[str, Any]] = {}
     for r in all_results if all_results is not None else results:
+        bm = dict(r.metadata) if r.metadata else {}
         per_boundary[r.boundary_name] = {
             "decision": r.decision.name,
             "reason": r.reason,
-            "metadata": dict(r.metadata) if r.metadata else {},
+            "metadata": bm,
         }
     out[PER_BOUNDARY_KEY] = per_boundary
     return out
@@ -414,6 +412,7 @@ def run_and_aggregate(
 __all__ = [
     "CallbackResult",
     "ClampAggregator",
+    "PER_BOUNDARY_KEY",
     "aggregate",
     "run_and_aggregate",
     "run_callbacks",

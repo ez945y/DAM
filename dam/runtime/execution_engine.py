@@ -391,13 +391,9 @@ class ExecutionEngine:
                     if node and node.constraint:
                         kwargs.update(node.constraint.params)
 
-                _t = time.perf_counter()
                 result = g.check(**_filter_kwargs(g.check, kwargs))
-                _latency_ms = (time.perf_counter() - _t) * 1000.0
+                _latency_ms = result.metadata.get("_latency_ms", 0.0)
                 self._metric_bus.push_guard(g.get_name(), g.get_layer().value, _latency_ms)
-                result = dataclasses.replace(
-                    result, metadata={**result.metadata, "_latency_ms": _latency_ms}
-                )
             except Exception as e:
                 result = GuardResult.fault(e, "guard_code", g.get_name(), g.get_layer())
                 logger.error("Guard '%s' raised exception: %s", g.get_name(), e)
@@ -477,28 +473,25 @@ class ExecutionEngine:
 
         result_name = boundary_name if boundary_name is not None else g.get_name()
 
-        _t_start = time.perf_counter()
         result = cast(GuardResult, g.check(**_filter_kwargs(g.check, kwargs)))
-        _t_elapsed = time.perf_counter() - _t_start
-        _latency_ms = _t_elapsed * 1000.0
 
+        _latency_ms = result.metadata.get("_latency_ms", 0.0)
         self._metric_bus.push_guard(result_name, g.get_layer().value, _latency_ms)
 
-        if node_timeout is not None and _t_elapsed > node_timeout:
-            result = GuardResult.reject(
-                reason=(
-                    f"guard '{result_name}' computation timeout: "
-                    f"{_t_elapsed:.3f}s > {node_timeout}s"
+        if node_timeout is not None and _latency_ms / 1000.0 > node_timeout:
+            result = dataclasses.replace(
+                GuardResult.reject(
+                    reason=(
+                        f"guard '{result_name}' computation timeout: "
+                        f"{_latency_ms / 1000.0:.3f}s > {node_timeout}s"
+                    ),
+                    guard_name=result_name,
+                    layer=g.get_layer(),
                 ),
-                guard_name=result_name,
-                layer=g.get_layer(),
+                metadata={"_latency_ms": _latency_ms},
             )
 
-        return dataclasses.replace(
-            result,
-            guard_name=result_name,
-            metadata={**result.metadata, "_latency_ms": _latency_ms},
-        )
+        return dataclasses.replace(result, guard_name=result_name)
 
     def _run_stage_sequential(
         self,

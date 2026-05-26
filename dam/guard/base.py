@@ -1,13 +1,40 @@
 from __future__ import annotations
 
+import dataclasses
+import functools
+import time
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from dam.types.result import GuardDecision
+from dam.types.result import GuardDecision, GuardResult
 
 if TYPE_CHECKING:
     from dam.guard.layer import GuardLayer
-    from dam.types.result import GuardResult
+
+PER_BOUNDARY_KEY = "_per_boundary"
+
+
+def _wrap_check_with_timing(original: Callable[..., GuardResult]) -> Callable[..., GuardResult]:
+    @functools.wraps(original)
+    def timed_check(self: Any, *args: Any, **kwargs: Any) -> GuardResult:
+        t0 = time.perf_counter()
+        result = original(self, *args, **kwargs)
+        latency_ms = (time.perf_counter() - t0) * 1000.0
+
+        top_meta = {**result.metadata, "_latency_ms": latency_ms}
+        per_boundary = top_meta.get(PER_BOUNDARY_KEY)
+        if isinstance(per_boundary, dict):
+            for bn_info in per_boundary.values():
+                if isinstance(bn_info, dict):
+                    bm = bn_info.get("metadata")
+                    if isinstance(bm, dict):
+                        bm["_latency_ms"] = latency_ms
+                    else:
+                        bn_info["metadata"] = {"_latency_ms": latency_ms}
+        return dataclasses.replace(result, metadata=top_meta)
+
+    return timed_check
 
 
 class Guard(ABC):
@@ -45,6 +72,12 @@ class Guard(ABC):
 
         @abstractmethod
         def check(self, **kwargs: Any) -> GuardResult: ...
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        original = cls.__dict__.get("check")
+        if original is not None:
+            cls.check = _wrap_check_with_timing(original)
 
     def get_layer(self) -> GuardLayer:
         return self.__class__._guard_layer
