@@ -86,6 +86,7 @@ boundaries:
     nodes:
       - callback: ood_detector
         fallback: hold_position
+        warn_frames: 3
         params:
           backend: normalizing_flow
           ood_model_path: data/ood_models/ood_model.pt
@@ -93,16 +94,15 @@ boundaries:
           nll_threshold: -524.3279  # EER threshold from exported RQ1 bundle.
           vision_model: mobilenet_v3_large  # Match the default RQ1 exported bundle.
           vision_weight: 0.3
-          vision_camera: top
-          temporal_smoothing_frames: 3
+          vision_cameras: [top]
   joint_position_limits:
     layer: L1
     type: single
     nodes:
       - callback: joint_position_limits
         params:
-          upper: [1.8243, 1.7691, 1.6026, 1.8067, 3.0741, 1.7453]
-          lower: [-1.8243, -1.7691, -1.6026, -1.8067, -3.0741, 0]
+          upper: [1.8243, 1.7500, 1.8326, 1.8067, 3.0741, 1.7453]
+          lower: [-1.8243, -1.7500, -1.8326, -1.8067, -3.0741, 0]
           qp_solver: proxsuite
           slack_weight: 100000000
   joint_velocity_limit:

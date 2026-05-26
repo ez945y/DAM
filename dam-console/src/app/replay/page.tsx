@@ -641,7 +641,7 @@ function ReplayContent() {
 export default function ReplayPage() {
   return (
     <PageShell
-      title="Replay Comparison"
+      title="Stackfile Comparison"
       subtitle="Recompute recorded cycles against a stackfile — see which guards would decide differently and what to tune"
     >
       <ReplayContent />

@@ -31,6 +31,7 @@ export interface GuardStatus {
   event_class?: 'perception' | 'motion' | 'task' | 'hardware' | string
   decision: GuardDecision
   reason: string
+  latency_ms?: number | null
   metadata?: Record<string, unknown>
 }
 

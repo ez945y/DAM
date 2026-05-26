@@ -336,7 +336,7 @@ function EventDetailPanel({ e }: { e: RiskEvent }) {
     layer: g.layer,
     decision: g.decision,
     reason: g.reason,
-    latency_ms: e.perf?.guards?.[g.name],
+    latency_ms: g.latency_ms ?? e.perf?.guards?.[g.name],
     metadata: g.metadata,
   }));
 

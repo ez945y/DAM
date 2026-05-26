@@ -53,6 +53,8 @@ guards:
     phase: 0
   - L1: motion
     phase: 0
+  - L2: execution
+    phase: 1
   - L3: hardware
     always: true
 
@@ -80,8 +82,8 @@ boundaries:
     nodes:
       - callback: joint_position_limits
         params:
-          upper: [1.8243, 1.7691, 1.6026, 1.8067, 3.0741, 1.7453]
-          lower: [-1.8243, -1.7691, -1.6026, -1.8067, -3.0741, 0]
+          upper: [1.8243, 1.7691, 1.8326, 1.8067, 3.0741, 1.7453]
+          lower: [-1.8243, -1.7691, -1.8326, -1.8067, -3.0741, 0]
   joint_velocity_limit:
     layer: L1
     type: single
@@ -89,6 +91,27 @@ boundaries:
       - callback: joint_velocity_limit
         params:
           max_velocities: [1.5000, 1.5000, 1.5000, 1.5000, 1.5000, 1.5000]
+  task_gripper_sequence:
+    layer: L2
+    type: list
+    nodes:
+      - node_id: pick_left
+        callback: task_gripper_command_guard
+        fallback: hold_position
+        params:
+          allowed_command: close
+          zone: [[-0.175, -0.025], [-0.075, 0.075], [0.075, 0.225]]
+      - node_id: transfer_left_to_right
+        callback: task_gripper_command_guard
+        fallback: hold_position
+        params:
+          allowed_command: none
+      - node_id: place_right
+        callback: task_gripper_command_guard
+        fallback: hold_position
+        params:
+          allowed_command: open
+          zone: [[0.025, 0.175], [-0.075, 0.075], [0.075, 0.225]]
   hardware_watchdog:
     layer: L3
     type: single
@@ -148,6 +171,7 @@ tasks:
       - workspace
       - joint_position_limits
       - joint_velocity_limit
+      - task_gripper_sequence
       - hardware_watchdog
       - temperature_limit
       - current_limit

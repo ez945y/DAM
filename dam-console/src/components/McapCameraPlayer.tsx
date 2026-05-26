@@ -276,20 +276,29 @@ export function McapCameraPlayer({
     setFrameIdx(nearestFrameIdx(refFrames, currentTimestampNs))
   }, [currentTimestampNs, framesMap, selectedCam, liveMode])
 
-  // Playback interval — fixed 100 ms tick (10 fps)
+  // Playback: advance frames at real-time speed based on actual timestamps.
   useEffect(() => {
     if (playIntervalRef.current) clearInterval(playIntervalRef.current)
     if (!playing || liveMode) return
-    const refFrames = selectedCam ? framesMap[selectedCam] : Object.values(framesMap)[0]
-    const total = refFrames?.length ?? 0
+    const refCamFrames = selectedCam ? framesMap[selectedCam] : Object.values(framesMap)[0]
+    const total = refCamFrames?.length ?? 0
     if (total === 0) return
+
+    // Compute median inter-frame interval for smooth playback at real speed
+    const intervals: number[] = []
+    for (let i = 1; i < Math.min(total, 100); i++) {
+      intervals.push((refCamFrames[i].log_time_ns - refCamFrames[i - 1].log_time_ns) / 1_000_000)
+    }
+    intervals.sort((a, b) => a - b)
+    const medianMs = intervals.length > 0 ? intervals[Math.floor(intervals.length / 2)] : 33
+    const tickMs = Math.max(16, Math.min(medianMs, 200))
 
     playIntervalRef.current = setInterval(() => {
       setFrameIdx(prev => {
         if (prev >= total - 1) { setPlaying(false); return prev }
         return prev + 1
       })
-    }, 100)
+    }, tickMs)
     return () => { if (playIntervalRef.current) clearInterval(playIntervalRef.current) }
   }, [playing, framesMap, selectedCam, liveMode])
 
@@ -353,7 +362,18 @@ export function McapCameraPlayer({
     setPlaying(false)
   }
 
-  const currentCams = liveMode ? liveCamList : cameras
+  const currentCams = (liveMode ? liveCamList : cameras).slice().sort((a, b) => {
+    const aReplay = a.startsWith('replay_') ? 0 : 1
+    const bReplay = b.startsWith('replay_') ? 0 : 1
+    if (aReplay !== bReplay) return aReplay - bReplay
+    const nameRank = (n: string) => {
+      const base = n.replace(/^replay_/, '')
+      if (base.includes('top')) return 0
+      if (base.includes('wrist')) return 1
+      return 2
+    }
+    return nameRank(a) - nameRank(b)
+  })
   const showGrid = gridMode && currentCams.length > 1
 
   return (
@@ -438,6 +458,13 @@ export function McapCameraPlayer({
               }
               const camFrames = framesMap[cam]
               const hasFrames = camFrames && camFrames.length > 0
+              // Time-sync: use the reference camera's timestamp to find the
+              // nearest frame in each camera independently, avoiding index-based
+              // drift when cameras have different frame counts.
+              const refTs = refFrames?.[frameIdx]?.log_time_ns
+              const camIdx = hasFrames && refTs != null
+                ? nearestFrameIdx(camFrames, refTs)
+                : hasFrames ? Math.min(frameIdx, camFrames.length - 1) : 0
               return (
                   <button
                     key={cam}
@@ -459,7 +486,7 @@ export function McapCameraPlayer({
                       <CameraCell
                         filename={filename}
                         cam={cam}
-                        frameIdx={hasFrames ? Math.min(frameIdx, camFrames.length - 1) : 0}
+                        frameIdx={camIdx}
                         tsNs={!hasFrames && currentTimestampNs != null ? currentTimestampNs : undefined}
                         label={cam}
                         compact

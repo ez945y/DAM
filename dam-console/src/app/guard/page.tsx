@@ -579,6 +579,13 @@ function NodeForm({
                       next.nll_sigma = 0
                       next.nll_threshold = sp.nll_threshold
                     }
+                    // Copy vision fusion params from model metadata so the
+                    // inference dimension always matches what the model was trained on.
+                    if (sp) {
+                      if (typeof sp.vision_model === 'string') next.vision_model = sp.vision_model
+                      if (typeof sp.vision_weight === 'number') next.vision_weight = sp.vision_weight
+                      if (typeof sp.vision_camera === 'string') next.vision_camera = sp.vision_camera
+                    }
                     onChange({ ...node, callback: 'ood_detector', params: next })
                   }}
                 />

@@ -21,7 +21,7 @@ const NAV = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard, section: 'Monitor' },
   { href: '/risk-log', label: 'Risk Log', icon: AlertTriangle, section: 'Monitor' },
   { href: '/mcap-viewer', label: 'MCAP Sessions', icon: Film, section: 'Monitor' },
-  { href: '/replay', label: 'Replay', icon: RotateCcw, section: 'Monitor' },
+  { href: '/replay', label: 'Comparison', icon: RotateCcw, section: 'Monitor' },
   { href: '/experiments', label: 'Experiments', icon: FlaskConical, section: 'Monitor' },
   { href: '/config', label: 'Config', icon: Settings, section: 'Setup' },
   { href: '/guard', label: 'Guard', icon: ShieldCheck, section: 'Setup' },

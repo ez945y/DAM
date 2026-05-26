@@ -114,8 +114,8 @@ type YamlSection = ScalarNode | BlockNode | ListNode | CustomNode | BlankNode
 
 const SO101_JOINTS: JointDef[] = [
   { name: 'shoulder_pan',  lower_rad: -1.8243, upper_rad:  1.8243 },
-  { name: 'shoulder_lift', lower_rad: -1.7691, upper_rad:  1.7691 },
-  { name: 'elbow_flex',    lower_rad: -1.6026, upper_rad:  1.6026 },
+  { name: 'shoulder_lift', lower_rad: -1.7500, upper_rad:  1.7500 },
+  { name: 'elbow_flex',    lower_rad: -1.8326, upper_rad:  1.8326 },
   { name: 'wrist_flex',    lower_rad: -1.8067, upper_rad:  1.8067 },
   { name: 'wrist_roll',    lower_rad: -3.0741, upper_rad:  3.0741 },
   { name: 'gripper',       lower_rad:  0,    upper_rad:  1.7453 },
@@ -197,7 +197,7 @@ function orderBoundaries(boundaries: BoundaryDef[]): BoundaryDef[] {
 }
 
 const DEFAULT_BOUNDARIES: BoundaryDef[] = orderBoundaries([...BASE_BOUNDARIES, GRIPPER_SEQUENCE_BOUNDARY])
-const REPLAY_BOUNDARIES: BoundaryDef[] = orderBoundaries([...BASE_BOUNDARIES])
+const REPLAY_BOUNDARIES: BoundaryDef[] = orderBoundaries([...BASE_BOUNDARIES, GRIPPER_SEQUENCE_BOUNDARY])
 
 const DEFAULT_FALLBACKS: FallbackDef[] = [
   { name: 'emergency_stop', type: 'emergency_stop', severity: 100, requires_proposal: false, monitors_hardware: false, description: 'Immediate full stop. Highest severity.', params: {}, escalate_to: null },
@@ -608,7 +608,7 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
   if (yaml.includes('type: motor') || yaml.includes('type: lerobot')) {
     result.adapter = 'lerobot'; result.lerobot_port = getVal(/port:\s*(.*)/);
     result.lerobot_robot_type = getVal(/robot_type:\s*(.*)/) || 'so101_follower';
-    result.lerobot_robot_id = getVal(/id:\s*(.*)/); result.lerobot_calibration_path = getVal(/calibration_path:\s*(.*)/) || '';
+    result.lerobot_robot_id = getVal(/(?<![_\w])id:\s*(.*)/); result.lerobot_calibration_path = getVal(/calibration_path:\s*(.*)/) || '';
     const motorBlock = /type:\s*(?:motor|lerobot)\s*\n([\s\S]*?)(?=\n\s{4}\w+:\s*\n|\n\s{2}sinks:)/.exec(yaml)?.[1] ?? ''
     const motorDegrees = /degrees_mode:\s*(true|false)/.exec(motorBlock)?.[1]
     result.lerobot_degrees_mode = (motorDegrees ?? 'true') === 'true'
