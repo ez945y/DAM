@@ -62,45 +62,6 @@ def test_no_containers_passes(EG):
     assert result.decision == GuardDecision.PASS
 
 
-def test_task_speed_within_limit_passes(EG):
-    from dam.boundary.builtin_callbacks import register_all
-
-    register_all()
-    g = EG()
-    precompute_injection(g, {})
-    container = make_container(callback="task_joint_speed_limit", max_speed=10.0)
-    obs = make_obs(velocities=[0.1] * 6)  # norm ≈ 0.245
-    result = g.check(obs=obs, active_containers=[container], node_start_times={})
-    assert result.decision == GuardDecision.PASS
-
-
-def test_task_speed_exceeded_rejects(EG):
-    from dam.boundary.builtin_callbacks import register_all
-
-    register_all()
-    g = EG()
-    precompute_injection(g, {})
-    container = make_container(callback="task_joint_speed_limit", max_speed=1.0)
-    obs = make_obs(velocities=[5.0, 5.0, 5.0, 5.0, 5.0, 5.0])  # norm ≈ 12.2 > 1.0
-    result = g.check(obs=obs, active_containers=[container], node_start_times={})
-    assert result.decision == GuardDecision.REJECT
-    assert "max_speed" in result.reason
-
-
-def test_task_workspace_bounds_breach_rejects(EG):
-    from dam.boundary.builtin_callbacks import register_all
-
-    register_all()
-    g = EG()
-    precompute_injection(g, {})
-    container = make_container(
-        callback="task_workspace_bounds", bounds=[[0, 0.5], [0, 0.5], [0, 0.5]]
-    )
-    obs = make_obs(ee=[-1.0, 0.0, 0.2, 0.0, 0.0, 0.0, 1.0])  # x=-1.0 outside bounds
-    result = g.check(obs=obs, active_containers=[container], node_start_times={})
-    assert result.decision == GuardDecision.REJECT
-
-
 def test_task_gripper_close_before_pick_zone_clamps(EG):
     from dam.boundary.builtin_callbacks import register_all
 

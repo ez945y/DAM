@@ -18,72 +18,14 @@ RIGHT_PLACE_ZONE = [[0.025, 0.175], [-0.075, 0.075], [0.075, 0.225]]
 
 @pytest.fixture
 def EG():
-    # ExecutionGuard declares its layer via @dam.guard(layer="L2") on the class.
     return ExecutionGuard
 
 
-def make_obs_inside():
-    return Observation(
-        timestamp=0.0,
-        joint_positions=np.zeros(6),
-        joint_velocities=np.array([0.05] * 6),  # slow
-        end_effector_pose=np.array([0.1, 0.1, 0.2, 0.0, 0.0, 0.0, 1.0]),
-    )
-
-
-def make_container(max_speed=0.5, bounds=None):
-    """Task limits are L2 callbacks now; pick the callback for the param given."""
+@pytest.fixture(autouse=True)
+def _register():
     from dam.boundary.builtin_callbacks import register_all
 
     register_all()
-    if bounds is not None:
-        c = BoundaryConstraint(callback="task_workspace_bounds", params={"bounds": bounds})
-    else:
-        c = BoundaryConstraint(callback="task_joint_speed_limit", params={"max_speed": max_speed})
-    node = BoundaryNode("n0", c, fallback="hold_position")
-    return SingleNodeContainer(node)
-
-
-def test_normal_cycle_passes(EG):
-    g = EG()
-    precompute_injection(g, {})
-    container = make_container(max_speed=1.0)
-    result = g.check(obs=make_obs_inside(), active_containers=[container], node_start_times={})
-    assert result.decision == GuardDecision.PASS
-
-
-def test_overspeed_always_rejected(EG):
-    g = EG()
-    precompute_injection(g, {})
-    for speed in [2.0, 5.0, 10.0]:
-        g2 = EG()
-        precompute_injection(g2, {})
-        container = make_container(max_speed=0.1)
-        obs = Observation(
-            timestamp=0.0,
-            joint_positions=np.zeros(6),
-            joint_velocities=np.full(6, speed),
-            end_effector_pose=np.zeros(7),
-        )
-        result = g2.check(obs=obs, active_containers=[container], node_start_times={})
-        assert result.decision == GuardDecision.REJECT, f"speed={speed} should be REJECT"
-
-
-def test_workspace_violation_always_rejected(EG):
-    g = EG()
-    precompute_injection(g, {})
-    container = make_container(bounds=[[0, 0.5], [0, 0.5], [0, 0.5]])
-    for pos in [[-1, 0, 0], [0, -1, 0], [0, 0, 2.0]]:
-        g2 = EG()
-        precompute_injection(g2, {})
-        obs = Observation(
-            timestamp=0.0,
-            joint_positions=np.zeros(6),
-            joint_velocities=np.zeros(6),
-            end_effector_pose=np.array(pos + [0.0, 0.0, 0.0, 1.0]),
-        )
-        result = g2.check(obs=obs, active_containers=[container], node_start_times={})
-        assert result.decision == GuardDecision.REJECT, f"pos={pos} should be REJECT"
 
 
 def test_40_task_section_gripper_injections_clamped(EG):
@@ -92,9 +34,6 @@ def test_40_task_section_gripper_injections_clamped(EG):
     Suppresses close outside the planned left pick zone, open outside the
     planned right place zone, and repeated open/close commands during transfer.
     """
-    from dam.boundary.builtin_callbacks import register_all
-
-    register_all()
     containers = {
         "pick": SingleNodeContainer(
             BoundaryNode(

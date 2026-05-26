@@ -166,6 +166,18 @@ def test_watchdog_fault(HG):
     assert "limit 500ms" in result.reason
 
 
+def test_watchdog_rejects_on_read_failure(HG):
+    obs = _make_obs(
+        metadata={
+            "read_failure": True,
+            "hardware_status": {"error_codes": [-1], "reason": "bus timeout"},
+        }
+    )
+    result = HG.check(obs=obs, active_containers=[_watchdog_container(1000.0)])
+    assert result.decision == GuardDecision.FAULT
+    assert "read failure" in result.reason.lower() or "Sensor read failure" in result.reason
+
+
 def test_host_health_fault(HG):
     obs = _make_obs(
         metadata={"host_health": {"cpu_percent": 99.5, "memory_percent": 30.0, "timestamp": 1.0}},
@@ -175,21 +187,21 @@ def test_host_health_fault(HG):
     assert "CPU" in result.reason
 
 
-def test_host_health_pass_no_telemetry_in_metadata(HG):
-    """Guard result no longer carries telemetry data — that's the runtime's job."""
+def test_host_health_pass_includes_telemetry_in_metadata(HG):
+    """PASS result carries telemetry metadata for the inspector display."""
     obs = _make_obs(
         metadata={"host_health": {"cpu_percent": 12.0, "memory_percent": 30.0, "timestamp": 1.0}},
     )
     result = HG.check(obs=obs, active_containers=[_host_health_container(90.0)])
     assert result.decision == GuardDecision.PASS
-    assert "host_health" not in (result.metadata or {})
+    assert "host_health" in (result.metadata or {})
 
 
 # ── Telemetry summary ─────────────────────────────────────────────────────────
 
 
-def test_guard_result_no_telemetry_data(HG):
-    """Guard result metadata no longer carries raw sensor readings."""
+def test_guard_result_pass_without_sensor_channels(HG):
+    """PASS without obs.channels yields no sensor metadata (no data to report)."""
     obs = _make_obs(
         metadata={
             "hardware_status": {
@@ -200,5 +212,3 @@ def test_guard_result_no_telemetry_data(HG):
     )
     result = HG.check(obs=obs)
     assert result.decision == GuardDecision.PASS
-    assert "temperatures" not in (result.metadata or {})
-    assert "currents" not in (result.metadata or {})

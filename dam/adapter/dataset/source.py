@@ -68,9 +68,7 @@ class DatasetSimSource:
         self._episode = episode
         self._hz = hz
         self._degrees_mode = degrees_mode
-        self._cursor = 0
-        self._start_time: float | None = None
-        self._start_index: int = 0
+        self._cursor: float = 0.0
         self._current_frame: dict[str, Any] | None = None
         self._strict = strict
 
@@ -107,10 +105,10 @@ class DatasetSimSource:
 
     def connect(self) -> None:
         """Reset playback state on fresh connection/task start."""
-        self._start_time = None
-        self._cursor = 0
+        self._cursor = 0.0
         self._current_frame = None
-        logger.info("DatasetSimSource: playback timer reset")
+        self._prev_pos = None
+        logger.info("DatasetSimSource: playback cursor reset")
 
     def disconnect(self) -> None:
         """No-op for simulation."""
@@ -120,28 +118,21 @@ class DatasetSimSource:
         if not self._frames:
             return self._random_obs()
 
-        now = time.monotonic()
-        if self._start_time is None:
-            self._start_time = now
-            self._start_index = self._cursor
-
-        # Calculate current frame index based on elapsed time and NATIVE dataset HZ
-        elapsed = now - self._start_time
-        index = int(self._start_index + (elapsed * self._source_fps))
-
-        # Loop playback
+        # Step-driven: advance cursor by (source_fps / runtime_hz) frames per call.
+        # This keeps replay pace proportional to the control loop rate regardless
+        # of wall-clock jitter, GC pauses, or guard latency spikes.
+        index = int(self._cursor)
         frame = self._frames[index % len(self._frames)]
         self._current_frame = frame
-        self._cursor = index + 1  # update cursor for compatibility
+        self._cursor += self._source_fps / self._hz
 
         joint_pos: np.ndarray = frame["joint_positions"]
 
-        # Convert degrees → radians if the dataset stores angles in degrees
-        # (LeRobot SO-101 protocol uses degrees; DAM guard limits are in radians)
         if self._degrees_mode:
             joint_pos = joint_pos * (np.pi / 180.0)
 
-        # Finite-difference velocity when dataset doesn't include it
+        # Velocity: dt is the real time between control cycles (1/runtime_hz),
+        # which is the interval between successive commands sent to the robot.
         if self._prev_pos is not None:
             dt = 1.0 / self._hz
             velocity = (joint_pos - self._prev_pos) / dt
@@ -153,7 +144,7 @@ class DatasetSimSource:
             timestamp=time.monotonic(),
             joint_positions=joint_pos.copy(),
             joint_velocities=velocity,
-            images=frame.get("images"),  # dict[str, np.ndarray HWC uint8] or None
+            images=frame.get("images"),
         )
 
     def current_action(self) -> np.ndarray:

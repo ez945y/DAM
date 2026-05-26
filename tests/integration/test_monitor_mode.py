@@ -16,7 +16,6 @@ from dam.boundary.constraint import BoundaryConstraint
 from dam.boundary.node import BoundaryNode
 from dam.boundary.single import SingleNodeContainer
 from dam.decorators import guard as guard_decorator
-from dam.guard.builtin.execution import ExecutionGuard
 from dam.guard.builtin.motion import MotionGuard
 from dam.runtime.guard_runtime import GuardRuntime
 from dam.testing.mocks import MockPolicyAdapter, MockSinkAdapter, MockSourceAdapter
@@ -28,36 +27,41 @@ from dam.types.risk import CycleResult
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-def _obs(ee_x: float = 0.1) -> Observation:
+def _obs() -> Observation:
     return Observation(
         timestamp=0.0,
         joint_positions=np.zeros(6),
         joint_velocities=np.zeros(6),
-        end_effector_pose=np.array([ee_x, 0.1, 0.1, 0.0, 0.0, 0.0, 1.0]),
+        end_effector_pose=np.array([0.1, 0.1, 0.1, 0.0, 0.0, 0.0, 1.0]),
     )
 
 
-def _action(pos: float = 0.0) -> ActionProposal:
+def _action_safe(pos: float = 0.0) -> ActionProposal:
     return ActionProposal(target_joint_positions=np.full(6, pos))
+
+
+def _action_nan() -> ActionProposal:
+    """NaN action triggers VIOLATE (→ REJECT) in joint_velocity_limit."""
+    return ActionProposal(target_joint_positions=np.full(6, float("nan")))
 
 
 def _make_runtime(
     *,
     enforcement_mode: str = "monitor",
 ) -> GuardRuntime:
-    """Runtime with an ExecutionGuard wired to a workspace that rejects ee_x < 0."""
+    """Runtime with MotionGuard + joint_velocity_limit. NaN actions → REJECT."""
     from dam.boundary.builtin_callbacks import register_all
 
     register_all()
-    KG = guard_decorator("L2")(ExecutionGuard)
+    KG = guard_decorator("L1")(MotionGuard)
     g = KG()
     g.set_name("main")
 
     node = BoundaryNode(
         "n0",
         BoundaryConstraint(
-            callback="task_workspace_bounds",
-            params={"bounds": np.array([[0.0, 0.5], [0.0, 0.5], [0.0, 0.5]])},
+            callback="joint_velocity_limit",
+            params={"max_velocities": np.full(6, 1.5)},
         ),
         fallback="emergency_stop",
     )
@@ -81,8 +85,8 @@ def test_monitor_mode_passes_action_on_guard_violation():
     runtime = _make_runtime(enforcement_mode="monitor")
     runtime.start_task("task")
 
-    obs = _obs(ee_x=-1.0)  # ee_x=-1 is outside [0, 0.5] → REJECT
-    action = _action()
+    obs = _obs()
+    action = _action_nan()
     validated, results = runtime.validate(obs, action, "trace-001")
 
     assert validated is not None, "monitor mode must pass the action through"
@@ -93,8 +97,8 @@ def test_monitor_mode_records_violation():
     runtime = _make_runtime(enforcement_mode="monitor")
     runtime.start_task("task")
 
-    obs = _obs(ee_x=-1.0)
-    action = _action()
+    obs = _obs()
+    action = _action_nan()
     _validated, results = runtime.validate(obs, action, "trace-002")
 
     decisions = [r.decision for r in results]
@@ -108,8 +112,8 @@ def test_monitor_mode_passes_original_positions():
     runtime = _make_runtime(enforcement_mode="monitor")
     runtime.start_task("task")
 
-    target = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6])
-    obs = _obs(ee_x=-1.0)
+    target = np.full(6, float("nan"))
+    obs = _obs()
     action = ActionProposal(target_joint_positions=target)
     validated, _results = runtime.validate(obs, action, "trace-003")
 
@@ -147,7 +151,7 @@ def test_monitor_mode_does_not_apply_clamp():
     runtime.start_task("task")
 
     target = np.array([9.0, 0.2, 0.3, 0.4, 0.5, 0.6])
-    obs = _obs(ee_x=0.1)
+    obs = _obs()
     action = ActionProposal(target_joint_positions=target)
     validated, results = runtime.validate(obs, action, "trace-clamp")
 
@@ -164,23 +168,23 @@ def test_monitor_mode_does_not_call_violation_hooks():
 
     register_all()
 
-    class SpyExecutionGuard(ExecutionGuard):
+    class SpyMotionGuard(MotionGuard):
         violation_count = 0
 
         def on_violation(self, result):  # type: ignore[no-untyped-def]
             type(self).violation_count += 1
             super().on_violation(result)
 
-    KG = guard_decorator("L2")(SpyExecutionGuard)
-    SpyExecutionGuard.violation_count = 0
+    KG = guard_decorator("L1")(SpyMotionGuard)
+    SpyMotionGuard.violation_count = 0
     g = KG()
     g.set_name("main")
 
     node = BoundaryNode(
         "n0",
         BoundaryConstraint(
-            callback="task_workspace_bounds",
-            params={"bounds": np.array([[0.0, 0.5], [0.0, 0.5], [0.0, 0.5]])},
+            callback="joint_velocity_limit",
+            params={"max_velocities": np.full(6, 1.5)},
         ),
         fallback="emergency_stop",
     )
@@ -194,17 +198,17 @@ def test_monitor_mode_does_not_call_violation_hooks():
     )
     runtime.start_task("task")
 
-    _validated, results = runtime.validate(_obs(ee_x=-1.0), _action(), "trace-hook")
+    _validated, results = runtime.validate(_obs(), _action_nan(), "trace-hook")
 
     assert GuardDecision.REJECT in [r.decision for r in results]
-    assert SpyExecutionGuard.violation_count == 0
+    assert SpyMotionGuard.violation_count == 0
 
 
 def test_log_only_skips_guard_checks():
     runtime = _make_runtime(enforcement_mode="log_only")
     runtime.start_task("task")
 
-    validated, results = runtime.validate(_obs(ee_x=-1.0), _action(), "trace-log")
+    validated, results = runtime.validate(_obs(), _action_nan(), "trace-log")
 
     assert validated is not None
     assert results == []
@@ -218,9 +222,8 @@ def test_policy_output_is_what_guards_receive():
     runtime = _make_runtime(enforcement_mode="enforce")
     runtime.start_task("task")
 
-    # Policy proposes positions clearly inside limits → should PASS
     safe_pos = np.full(6, 0.0)
-    obs = _obs(ee_x=0.2)
+    obs = _obs()
     action = ActionProposal(target_joint_positions=safe_pos)
 
     validated, results = runtime.validate(obs, action, "trace-005")
@@ -235,9 +238,8 @@ def test_full_step_cycle_monitor_records_decisions():
     runtime = _make_runtime(enforcement_mode="monitor")
     runtime.start_task("task")
 
-    # Obs with EE outside workspace so the guard fires
-    obs = _obs(ee_x=-1.0)
-    action = _action()
+    obs = _obs()
+    action = _action_nan()
 
     source = MockSourceAdapter([obs] * 5)
     policy = MockPolicyAdapter([action] * 5)
@@ -250,9 +252,7 @@ def test_full_step_cycle_monitor_records_decisions():
     runtime.stop_task()
 
     assert all(isinstance(r, CycleResult) for r in results)
-    # Monitor mode: sink receives actions even though guard rejected
     assert len(sink.received) == 5, "monitor mode must still dispatch to sink"
-    # Guard decisions must be visible in every cycle
     for cycle in results:
         assert cycle.guard_results, "CycleResult must carry guard_results"
         decisions = [r.decision for r in cycle.guard_results]
@@ -264,8 +264,8 @@ def test_enforce_mode_blocks_sink_on_violation():
     runtime = _make_runtime(enforcement_mode="enforce")
     runtime.start_task("task")
 
-    obs = _obs(ee_x=-1.0)
-    action = _action()
+    obs = _obs()
+    action = _action_nan()
 
     source = MockSourceAdapter([obs] * 3)
     policy = MockPolicyAdapter([action] * 3)

@@ -156,35 +156,15 @@ def test_clamp_joint_position_limits():
 
 
 def test_reject_returns_none():
+    """A non-finite action triggers VIOLATE (→ REJECT) and validate returns None."""
     from dam.boundary.builtin_callbacks import register_all
 
     register_all()
-    make_runtime()
-    # L2 task_workspace_bounds REJECTs. L1 workspace now CLAMPs/halt.
-    node = BoundaryNode(
-        "n0",
-        BoundaryConstraint(
-            callback="task_workspace_bounds",
-            params={"bounds": [[0, 0.5], [0, 0.5], [0, 0.5]]},
-        ),
-        fallback="emergency_stop",
-    )
-    container = SingleNodeContainer(node)
-    KG = guard_decorator("L2")(ExecutionGuard)
-    g = KG()
-    runtime2 = GuardRuntime(
-        guards=[g],
-        boundary_containers={"main": container},
-        task_config={"task": ["main"]},
-        config_pool={
-            "bounds": np.array([[0, 0.5], [0, 0.5], [0, 0.5]]),
-        },
-    )
-    g.set_name("main")
-    obs = make_obs(ee=[-1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0])  # Outside workspace
-    action = make_action()
-    runtime2.start_task("task")
-    validated, results = runtime2.validate(obs, action, "test-trace")
+    runtime = make_runtime()
+    runtime.start_task("task")
+    obs = make_obs()
+    action = ActionProposal(target_joint_positions=np.full(6, float("nan")))
+    validated, results = runtime.validate(obs, action, "test-trace")
     assert validated is None
 
 

@@ -106,9 +106,15 @@ class HardwareGuard(Guard):
             )
 
         if callback_res:
+            # Reset streaks on PASS — violations cleared.
+            if callback_res.decision == GuardDecision.PASS and active_containers:
+                for c in active_containers:
+                    bname = getattr(c, "_runtime_boundary_name", None)
+                    if bname:
+                        self.reset_streak(bname)
             return callback_res
 
-        # All clear — reset streaks for active boundaries.
+        # No callbacks ran — reset streaks and return empty success.
         if active_containers:
             for c in active_containers:
                 bname = getattr(c, "_runtime_boundary_name", None)

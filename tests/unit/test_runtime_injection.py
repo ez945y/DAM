@@ -184,14 +184,13 @@ def test_l3_boundaries_receive_separate_metadata(tmp_path, monkeypatch):
 
     _, results = runtime.validate(obs, action, "test-trace", now=100.0)
 
-    # Guard results carry decisions only — telemetry data flows through
-    # CycleResult.hardware_snapshot (populated from obs.metadata).
     watchdog_result = next(r for r in results if r.guard_name == "hardware_watchdog")
     host_result = next(r for r in results if r.guard_name == "host_health")
     assert watchdog_result.decision == GuardDecision.PASS
     assert host_result.decision == GuardDecision.PASS
-    assert "voltages" not in (watchdog_result.metadata or {})
-    assert "host_health" not in (host_result.metadata or {})
+    # L3 callbacks now surface telemetry in metadata for inspector display.
+    assert "staleness_ms" in (watchdog_result.metadata or {})
+    assert "host_health" in (host_result.metadata or {})
 
 
 def test_l3_watchdog_timeout_is_not_reported_as_l2_task_timeout(tmp_path):
@@ -205,16 +204,15 @@ def test_l3_watchdog_timeout_is_not_reported_as_l2_task_timeout(tmp_path):
         "version": "1",
         "guards": [{"L2": "execution"}, {"L3": "hardware", "always": True}],
         "boundaries": {
-            "task_joint_speed_limit": {
+            "task_gripper_sequence": {
                 "layer": "L2",
                 "type": "single",
                 "nodes": [
                     {
                         "node_id": "default",
-                        "callback": "task_joint_speed_limit",
-                        "params": {"max_speed": 3.0},
+                        "callback": "task_gripper_command_guard",
+                        "params": {"allowed_command": "none"},
                         "fallback": "hold_position",
-                        "warn_frames": 3,
                     }
                 ],
             },
@@ -232,7 +230,7 @@ def test_l3_watchdog_timeout_is_not_reported_as_l2_task_timeout(tmp_path):
                 ],
             },
         },
-        "tasks": {"default": {"boundaries": ["task_joint_speed_limit", "hardware_watchdog"]}},
+        "tasks": {"default": {"boundaries": ["task_gripper_sequence", "hardware_watchdog"]}},
         "safety": {"control_frequency_hz": 30.0, "enforcement_mode": "enforce"},
     }
 
@@ -242,8 +240,6 @@ def test_l3_watchdog_timeout_is_not_reported_as_l2_task_timeout(tmp_path):
 
     runtime = GuardRuntime.from_stackfile(str(sf_path))
     runtime.start_task("default")
-    # This L3 node has exceeded its historical timeout. It must never be
-    # evaluated by ExecutionGuard and attributed to the L2 speed boundary.
     runtime._node_start_times["hardware_watchdog"] = time.monotonic() - 1.0
 
     obs = Observation(
@@ -254,7 +250,7 @@ def test_l3_watchdog_timeout_is_not_reported_as_l2_task_timeout(tmp_path):
     action = ActionProposal(target_joint_positions=np.zeros(6))
     validated, results = runtime.validate(obs, action, "test-trace", now=100.0)
 
-    speed_result = next(r for r in results if r.guard_name == "task_joint_speed_limit")
-    assert speed_result.decision == GuardDecision.PASS
-    assert "timeout" not in speed_result.reason
+    gripper_result = next(r for r in results if r.guard_name == "task_gripper_sequence")
+    assert gripper_result.decision == GuardDecision.PASS
+    assert "timeout" not in gripper_result.reason
     assert validated is not None

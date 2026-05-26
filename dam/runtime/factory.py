@@ -355,12 +355,14 @@ class RuntimeFactory:
                 or getattr(src_cfg, "index", None)
                 or 0
             )
+            cam_fps = float(extra.get("fps") or extra.get("jpeg_fps") or 30.0)
             auxiliary_sources[name] = OpenCVSourceAdapter(
                 index=idx,
                 name=name,
                 width=extra.get("width"),
                 height=extra.get("height"),
-                jpeg_fps=float(extra.get("fps") or extra.get("jpeg_fps") or 30.0),
+                fps=cam_fps,
+                jpeg_fps=cam_fps,
                 frame_hub=frame_hub,
             )
             logger.info("Registered camera source: %s (type=%s)", name, type_str)

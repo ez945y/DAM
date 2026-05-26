@@ -43,6 +43,7 @@ class OpenCVSourceAdapter(SensorAdapter):
         name: str = "camera",
         width: int | None = None,
         height: int | None = None,
+        fps: float | None = None,
         jpeg_fps: float = 30.0,
         frame_hub: CameraFrameHub | None = None,
         max_consecutive_failures: int = 5,
@@ -51,6 +52,7 @@ class OpenCVSourceAdapter(SensorAdapter):
         self._name = name
         self._width = width
         self._height = height
+        self._fps = fps
         self._jpeg_interval_s = 1.0 / jpeg_fps if jpeg_fps > 0 else 0.0
         self._frame_hub = frame_hub
         self._max_consecutive_failures = max(1, int(max_consecutive_failures))
@@ -83,6 +85,8 @@ class OpenCVSourceAdapter(SensorAdapter):
             self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._width)
         if self._height:
             self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
+        if self._fps:
+            self._cap.set(cv2.CAP_PROP_FPS, self._fps)
         self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         self._connected = True

@@ -10,7 +10,6 @@ from dam.boundary.builtin_callbacks import (
     base_geofence,
     cartesian_velocity_limit,
     check_force_torque_safe,
-    check_gripper_clear,
     check_joints_not_moving,
     check_velocity_smooth,
     get_catalog,
@@ -177,19 +176,24 @@ class TestCheckVelocitySmooth:
 class TestCheckForceTorqueSafe:
     def test_safe_force_pass(self):
         obs = _obs(force_torque=[1.0, 0, 0, 0, 0, 0])
-        assert check_force_torque_safe(obs=obs, max_force_n=50.0, max_torque_nm=10.0) is True
+        r = check_force_torque_safe(obs=obs, max_force_n=50.0, max_torque_nm=10.0)
+        assert r.decision.name == "PASS"
+        assert "force_n" in r.metadata
 
     def test_excessive_force_fail(self):
         obs = _obs(force_torque=[100.0, 0, 0, 0, 0, 0])
-        assert check_force_torque_safe(obs=obs, max_force_n=50.0, max_torque_nm=10.0) is False
+        r = check_force_torque_safe(obs=obs, max_force_n=50.0, max_torque_nm=10.0)
+        assert r.decision.name == "REJECT"
 
     def test_excessive_torque_fail(self):
         obs = _obs(force_torque=[0, 0, 0, 20.0, 0, 0])
-        assert check_force_torque_safe(obs=obs, max_force_n=50.0, max_torque_nm=10.0) is False
+        r = check_force_torque_safe(obs=obs, max_force_n=50.0, max_torque_nm=10.0)
+        assert r.decision.name == "REJECT"
 
     def test_no_force_torque_pass(self):
         obs = _obs()
-        assert check_force_torque_safe(obs=obs) is True
+        r = check_force_torque_safe(obs=obs)
+        assert r.decision.name == "PASS"
 
 
 # ── check_joints_not_moving ───────────────────────────────────────────────────
@@ -207,23 +211,6 @@ class TestCheckJointsNotMoving:
     def test_no_velocities_pass(self):
         obs = _obs()
         assert check_joints_not_moving(obs=obs) is True
-
-
-# ── check_gripper_clear ───────────────────────────────────────────────────────
-
-
-class TestCheckGripperClear:
-    def test_open_pass(self):
-        obs = _obs(metadata={"gripper_pos": 0.05})
-        assert check_gripper_clear(obs=obs, min_gripper_opening_m=0.005) is True
-
-    def test_closed_fail(self):
-        obs = _obs(metadata={"gripper_pos": 0.001})
-        assert check_gripper_clear(obs=obs, min_gripper_opening_m=0.005) is False
-
-    def test_no_metadata_pass(self):
-        obs = _obs()
-        assert check_gripper_clear(obs=obs) is True
 
 
 # ── register_all ──────────────────────────────────────────────────────────────
@@ -292,10 +279,6 @@ class TestRegisterAll:
         by_name = {c["name"]: c for c in get_catalog()}
 
         assert "metres" in by_name["task_gripper_command_guard"]["params"]["zone"]["description"]
-        assert "deg/s" in by_name["task_joint_speed_limit"]["params"]["use_degrees"]["description"]
-        # Catalog also exposes unit_params so the front-end / loader know
-        # which fields the use_degrees hint applies to.
-        assert by_name["task_joint_speed_limit"]["unit_params"] == ["max_speed"]
         assert set(by_name["joint_position_limits"]["unit_params"]) == {"upper", "lower"}
         assert by_name["joint_velocity_limit"]["unit_params"] == ["max_velocities"]
         assert (

@@ -25,6 +25,11 @@ from dam.types.result import GuardDecision, GuardResult
 _HOST_HEALTH_CACHE: dict[str, Any] = {"t": 0.0, "value": {}}
 
 
+def _indexed_map(arr: np.ndarray) -> dict[str, float]:
+    """Convert a 1-D array to {\"J1\": v, \"J2\": v, …} for inspector display."""
+    return {f"J{i + 1}": round(float(v), 3) for i, v in enumerate(np.ravel(arr))}
+
+
 def _try_psutil_host_health() -> dict[str, Any]:
     try:
         import psutil  # type: ignore[import-untyped]
@@ -133,12 +138,32 @@ def hardware_watchdog(
     obs: Observation,
     now: float | None = None,
     max_staleness_ms: float = 1000.0,
-) -> bool | tuple[bool, str]:
+) -> GuardResult:
+    # Adapter-level read failure: reject immediately regardless of timing.
+    if obs.metadata and obs.metadata.get("read_failure"):
+        reason_detail = ""
+        hw = obs.metadata.get("hardware_status")
+        if isinstance(hw, dict):
+            reason_detail = f": {hw.get('reason', '')}"
+        return GuardResult(
+            decision=GuardDecision.REJECT,
+            guard_name="hardware_watchdog",
+            layer=GuardLayer.L3,
+            reason=f"Sensor read failure{reason_detail}",
+            metadata={"read_failure": True, "limit_ms": max_staleness_ms},
+        )
     current = time.monotonic() if now is None else now
     staleness_ms = (current - obs.timestamp) * 1000.0
+    meta = {"staleness_ms": round(staleness_ms, 2), "limit_ms": max_staleness_ms}
     if staleness_ms <= max_staleness_ms:
-        return True
-    return False, f"Heartbeat lost: {staleness_ms:.0f}ms stale (limit {max_staleness_ms:.0f}ms)"
+        return GuardResult.success("hardware_watchdog", GuardLayer.L3, metadata=meta)
+    return GuardResult(
+        decision=GuardDecision.REJECT,
+        guard_name="hardware_watchdog",
+        layer=GuardLayer.L3,
+        reason=f"Heartbeat lost: {staleness_ms:.0f}ms stale (limit {max_staleness_ms:.0f}ms)",
+        metadata=meta,
+    )
 
 
 # ── Observation-channel constraints ───────────────────────────────────────────
@@ -161,16 +186,24 @@ def temperature_limit(
     obs: Observation,
     max_temperature_c: float = 55.0,
     channel: str = "temperature",
-) -> bool:
-    """Return False if any motor temperature exceeds *max_temperature_c*.
-
-    Temperature is a slow-moving scalar — hard-threshold is appropriate
-    (no need for CBF dynamics).
-    """
+) -> GuardResult:
     data = _read_channel(obs, channel)
     if data is None:
-        return True
-    return bool(np.all(data <= max_temperature_c))
+        return GuardResult.success("temperature_limit", GuardLayer.L3)
+    meta: dict[str, Any] = {
+        "temperatures": _indexed_map(data),
+        "limit_c": max_temperature_c,
+    }
+    if bool(np.all(data <= max_temperature_c)):
+        return GuardResult.success("temperature_limit", GuardLayer.L3, metadata=meta)
+    worst = float(np.max(data))
+    return GuardResult(
+        decision=GuardDecision.REJECT,
+        guard_name="temperature_limit",
+        layer=GuardLayer.L3,
+        reason=f"Motor temperature {worst:.1f}°C exceeds {max_temperature_c:.1f}°C",
+        metadata=meta,
+    )
 
 
 @boundary_callback(
@@ -188,17 +221,26 @@ def current_limit(
     obs: Observation,
     max_current_a: float = 1.5,
     channel: str = "current",
-) -> bool:
-    """Return False if any motor current exceeds *max_current_a*.
-
-    Overcurrent indicates stall or collision.  Hard threshold — the
-    servo's own current limiter is the ground truth; this is a
-    software-level second opinion.
-    """
+) -> GuardResult:
     data = _read_channel(obs, channel)
     if data is None:
-        return True
-    return bool(np.all(np.abs(data) <= max_current_a))
+        return GuardResult.success("current_limit", GuardLayer.L3)
+    abs_data = np.abs(data)
+    meta: dict[str, Any] = {
+        "currents": _indexed_map(data),
+        "limit_a": max_current_a,
+    }
+    if bool(np.all(abs_data <= max_current_a)):
+        return GuardResult.success("current_limit", GuardLayer.L3, metadata=meta)
+    worst_idx = int(np.argmax(abs_data))
+    worst = float(abs_data[worst_idx])
+    return GuardResult(
+        decision=GuardDecision.REJECT,
+        guard_name="current_limit",
+        layer=GuardLayer.L3,
+        reason=f"J{worst_idx + 1} current {worst:.2f}A exceeds {max_current_a:.2f}A",
+        metadata=meta,
+    )
 
 
 @boundary_callback(
@@ -218,16 +260,32 @@ def voltage_limit(
     min_voltage_v: float = 10.0,
     max_voltage_v: float = 13.0,
     channel: str = "voltage",
-) -> bool:
-    """Return False if any voltage reading is outside [min, max].
-
-    Under-voltage → servo brown-out / erratic motion.
-    Over-voltage → component damage.  Both warrant immediate stop.
-    """
+) -> GuardResult:
     data = _read_channel(obs, channel)
     if data is None:
-        return True
-    return bool(np.all((data >= min_voltage_v) & (data <= max_voltage_v)))
+        return GuardResult.success("voltage_limit", GuardLayer.L3)
+    meta: dict[str, Any] = {
+        "voltages": _indexed_map(data),
+        "range_v": [min_voltage_v, max_voltage_v],
+    }
+    if bool(np.all((data >= min_voltage_v) & (data <= max_voltage_v))):
+        return GuardResult.success("voltage_limit", GuardLayer.L3, metadata=meta)
+    lo_violations = data < min_voltage_v
+    hi_violations = data > max_voltage_v
+    parts: list[str] = []
+    if np.any(lo_violations):
+        worst = float(np.min(data))
+        parts.append(f"under-voltage {worst:.2f}V < {min_voltage_v:.2f}V")
+    if np.any(hi_violations):
+        worst = float(np.max(data))
+        parts.append(f"over-voltage {worst:.2f}V > {max_voltage_v:.2f}V")
+    return GuardResult(
+        decision=GuardDecision.REJECT,
+        guard_name="voltage_limit",
+        layer=GuardLayer.L3,
+        reason="; ".join(parts),
+        metadata=meta,
+    )
 
 
 @boundary_callback(
@@ -245,22 +303,25 @@ def force_limit(
     obs: Observation,
     max_force_n: float = 50.0,
     channel: str = "force_torque",
-) -> bool:
-    """Return False if force magnitude from a force/torque channel exceeds limit.
-
-    Reads from the generic observation channel dict (``obs.channels``).
-    For 6-axis F/T sensors the first 3 elements are force; for load-cell
-    channels the entire vector is force.
-    """
+) -> GuardResult:
     data = _read_channel(obs, channel)
     if data is None:
-        # Fall back to typed field for backward compat
         if obs.force_torque is not None:
-            return bool(float(np.linalg.norm(obs.force_torque[:3])) <= max_force_n)
-        return True
-    # If 6-element F/T, use first 3 (force).  Otherwise use all.
+            data = np.asarray(obs.force_torque)
+        else:
+            return GuardResult.success("force_limit", GuardLayer.L3)
     force = data[:3] if len(data) >= 6 else data
-    return bool(float(np.linalg.norm(force)) <= max_force_n)
+    f_mag = float(np.linalg.norm(force))
+    meta: dict[str, Any] = {"force_n": round(f_mag, 3), "limit_n": max_force_n}
+    if f_mag <= max_force_n:
+        return GuardResult.success("force_limit", GuardLayer.L3, metadata=meta)
+    return GuardResult(
+        decision=GuardDecision.REJECT,
+        guard_name="force_limit",
+        layer=GuardLayer.L3,
+        reason=f"Force {f_mag:.1f}N exceeds {max_force_n:.1f}N",
+        metadata=meta,
+    )
 
 
 @boundary_callback(
@@ -275,13 +336,31 @@ def force_limit(
 )
 def check_force_torque_safe(
     *, obs: Observation, max_force_n: float = 50.0, max_torque_nm: float = 10.0
-) -> bool:
-    """Reject on contact-force / torque overload (physical hardware safety)."""
+) -> GuardResult:
     if obs.force_torque is None:
-        return True
+        return GuardResult.success("check_force_torque_safe", GuardLayer.L3)
     f_mag = float(np.linalg.norm(obs.force_torque[:3]))
     t_mag = float(np.linalg.norm(obs.force_torque[3:]))
-    return f_mag <= max_force_n and t_mag <= max_torque_nm
+    meta: dict[str, Any] = {
+        "force_n": round(f_mag, 3),
+        "torque_nm": round(t_mag, 3),
+        "limit_force_n": max_force_n,
+        "limit_torque_nm": max_torque_nm,
+    }
+    if f_mag <= max_force_n and t_mag <= max_torque_nm:
+        return GuardResult.success("check_force_torque_safe", GuardLayer.L3, metadata=meta)
+    parts: list[str] = []
+    if f_mag > max_force_n:
+        parts.append(f"force {f_mag:.1f}N > {max_force_n:.1f}N")
+    if t_mag > max_torque_nm:
+        parts.append(f"torque {t_mag:.1f}Nm > {max_torque_nm:.1f}Nm")
+    return GuardResult(
+        decision=GuardDecision.REJECT,
+        guard_name="check_force_torque_safe",
+        layer=GuardLayer.L3,
+        reason="; ".join(parts),
+        metadata=meta,
+    )
 
 
 @boundary_callback(
@@ -354,4 +433,5 @@ def host_health_limit(
         guard_name="host_health",
         layer=GuardLayer.L3,
         reason="host health within limits",
+        metadata={"host_health": health},
     )

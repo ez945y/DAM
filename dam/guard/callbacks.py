@@ -83,6 +83,19 @@ def evaluate_boundary_callbacks(
                 metadata=dict(r.metadata),
             )
 
+    # All PASS — merge metadata from every callback so telemetry
+    # (e.g. temperature/voltage/current readings) reaches the inspector.
+    merged_meta: dict[str, Any] = {}
+    for r in results:
+        if r.metadata:
+            merged_meta.update(r.metadata)
+    if merged_meta:
+        return True, GuardResult(
+            decision=GuardDecision.PASS,
+            guard_name=guard_name,
+            layer=guard_layer,
+            metadata=merged_meta,
+        )
     return True, None
 
 
