@@ -20,23 +20,30 @@
 
 ## 會話記錄
 
-### Session 2026-05-26 #2 (Deep DX Audit & Architectural Fixes)
+### Session 2026-05-26 #2 (Deep DX Audit + README Rewrite + LinkedIn)
 
-- **本輪目標**: 深度開發者體驗審查——找出「傻眼」設計並強化「驚嘆」亮點
+- **本輪目標**: 深度 DX 審查、修正架構問題、重寫 README、撰寫 LinkedIn
 - **已完成**:
   - 4 agent 平行審查: Python API onboarding / 架構隱藏耦合 / 前端 DX / 測試安全
   - `GuardResult.pass_result()` alias（與 `GuardDecision.PASS` 對齊命名）
-  - `Observation.merged()` factory 方法，消除 `guard_runtime.py` 中 6 處 `object.__setattr__` frozen dataclass 突破
-  - `examples/hello_guard.py` — 新開發者 5 分鐘可跑的最小範例
-  - `OODTrainer.tsx` 4 處硬編 `fetch()` → 用集中化 `api.ts`，新增 `listOodModels/deleteOodModel/oodTrainWsUrl`
-  - `hardware.py` / `ood.py` silent exception → 加 `logger.debug()` 可追蹤
-  - Spawn 3 個獨立改善任務（ObservationCompositor 抽取 / 併發測試 / 負面 config 測試）
+  - `Observation.merged()` factory 方法，消除 `guard_runtime.py` 中 6 處 `object.__setattr__` 突破
+  - `examples/hello_guard.py` — 最小 guard 範例
+  - `examples/custom_callback.py` — 自定義 boundary callback 範例
+  - `examples/stackfiles/minimal.yaml` — 最小合法 Stackfile
+  - README 完整重寫：problem-first 敘事、inline code、ASCII pipeline、誠實 disclaimer
+  - `OODTrainer.tsx` 4 處硬編 `fetch()` → 集中化 `api.ts`
+  - `hardware.py` / `ood.py` silent exception → `logger.debug()`
+  - LinkedIn 貼文草稿（兩版：長版 problem-first / 短版 direct）
+  - Spawn 3 個獨立改善任務
 - **執行過的驗證**:
   - `.venv/bin/python -m pytest tests/unit/ tests/safety/ -x -q` — 668 passed
   - `ruff check dam/` — all checks passed
   - `cd dam-console && npx tsc --noEmit --skipLibCheck` — no errors
   - `cd dam-console && npm test -- --ci` — 109 passed
-  - `python examples/hello_guard.py` — PASS/CLAMP 正確輸出
+  - `python examples/hello_guard.py` — PASS/CLAMP 正確
+  - `python examples/custom_callback.py` — PASS/CLAMP 正確
+  - `dam validate examples/stackfiles/*.yaml` — 5/5 valid
+- **commits**: `046a532`, `b14b327`
 
 ### Session 2026-05-26 #1 (Developer Experience Audit)
 
