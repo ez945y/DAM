@@ -100,7 +100,10 @@ make test               # 完整測試 (Python + Rust + Frontend + lint)
 make test-py            # Python 測試 (unit + integration + safety + property)
 make test-rs            # Rust 測試 (cargo test --workspace)
 make test-ui            # 前端測試 (jest --ci)
+make test-one FILE=...  # 跑單個測試檔 (-x -v)
 make lint               # 只跑 linter — 不修改檔案
+make typecheck          # 只跑 mypy（不跑 ruff / test）
+make check              # pre-commit run --all-files（commit 前一鍵驗收）
 make format             # 自動格式化 (ruff format + cargo fmt)
 make docs               # 本地預覽文檔
 make docs-check         # 文檔品質檢查

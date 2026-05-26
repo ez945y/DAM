@@ -14,7 +14,7 @@
 #   make ci-import         ← build Rust + import
 #   make ci-stackfile     ← validate stackfile
 #
-.PHONY: setup setup-lerobot ros dev build run docs docs-check test test-py test-rs test-ui lint format build-rs clean help dam validate ci-lint ci-syntax ci-import ci-stackfile _kill_port
+.PHONY: setup setup-lerobot ros dev build run docs docs-check test test-py test-rs test-ui test-one lint format typecheck check build-rs clean help dam validate ci-lint ci-syntax ci-import ci-stackfile _kill_port
 
 # Ensure scripts are executable before every target that uses them
 _chmod:
@@ -79,8 +79,17 @@ test-rs: _chmod   ## Rust tests only (cargo test --workspace)
 test-ui: _chmod   ## Frontend tests only (jest --ci)
 	@bash scripts/test.sh --frontend
 
+test-one:   ## Run a single test file: make test-one FILE=tests/unit/test_guards.py
+	@.venv/bin/python -m pytest $(FILE) -x -v
+
 lint: _chmod   ## Linters only (ruff check, mypy, cargo clippy) — no auto-fix
 	@bash scripts/test.sh --lint
+
+typecheck:   ## Run mypy only (fast type-check without ruff/tests)
+	@.venv/bin/mypy --config-file pyproject.toml dam tests
+
+check:   ## Run all pre-commit hooks on all files (one-shot CI gate)
+	@.venv/bin/pre-commit run --all-files
 
 format:   ## Auto-format Python (ruff) + Rust (cargo fmt) + trailing whitespace
 	@echo "Formatting Python..."
