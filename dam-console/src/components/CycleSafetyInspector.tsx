@@ -745,6 +745,32 @@ export function CycleSafetyInspector({ guards, latency, totalMs, failure, observ
             <div className="rounded border border-dam-border/50 bg-dam-surface-2 p-2">
               <div className="mt-2"><JointStateTable observation={observation} action={action} hardware={hardware} displayUnit={unit} /></div>
             </div>
+            {hardware?.host_health && (
+              <div className="rounded border border-dam-border/50 bg-dam-surface-2 p-2">
+                <p className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-dam-muted"><Cpu size={11} /> Host Health</p>
+                <div className="mt-2 grid grid-cols-2 gap-2 text-xs font-mono">
+                  {hardware.host_health.cpu_percent != null && (
+                    <div className="flex justify-between"><span className="text-dam-muted">CPU</span><span className="text-dam-text">{hardware.host_health.cpu_percent.toFixed(1)}%</span></div>
+                  )}
+                  {hardware.host_health.memory_percent != null && (
+                    <div className="flex justify-between"><span className="text-dam-muted">Memory</span><span className="text-dam-text">{hardware.host_health.memory_percent.toFixed(1)}%</span></div>
+                  )}
+                  {hardware.host_health.memory_available_mb != null && (
+                    <div className="flex justify-between"><span className="text-dam-muted">Mem Avail</span><span className="text-dam-text">{hardware.host_health.memory_available_mb.toFixed(0)} MB</span></div>
+                  )}
+                  {hardware.host_health.temperature_c != null && (
+                    <div className="flex justify-between"><span className="text-dam-muted">Temp</span><span className="text-dam-text">{hardware.host_health.temperature_c.toFixed(1)}°C</span></div>
+                  )}
+                  {hardware.host_health.gpus?.map((gpu, i) => (
+                    <React.Fragment key={i}>
+                      {gpu.util_percent != null && <div className="flex justify-between"><span className="text-dam-muted">GPU{i}</span><span className="text-dam-text">{gpu.util_percent.toFixed(0)}%</span></div>}
+                      {gpu.temperature_c != null && <div className="flex justify-between"><span className="text-dam-muted">GPU{i} Temp</span><span className="text-dam-text">{gpu.temperature_c.toFixed(0)}°C</span></div>}
+                      {gpu.memory_used_mb != null && gpu.memory_total_mb != null && <div className="flex justify-between"><span className="text-dam-muted">GPU{i} Mem</span><span className="text-dam-text">{gpu.memory_used_mb.toFixed(0)}/{gpu.memory_total_mb.toFixed(0)} MB</span></div>}
+                    </React.Fragment>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="rounded border border-dam-border/50 bg-dam-surface-2 p-2">
               <p className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-dam-muted"><Cpu size={11} /> Observation</p>
               <div className="mt-2"><ObservationPanel observation={observation ?? null} displayUnit={unit} /></div>
