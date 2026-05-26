@@ -766,23 +766,37 @@ export default function ExperimentsPage() {
             {diskArtifacts.length === 0 && Object.values(results).length === 0 ? (
               <p className="text-xs text-dam-muted">No artifacts yet.</p>
             ) : (
-              <div className="space-y-3">
-                {Object.entries(
-                  diskArtifacts.reduce<Record<string, string[]>>((groups, artifact) => {
-                    groups[artifact.experiment_id] = groups[artifact.experiment_id] ?? [];
-                    groups[artifact.experiment_id].push(artifact.path);
-                    return groups;
-                  }, {}),
-                ).map(([experimentId, paths]) => (
-                  <div key={experimentId} className="bg-dam-surface-2 border border-dam-border rounded-lg p-3 space-y-2">
-                    <p className="text-sm font-bold text-dam-text">{experimentId}</p>
-                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-                      {paths.map((path) => (
-                        <ArtifactPreview key={path} path={path} />
-                      ))}
-                    </div>
-                  </div>
-                ))}
+              <div className="space-y-4">
+                {(() => {
+                  const expById = Object.fromEntries(experiments.map((e) => [e.id, e]));
+                  const byRq: Record<string, Record<string, string[]>> = {};
+                  for (const a of diskArtifacts) {
+                    const rq = expById[a.experiment_id]?.rq ?? "Other";
+                    byRq[rq] = byRq[rq] ?? {};
+                    byRq[rq][a.experiment_id] = byRq[rq][a.experiment_id] ?? [];
+                    byRq[rq][a.experiment_id].push(a.path);
+                  }
+                  return Object.entries(byRq)
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([rq, expGroups]) => (
+                      <div key={rq} className="space-y-2">
+                        <p className="text-xs font-bold text-dam-blue uppercase tracking-wider">{rq}</p>
+                        {Object.entries(expGroups).map(([experimentId, paths]) => {
+                          const title = expById[experimentId]?.title ?? experimentId;
+                          return (
+                            <div key={experimentId} className="bg-dam-surface-2 border border-dam-border rounded-lg p-3 space-y-2">
+                              <p className="text-sm font-bold text-dam-text">{title} <span className="text-[10px] text-dam-muted font-normal">({experimentId})</span></p>
+                              <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                                {paths.map((path) => (
+                                  <ArtifactPreview key={path} path={path} />
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ));
+                })()}
               </div>
             )}
           </section>

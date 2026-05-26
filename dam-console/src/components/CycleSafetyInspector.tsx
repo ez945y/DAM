@@ -416,16 +416,23 @@ function JointStateTable({
   const a = action && typeof action === 'object' ? action as Record<string, unknown> : {}
   const { scale, label } = makeJointFormatter(displayUnit)
   const scaled = (v: unknown) => (numArr(v) ?? []).map(scale)
+  // Prefer obs_channels (per-index arrays) for hardware telemetry;
+  // fall back to hardware snapshot (named dict) only when obs is empty.
+  const hwTemps = numArr(o.temperature) ?? []
+  const hwCurrents = numArr(o.current) ?? []
+  const hwVoltages = numArr(o.voltage) ?? []
   const cols = [
     { head: `State (${label})`, values: scaled(o.joint_positions) },
     { head: `Target (${label})`, values: scaled(a.target_positions) },
     { head: `Output (${label})`, values: scaled(a.validated_positions), highlightDiffWith: scaled(a.target_positions) },
     { head: `Velocity (${label}/s)`, values: scaled(o.joint_velocities) },
-    { head: 'Temp (C)', values: numArr(o.temperature) ?? [] },
-    { head: 'Current (A)', values: numArr(o.current) ?? [] },
-    { head: 'Voltage (V)', values: numArr(o.voltage) ?? [] },
+    { head: 'Temp (°C)', values: hwTemps },
+    { head: 'Current (A)', values: hwCurrents },
+    { head: 'Voltage (V)', values: hwVoltages },
   ]
-  const named = hardware
+  // Use named joint names from hardware snapshot when obs_channels are empty.
+  const hasObsHardware = hwTemps.length > 0 || hwCurrents.length > 0 || hwVoltages.length > 0
+  const named = !hasObsHardware && hardware
     ? [...new Set([
         ...Object.keys(hardware.temperatures ?? {}),
         ...Object.keys(hardware.currents ?? {}),
@@ -445,9 +452,9 @@ function JointStateTable({
             <tr>
               <th className="px-2 py-1 text-left">Joint</th>
               {present.map(c => <th key={c.head} className="px-2 py-1 text-right">{c.head}</th>)}
-              {hardware?.temperatures && <th className="px-2 py-1 text-right">Temp (C)</th>}
-              {hardware?.currents && <th className="px-2 py-1 text-right">Current (A)</th>}
-              {hardware?.voltages && <th className="px-2 py-1 text-right">Voltage (V)</th>}
+              {!hasObsHardware && hardware?.temperatures && <th className="px-2 py-1 text-right">Temp (°C)</th>}
+              {!hasObsHardware && hardware?.currents && <th className="px-2 py-1 text-right">Current (A)</th>}
+              {!hasObsHardware && hardware?.voltages && <th className="px-2 py-1 text-right">Voltage (V)</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-dam-border/30">
@@ -462,9 +469,9 @@ function JointStateTable({
                     const changed = ref != null && value != null && Math.abs(ref - value) > 1e-6
                     return <td key={c.head} className={`px-2 py-1 text-right font-mono ${changed ? 'text-dam-orange font-bold bg-dam-orange/10' : 'text-dam-text'}`}>{value == null ? '—' : fmtNumber(value)}</td>
                   })}
-                  {hardware?.temperatures && <td className="px-2 py-1 text-right font-mono">{hardware.temperatures[name] == null ? '—' : fmtNumber(hardware.temperatures[name]!)}</td>}
-                  {hardware?.currents && <td className="px-2 py-1 text-right font-mono">{hardware.currents[name] == null ? '—' : fmtNumber(hardware.currents[name]!)}</td>}
-                  {hardware?.voltages && <td className="px-2 py-1 text-right font-mono">{hardware.voltages[name] == null ? '—' : fmtNumber(hardware.voltages[name]!)}</td>}
+                  {!hasObsHardware && hardware?.temperatures && <td className="px-2 py-1 text-right font-mono">{hardware.temperatures[name] == null ? '—' : fmtNumber(hardware.temperatures[name]!)}</td>}
+                  {!hasObsHardware && hardware?.currents && <td className="px-2 py-1 text-right font-mono">{hardware.currents[name] == null ? '—' : fmtNumber(hardware.currents[name]!)}</td>}
+                  {!hasObsHardware && hardware?.voltages && <td className="px-2 py-1 text-right font-mono">{hardware.voltages[name] == null ? '—' : fmtNumber(hardware.voltages[name]!)}</td>}
                 </tr>
               )
             })}
@@ -515,6 +522,7 @@ function ObservationPanel({ observation }: { observation: unknown; displayUnit?:
   const known = new Set([
     'joint_positions', 'joint_velocities', 'end_effector_pose',
     'force_torque', 'obs_timestamp',
+    'temperature', 'current', 'voltage',
   ])
   const extra = Object.fromEntries(Object.entries(o).filter(([k]) => !known.has(k)))
   return (
@@ -665,11 +673,13 @@ export function CycleSafetyInspector({ guards, latency, totalMs, failure, observ
                 <p className="mt-1 max-w-full text-[11px] text-dam-muted leading-relaxed whitespace-pre-wrap break-all">{topReason}</p>
               </div>
             )}
-            {hardware && <HardwareTable metadata={hardware as Record<string, unknown>} />}
             <FailureLayerBreakdown failing={failing} />
             <div className="rounded border border-dam-border/50 bg-dam-surface-2 p-2">
               <p className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-dam-muted"><Activity size={11} /> Latency</p>
               <div className="mt-2"><LatencySummary latency={latency} totalMs={totalMs} /></div>
+            </div>
+            <div className="rounded border border-dam-border/50 bg-dam-surface-2 p-2">
+              <JointStateTable observation={observation} action={action} hardware={hardware} displayUnit={unit} />
             </div>
           </>
         )}
