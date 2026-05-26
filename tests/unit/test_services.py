@@ -476,11 +476,27 @@ class TestRiskLogService:
         class FakeMcapSessions:
             def list_cycles(self, _filename):
                 return [
-                    {"cycle_id": 4, "timestamp_ns": 40, "has_violation": False, "has_clamp": True},
-                    {"cycle_id": 5, "timestamp_ns": 50, "has_violation": True, "has_clamp": False},
+                    {
+                        "cycle_id": 4,
+                        "timestamp_ns": 40,
+                        "timestamp": 0.04,
+                        "has_violation": False,
+                        "has_clamp": True,
+                        "failure_type": "guard_triggered",
+                        "total_ms": 1.5,
+                    },
+                    {
+                        "cycle_id": 5,
+                        "timestamp_ns": 50,
+                        "timestamp": 0.05,
+                        "has_violation": True,
+                        "has_clamp": False,
+                        "failure_type": "hardware_triggered",
+                        "total_ms": 2.0,
+                    },
                 ]
 
-            def get_cycle_detail(self, _filename, cycle_id, _ts_ns):
+            def get_cycle_detail(self, _filename, cycle_id, _ts_ns=None):
                 return {
                     "timestamp": float(cycle_id),
                     "has_violation": cycle_id == 5,
@@ -506,19 +522,21 @@ class TestRiskLogService:
 
         app = FastAPI()
         app.include_router(create_risk_log_router(RiskLogService(), FakeMcapSessions()))
-        body = (
-            TestClient(app)
-            .get(
-                "/api/risk-log/mcap/session_demo.mcap?outcome=reject&failure_type=hardware_triggered"
-            )
-            .json()
-        )
+        client = TestClient(app)
 
+        # Lightweight listing — filters work, no guard_results
+        body = client.get(
+            "/api/risk-log/mcap/session_demo.mcap?outcome=reject&failure_type=hardware_triggered"
+        ).json()
         assert body["count"] == 1
         assert body["events"][0]["outcome"] == "reject"
         assert body["events"][0]["mcap_filename"] == "session_demo.mcap"
-        assert body["events"][0]["guard_results"][0]["name"] == "voltage_limit"
-        assert body["events"][0]["observation"]["voltage"] == [8.5]
+        assert body["events"][0]["guard_results"] == []
+
+        # Full detail endpoint — returns guard_results and observation
+        detail = client.get("/api/risk-log/mcap/session_demo.mcap/cycle/5").json()
+        assert detail["guard_results"][0]["name"] == "voltage_limit"
+        assert detail["observation"]["voltage"] == [8.5]
 
 
 # ── BoundaryConfigService ──────────────────────────────────────────────────────

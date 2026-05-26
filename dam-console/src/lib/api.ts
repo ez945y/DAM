@@ -83,6 +83,10 @@ export const api = {
       `/risk-log/mcap/${encodeURIComponent(filename)}${qs ? `?${qs}` : ''}`
     )
   },
+  getRiskLogMcapCycleDetail: (filename: string, cycleId: number) =>
+    apiFetch<RiskEvent>(
+      `/risk-log/mcap/${encodeURIComponent(filename)}/cycle/${cycleId}`
+    ),
   clearRiskLog: () =>
     apiFetch<{ cleared: boolean }>('/risk-log/clear', { method: 'POST' }),
   exportRiskLogJsonUrl: () => `${API_BASE}/api/risk-log/export/json`,

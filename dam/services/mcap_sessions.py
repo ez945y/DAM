@@ -549,6 +549,7 @@ class McapSessionService:
                                 "violated_layers": self._mask_to_layers(v_mask),
                                 "clamped_layers": self._mask_to_layers(c_mask),
                                 "failure_type": d.get("failure_type"),
+                                "total_ms": d.get("total_ms", 0.0),
                             }
                         )
                         seq += 1

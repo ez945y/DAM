@@ -382,6 +382,52 @@ function EventDetailPanel({ e }: { e: RiskEvent }) {
   );
 }
 
+// ── Lazy-loading wrapper for MCAP events (detail fetched on expand) ──────────
+
+function LazyEventDetailPanel({ e }: { e: RiskEvent }) {
+  const [detail, setDetail] = useState<RiskEvent | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!e.mcap_filename || (e.guard_results && e.guard_results.length > 0)) {
+      setDetail(e);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    api
+      .getRiskLogMcapCycleDetail(e.mcap_filename, e.cycle_id)
+      .then((full) => {
+        if (!cancelled) setDetail(full);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [e]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12 gap-2 text-dam-muted text-xs">
+        <span className="w-4 h-4 border-2 border-dam-blue/40 border-t-dam-blue rounded-full animate-spin" />
+        Loading cycle detail…
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="py-6 text-center text-dam-red text-xs">{error}</div>
+    );
+  }
+  if (!detail) return null;
+  return <EventDetailPanel e={detail} />;
+}
+
 // ── Per-event mini-row content (richer info for inner list inside a group) ──
 
 function fmtTimeMs(ts: number): string {
@@ -1115,7 +1161,7 @@ export function RiskLogTable() {
                           className="px-8 py-4 border-l-2 border-dam-blue"
                         >
                           {e.count === 1 ? (
-                            <EventDetailPanel e={e.events[0]} />
+                            <LazyEventDetailPanel e={e.events[0]} />
                           ) : (
                             <div className="space-y-1.5">
                               <div className="flex items-center justify-between text-[10px] text-dam-muted uppercase tracking-widest pb-1">
@@ -1209,7 +1255,7 @@ export function RiskLogTable() {
                                     </button>
                                     {innerOpen && (
                                       <div className="border-t border-dam-border/40 px-3 py-3 bg-black/10">
-                                        <EventDetailPanel e={sub} />
+                                        <LazyEventDetailPanel e={sub} />
                                       </div>
                                     )}
                                   </div>
