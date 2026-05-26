@@ -467,6 +467,47 @@ class TestRiskLogService:
         single = client.get(f"/api/risk-log/{first_id}")
         assert single.status_code == 200, single.text
 
+    def test_guard_summaries_include_latency_ms(self):
+        svc = RiskLogService()
+        result = _make_cycle_result(0, clamped=True, risk=RiskLevel.ELEVATED)
+        result.guard_results = [
+            GuardResult(
+                decision=GuardDecision.CLAMP,
+                guard_name="motion",
+                layer=GuardLayer.L1,
+                reason="clamped",
+                metadata={"_latency_ms": 2.5, "extra": True},
+            ),
+            GuardResult(
+                decision=GuardDecision.PASS,
+                guard_name="execution",
+                layer=GuardLayer.L2,
+                reason="",
+                metadata={"_latency_ms": 1.1},
+            ),
+        ]
+        svc.record(result)
+        ev = svc.query()[0]
+        guard_lat = {g["name"]: g.get("latency_ms") for g in ev.guard_results}
+        assert guard_lat["motion"] == 2.5
+        assert guard_lat["execution"] == 1.1
+
+    def test_guard_summaries_latency_ms_none_when_absent(self):
+        svc = RiskLogService()
+        result = _make_cycle_result(0, clamped=True, risk=RiskLevel.ELEVATED)
+        result.guard_results = [
+            GuardResult(
+                decision=GuardDecision.CLAMP,
+                guard_name="bare",
+                layer=GuardLayer.L2,
+                reason="no metadata latency",
+                metadata={},
+            ),
+        ]
+        svc.record(result)
+        ev = svc.query()[0]
+        assert ev.guard_results[0].get("latency_ms") is None
+
     def test_router_projects_mcap_cycles_into_filterable_risk_events(self):
         from fastapi import FastAPI
         from fastapi.testclient import TestClient

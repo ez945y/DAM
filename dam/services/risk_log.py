@@ -101,6 +101,7 @@ class RiskLogService:
                 "layer": gr.layer.name if hasattr(gr.layer, "name") else str(gr.layer),
                 "decision": gr.decision.name,
                 "reason": gr.reason,
+                "latency_ms": gr.metadata.get("_latency_ms") if gr.metadata else None,
                 "metadata": dict(gr.metadata) if gr.metadata else {},
             }
             for gr in result.guard_results
