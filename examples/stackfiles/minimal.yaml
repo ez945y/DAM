@@ -1,0 +1,32 @@
+# Minimal Stackfile — the smallest valid DAM configuration.
+# Validates with: dam validate examples/stackfiles/minimal.yaml
+# Useful as a starting point for building your own Stackfile.
+
+version: "1"
+
+# One guard layer is enough to start
+guards:
+  - L1: motion
+
+# One boundary: keep joints within safe limits
+boundaries:
+  safe_joints:
+    layer: L1
+    type: single
+    nodes:
+      - callback: joint_position_limits
+        params:
+          upper: [1.57, 1.57, 1.57, 1.57, 1.57, 1.57]
+          lower: [-1.57, -1.57, -1.57, -1.57, -1.57, -1.57]
+
+# One task that activates the boundary
+tasks:
+  default:
+    description: "Minimal safety check"
+    boundaries:
+      - safe_joints
+
+# Sensible defaults
+safety:
+  control_frequency_hz: 30
+  enforcement_mode: enforce

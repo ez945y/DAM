@@ -2,105 +2,188 @@
 
 <h1>Detachable Action Monitor (DAM)</h1>
 
-Detachable safety. Observable control.
+A safety layer between your ML policy and robot hardware.
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue?logo=python)](https://www.python.org/downloads/)
 [![Rust 1.80+](https://img.shields.io/badge/rust-1.80%2B-orange?logo=rust)](https://www.rust-lang.org/)
 [![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen)](LICENSE)
 [![Discussions](https://img.shields.io/badge/Chat-GitHub_Discussions-blue?logo=github)](https://github.com/ez945y/DAM/discussions)
 
-[Features](#features) • [Quick Start](#quick-start) • [Documentation](#documentation) • [Configuration](#configuration)
+[What It Does](#what-it-does) · [Code Example](#see-it-in-code) · [Quick Start](#quick-start) · [Architecture](#architecture) · [Docs](#documentation)
 </div>
 
 
 https://github.com/user-attachments/assets/a10711ea-a419-4aee-ba06-de1e2d437d49
 
 
+## What It Does
 
-**DAM** is a detachable safety middleware that sits between any machine learning policy (or controller) and robot hardware. It intercepts every proposed action, evaluates it through a layered guard stack (L0–L3), and either **passes**, **clamps**, or **rejects** it — without modifying the policy weights or hardware drivers.
+DAM intercepts every action your policy proposes and evaluates it through a layered guard pipeline before it reaches hardware. Each action is either **passed**, **clamped** (modified to be safe), or **rejected** — without touching your policy weights or hardware drivers.
 
-This design keeps safety boundaries explicit while leaving the learning/policy layer detachable and upgradable.
+```
+Policy ──▶ [ L0: OOD ] ──▶ [ L1: Kinematics ] ──▶ [ L2: Task ] ──▶ [ L3: Hardware ] ──▶ Robot
+              │                    │                    │                   │
+         Is this input         Can this move        Does this make      Is the hardware
+         in-distribution?      physically happen?   sense for the task? healthy?
+```
 
-### Features
+**Why this exists:** ML policies can propose unsafe actions — out-of-distribution inputs, joint limits exceeded, task logic violated, or hardware overheating. DAM makes those safety boundaries explicit, configurable, and inspectable.
 
-- **Graduated L0-L3 pipeline**: Validates OOD, motion feasibility, task logic, and hardware health with fallback escalation.
-- **Stackfile-driven config**: Robots, policies, guards, boundaries, and tasks are YAML-defined and validated via `dam validate`.
-- **MCAP loopback logging**: Records observations, actions, guard decisions, and safety events for replay and review.
-- **Cycle inspection**: Audits control loops with guard decisions, latency, and observation/action context in the console.
-- **Research experiments**: Runs RQ1-RQ5 from the console or CLI with reproducible result artifacts and unified progress logs.
-- **Predictable runtime path**: Keeps high-volume logging and messaging off the policy path for steadier control-loop timing.
-- **Adapter isolation**: Swaps LeRobot, ROS 2, dataset, or custom adapters without changing guard logic.
-
-**Disclaimer**: DAM is experimental research software and not certified for safety-critical or production environments.
-
+> **Important:** DAM is experimental research software. It is not certified for safety-critical or production use. Safety is genuinely hard — we provide tools to help define and enforce boundaries, but cannot guarantee they will catch every failure mode. Use it as one layer of defense, not the only one.
 
 ---
 
-### Quick Start
+## See It in Code
+
+A guard is a Python class with a single `check()` method:
+
+```python
+import numpy as np
+import dam
+from dam import Guard, GuardResult, Observation, ActionProposal, ValidatedAction
+
+@dam.guard("L1")
+class JointLimitGuard(Guard):
+    expected_decisions = frozenset({dam.GuardDecision.PASS, dam.GuardDecision.CLAMP})
+
+    def __init__(self, limit: float = 1.0):
+        self.limit = limit
+
+    def check(self, obs: Observation, action: ActionProposal, **kwargs) -> GuardResult:
+        target = action.target_joint_positions
+        if np.all(np.abs(target) <= self.limit):
+            return GuardResult.pass_result(self.get_name(), self.get_layer())
+
+        clamped = np.clip(target, -self.limit, self.limit)
+        return GuardResult.clamp(
+            ValidatedAction(target_joint_positions=clamped),
+            self.get_name(), self.get_layer(),
+            reason=f"Clamped to [{-self.limit}, {self.limit}]",
+        )
+```
+
+Run it without any server or hardware:
+
+```bash
+python examples/hello_guard.py
+# Safe:      PASS  reason=''
+# Dangerous: CLAMP  reason='Clamped joints to [-1.0, 1.0]'
+```
+
+More examples in [`examples/`](examples/): custom callbacks, minimal Stackfiles, and full robot configs.
+
+---
+
+## Quick Start
 
 ```bash
 git clone https://github.com/ez945y/DAM.git
 cd DAM
-make setup
-make run
+make setup    # Python venv + Rust extension + npm install (~3 min)
+make run      # Backend :8080 + Console :3000
 ```
 
-Open **http://localhost:3000** for the DAM Console and **http://localhost:8080/docs** for API docs.
+Open **http://localhost:3000** to see the DAM Console. The demo Stackfile replays a dataset through the full guard pipeline — you can see real guard decisions without hardware.
 
-For the guided no-hardware path, see [Quick Start](docs/getting-started/quickstart.md).
+For the step-by-step walkthrough, see the [Quick Start guide](docs/getting-started/quickstart.md).
 
-| Command      | Description                                              |
-|--------------|----------------------------------------------------------|
-| `make setup` | Create venv, compile Rust extension, install dependencies |
-| `make build` | Build the production frontend after UI changes           |
-| `make run`   | Start backend (:8080) + pre-built frontend (:3000)       |
-| `make validate` | Validate example Stackfiles                          |
-| `make docs-check` | Run strict MkDocs and documentation pattern checks |
-| `make test`  | Run full test suite (unit + integration + safety)       |
-| `make clean` | Remove build artifacts                                  |
+### CLI
 
-The `dam` CLI is available after `make setup`:
+After `make setup`, the `dam` CLI is available:
 
 ```bash
-.venv/bin/dam doctor                                # check environment / dependencies
-.venv/bin/dam callbacks                             # list built-in boundary callbacks
-.venv/bin/dam inspect examples/stackfiles/demo.yaml # print the resolved Stackfile graph
-.venv/bin/dam validate examples/stackfiles/*.yaml   # schema-check Stackfiles (CI gate)
-.venv/bin/dam run examples/stackfiles/demo.yaml --cycles 200 --task demo
-.venv/bin/dam replay <session>.mcap                 # summarise a recorded session
-.venv/bin/dam help [command]
+dam doctor                                # check environment
+dam callbacks                             # list 18 built-in safety checks
+dam validate examples/stackfiles/*.yaml   # schema-check Stackfiles
+dam run examples/stackfiles/demo.yaml --cycles 200 --task demo
+dam replay <session>.mcap                 # summarize a recorded session
 ```
 
-After starting, open **http://localhost:3000** in your browser and use the console
-to inspect guard decisions, latency, and runtime status. Start with
-`examples/stackfiles/demo.yaml` before moving to SO-ARM101 hardware or a custom
-Stackfile.
+### Make Targets
 
-### Experiments
-
-The **Experiments** page runs the thesis evaluation suite (RQ1-RQ5) and previews
-the generated plots. RQ1 evaluates normal, legal-variation, and abnormal
-observation sequences with Real-NVP NLL by default; the optional comparison runs
-MemoryBank and Welford scores beside it. When vision is enabled in the console,
-RQ1 defaults to MobileNetV3 features fused with robot state.
-
-```bash
-.venv/bin/dam experiment list
-.venv/bin/dam experiment run l0-calibration
-```
-
-RQ1 caches loaded datasets, extracted embeddings, and trained Real-NVP models.
-Running the same datasets and feature/model configuration again reuses those
-artifacts instead of decoding frames or retraining. Experiment progress is
-reported through the same timestamped logger used by the application host.
-The calibrated RQ1 extractor and Real-NVP flow are also published to
-`data/ood_models/ood_model.pt` and `data/ood_models/ood_model_flow.pt`, the
-same model location used by the SO-ARM runtime Stackfile.
-See [Experiment Runners](docs/experiments.md) for parameters and output details.
+| Command | What it does |
+|---------|-------------|
+| `make setup` | First-time install (venv + Rust + npm) |
+| `make run` | Backend + pre-built frontend |
+| `make dev` | Backend + frontend with hot-reload |
+| `make test` | Full test suite (668+ Python tests + 109 frontend tests) |
+| `make validate` | Validate example Stackfiles |
 
 ---
 
-### Documentation
+## Architecture
+
+<img src="docs/diagrams/diagram1_system_architecture.png" alt="System Architecture" width="600" />
+
+### Guard Layers
+
+| Layer | What it checks | Example checks |
+|-------|---------------|----------------|
+| **L0** OOD Detection | Is the observation in-distribution? | Real-NVP / Memory Bank anomaly scoring |
+| **L1** Physical Kinematics | Can this move physically happen? | Joint limits, workspace bounds, velocity caps |
+| **L2** Task Execution | Does this make sense for the task? | Gripper sequence, progress enforcement |
+| **L3** Hardware Monitoring | Is the hardware healthy? | Temperature, current, voltage, heartbeat |
+
+The final decision is the **most restrictive** outcome across all active layers.
+
+### Stackfile Configuration
+
+Everything is configured in a YAML Stackfile — boundaries, fallbacks, tasks, hardware, and policy:
+
+```yaml
+boundaries:
+  workspace:
+    layer: L1
+    type: single
+    nodes:
+      - callback: workspace
+        params:
+          bounds: [[-0.4, 0.4], [-0.4, 0.4], [0.02, 0.6]]
+
+  temperature_limit:
+    layer: L3
+    type: single
+    nodes:
+      - callback: temperature_limit
+        fallback: slow_down
+        params:
+          max_temperature_c: 55.0
+```
+
+Start from [`examples/stackfiles/minimal.yaml`](examples/stackfiles/minimal.yaml) (smallest valid config) or see the [Stackfile Walkthrough](docs/getting-started/stackfile-walkthrough.md).
+
+### 18 Built-in Safety Checks
+
+List them with `dam callbacks`:
+
+- **L0:** OOD detector with selectable backends (Real-NVP, Memory Bank, Welford)
+- **L1:** Joint position/velocity limits, workspace bounds, keep-out zones, orientation, geofence, Cartesian velocity, smoothness
+- **L2:** Task gripper sequence enforcement
+- **L3:** Temperature, current, voltage, force/torque, hardware watchdog, host health
+
+### Fallback State Machine
+
+When a guard rejects an action, the runtime pushes a fallback context onto a severity-ordered stack. Each boundary specifies its own fallback strategy, and fallbacks auto-escalate if the trigger doesn't clear:
+
+```
+Normal → SlowDown → HoldPosition → SafeRetreat → EmergencyStop
+```
+
+<img src="docs/diagrams/diagram2_runtime_workflow.png" alt="Runtime Workflow" width="600" />
+
+---
+
+## Key Capabilities
+
+- **YAML-driven** — adjust safety boundaries without code changes
+- **MCAP recording** — every observation, action, and guard decision is logged for replay and post-hoc analysis
+- **Real-time console** — cycle-by-cycle inspection of guard decisions, latency, and risk
+- **Adapter isolation** — swap between LeRobot, ROS 2, dataset replay, or custom adapters
+- **Experiment harness** — reproducible evaluations (RQ1-RQ5) with cached artifacts
+
+---
+
+## Documentation
 
 | Goal | Start here |
 |------|------------|
@@ -111,53 +194,46 @@ See [Experiment Runners](docs/experiments.md) for parameters and output details.
 | Prepare for hardware | [Hardware Readiness](docs/getting-started/hardware-readiness.md) |
 | Fix first-run issues | [Troubleshooting](docs/getting-started/troubleshooting.md) |
 
-Preview the MkDocs site locally:
-
 ```bash
-make docs
+make docs   # preview locally
 ```
 
 ---
 
-### Configuration
+## Project Structure
 
-#### System Architecture
-
-<img src="docs/diagrams/diagram1_system_architecture.png" alt="System Architecture" width="600" />
-
-#### Workflow
-
-<img src="docs/diagrams/diagram2_runtime_workflow.png" alt="Runtime Workflow" width="600" />
-
-
-**Guard Layers**
-
-| Layer | Name                    | Responsibility                                      |
-|-------|-------------------------|-----------------------------------------------------|
-| L0    | OOD Detection           | Out-of-distribution observation detection           |
-| L1    | Physical Kinematics     | Joint limits, workspace, velocity                   |
-| L2    | Task Execution          | Mission progress and boundary enforcement           |
-| L3    | Hardware Monitoring     | Temperature, current, voltage, heartbeat            |
-
-The final decision is the **most restrictive** outcome from all active layers.
+```
+dam/                    # Python core — guard pipeline, runtime, services
+dam-console/            # Next.js dashboard (TypeScript + React)
+dam-rust/               # Rust extension for high-throughput MCAP recording
+examples/               # Runnable examples and Stackfile templates
+  hello_guard.py        #   ← start here: minimal guard in 20 lines
+  custom_callback.py    #   ← write your own boundary callback
+  stackfiles/           #   ← YAML configs from minimal to full robot
+tests/                  # Unit, integration, safety, and property tests
+docs/                   # MkDocs documentation site
+```
 
 ---
 
-### Contributing
+## Contributing
 
-See [Contributing](docs/contributing.md) for details on:
-- Setting up the development environment
-- Code style and testing requirements
-- How to propose new features or guard layers
+See [Contributing](docs/contributing.md) for setup and guidelines. We welcome help with:
 
-We especially welcome help in the following areas:
-- Safety testing and adversarial scenario development
+- Safety testing and adversarial scenarios
 - Real-time performance optimization
 - Additional hardware adapters
 - Documentation and example Stackfiles
 
 ---
 
-**DAM aims to make advanced robot safety modular, verifiable, and accessible to the embodied AI community.**
+## Research
 
-Feedback and discussions are highly encouraged in [GitHub Discussions](https://github.com/ez945y/DAM/discussions).
+DAM includes an experiment harness for reproducible evaluation (RQ1-RQ5), runnable from the console or CLI:
+
+```bash
+dam experiment list
+dam experiment run l0-calibration
+```
+
+Results are cached — rerunning the same configuration reuses trained models and extracted features. See [Experiment Runners](docs/experiments.md) for details.
