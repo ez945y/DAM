@@ -928,20 +928,15 @@ class GuardRuntime:
             raise RuntimeError("No hardware sources registered to GuardRuntime")
 
         obs = full_obs
-        # Camera-frame provenance. Hardware adapters (e.g. OpenCV) run the
-        # camera on their own thread and push frames straight into the shared
-        # frame hub; the runtime injects those into the observation here.
-        # Simulation / dataset sources instead deliver frames *on* the
-        # observation and never touch the hub. Track which case this is so the
-        # runtime — the single place every source's obs flows through — owns
-        # the obs→hub bridge for source-embedded frames (and never re-encodes
-        # hub-injected hardware frames).
-        images_from_hub = False
+        # Hardware cameras publish through the frame hub; dataset/simulation
+        # cameras arrive embedded in the observation. Keep both available to
+        # policy/inspection, while publishing only embedded frames into the
+        # hub so existing hardware JPEGs are not encoded a second time.
+        source_embedded_images = dict(obs.images or {})
         if self._frame_hub is not None and hasattr(self._frame_hub, "latest_arrays"):
             camera_images = self._frame_hub.latest_arrays()
             if camera_images:
-                object.__setattr__(obs, "images", camera_images)
-                images_from_hub = True
+                object.__setattr__(obs, "images", {**source_embedded_images, **camera_images})
         active_camera_names = tuple(obs.images.keys()) if obs.images else ()
 
         # Built-in host health source — same role as a source adapter but
@@ -1035,12 +1030,12 @@ class GuardRuntime:
         t_sink = time.monotonic()
 
         t_bus = time.monotonic()
-        if obs.images and not images_from_hub:
+        if source_embedded_images:
             # Source-embedded frames (simulation / dataset). Bridge them into
             # the shared hub so live preview and the Rust MCAP image writer
             # both see them — exactly as the hardware camera-adapter path
             # already does, but owned here once instead of per source.
-            self._publish_frames_to_hub(obs.images, obs.timestamp)
+            self._publish_frames_to_hub(source_embedded_images, obs.timestamp)
         if obs.images:
             object.__setattr__(obs, "images", None)
         self._obs_bus.write(obs)  # scalar observation ring buffer for loopback / MCAP capture

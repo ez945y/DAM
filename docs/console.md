@@ -96,11 +96,13 @@ Visual Stackfile editor. Pick a template, configure adapters, edit joint limits,
 
 ### Risk Log `/risk-log`
 
-Historical risk event table with filters and export.
+Historical risk event table with a live/MCAP source selector and shared Cycle
+Inspector detail view.
 
 ```
-Filter by: risk level · rejected-only · clamped-only · time range
-Export: JSON download · CSV download
+Filter by: risk level · outcome · failure layer
+Live source: JSON download · CSV download · clear
+MCAP source: select a recorded session and inspect its stored events
 ```
 
 ### Boundaries `/boundaries`

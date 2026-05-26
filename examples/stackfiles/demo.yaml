@@ -53,8 +53,6 @@ guards:
     phase: 0
   - L1: motion
     phase: 0
-  - L2: execution
-    phase: 1
   - L3: hardware
     always: true
 
@@ -91,15 +89,6 @@ boundaries:
       - callback: joint_velocity_limit
         params:
           max_velocities: [1.5000, 1.5000, 1.5000, 1.5000, 1.5000, 1.5000]
-  task_joint_speed_limit:
-    layer: L2
-    type: single
-    nodes:
-      - callback: task_joint_speed_limit
-        warn_frames: 3
-        fallback: hold_position
-        params:
-          max_speed: 3.0
   hardware_watchdog:
     layer: L3
     type: single
@@ -159,7 +148,6 @@ tasks:
       - workspace
       - joint_position_limits
       - joint_velocity_limit
-      - task_joint_speed_limit
       - hardware_watchdog
       - temperature_limit
       - current_limit

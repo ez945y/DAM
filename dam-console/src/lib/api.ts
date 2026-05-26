@@ -67,6 +67,22 @@ export const api = {
     return apiFetch<{ events: RiskEvent[]; count: number }>(`/risk-log${qs ? `?${qs}` : ''}`)
   },
   getRiskLogStats: () => apiFetch<RiskLogStats>('/risk-log/stats'),
+  getRiskLogFromMcap: (filename: string, params?: {
+    min_risk_level?: string
+    outcome?: 'reject' | 'clamp' | 'pass'
+    failure_type?: string
+    limit?: number
+  }) => {
+    const q = new URLSearchParams()
+    if (params?.min_risk_level) q.set('min_risk_level', params.min_risk_level)
+    if (params?.outcome) q.set('outcome', params.outcome)
+    if (params?.failure_type) q.set('failure_type', params.failure_type)
+    if (params?.limit) q.set('limit', String(params.limit))
+    const qs = q.toString()
+    return apiFetch<{ events: RiskEvent[]; count: number; filename: string }>(
+      `/risk-log/mcap/${encodeURIComponent(filename)}${qs ? `?${qs}` : ''}`
+    )
+  },
   clearRiskLog: () =>
     apiFetch<{ cleared: boolean }>('/risk-log/clear', { method: 'POST' }),
   exportRiskLogJsonUrl: () => `${API_BASE}/api/risk-log/export/json`,

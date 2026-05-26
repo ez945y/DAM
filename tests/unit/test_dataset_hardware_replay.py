@@ -45,6 +45,24 @@ def test_dataset_hardware_replay_requires_recorded_actions(monkeypatch):
         DatasetSimSource("demo/repo", strict=True)
 
 
+def test_dataset_camera_prefix_distinguishes_replay_from_live_frames(monkeypatch):
+    frames = [
+        {
+            "joint_positions": np.zeros(2),
+            "action": np.zeros(2),
+            "images": {"top": np.zeros((2, 2, 3), dtype=np.uint8)},
+        }
+    ]
+    monkeypatch.setattr(
+        DatasetSimSource, "_load_episode", staticmethod(lambda _repo, _ep: (frames, 30.0))
+    )
+
+    source = DatasetSimSource("demo/repo", strict=True, camera_prefix="replay_")
+    source.connect()
+
+    assert set(source.read().images or {}) == {"replay_top"}
+
+
 def _hybrid_config() -> StackfileConfig:
     return StackfileConfig(
         **{
@@ -73,7 +91,13 @@ def test_factory_routes_dataset_plus_motor_to_hardware_sink(monkeypatch):
     source = SimpleNamespace()
     fake_robot = object()
     fake_preset = SimpleNamespace(degrees_mode=True, default_urdf_relpath=None)
-    monkeypatch.setattr(RuntimeFactory, "_build_sim_source", staticmethod(lambda *a, **k: source))
+    build_kwargs = {}
+
+    def build_source(*_args, **kwargs):
+        build_kwargs.update(kwargs)
+        return source
+
+    monkeypatch.setattr(RuntimeFactory, "_build_sim_source", staticmethod(build_source))
     monkeypatch.setattr(LeRobotBuilder, "build_robot", lambda _self: fake_robot)
     monkeypatch.setattr(LeRobotBuilder, "joint_names", ["a", "b"], raising=False)
     monkeypatch.setattr(LeRobotBuilder, "preset", fake_preset, raising=False)
@@ -87,6 +111,7 @@ def test_factory_routes_dataset_plus_motor_to_hardware_sink(monkeypatch):
     assert runner.runtime._sink is motor
     assert isinstance(runner.runtime._policy, DatasetReplayPolicy)
     assert motor._observation_channels == ["current"]
+    assert build_kwargs["camera_prefix"] == "replay_"
 
 
 def test_secondary_hardware_source_channels_are_visible_to_policy():
@@ -133,6 +158,50 @@ def test_secondary_hardware_source_channels_are_visible_to_policy():
 
     np.testing.assert_allclose(policy.seen.joint_positions, np.zeros(2))
     np.testing.assert_allclose(policy.seen.channels["current"], [0.1, 0.2])
+
+
+def test_dataset_and_live_camera_images_reach_policy_without_republishing_live_frame():
+    config = StackfileConfig(
+        **{"guards": [], "tasks": {"default": {"boundaries": []}}, "boundaries": {}}
+    )
+
+    class FrameHub:
+        def latest_arrays(self):
+            return {"top": np.ones((2, 2, 3), dtype=np.uint8)}
+
+    runtime = GuardRuntime._from_config(config, frame_hub=FrameHub())
+    published = []
+    runtime._publish_frames_to_hub = lambda images, _timestamp: published.extend(images)
+
+    class Source:
+        def read(self):
+            return Observation(
+                timestamp=1.0,
+                joint_positions=np.zeros(2),
+                images={"replay_top": np.zeros((2, 2, 3), dtype=np.uint8)},
+            )
+
+    class Policy:
+        seen_images = set()
+
+        def predict(self, obs):
+            self.seen_images = set(obs.images or {})
+            return ActionProposal(target_joint_positions=np.zeros(2))
+
+    class Sink:
+        def apply(self, _action):
+            pass
+
+    policy = Policy()
+    runtime.register_source("replay", Source())
+    runtime.register_policy(policy)
+    runtime.register_sink(Sink())
+    runtime.start_task("default")
+
+    runtime.step()
+
+    assert policy.seen_images == {"replay_top", "top"}
+    assert published == ["replay_top"]
 
 
 def test_legacy_gripper_phase_timeout_is_ignored_at_runtime():

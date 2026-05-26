@@ -179,11 +179,6 @@ const BASE_BOUNDARIES: BoundaryDef[] = [
   },
 ]
 
-const TASK_SPEED_BOUNDARY: BoundaryDef = {
-  name: 'task_joint_speed_limit', layer: 'L2', type: 'single',
-  nodes: [{ node_id: 'default', params: { max_speed: 3 }, callback: 'task_joint_speed_limit', fallback: 'hold_position', timeout_sec: null, warn_frames: 3 }],
-}
-
 // L2 task-level gripper sequence: only for real hardware with known task flow
 const GRIPPER_SEQUENCE_BOUNDARY: BoundaryDef = {
   name: 'task_gripper_sequence', layer: 'L2', type: 'list',
@@ -200,8 +195,8 @@ function orderBoundaries(boundaries: BoundaryDef[]): BoundaryDef[] {
   return [...boundaries].sort((a, b) => (LAYER_ORDER[a.layer] ?? 99) - (LAYER_ORDER[b.layer] ?? 99))
 }
 
-const DEFAULT_BOUNDARIES: BoundaryDef[] = orderBoundaries([...BASE_BOUNDARIES, TASK_SPEED_BOUNDARY, GRIPPER_SEQUENCE_BOUNDARY])
-const REPLAY_BOUNDARIES: BoundaryDef[] = orderBoundaries([...BASE_BOUNDARIES, TASK_SPEED_BOUNDARY])
+const DEFAULT_BOUNDARIES: BoundaryDef[] = orderBoundaries([...BASE_BOUNDARIES, GRIPPER_SEQUENCE_BOUNDARY])
+const REPLAY_BOUNDARIES: BoundaryDef[] = orderBoundaries([...BASE_BOUNDARIES])
 
 const DEFAULT_FALLBACKS: FallbackDef[] = [
   { name: 'emergency_stop', type: 'emergency_stop', severity: 100, requires_proposal: false, monitors_hardware: false, description: 'Immediate full stop. Highest severity.', params: {}, escalate_to: null },
@@ -232,7 +227,7 @@ export const TEMPLATES: TemplatePreset[] = [
     {
     id: 'quick_start',
     label: 'Quick Start · Sim',
-    description: 'Full pipeline demo: replays real SO-ARM101 data with ACT policy.',
+    description: 'Replay data through the safety pipeline.',
     badge: 'Demo',
     config: {
       hardware_preset: 'so101_follower', adapter: 'simulation',
@@ -251,7 +246,7 @@ export const TEMPLATES: TemplatePreset[] = [
   {
     id: 'dataset_replay_check',
     label: 'Dataset Replay · Check',
-    description: 'Replay a recorded dataset through guards and output validated actions to real hardware. Multi-camera MCAP recording.',
+    description: 'Replay validated actions to hardware with live cameras.',
     badge: 'Replay',
     config: {
       hardware_preset: 'so101_follower', adapter: 'lerobot', lerobot_port: '/dev/tty.usbmodem5AA90244141',
@@ -275,7 +270,7 @@ export const TEMPLATES: TemplatePreset[] = [
   {
     id: 'so101',
     label: 'SO-101 · ACT',
-    description: 'SO-ARM101 ACT policy with built-in L1 safety filtering.',
+    description: 'ACT control with built-in safety guards.',
     badge: 'LeRobot',
     config: {
       hardware_preset: 'so101_follower', adapter: 'lerobot', lerobot_port: '/dev/tty.usbmodem5AA90244141',
@@ -297,7 +292,7 @@ export const TEMPLATES: TemplatePreset[] = [
   {
     id: 'ros2_minimal',
     label: 'ROS2',
-    description: 'ROS2 source / sink adapter with observation channels. Works with any ROS2-enabled robot.',
+    description: 'ROS2 source and command adapter.',
     badge: 'ROS2',
     config: {
       hardware_preset: 'so101_follower', adapter: 'ros2',
@@ -449,7 +444,10 @@ const GUARD_DEFAULT_ROUTING: Record<string, { phase?: number; always?: boolean }
 }
 
 function guardLines(cfg: DamConfig): string[][] {
-  return (['ood', 'motion', 'execution', 'hardware'] as const).map(gid => {
+  const activeLayers = new Set(validBoundaries(cfg).map(boundary => boundary.layer))
+  return (['ood', 'motion', 'execution', 'hardware'] as const).filter(gid =>
+    activeLayers.has(GUARD_LAYER[gid])
+  ).map(gid => {
     const layer = GUARD_LAYER[gid]
     const lines = [`${layer}: ${gid}`]
     if (cfg.guardsEnabled?.[gid] === false) lines.push('enabled: false')

@@ -124,15 +124,6 @@ boundaries:
           cbf_gamma: 1.0
           qp_solver: proxsuite
           slack_weight: 100000000
-  task_joint_speed_limit:
-    layer: L2
-    type: single
-    nodes:
-      - callback: task_joint_speed_limit
-        warn_frames: 3
-        fallback: hold_position
-        params:
-          max_speed: 3.0
   task_gripper_sequence:
     layer: L2
     type: list
@@ -210,7 +201,6 @@ tasks:
       - workspace
       - joint_position_limits
       - joint_velocity_limit
-      - task_joint_speed_limit
       - task_gripper_sequence
       - hardware_watchdog
       - temperature_limit

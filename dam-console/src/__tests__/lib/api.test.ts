@@ -41,6 +41,15 @@ describe('api', () => {
         expect.any(Object),
       )
     })
+
+    it('loads recorded risk events from a selected MCAP session', async () => {
+      mockFetch.mockReturnValue(ok({ events: [], count: 0, filename: 'session_demo.mcap' }))
+      await api.getRiskLogFromMcap('session_demo.mcap', { outcome: 'reject' })
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/risk-log/mcap/session_demo.mcap?outcome=reject'),
+        expect.any(Object),
+      )
+    })
   })
 
   describe('listBoundaries', () => {

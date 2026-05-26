@@ -14,14 +14,14 @@ const BADGE_COLOR: Record<string, string> = {
 
 export function TemplateGallery({ templates, selected, onSelect }: Props) {
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 items-start gap-3">
+    <div className="grid grid-cols-2 lg:grid-cols-4 items-stretch gap-3">
       {templates.map(t => {
         const active = selected === t.id
         return (
           <button
             key={t.id}
             onClick={() => onSelect(t.id)}
-            className={`text-left p-4 rounded-xl border-2 transition-all ${
+            className={`h-full flex flex-col text-left p-4 rounded-xl border-2 transition-all ${
               active
                 ? 'border-dam-blue bg-dam-blue-dim'
                 : 'border-dam-border bg-dam-surface-2 hover:border-dam-blue/50'

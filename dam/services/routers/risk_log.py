@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Annotated, Any
 
 if TYPE_CHECKING:
+    from dam.services.mcap_sessions import McapSessionService
     from dam.services.risk_log import RiskLogService
 
 from fastapi import APIRouter, HTTPException, Path, Query
@@ -11,6 +12,8 @@ from fastapi.responses import PlainTextResponse, Response
 from dam.services.serialization import MsgspecJSONResponse
 
 _SVC_UNAVAILABLE = "Risk log service not available"
+_MCAP_UNAVAILABLE = "MCAP session service not available"
+_RISK_RANK = {"NORMAL": 0, "ELEVATED": 1, "CRITICAL": 2, "EMERGENCY": 3}
 
 
 def _require_risk_log(svc: RiskLogService | None) -> RiskLogService:
@@ -19,7 +22,9 @@ def _require_risk_log(svc: RiskLogService | None) -> RiskLogService:
     return svc  # type: ignore[return-value]
 
 
-def create_risk_log_router(risk_log: RiskLogService | None) -> APIRouter:
+def create_risk_log_router(
+    risk_log: RiskLogService | None, mcap_sessions: McapSessionService | None = None
+) -> APIRouter:
     router = APIRouter(prefix="/api/risk-log")
 
     # NOTE: We return MsgspecJSONResponse(...) *instances* (not plain dicts
@@ -62,6 +67,78 @@ def create_risk_log_router(risk_log: RiskLogService | None) -> APIRouter:
         svc = _require_risk_log(risk_log)
         svc.clear()
         return {"cleared": True}
+
+    @router.get("/mcap/{filename}", responses={503: {"description": _MCAP_UNAVAILABLE}})
+    async def risk_log_from_mcap(
+        filename: Annotated[str, Path()],
+        min_risk_level: Annotated[str | None, Query()] = None,
+        outcome: Annotated[str | None, Query(pattern="^(reject|clamp|pass)$")] = None,
+        failure_type: Annotated[str | None, Query()] = None,
+        limit: Annotated[int, Query(ge=1, le=5000)] = 100,
+    ) -> Response:
+        if mcap_sessions is None:
+            raise HTTPException(503, _MCAP_UNAVAILABLE)
+        events: list[dict[str, Any]] = []
+        for cycle in reversed(mcap_sessions.list_cycles(filename)):
+            if not cycle.get("has_violation") and not cycle.get("has_clamp"):
+                continue
+            detail = mcap_sessions.get_cycle_detail(
+                filename, int(cycle["cycle_id"]), cycle.get("timestamp_ns")
+            )
+            if detail is None:
+                continue
+            resolved_outcome = (
+                "reject"
+                if detail.get("has_violation")
+                else "clamp"
+                if detail.get("has_clamp")
+                else "pass"
+            )
+            risk_level = "CRITICAL" if resolved_outcome == "reject" else "ELEVATED"
+            if outcome and resolved_outcome != outcome:
+                continue
+            if failure_type and detail.get("failure_type") != failure_type:
+                continue
+            if min_risk_level and _RISK_RANK.get(risk_level, 0) < _RISK_RANK.get(min_risk_level, 0):
+                continue
+            events.append(
+                {
+                    "event_id": -(int(cycle["cycle_id"]) + 1),
+                    "timestamp": detail.get("timestamp", cycle.get("timestamp", 0.0)),
+                    "cycle_id": cycle["cycle_id"],
+                    "trace_id": f"mcap:{filename}:{cycle['cycle_id']}",
+                    "risk_level": risk_level,
+                    "outcome": resolved_outcome,
+                    "was_clamped": bool(detail.get("has_clamp")),
+                    "was_rejected": bool(detail.get("has_violation")),
+                    "fallback_triggered": (detail.get("action") or {}).get("fallback_triggered"),
+                    "guard_results": [
+                        {
+                            "name": result.get("guard_name", ""),
+                            "layer": result.get("layer_name", ""),
+                            "decision": result.get("decision_name", "PASS"),
+                            "reason": result.get("reason", ""),
+                            "metadata": result.get("metadata", {}),
+                        }
+                        for result in detail.get("guard_results", [])
+                    ],
+                    "latency_ms": detail.get("latency", {}),
+                    "perf": None,
+                    "mcap_filename": filename,
+                    "failure_type": detail.get("failure_type"),
+                    "failure_guard_names": detail.get("failure_guard_names", []),
+                    "failure_layers": detail.get("failure_layers", []),
+                    "failure_decisions": detail.get("failure_decisions", []),
+                    "failure_reasons": detail.get("failure_reasons", []),
+                    "failure_tuple": detail.get("failure_tuple"),
+                    "observation": detail.get("observation"),
+                    "action": detail.get("action"),
+                    "hardware": None,
+                }
+            )
+            if len(events) >= limit:
+                break
+        return MsgspecJSONResponse({"events": events, "count": len(events), "filename": filename})
 
     @router.get("/export/json", responses={503: {"description": _SVC_UNAVAILABLE}})
     async def risk_log_export_json() -> Any:

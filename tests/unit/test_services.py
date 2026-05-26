@@ -467,6 +467,59 @@ class TestRiskLogService:
         single = client.get(f"/api/risk-log/{first_id}")
         assert single.status_code == 200, single.text
 
+    def test_router_projects_mcap_cycles_into_filterable_risk_events(self):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from dam.services.routers.risk_log import create_risk_log_router
+
+        class FakeMcapSessions:
+            def list_cycles(self, _filename):
+                return [
+                    {"cycle_id": 4, "timestamp_ns": 40, "has_violation": False, "has_clamp": True},
+                    {"cycle_id": 5, "timestamp_ns": 50, "has_violation": True, "has_clamp": False},
+                ]
+
+            def get_cycle_detail(self, _filename, cycle_id, _ts_ns):
+                return {
+                    "timestamp": float(cycle_id),
+                    "has_violation": cycle_id == 5,
+                    "has_clamp": cycle_id == 4,
+                    "failure_type": "hardware_triggered" if cycle_id == 5 else "guard_triggered",
+                    "failure_guard_names": ["voltage_limit"],
+                    "failure_layers": ["L3"],
+                    "failure_decisions": ["FAULT"],
+                    "failure_reasons": ["supply low"],
+                    "guard_results": [
+                        {
+                            "guard_name": "voltage_limit",
+                            "layer_name": "L3",
+                            "decision_name": "FAULT",
+                            "reason": "supply low",
+                            "metadata": {"voltage_v": 8.5},
+                        }
+                    ],
+                    "latency": {"L3_ms": 0.2},
+                    "observation": {"joint_positions": [0.0], "voltage": [8.5]},
+                    "action": {"fallback_triggered": "emergency_stop"},
+                }
+
+        app = FastAPI()
+        app.include_router(create_risk_log_router(RiskLogService(), FakeMcapSessions()))
+        body = (
+            TestClient(app)
+            .get(
+                "/api/risk-log/mcap/session_demo.mcap?outcome=reject&failure_type=hardware_triggered"
+            )
+            .json()
+        )
+
+        assert body["count"] == 1
+        assert body["events"][0]["outcome"] == "reject"
+        assert body["events"][0]["mcap_filename"] == "session_demo.mcap"
+        assert body["events"][0]["guard_results"][0]["name"] == "voltage_limit"
+        assert body["events"][0]["observation"]["voltage"] == [8.5]
+
 
 # ── BoundaryConfigService ──────────────────────────────────────────────────────
 

@@ -14,7 +14,8 @@ hardware and multi-camera inspection.
   hub, live preview, and MCAP recorder rather than creating a replay-only
   execution path.
 - `dataset_replay_check.yaml` is the focused hardware-validation example:
-  recorded actions, real SO-101 output, and top/wrist live camera recording.
+  recorded actions, real SO-101 output, and four visible/recordable streams:
+  dataset `replay_top` / `replay_wrist` plus live `top` / `wrist`.
 - Dataset-to-hardware replay runs in strict mode: absent recorded actions fail
   closed instead of falling back to synthetic actions.
 
@@ -25,9 +26,10 @@ hardware and multi-camera inspection.
   motor temperature/current/voltage where available.
 - Risk outcomes are canonical (`reject`, `clamp`, `pass`); filtering a
   fallback-resolved guard rejection now still finds the rejected cycle.
-- Templates emit boundaries in layer order (`L0` through `L3`) and include
-  L1-L3 coverage. L2/L3 presets expose `warn_frames`, the existing
-  consecutive-cycle reaction threshold, instead of hiding transient filtering.
+- Templates emit only guard layers backed by configured boundaries, in layer
+  order. Every preset includes L1 motion and L3 health monitoring; SO-101
+  alone includes the implemented L2 gripper sequence. L3 presets expose
+  `warn_frames`, the consecutive-cycle reaction threshold.
 - The nominal SO-101 voltage safety band is corrected to `10.0-13.0 V` for
   a 12 V supply. The previous `6.0-8.5 V` example values could trigger an
   immediate stop on normally powered hardware.
@@ -98,7 +100,10 @@ hardware and multi-camera inspection.
 ## MCAP & Console
 
 - The MCAP player and live stream can display multiple cameras from the shared
-  camera hub; hardware replay templates capture both top and wrist streams.
+  camera hub; hardware replay now preserves recorded dataset cameras alongside
+  top/wrist hardware streams instead of overwriting them.
+- Risk Log can switch from the live in-memory feed to a recorded MCAP session,
+  using the same event filters and Cycle Inspector payload for incident review.
 - Guard `metadata` (including `host_health`) is now surfaced through the
   positional Rust cycle path, not only the dict path, so the MCAP inspector
   shows it for Rust-recorded sessions too.

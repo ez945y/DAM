@@ -32,8 +32,9 @@ describe('TemplateGallery', () => {
     expect(screen.getAllByText('Demo').length).toBeGreaterThanOrEqual(1)
   })
 
-  it('aligns preset cards from the top when descriptions differ', () => {
+  it('stretches preset cards to an equal row height', () => {
     const { container } = render(<TemplateGallery templates={TEMPLATES} selected="" onSelect={onSelect} />)
-    expect(container.firstChild).toHaveClass('items-start')
+    expect(container.firstChild).toHaveClass('items-stretch')
+    expect(container.querySelector('button')).toHaveClass('h-full')
   })
 })

@@ -4,9 +4,9 @@
 # then outputs validated actions to the physical robot. This mode:
 #
 #   1. Reads observation + action trajectories from a HuggingFace dataset
-#   2. Runs actions through L0–L3 guard boundaries (just like live inference)
+#   2. Runs actions through the configured motion and hardware guard boundaries
 #   3. Sends only validated (possibly clamped) actions to the real arm
-#   4. Records live top + wrist camera footage to MCAP while replay runs
+#   4. Records dataset replay_* plus live top/wrist camera footage to MCAP
 #
 # Use cases:
 #   - Verify a recorded demonstration is safe before replaying on hardware
@@ -76,12 +76,8 @@ fallbacks:
       scale: 0.5
 
 guards:
-  - L0: ood
-    phase: 0
   - L1: motion
     phase: 0
-  - L2: execution
-    phase: 1
   - L3: hardware
     always: true
 
@@ -108,15 +104,6 @@ boundaries:
       - callback: workspace
         params:
           bounds: [[-0.4, 0.4], [-0.4, 0.4], [0.02, 0.6]]
-  task_joint_speed_limit:
-    layer: L2
-    type: single
-    nodes:
-      - callback: task_joint_speed_limit
-        warn_frames: 3
-        fallback: hold_position
-        params:
-          max_speed: 3.0
   hardware_watchdog:
     layer: L3
     type: single
@@ -172,7 +159,6 @@ tasks:
       - joint_position_limits
       - joint_velocity_limit
       - workspace
-      - task_joint_speed_limit
       - hardware_watchdog
       - temperature_limit
       - current_limit

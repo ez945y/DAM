@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { api } from "@/lib/api";
+import { api, type McapSessionSummary } from "@/lib/api";
 import { CycleSafetyInspector } from "@/components/CycleSafetyInspector";
 import { RiskBadge } from "@/components/RiskBadge";
 import type {
@@ -560,6 +560,9 @@ export function RiskLogTable() {
 
   const [events, setEvents] = useState<RiskEvent[]>([]);
   const [loading, setLoading] = useState(false);
+  const [source, setSource] = useState<"live" | "mcap">("live");
+  const [mcapSessions, setMcapSessions] = useState<McapSessionSummary[]>([]);
+  const [selectedMcap, setSelectedMcap] = useState("");
   const [_autoRefresh, setAutoRefresh] = useState(true);
   // Deep-link from the dashboard (?cycle_id=N) freezes the log so live updates
   // don't shift the row of interest out from under the user.
@@ -617,12 +620,20 @@ export function RiskLogTable() {
   const load = async (isBackground = false) => {
     if (!isBackground) setLoading(true);
     try {
-      const evRes = await api.getRiskLog({
+      if (source === "mcap" && !selectedMcap) {
+        setEvents([]);
+        return;
+      }
+      const params = {
         min_risk_level: filters.min_risk_level || undefined,
         outcome: filters.outcome || undefined,
         failure_type: filters.failure_type || undefined,
         limit: filters.limit,
-      });
+      };
+      const evRes =
+        source === "mcap" && selectedMcap
+          ? await api.getRiskLogFromMcap(selectedMcap, params)
+          : await api.getRiskLog(params);
       setEvents(evRes.events);
     } catch {
       /* ignore */
@@ -630,6 +641,15 @@ export function RiskLogTable() {
       if (!isBackground) setLoading(false);
     }
   };
+
+  useEffect(() => {
+    api.listMcapSessions()
+      .then(({ sessions }) => {
+        setMcapSessions(sessions);
+        setSelectedMcap((current) => current || sessions[0]?.filename || "");
+      })
+      .catch(() => setMcapSessions([]));
+  }, []);
 
   // Listen for global live refresh toggle
   useEffect(() => {
@@ -669,7 +689,7 @@ export function RiskLogTable() {
     load();
 
     const handleUpdate = () => {
-      if (!frozenRef.current) load(true);
+      if (source === "live" && !frozenRef.current) load(true);
     };
     const handleFocus = () => {
       if (!frozenRef.current) load(true);
@@ -685,7 +705,7 @@ export function RiskLogTable() {
       globalThis.removeEventListener("focus", handleFocus);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters]);
+  }, [filters, source, selectedMcap]);
 
   const handleClear = async () => {
     try {
@@ -783,6 +803,40 @@ export function RiskLogTable() {
       <div className="bg-dam-surface-1 border border-dam-border rounded">
         {/* Row 1 — triage filters: narrow down WHERE the problem is */}
         <div className="flex flex-wrap items-end gap-x-5 gap-y-3 p-3">
+          <div className="flex flex-col gap-1">
+            <span className="text-[9px] font-bold uppercase tracking-widest text-dam-muted/70">
+              Source
+            </span>
+            <select
+              value={source}
+              onChange={(e) => setSource(e.target.value as "live" | "mcap")}
+              className="bg-dam-surface-2 border border-dam-border text-dam-text text-xs rounded px-2 py-1.5"
+            >
+              <option value="live">Live log</option>
+              <option value="mcap">MCAP session</option>
+            </select>
+          </div>
+
+          {source === "mcap" && (
+            <div className="flex flex-col gap-1 min-w-[13rem]">
+              <span className="text-[9px] font-bold uppercase tracking-widest text-dam-muted/70">
+                Recording
+              </span>
+              <select
+                value={selectedMcap}
+                onChange={(e) => setSelectedMcap(e.target.value)}
+                className="bg-dam-surface-2 border border-dam-border text-dam-text text-xs rounded px-2 py-1.5"
+              >
+                {mcapSessions.length === 0 && <option value="">No MCAP sessions</option>}
+                {mcapSessions.map((session) => (
+                  <option key={session.filename} value={session.filename}>
+                    {session.filename}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div className="flex flex-col gap-1">
             <span className="text-[9px] font-bold uppercase tracking-widest text-dam-muted/70">
               Severity
@@ -886,7 +940,7 @@ export function RiskLogTable() {
           )}
 
           <div className="ml-auto flex items-center gap-2">
-            <button
+            {source === "live" ? <button
               onClick={() => setFrozen((v) => !v)}
               className={`flex items-center gap-1 px-2.5 py-1.5 border text-xs font-bold rounded transition-colors ${
                 frozen
@@ -909,30 +963,33 @@ export function RiskLogTable() {
                 </>
               )}
             </button>
+            : <span className="text-[10px] uppercase tracking-widest text-dam-muted">
+              Recorded session
+            </span>}
 
-            <div className="h-5 w-px bg-dam-border/40" />
+            {source === "live" && <div className="h-5 w-px bg-dam-border/40" />}
 
-            <a
+            {source === "live" && <a
               href={api.exportRiskLogJsonUrl()}
               download="risk_log.json"
               className="flex items-center gap-1 px-2 py-1.5 bg-dam-surface-2 border border-dam-border text-dam-muted text-xs rounded hover:text-dam-text transition-colors"
             >
               <Download size={11} /> JSON
-            </a>
-            <a
+            </a>}
+            {source === "live" && <a
               href={api.exportRiskLogCsvUrl()}
               download="risk_log.csv"
               className="flex items-center gap-1 px-2 py-1.5 bg-dam-surface-2 border border-dam-border text-dam-muted text-xs rounded hover:text-dam-text transition-colors"
             >
               <Download size={11} /> CSV
-            </a>
-            <button
+            </a>}
+            {source === "live" && <button
               onClick={handleClear}
               className="flex items-center gap-1 px-2 py-1.5 bg-dam-surface-2 border border-dam-border text-dam-muted text-xs rounded hover:text-dam-red hover:border-dam-red/40 transition-colors"
               title="Clear the in-memory risk log"
             >
               <Trash2 size={11} /> Clear
-            </button>
+            </button>}
           </div>
         </div>
       </div>
@@ -967,7 +1024,7 @@ export function RiskLogTable() {
             {groupedEvents.length === 0 ? (
               <tr>
                 <td colSpan={7} className="text-center text-dam-muted py-12">
-                  No risk events recorded.
+                  {source === "mcap" ? "No risk events in this MCAP session." : "No risk events recorded."}
                 </td>
               </tr>
             ) : (

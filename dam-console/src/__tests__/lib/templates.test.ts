@@ -19,12 +19,13 @@ describe('TEMPLATES', () => {
     }
   })
 
-  it('every template includes L1-L3 with the standard hardware monitors', () => {
+  it('every template includes the shared L1 and L3 hardware monitors', () => {
     for (const t of TEMPLATES) {
       const cfg = defaultConfig(t.id)
       expect(cfg.tasks).toHaveLength(1)
       const layers = new Set(cfg.boundaries.map(b => b.layer))
-      expect(layers).toEqual(new Set(['L1', 'L2', 'L3']))
+      expect(layers).toContain('L1')
+      expect(layers).toContain('L3')
       for (const boundary of ['hardware_watchdog', 'temperature_limit', 'current_limit', 'voltage_limit']) {
         expect(cfg.boundaries.map(b => b.name)).toContain(boundary)
         expect(cfg.tasks[0].boundaries).toContain(boundary)
@@ -32,11 +33,10 @@ describe('TEMPLATES', () => {
     }
   })
 
-  it('uses multi-cycle L2/L3 reactions and a 12 V-compatible supply band', () => {
+  it('uses multi-cycle L3 reactions and a 12 V-compatible supply band', () => {
     for (const t of TEMPLATES) {
       const cfg = defaultConfig(t.id)
       const byName = Object.fromEntries(cfg.boundaries.map(b => [b.name, b]))
-      expect(byName.task_joint_speed_limit.nodes[0].warn_frames).toBeGreaterThan(1)
       for (const name of ['hardware_watchdog', 'temperature_limit', 'current_limit', 'voltage_limit']) {
         expect(byName[name].nodes[0].warn_frames).toBeGreaterThan(1)
       }
@@ -45,6 +45,8 @@ describe('TEMPLATES', () => {
       expect(byName.host_health.nodes[0].timeout_sec).toBeNull()
       expect(byName.host_health.nodes[0].fallback).toBe('slow_down')
     }
+    expect(defaultConfig('so101').boundaries.map(b => b.name)).toContain('task_gripper_sequence')
+    expect(defaultConfig('dataset_replay_check').boundaries.map(b => b.name)).not.toContain('task_joint_speed_limit')
   })
 })
 
@@ -105,7 +107,7 @@ describe('defaultConfig', () => {
     const cfg = defaultConfig('quick_start')
     expect(cfg.adapter).toBe('simulation')
     expect(cfg.enforcement_mode).toBe('monitor')
-    expect(cfg.tasks[0].boundaries).toContain('task_joint_speed_limit')
+    expect(cfg.tasks[0].boundaries).not.toContain('task_joint_speed_limit')
     expect(cfg.tasks[0].boundaries).toContain('workspace')
     expect(cfg.tasks[0].boundaries).toContain('hardware_watchdog')
     expect(cfg.tasks[0].boundaries).toContain('voltage_limit')
@@ -207,7 +209,7 @@ describe('generateYaml', () => {
       boundaries: [...cfg.tasks[0].boundaries, 'ood_detector'],
     }]
     const yaml = generateYaml(cfg)
-    const positions = ['ood_detector:', 'workspace:', 'task_joint_speed_limit:', 'hardware_watchdog:']
+    const positions = ['ood_detector:', 'workspace:', 'task_gripper_sequence:', 'hardware_watchdog:']
       .map(name => yaml.indexOf(`  ${name}`))
     expect(positions).toEqual([...positions].sort((a, b) => a - b))
     expect(yaml).toContain('boundaries: [ood_detector, workspace')
@@ -215,7 +217,7 @@ describe('generateYaml', () => {
 
   it('roundtrips warn_frames and emits the 12 V supply band', () => {
     const yaml = generateYaml(defaultConfig('dataset_replay_check'))
-    expect(yaml).toMatch(/task_joint_speed_limit:[\s\S]*?warn_frames: 3/)
+    expect(yaml).not.toContain('task_joint_speed_limit:')
     const l3Section = yaml.slice(yaml.indexOf('  hardware_watchdog:'), yaml.indexOf('\ntasks:'))
     expect(l3Section).not.toContain('timeout_sec:')
     expect(yaml).toMatch(/voltage_limit:[\s\S]*?warn_frames: 3[\s\S]*?min_voltage_v: 10[\s\S]*?max_voltage_v: 13/)
@@ -233,10 +235,10 @@ describe('generateYaml', () => {
     const cfg = defaultConfig('so101')
     const yaml = generateYaml(cfg)
     expect(yaml).toContain('guards:')
-    expect(yaml).toContain('  - L0: ood')
     expect(yaml).toContain('  - L1: motion')
     expect(yaml).toContain('  - L2: execution')
     expect(yaml).toContain('  - L3: hardware')
+    expect(yaml).not.toContain('  - L0: ood')
     expect(yaml).not.toContain('upper_limits:')
     expect(yaml).not.toContain('lower_limits:')
     expect(yaml).not.toContain('ood_model_path:')
@@ -268,10 +270,10 @@ describe('generateYaml', () => {
     expect(slow!.requires_proposal).toBe(true)
   })
 
-  it('includes all 4 builtin guards in list format', () => {
+  it('emits only guard layers backed by template boundaries', () => {
     const cfg = defaultConfig('so101')
     const yaml = generateYaml(cfg)
-    expect(yaml).toContain('- L0: ood')
+    expect(yaml).not.toContain('- L0: ood')
     expect(yaml).toContain('- L1: motion')
     expect(yaml).toContain('- L2: execution')
     expect(yaml).toContain('- L3: hardware')
@@ -440,7 +442,7 @@ describe('generateYaml', () => {
 
   it('disabled guard appears as enabled: false in guards section', () => {
     const cfg = defaultConfig('so101')
-    cfg.guardsEnabled = { ood: false }
+    cfg.guardsEnabled = { execution: false }
     const yaml = generateYaml(cfg)
     expect(yaml).toContain('enabled: false')
   })

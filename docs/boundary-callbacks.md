@@ -65,7 +65,7 @@ from a function name.
 | `keep_out_zone` | kinematics | Tool enters a fixture or operator exclusion volume | `hold_position` |
 | `orientation_limit` | kinematics | Tool/payload tilts past its permitted angle | `hold_position` |
 | `base_geofence` | kinematics | Mobile base exits its permitted floor region | `hold_position` |
-| `task_joint_speed_limit` | execution | Current task phase moves the arm faster than allowed | `hold_position` after the configured warning streak |
+| `task_joint_speed_limit` | execution | Optional task-local aggregate speed cap for custom workflows | `hold_position` after the configured warning streak |
 | `task_workspace_bounds` | execution | Current task phase leaves its local work area | `hold_position` after the configured warning streak |
 | `check_gripper_clear` | execution | Gripper is obstructed/closed when clearance is required | `hold_position` |
 | `task_gripper_command_guard` | execution | Open/close command is invalid in the active task phase or zone | suppress only the gripper command |
@@ -86,17 +86,15 @@ do not use `timeout_sec` as a debounce value. `timeout_sec` is only for an
 explicitly timed L2 workflow phase, not for cycle-by-cycle L2 limits or L3
 hardware health monitoring.
 
+The SO-101 preset exposes only `task_gripper_command_guard` at L2 because its
+pick/place phase has a concrete actuator command to validate. The
+`task_joint_speed_limit`, `task_workspace_bounds`, and `check_gripper_clear`
+callbacks remain available for hand-authored workflows, but are intentionally
+not enabled by default: joint speed is already enforced by L1, and the other
+two require a task-specific operating region or meaningful gripper telemetry.
+
 ```yaml
 boundaries:
-  task_joint_speed_limit:
-    layer: L2
-    type: single
-    nodes:
-      - callback: task_joint_speed_limit
-        warn_frames: 3
-        fallback: hold_position
-        params:
-          max_speed: 3.0
   voltage_limit:
     layer: L3
     type: single

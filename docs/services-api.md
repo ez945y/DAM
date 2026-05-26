@@ -149,6 +149,13 @@ Query historical risk events.
 
 Summary statistics: total events, rejected, clamped, by risk level, avg latency.
 
+### `GET /api/risk-log/mcap/{filename}`
+
+Read notable cycles from a recorded MCAP session through the same event
+contract used by Risk Log and Cycle Inspector. Supports `min_risk_level`,
+`outcome`, `failure_type`, and `limit`; outcomes use the canonical lowercase
+values `reject`, `clamp`, and `pass`.
+
 ### `GET /api/risk-log/export/json`
 
 Download all events as `risk_log.json`.

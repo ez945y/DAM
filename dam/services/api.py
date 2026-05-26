@@ -143,7 +143,7 @@ def create_app(services: ServiceContainer | None = None) -> Any:
 
     # ── Domain routers ───────────────────────────────────────────────────────
     app.include_router(create_telemetry_router(services.telemetry))
-    app.include_router(create_risk_log_router(services.risk_log))
+    app.include_router(create_risk_log_router(services.risk_log, services.mcap_sessions))
     app.include_router(create_boundaries_router(services.boundary))
     app.include_router(create_control_router(services.control))
     app.include_router(create_system_router(services.control))

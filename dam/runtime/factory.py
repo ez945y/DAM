@@ -261,7 +261,12 @@ class RuntimeFactory:
                 "Dataset hardware replay requires dataset_repo_id on its dataset source"
             )
         dataset_source = RuntimeFactory._build_sim_source(
-            dataset_repo, dataset_cfg, config.simulation, float(hz), strict=True
+            dataset_repo,
+            dataset_cfg,
+            config.simulation,
+            float(hz),
+            strict=True,
+            camera_prefix="replay_",
         )
 
         builder = LeRobotBuilder(config.hardware, None, control_frequency_hz=hz)
@@ -578,6 +583,7 @@ class RuntimeFactory:
         hz: float,
         *,
         strict: bool = False,
+        camera_prefix: str = "",
     ) -> Any:
         if dataset_repo:
             from dam.adapter.dataset import DatasetSimSource
@@ -599,6 +605,7 @@ class RuntimeFactory:
                 hz=hz,
                 degrees_mode=degrees_mode,
                 strict=strict,
+                camera_prefix=camera_prefix,
             )
         from dam.testing.sim_adapters import SimSource
 
