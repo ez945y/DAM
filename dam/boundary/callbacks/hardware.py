@@ -65,7 +65,14 @@ def _load_average_percent() -> float | None:
         return None
 
 
+_nvidia_smi_available: bool | None = None
+
+
 def _try_nvidia_smi(timeout_sec: float = 0.25) -> dict[str, Any]:
+    global _nvidia_smi_available
+    if _nvidia_smi_available is False:
+        return {}
+
     query = "utilization.gpu,temperature.gpu,memory.used,memory.total"
     cmd = [
         "nvidia-smi",
@@ -80,7 +87,10 @@ def _try_nvidia_smi(timeout_sec: float = 0.25) -> dict[str, Any]:
             text=True,
             timeout=timeout_sec,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except OSError:
+        _nvidia_smi_available = False
+        return {}
+    except subprocess.TimeoutExpired:
         return {}
     if proc.returncode != 0 or not proc.stdout.strip():
         return {}
@@ -103,7 +113,10 @@ def _try_nvidia_smi(timeout_sec: float = 0.25) -> dict[str, Any]:
                 "memory_total_mb": mem_total,
             }
         )
-    return {"gpus": gpus} if gpus else {}
+    if gpus:
+        _nvidia_smi_available = True
+        return {"gpus": gpus}
+    return {}
 
 
 def collect_host_health(*, ttl_sec: float = 1.0) -> dict[str, Any]:

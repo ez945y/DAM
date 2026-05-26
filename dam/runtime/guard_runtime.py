@@ -100,6 +100,7 @@ class GuardRuntime:
         self._boundary_containers = boundary_containers
         self._task_config = task_config
         self._always_active = always_active
+        self._layer_timeout_overrides: dict[int, float] = {}
         self._control_frequency_hz = control_frequency_hz
         self._enforcement_mode = enforcement_mode
         self._cycle_id = 0
@@ -397,15 +398,20 @@ class GuardRuntime:
             else:
                 groups[gid][1].append(bname)
 
+        _default_timeout_ms = {0: 50.0, 1: 20.0, 2: 20.0, 3: 30.0}
+        _overrides = self._layer_timeout_overrides
+
         stages = []
         for layer_val in sorted(layer_to_groups):
             groups = layer_to_groups[layer_val]
             pairs = [(guard, bnames) for guard, bnames in groups.values()]
+            timeout = _overrides.get(layer_val, _default_timeout_ms.get(layer_val, 20.0))
             stages.append(
                 Stage(
                     name=layer_to_name[layer_val],
                     guard_boundary_pairs=pairs,
                     parallel=(layer_val >= 2),
+                    timeout_ms=timeout,
                 )
             )
         return stages
@@ -947,6 +953,8 @@ class GuardRuntime:
                 object.__setattr__(obs, "images", {**source_embedded_images, **camera_images})
         active_camera_names = tuple(obs.images.keys()) if obs.images else ()
 
+        t_obs = time.monotonic()
+
         # Built-in host health source — same role as a source adapter but
         # provided by the framework.  Injected into obs.metadata so L3
         # callbacks and the telemetry service both read from the observation
@@ -954,8 +962,7 @@ class GuardRuntime:
         from dam.boundary.callbacks.hardware import collect_host_health
 
         obs.metadata["host_health"] = collect_host_health()
-
-        t_obs = time.monotonic()
+        _host_health_ms = (time.monotonic() - t_obs) * 1000.0
 
         # ── Context state machine: auto-escalate then pop done contexts ──
         # Only active in ENFORCE mode — monitor / log_only must observe without
@@ -1065,6 +1072,7 @@ class GuardRuntime:
         self._metric_bus.push_stage("source", _src_ms)
         for _source_name, _source_ms in source_latencies.items():
             self._metric_bus.push_stage(f"source.{_source_name}", _source_ms)
+        self._metric_bus.push_stage("host_health", _host_health_ms)
         self._metric_bus.push_stage("obs_bus", _obs_bus_ms)
         self._metric_bus.push_stage("context", _ctx_ms)
         self._metric_bus.push_stage("policy", _policy_ms)
@@ -1499,18 +1507,27 @@ class GuardRuntime:
             default_fallback=config.safety.no_task_behavior,
         )
 
-        # Per-guard phase/always override from stackfile guards section.
+        # Per-guard phase/always/timeout override from stackfile guards section.
         _LAYER_KEYS = {"L0", "L1", "L2", "L3"}
+        layer_timeout_overrides: dict[int, float] = {}
         for item in config.guards if isinstance(config.guards, list) else []:
             if not isinstance(item, dict):
                 continue
             kind_value: str | None = None
+            layer_key: str | None = None
             for k, v in item.items():
                 if k in _LAYER_KEYS and isinstance(v, str):
                     kind_value = v
+                    layer_key = k
                     break
-            if kind_value is None:
+            if kind_value is None or layer_key is None:
                 continue
+
+            timeout_override = item.get("timeout_ms")
+            if timeout_override is not None:
+                layer_val = int(layer_key[1])
+                layer_timeout_overrides[layer_val] = float(timeout_override)
+
             inst = guards_by_kind.get(kind_value)
             if inst is None:
                 continue
@@ -1533,6 +1550,7 @@ class GuardRuntime:
                 resolved_phase,
                 resolved_always,
             )
+        runtime._layer_timeout_overrides = layer_timeout_overrides
 
         # Store the stackfile fallbacks: dict so _pick_context_for can resolve
         # node.fallback names → Context type + params at runtime.

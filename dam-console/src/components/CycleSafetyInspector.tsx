@@ -573,6 +573,52 @@ function LatencySummary({ latency = {}, totalMs }: { latency?: Record<string, nu
   )
 }
 
+const LAYER_DETAIL: Record<string, { label: string; color: string }> = {
+  L0: { label: 'L0 Perception', color: 'bg-purple-500' },
+  L1: { label: 'L1 Kinematics', color: 'bg-dam-blue' },
+  L2: { label: 'L2 Task', color: 'bg-amber-500' },
+  L3: { label: 'L3 Hardware', color: 'bg-emerald-500' },
+}
+
+function GuardLayerLatency({ guards }: { guards: InspectorGuardResult[] }) {
+  const layers = useMemo(() => {
+    const map = new Map<string, { total: number; count: number; worst: string }>()
+    for (const g of guards) {
+      const l = g.layer
+      const ms = g.latency_ms ?? 0
+      const prev = map.get(l)
+      if (prev) {
+        prev.total += ms
+        prev.count++
+        if (g.decision !== 'PASS' && DECISION_RANK[g.decision] > DECISION_RANK[prev.worst]) prev.worst = g.decision
+      } else {
+        map.set(l, { total: ms, count: 1, worst: g.decision })
+      }
+    }
+    return [...map.entries()].sort((a, b) => layerIndex(a[0]) - layerIndex(b[0]))
+  }, [guards])
+
+  if (layers.length === 0 || layers.every(([, v]) => v.total === 0)) return null
+  const maxMs = Math.max(...layers.map(([, v]) => v.total), 1)
+
+  return (
+    <div className="space-y-1">
+      {layers.map(([layer, { total, count, worst }]) => {
+        const detail = LAYER_DETAIL[layer] ?? { label: layer, color: 'bg-dam-muted' }
+        return (
+          <div key={layer} className="grid grid-cols-[80px_1fr_50px] items-center gap-2 text-[10px]">
+            <span className="text-dam-muted truncate">{detail.label}</span>
+            <div className="h-1.5 bg-dam-surface-3 rounded overflow-hidden">
+              <div className={`h-full ${worst !== 'PASS' ? 'bg-red-500' : detail.color}`} style={{ width: `${(total / maxMs) * 100}%` }} />
+            </div>
+            <span className="text-right font-mono text-dam-text">{total.toFixed(1)}ms</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 const CATEGORY_ORDER: Record<string, number> = { perception: 0, motion: 1, task: 2, hardware: 3 }
 
 function GroupedGuardCards({ guards, displayUnit }: { guards: InspectorGuardResult[]; displayUnit: DisplayUnit }) {
@@ -675,8 +721,12 @@ export function CycleSafetyInspector({ guards, latency, totalMs, failure, observ
             )}
             <FailureLayerBreakdown failing={failing} />
             <div className="rounded border border-dam-border/50 bg-dam-surface-2 p-2">
-              <p className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-dam-muted"><Activity size={11} /> Latency</p>
+              <p className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-dam-muted"><Activity size={11} /> Pipeline Latency</p>
               <div className="mt-2"><LatencySummary latency={latency} totalMs={totalMs} /></div>
+            </div>
+            <div className="rounded border border-dam-border/50 bg-dam-surface-2 p-2">
+              <p className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-dam-muted"><Shield size={11} /> Guard Layers</p>
+              <div className="mt-2"><GuardLayerLatency guards={displayGuards} /></div>
             </div>
             <div className="rounded border border-dam-border/50 bg-dam-surface-2 p-2">
               <JointStateTable observation={observation} action={action} hardware={hardware} displayUnit={unit} />

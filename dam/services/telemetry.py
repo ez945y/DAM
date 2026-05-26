@@ -83,6 +83,7 @@ def _serialise_cycle(
                 "event_class": gr.resolved_event_class(),
                 "decision": gr.decision.name,
                 "reason": gr.reason,
+                "latency_ms": gr.metadata.get("_latency_ms"),
             }
         )
 

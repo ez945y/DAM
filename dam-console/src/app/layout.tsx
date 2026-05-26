@@ -14,9 +14,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="bg-dam-bg text-dam-text font-mono flex h-screen overflow-hidden">
         <DisplayUnitProvider>
           <Sidebar />
-          <main className="flex-1 overflow-y-auto min-h-0">
+          <div id="page-root" className="flex-1 flex flex-col min-h-0">
             {children}
-          </main>
+          </div>
         </DisplayUnitProvider>
       </body>
     </html>

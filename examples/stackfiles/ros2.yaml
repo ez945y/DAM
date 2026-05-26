@@ -62,10 +62,13 @@ fallbacks:
 guards:
   - L1: motion
     phase: 0
+    timeout_ms: 20
   - L2: execution
     phase: 1
+    timeout_ms: 20
   - L3: hardware
     always: true
+    timeout_ms: 30
 
 boundaries:
   workspace:

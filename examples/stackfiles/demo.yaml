@@ -51,12 +51,16 @@ fallbacks:
 guards:
   - L0: ood
     phase: 0
+    timeout_ms: 50
   - L1: motion
     phase: 0
+    timeout_ms: 20
   - L2: execution
     phase: 1
+    timeout_ms: 20
   - L3: hardware
     always: true
+    timeout_ms: 30
 
 boundaries:
   ood_detector:

@@ -52,7 +52,7 @@ export interface DamConfig {
   enforcement_mode: EnforcementMode
   fallbacks: FallbackDef[]
   guardsEnabled: Partial<Record<'ood' | 'motion' | 'execution' | 'hardware', boolean>>
-  guardRouting: Partial<Record<'ood' | 'motion' | 'execution' | 'hardware', { phase?: number; always?: boolean }>>
+  guardRouting: Partial<Record<'ood' | 'motion' | 'execution' | 'hardware', { phase?: number; always?: boolean; timeout_ms?: number }>>
   tasks: TaskDef[]
   boundaries: BoundaryDef[]
   loopback?: LoopbackConfig
@@ -438,11 +438,11 @@ const MAIN_SOURCE_NAME: Record<DamConfig['adapter'], string> = {
   simulation: 'main',
 }
 
-const GUARD_DEFAULT_ROUTING: Record<string, { phase?: number; always?: boolean }> = {
-  ood:       { phase: 0 },
-  motion:    { phase: 0 },
-  execution: { phase: 1 },
-  hardware:  { always: true },
+const GUARD_DEFAULT_ROUTING: Record<string, { phase?: number; always?: boolean; timeout_ms?: number }> = {
+  ood:       { phase: 0, timeout_ms: 50 },
+  motion:    { phase: 0, timeout_ms: 20 },
+  execution: { phase: 1, timeout_ms: 20 },
+  hardware:  { always: true, timeout_ms: 30 },
 }
 
 function guardLines(cfg: DamConfig): string[][] {
@@ -456,6 +456,7 @@ function guardLines(cfg: DamConfig): string[][] {
     const routing = cfg.guardRouting?.[gid] ?? GUARD_DEFAULT_ROUTING[gid] ?? {}
     if (routing.always) lines.push(`always: ${routing.always}`)
     else if (routing.phase != null) lines.push(`phase: ${routing.phase}`)
+    if (routing.timeout_ms != null) lines.push(`timeout_ms: ${routing.timeout_ms}`)
     return lines
   })
 }
@@ -650,10 +651,12 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
     if (enMatch) guardsEnabled[id] = enMatch[1].toLowerCase() === 'true'
     const phaseMatch = new RegExp(`${id}:[\\s\\S]*?phase:\\s*(\\d+)`, 'i').exec(yaml)
     const alwaysMatch = new RegExp(`${id}:[\\s\\S]*?always:\\s*(true|false)`, 'i').exec(yaml)
-    if (phaseMatch || alwaysMatch) {
+    const timeoutMatch = new RegExp(`${id}:[\\s\\S]*?timeout_ms:\\s*(\\d+\\.?\\d*)`, 'i').exec(yaml)
+    if (phaseMatch || alwaysMatch || timeoutMatch) {
       const entry: any = {}
       if (phaseMatch) entry.phase = Number(phaseMatch[1])
       if (alwaysMatch) entry.always = alwaysMatch[1].toLowerCase() === 'true'
+      if (timeoutMatch) entry.timeout_ms = Number(timeoutMatch[1])
       guardRouting[id] = entry
     }
   }

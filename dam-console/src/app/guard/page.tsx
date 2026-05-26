@@ -1125,7 +1125,7 @@ export default function GuardPage() {
 
   const [guardsEnabled, setGuardsEnabled] = useState<Record<string, boolean>>({})
   const [fallbacks, setFallbacks] = useState<FallbackDef[]>([])
-  const [guardRouting, setGuardRouting] = useState<Partial<Record<'ood' | 'motion' | 'execution' | 'hardware', { phase?: number; always?: boolean }>>>({})
+  const [guardRouting, setGuardRouting] = useState<Partial<Record<'ood' | 'motion' | 'execution' | 'hardware', { phase?: number; always?: boolean; timeout_ms?: number }>>>({})
 
 
   // Expand/collapse for Boundaries section (per layer)
@@ -1596,65 +1596,91 @@ export default function GuardPage() {
       <div className="glass-card p-6 space-y-4">
         <h2 className="text-dam-muted text-xs uppercase tracking-widest font-semibold relative z-10">Fallback Contexts</h2>
         {fallbacks.length === 0 ? (
-          <p className="text-dam-muted text-xs italic">No fallbacks defined. Select a template to populate defaults.</p>
+          <p className="text-dam-muted text-xs italic relative z-10">No fallbacks defined. Select a template to populate defaults.</p>
         ) : (
-          <div className="space-y-1.5 relative z-10">
-            {fallbacks.map((f, i) => {
-              const params = f.params ?? {}
-              const paramKeys = Object.keys(params)
-              const setFallbackParam = (key: string, value: unknown) => {
-                const next = [...fallbacks]
-                next[i] = { ...next[i], params: { ...params, [key]: value } }
-                setFallbacks(next)
-              }
-              return (
-                <div key={f.name} className="bg-dam-surface-2 border border-dam-border rounded-lg px-3 py-2 space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs text-dam-text font-semibold min-w-[10rem]">{f.name}</span>
-                    <span className="text-[10px] text-dam-muted">sev {f.severity ?? '?'}</span>
-                    {f.requires_proposal && (
-                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-blue-500/10 border border-blue-500/20 text-dam-blue">proposal</span>
-                    )}
-                    {f.monitors_hardware && (
-                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-orange-500/10 border border-orange-500/20 text-dam-orange">HW</span>
-                    )}
-                    <div className="ml-auto flex items-center gap-1.5">
-                      <span className="text-[10px] text-dam-muted">escalate</span>
-                      <select
-                        value={f.escalate_to ?? ''}
-                        onChange={e => {
-                          const next = [...fallbacks]
-                          next[i] = { ...next[i], escalate_to: e.target.value || null }
-                          setFallbacks(next)
-                        }}
-                        className="bg-dam-surface border border-dam-border rounded px-1.5 py-0.5 text-[10px] text-dam-text"
-                      >
-                        <option value="">none</option>
-                        {fallbacks.filter(o => o.name !== f.name && (o.severity ?? 0) > (f.severity ?? 0)).map(o => (
-                          <option key={o.name} value={o.name}>{o.name} (sev {o.severity})</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                  {paramKeys.length > 0 && (
-                    <div className="flex items-center gap-3 pl-2 border-l-2 border-dam-border/40">
-                      {paramKeys.map(key => (
-                        <label key={key} className="flex items-center gap-1">
-                          <span className="text-[10px] text-dam-muted">{key}</span>
-                          <input
-                            type="number"
-                            step="any"
-                            value={Number(params[key] ?? 0)}
-                            onChange={e => setFallbackParam(key, Number(e.target.value))}
-                            className="w-16 bg-dam-surface border border-dam-border rounded px-1.5 py-0.5 text-[10px] text-dam-text font-mono"
-                          />
-                        </label>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+          <div className="relative z-10 overflow-x-auto">
+            <table className="w-full text-[11px]">
+              <thead>
+                <tr className="text-[9px] uppercase tracking-wider text-dam-muted/70 border-b border-dam-border/40">
+                  <th className="text-left py-1.5 px-2 font-semibold">Context</th>
+                  <th className="text-center py-1.5 px-2 font-semibold w-12">Sev</th>
+                  <th className="text-left py-1.5 px-2 font-semibold">Flags</th>
+                  <th className="text-left py-1.5 px-2 font-semibold">Params</th>
+                  <th className="text-left py-1.5 px-2 font-semibold">Escalate to</th>
+                </tr>
+              </thead>
+              <tbody>
+                {fallbacks.map((f, i) => {
+                  const params = f.params ?? {}
+                  const paramKeys = Object.keys(params)
+                  const setFallbackParam = (key: string, value: unknown) => {
+                    const next = [...fallbacks]
+                    next[i] = { ...next[i], params: { ...params, [key]: value } }
+                    setFallbacks(next)
+                  }
+                  const sevColor = (f.severity ?? 0) >= 90 ? 'text-red-400' : (f.severity ?? 0) >= 50 ? 'text-amber-400' : 'text-dam-muted'
+                  return (
+                    <tr key={f.name} className="border-b border-dam-border/20 hover:bg-dam-surface-2/50">
+                      <td className="py-2 px-2">
+                        <span className="font-mono text-dam-text font-semibold">{f.name}</span>
+                      </td>
+                      <td className="py-2 px-2 text-center">
+                        <span className={`font-mono font-bold ${sevColor}`}>{f.severity ?? '—'}</span>
+                      </td>
+                      <td className="py-2 px-2">
+                        <div className="flex items-center gap-1">
+                          {f.requires_proposal && (
+                            <span className="px-1.5 py-0.5 rounded text-[8px] font-bold uppercase bg-blue-500/10 border border-blue-500/20 text-dam-blue">proposal</span>
+                          )}
+                          {f.monitors_hardware && (
+                            <span className="px-1.5 py-0.5 rounded text-[8px] font-bold uppercase bg-orange-500/10 border border-orange-500/20 text-dam-orange">HW</span>
+                          )}
+                          {!f.requires_proposal && !f.monitors_hardware && (
+                            <span className="text-dam-muted/40">—</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-2 px-2">
+                        {paramKeys.length > 0 ? (
+                          <div className="flex items-center gap-2">
+                            {paramKeys.map(key => (
+                              <label key={key} className="flex items-center gap-1">
+                                <span className="text-[10px] text-dam-muted">{key}</span>
+                                <input
+                                  type="number"
+                                  step="any"
+                                  value={Number(params[key] ?? 0)}
+                                  onChange={e => setFallbackParam(key, Number(e.target.value))}
+                                  className="w-14 bg-dam-surface border border-dam-border rounded px-1 py-0.5 text-[10px] text-dam-text font-mono text-center"
+                                />
+                              </label>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-dam-muted/40">—</span>
+                        )}
+                      </td>
+                      <td className="py-2 px-2">
+                        <select
+                          value={f.escalate_to ?? ''}
+                          onChange={e => {
+                            const next = [...fallbacks]
+                            next[i] = { ...next[i], escalate_to: e.target.value || null }
+                            setFallbacks(next)
+                          }}
+                          className="bg-dam-surface border border-dam-border rounded px-1.5 py-0.5 text-[10px] text-dam-text w-full max-w-[10rem]"
+                        >
+                          <option value="">none</option>
+                          {fallbacks.filter(o => o.name !== f.name && (o.severity ?? 0) > (f.severity ?? 0)).map(o => (
+                            <option key={o.name} value={o.name}>{o.name} (sev {o.severity})</option>
+                          ))}
+                        </select>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
@@ -1663,13 +1689,13 @@ export default function GuardPage() {
       <div className="glass-card p-6 space-y-4">
         <h2 className="text-dam-muted text-xs uppercase tracking-widest font-semibold relative z-10">Guard Routing</h2>
         <p className="text-dam-muted text-[11px] relative z-10">
-          Override when each guard runs during fallback contexts. <strong>always</strong>: run in every context. <strong>phase</strong>: only run in contexts at or above this phase.
+          Override when each guard runs during fallback contexts. <strong>always</strong>: run in every context. <strong>phase</strong>: only run in contexts at or above this phase. <strong>timeout</strong>: per-stage wall-clock budget in ms.
         </p>
         <div className="space-y-1.5 relative z-10">
           {(['ood', 'motion', 'execution', 'hardware'] as const).map(gid => {
             const layer = { ood: 'L0', motion: 'L1', execution: 'L2', hardware: 'L3' }[gid]
-            const defaults: Record<string, { phase?: number; always?: boolean }> = {
-              ood: { phase: 0 }, motion: { phase: 0 }, execution: { phase: 1 }, hardware: { always: true },
+            const defaults: Record<string, { phase?: number; always?: boolean; timeout_ms?: number }> = {
+              ood: { phase: 0, timeout_ms: 50 }, motion: { phase: 0, timeout_ms: 20 }, execution: { phase: 1, timeout_ms: 20 }, hardware: { always: true, timeout_ms: 30 },
             }
             const routing = guardRouting[gid] ?? defaults[gid] ?? {}
             return (
@@ -1705,6 +1731,24 @@ export default function GuardPage() {
                     className="h-3.5 w-3.5 accent-dam-blue"
                   />
                   <span className="text-[10px] text-dam-muted">always</span>
+                </label>
+                <label className="flex items-center gap-1 ml-auto">
+                  <span className="text-[10px] text-dam-muted">timeout</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={500}
+                    value={routing.timeout_ms ?? ''}
+                    placeholder="ms"
+                    onChange={e => {
+                      const val = e.target.value ? Number(e.target.value) : undefined
+                      const next = { ...guardRouting, [gid]: { ...routing, timeout_ms: val } }
+                      if (val == null) delete next[gid]!.timeout_ms
+                      setGuardRouting(next)
+                    }}
+                    className="w-14 bg-dam-surface border border-dam-border rounded px-1.5 py-0.5 text-[10px] text-dam-text font-mono text-center"
+                  />
+                  <span className="text-[10px] text-dam-muted">ms</span>
                 </label>
               </div>
             )

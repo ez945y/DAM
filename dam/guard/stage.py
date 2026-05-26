@@ -54,4 +54,4 @@ class Stage:
     guards: list[Guard] = field(default_factory=list)
     guard_boundary_pairs: list[tuple[Guard, list[str]]] = field(default_factory=list)
     parallel: bool = False
-    timeout_ms: float = 10.0
+    timeout_ms: float = 20.0
