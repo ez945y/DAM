@@ -9,6 +9,14 @@ import time
 import numpy as np
 
 from dam.decorators import fallback
+from dam.runtime.builtin_contexts import (
+    EmergencyStopContext,
+    HoldPositionContext,
+    RetreatContext,
+    SlowDownContext,
+    WaitAndRetryContext,
+    make_context,
+)
 from dam.runtime.context import (
     SEVERITY_EMERGENCY_STOP,
     SEVERITY_HOLD_POSITION,
@@ -20,14 +28,6 @@ from dam.runtime.context import (
     StepContext,
     StepResult,
     get_context_class,
-)
-from dam.runtime.contexts import (
-    EmergencyStopContext,
-    HoldPositionContext,
-    RetreatContext,
-    SlowDownContext,
-    WaitAndRetryContext,
-    make_context,
 )
 from dam.types.result import GuardResult
 

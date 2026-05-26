@@ -481,12 +481,12 @@ class ExecutionEngine:
         if node_timeout is not None and _latency_ms / 1000.0 > node_timeout:
             result = dataclasses.replace(
                 GuardResult.reject(
+                    guard_name=result_name,
+                    layer=g.get_layer(),
                     reason=(
                         f"guard '{result_name}' computation timeout: "
                         f"{_latency_ms / 1000.0:.3f}s > {node_timeout}s"
                     ),
-                    guard_name=result_name,
-                    layer=g.get_layer(),
                 ),
                 metadata={"_latency_ms": _latency_ms},
             )

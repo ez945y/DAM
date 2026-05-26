@@ -16,7 +16,6 @@ G = TypeVar("G", bound=type)
 
 def guard(
     layer: str,
-    _process_group: str | None = None,
     *,
     phase: int | None = None,
     always: bool | None = None,

@@ -1,9 +1,9 @@
 'use client'
 import { useState } from 'react'
 import { AlertOctagon, ShieldX, ShieldAlert, Info, Filter } from 'lucide-react'
-import type { LogEntry, GuardDecision } from '@/lib/types'
+import type { LogEntry, RuntimeDecision } from '@/lib/types'
 
-type LogType = GuardDecision | 'INFO' | 'all'
+type LogType = RuntimeDecision | 'INFO' | 'all'
 
 const TYPE_CONFIG: Record<LogType, { color: string; dot: string; Icon: React.ComponentType<{ size?: number | string; className?: string }> }> = {
   all:    { color: 'text-dam-text',   dot: 'bg-dam-muted',   Icon: Filter       },

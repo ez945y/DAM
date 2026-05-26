@@ -71,7 +71,16 @@ class Guard(ABC):
     else:
 
         @abstractmethod
-        def check(self, **kwargs: Any) -> GuardResult: ...
+        def check(self, **kwargs: Any) -> GuardResult:
+            """Evaluate one cycle. Available kwargs (injected at runtime):
+
+            obs, action, cycle_id, trace_id, timestamp, now,
+            dynamics, active_containers, node_start_times.
+
+            Plus any static keys bound via InjectionResolver at startup.
+            Declare only the parameters you need; the rest are ignored.
+            """
+            ...
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)

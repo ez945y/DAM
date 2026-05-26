@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
-import type { CycleEvent, LogEntry, PerfSnapshot, TelemetrySnapshot } from '@/lib/types'
+import type { CycleEvent, GuardStatus, LogEntry, PerfSnapshot, TelemetrySnapshot } from '@/lib/types'
 
 const MAX_LATENCY = 60
 const MAX_EVENTS = 1000
@@ -26,7 +26,7 @@ const gProcessedIds = new Set<number>()
 let gCycleTimes: number[] = []
 let gRejectTimes: number[] = []
 let gClampTimes: number[] = []
-let gGuardMap: Record<string, any> = {}
+let gGuardMap: Record<string, GuardStatus> = {}
 // Exported so LiveCameraCell can read directly without React state.
 export let gLiveImages: Record<string, Blob> = {}
 let gActiveCameras: string[] = []
@@ -165,7 +165,7 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
           // Replace the map wholesale on every (re)connect: a restart kills
           // the backend process so any cached decision/reason is stale, and
           // boundaries dropped by a config change must disappear from the UI.
-          const next: Record<string, any> = {}
+          const next: Record<string, GuardStatus> = {}
           for (const b of resp.boundaries) {
             if (!b.nodes?.[0]?.constraint) continue
             next[b.name] = {
@@ -331,7 +331,7 @@ export function useTelemetry(): TelemetrySnapshot & { reconnect: () => void, res
           const logNow = Date.now()
           if (cycle.guard_statuses.length > 0) {
             gGuardMapVer++
-            const fresh: Record<string, any> = {}
+            const fresh: Record<string, GuardStatus> = {}
             for (const g of cycle.guard_statuses) {
               fresh[g.name] = g
             }

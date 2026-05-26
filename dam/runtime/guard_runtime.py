@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
-import dam.runtime.contexts  # noqa: F401 - imports builtin fallback Context registrations
+import dam.runtime.builtin_contexts  # noqa: F401 - imports builtin fallback Context registrations
 from dam.bus import ObservationBus, PipelineMetricBus, RiskController, WatchdogTimer
 from dam.guard.layer import GuardLayer
 from dam.guard.stage import Stage

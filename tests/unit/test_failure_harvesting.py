@@ -27,7 +27,7 @@ def _action() -> ActionProposal:
 
 def test_failure_harvest_classifies_ood_only() -> None:
     rt = _runtime_stub()
-    result = GuardResult.reject("OOD nll high", "ood", GuardLayer.L0)
+    result = GuardResult.reject("ood", GuardLayer.L0, "OOD nll high")
 
     failure = rt._build_failure_harvest(
         obs=_obs(),
@@ -51,8 +51,8 @@ def test_failure_harvest_classifies_ood_only() -> None:
 def test_failure_harvest_promotes_ood_plus_action_to_guard_triggered() -> None:
     rt = _runtime_stub()
     results = [
-        GuardResult.reject("OOD nll high", "ood", GuardLayer.L0),
-        GuardResult.reject("joint limit", "motion", GuardLayer.L1),
+        GuardResult.reject("ood", GuardLayer.L0, "OOD nll high"),
+        GuardResult.reject("motion", GuardLayer.L1, "joint limit"),
     ]
 
     failure = rt._build_failure_harvest(
@@ -75,7 +75,7 @@ def test_failure_harvest_promotes_ood_plus_action_to_guard_triggered() -> None:
 def test_failure_harvest_hardware_has_highest_priority() -> None:
     rt = _runtime_stub()
     results = [
-        GuardResult.reject("joint limit", "motion", GuardLayer.L1),
+        GuardResult.reject("motion", GuardLayer.L1, "joint limit"),
         GuardResult.fault(RuntimeError("motor stale"), "hardware", "hardware", GuardLayer.L3),
     ]
 

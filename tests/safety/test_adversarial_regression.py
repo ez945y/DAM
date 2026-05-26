@@ -151,7 +151,7 @@ def _r(decision: GuardDecision) -> GuardResult:
     if decision == GuardDecision.PASS:
         return GuardResult.success("g", GuardLayer.L1)
     if decision == GuardDecision.REJECT:
-        return GuardResult.reject("nope", "g", GuardLayer.L1)
+        return GuardResult.reject("g", GuardLayer.L1, "nope")
     if decision == GuardDecision.FAULT:
         return GuardResult.fault(RuntimeError("boom"), "g", "g", GuardLayer.L1)
     raise AssertionError(decision)

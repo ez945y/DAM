@@ -12,7 +12,7 @@ def test_aggregator_empty_results():
 def test_aggregator_reject_wins():
     results = [
         GuardResult.success("g1", GuardLayer.L2),
-        GuardResult.reject("oops", "g2", GuardLayer.L2),
+        GuardResult.reject("g2", GuardLayer.L2, "oops"),
     ]
     agg = aggregate_decisions(results)
     assert agg.decision == GuardDecision.REJECT
@@ -20,7 +20,7 @@ def test_aggregator_reject_wins():
 
 def test_aggregator_fault_wins_over_reject():
     results = [
-        GuardResult.reject("oops", "g1", GuardLayer.L2),
+        GuardResult.reject("g1", GuardLayer.L2, "oops"),
         GuardResult.fault(RuntimeError("fail"), "env", "g2", GuardLayer.L2),
     ]
     agg = aggregate_decisions(results)

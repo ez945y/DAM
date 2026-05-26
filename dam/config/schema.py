@@ -34,7 +34,7 @@ class NodeConfig(BaseModel):
 class FallbackConfig(BaseModel):
     """Stackfile-defined fallback strategy.
 
-    ``type`` references a builtin Context (see ``dam.runtime.contexts``).
+    ``type`` references a builtin Context (see ``dam.runtime.builtin_contexts``).
     The map key is the local name used by boundary nodes' ``fallback``
     field. Optional auto-escalation: when this fallback has been active for
     ``escalate_after_seconds`` and the trigger hasn't cleared, the runtime

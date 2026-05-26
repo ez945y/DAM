@@ -31,7 +31,7 @@ def _register_builtins() -> None:
     """Register built-in callbacks and guards (idempotent).
 
     Builtin fallback Contexts (HoldPosition/SlowDown/Retreat/WaitAndRetry/
-    EmergencyStop) live in ``dam.runtime.contexts`` and self-register via
+    EmergencyStop) live in ``dam.runtime.builtin_contexts`` and self-register via
     ``@dam.fallback`` at import time — no explicit registration step needed.
     """
     from dam.boundary.callbacks import register_all as reg_callbacks

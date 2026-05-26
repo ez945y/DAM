@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import type { GuardStatus, GuardDecision, BoundaryConfig } from '@/lib/types'
 import { ShieldCheck, ShieldAlert, ShieldX, AlertOctagon, Shield, ChevronRight, ChevronDown } from 'lucide-react'
 
-export const DEC_CONFIG: Record<GuardDecision | 'STANDBY', {
+export const DEC_CONFIG: Record<GuardDecision, {
   color: string; bg: string; border: string;
   Icon: React.ComponentType<{ size?: number | string; className?: string }>
 }> = {
@@ -78,7 +78,7 @@ export function GuardTable({
   }, [activeBoundaries, allBoundaryConfigs])
 
   // Merge runtime guards atop expected configuration
-  const mergedMap = new Map<string, GuardStatus | { name: string, boundaryName: string, layer: string, decision: GuardDecision | 'STANDBY', reason?: string }>()
+  const mergedMap = new Map<string, GuardStatus | { name: string, boundaryName: string, layer: string, decision: GuardDecision, reason?: string }>()
 
   // Initialize with placeholders
   for (const exp of expectedGuards) {
@@ -161,7 +161,7 @@ export function GuardTable({
         const hasItems = items.length > 0
 
         // Compute group decision
-        let groupDecision: GuardDecision | 'STANDBY' = 'STANDBY'
+        let groupDecision: GuardDecision = 'STANDBY'
         if (hasItems) {
           for (const it of items) {
              if (it.decision === 'FAULT') groupDecision = 'FAULT'

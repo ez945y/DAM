@@ -52,7 +52,7 @@ class GuardResult:
         )
 
     @classmethod
-    def reject(cls, reason: str, guard_name: str, layer: GuardLayer) -> GuardResult:
+    def reject(cls, guard_name: str, layer: GuardLayer, reason: str = "") -> GuardResult:
         return cls(decision=GuardDecision.REJECT, guard_name=guard_name, layer=layer, reason=reason)
 
     @classmethod

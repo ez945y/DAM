@@ -21,7 +21,7 @@ export interface PerfSnapshot {
   slack_ms:    number
 }
 export type RuntimeDecision = 'PASS' | 'CLAMP' | 'REJECT' | 'FAULT'
-export type GuardDecision = RuntimeDecision // Alias for backward compatibility
+export type GuardDecision = RuntimeDecision | 'STANDBY'
 export type RuntimeState = 'idle' | 'starting' | 'running' | 'paused' | 'stopping' | 'stopped' | 'emergency'
 export type BackendState = 'loading' | 'ready' | 'error' | 'faulted'
 
