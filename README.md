@@ -2,7 +2,7 @@
 
 <h1>Detachable Action Monitor (DAM)</h1>
 
-A safety layer between your ML policy and robot hardware.
+See where your policy breaks — before your hardware does.
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue?logo=python)](https://www.python.org/downloads/)
 [![Rust 1.80+](https://img.shields.io/badge/rust-1.80%2B-orange?logo=rust)](https://www.rust-lang.org/)
@@ -18,11 +18,13 @@ https://github.com/user-attachments/assets/a10711ea-a419-4aee-ba06-de1e2d437d49
 
 ## What It Does
 
-DAM intercepts every action your policy proposes and evaluates it through a layered guard pipeline before it reaches hardware. Each action is either **passed**, **clamped**, or **rejected**.
+ML policies always output the next action — they have no idea when something is unsafe. DAM intercepts every action and evaluates it through a layered guard pipeline before it reaches hardware. Each action is either **passed**, **clamped** (adjusted to stay safe), or **rejected**.
+
+The goal isn't to hide failures. It's to make them visible and easier to understand.
 
 <img src="docs/diagrams/diagram1_system_architecture.png" alt="System Architecture" width="700" />
 
-> **Important:** DAM is experimental research software. It is not certified for safety-critical or production use.
+> **Important:** DAM is experimental research software, not a certified safety system.
 
 ---
 
@@ -61,18 +63,11 @@ Open **http://localhost:3000** — the demo Stackfile replays a dataset through 
 
 ## Safe Recording for Imitation Learning
 
-DAM integrates with [LeRobot](https://github.com/huggingface/lerobot) to safety-guard actions **during data collection**. Every action passes through the guard pipeline — out-of-range positions are clamped, excessive velocities are limited, and the output shape is identical to the input.
-
-### One-Liner
+During data collection, DAM smooths motions and catches bad data before it enters your dataset. Integrates with [LeRobot](https://github.com/huggingface/lerobot) — one file configures hardware, safety boundaries, and recording.
 
 ```bash
-make record   # reads everything from examples/stackfiles/safety.yaml
-```
-
-Edit [`examples/stackfiles/safety.yaml`](examples/stackfiles/safety.yaml) — one file contains hardware, safety boundaries, and recording config. CLI args override YAML values:
-
-```bash
-make record ARGS="--dataset.num_episodes=20"
+make record                                # reads examples/stackfiles/safety.yaml
+make record ARGS="--dataset.num_episodes=20"   # CLI args override YAML
 ```
 
 ### Python API (3 levels)
@@ -92,11 +87,9 @@ from dam import SafetyProcessorStep
 robot_action_processor.steps.insert(0, SafetyProcessorStep("safety.yaml"))
 ```
 
-### How It Works
-
 <img src="docs/diagrams/diagram2_runtime_workflow.png" alt="Runtime Workflow" width="600" />
 
-The recorded dataset contains **only safe actions** — your IL policy trains on data that already respects all physical constraints.
+The recorded dataset contains **only safe actions** — your policy trains on data that already respects physical constraints. See [Safe Recording Guide](docs/getting-started/safe-recording.md) for full details.
 
 ---
 

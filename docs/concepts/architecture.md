@@ -1,6 +1,8 @@
 # Architecture Overview
 
-DAM is designed as a **transparent safety middleware** that intercepts all policy outputs and validates them against a layered guard stack before hardware execution.
+ML policies always output the next action. They have no awareness of joint limits, workspace boundaries, or hardware faults. The gap between what a policy wants and what is actually safe is invisible — unless something sits in the middle.
+
+DAM is that layer. It intercepts every action, validates it against a configurable guard stack, and lets both the policy and the hardware driver stay unchanged.
 
 ---
 
@@ -40,6 +42,19 @@ DAM is designed as a **transparent safety middleware** that intercepts all polic
 │  • Emergency stop circuits      │
 └─────────────────────────────────┘
 ```
+
+In practice, this means your policy code and hardware drivers don't change — DAM intercepts between them.
+
+---
+
+## Design Principles
+
+1. **Fail-to-Reject** — any guard timeout, exception, or unexpected behavior results in immediate rejection
+2. **Defense-in-Depth** — safety is not a single check; it's four independent layers
+3. **Configuration over Code** — use YAML for 99% of deployments; Python for advanced tier-2/3 setups
+4. **Modularity** — swap hardware, policies, and safety rules independently
+5. **Observability** — every decision is auditable; violations are captured for post-incident analysis
+6. **Predictable Runtime Path** — keep logging, messaging, and guard work observable and bounded
 
 ---
 
@@ -273,17 +288,6 @@ watcher.start()
 ```
 
 Only **static** configuration (guard limits, boundary constraints) reloads. Guard class structure and task definitions remain fixed during a run.
-
----
-
-## Design Principles
-
-1. **Fail-to-Reject** — any guard timeout, exception, or unexpected behavior results in immediate rejection
-2. **Defense-in-Depth** — safety is not a single check; it's four independent layers
-3. **Configuration over Code** — use YAML for 99% of deployments; Python for advanced tier-2/3 setups
-4. **Modularity** — swap hardware, policies, and safety rules independently
-5. **Observability** — every decision is auditable; violations are captured for post-incident analysis
-6. **Predictable Runtime Path** — keep logging, messaging, and guard work observable and bounded
 
 ---
 

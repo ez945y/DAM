@@ -1,182 +1,107 @@
 # Safety Model
 
-DAM is designed using **defense-in-depth** and **fail-to-reject** principles. This document explains the safety behavior DAM is designed to provide, the assumptions it depends on, and what it does not guarantee.
+No software layer can truly "guarantee safety." But if we cannot clearly see the
+limits of a policy, it is hard to build robot learning systems we can actually
+trust.
+
+DAM sits between ML policies and robot hardware. Its job is not to certify that
+a system is safe -- it is to make failures **visible** and **understandable**.
+When a policy proposes something dangerous, DAM intercepts it, logs what
+happened, and gives you the data to figure out why.
+
+DAM is research software. Treat it as an observability and guardrail layer, not
+a certified safety system.
 
 ---
 
-## Core Safety Principle: Fail-to-Reject
+## What DAM Does NOT Guarantee
 
-**The most important rule: guard failures should result in rejection, not silent execution.**
+Read this section first. Understanding these limits is more important than
+understanding the features.
+
+1. **Policy safety.** DAM validates actions, not policies. A policy that
+   hallucinates plausible-looking but wrong actions may slip past guards.
+
+2. **Collision avoidance.** DAM has no built-in collision checker. Use task
+   boundaries (L2) to constrain reachable workspace as a proxy, or integrate a
+   dedicated collision-checking callback.
+
+3. **Human safety in collaborative tasks.** DAM is not certified for
+   human-robot collaboration. It cannot detect human presence, predict human
+   motion, or comply with ISO/TS 15066 on its own.
+
+4. **Adversarial robustness.** DAM assumes sensor data is honest. Spoofed
+   observations may produce unsafe guard decisions.
+
+5. **Formal verification.** The system is experimental-grade. There is no formal
+   proof of correctness.
+
+---
+
+## Design Principles
+
+### Fail-to-Reject
+
+The most important rule: when a guard cannot reach a clear decision, the action
+is rejected.
 
 ```python
 try:
     decision = guard.evaluate(action, observation, state)
 except Exception:
-    decision = REJECT  # Timeout, memory error, logic error → REJECT
-
-if decision_time > timeout_budget_ms:
-    decision = REJECT  # Guard took too long → REJECT
+    decision = REJECT   # exception, timeout, memory error -> REJECT
 ```
 
-This means:
-- ✅ Guard exceptions → action rejected, not executed
-- ✅ Guard timeout → action rejected, not executed
-- ✅ Guard memory error → action rejected, not executed
-- ✅ Corrupt data → action rejected, not executed
+Guard exceptions, timeouts, and corrupt data all produce rejections. The system
+is conservative by default: do not execute an action when the guard stack cannot
+evaluate it reliably.
 
-The intended behavior is conservative: do not execute an action when the guard stack cannot evaluate it reliably.
+### Defense-in-Depth
 
----
+Four independent guard layers evaluate every proposed action from different
+angles. The most restrictive decision wins. A failure in one layer does not
+compromise the others.
 
-## Four-Layer Defense
-
-Each guard layer is independent and evaluates the action from a different perspective. The **most restrictive decision wins**.
-
-### Layer 0: Out-of-Distribution (OOD) Detection
-
-**What it guards against:** Policy hallucinations on unfamiliar states.
-
-The policy was trained on a distribution of observations (e.g., arm configurations near a table). If the robot enters an unfamiliar state (e.g., hanging from a cable), the policy output cannot be trusted.
-
-**How it works:**
-- **Memory Bank** (when trained) — during normal operation, DAM records reference observations. At evaluation time, OODGuard computes a feature vector and finds the nearest neighbor in the bank. High distance = out-of-distribution.
-- **Welford Z-score** (fallback) — maintains a running mean and variance of all observations. Rejects if any dimension's z-score exceeds threshold.
-
-**Does NOT guarantee:**
-- Perfect OOD detection (like all statistical methods, it has false negatives and false positives)
-- Policy safety even on in-distribution observations (that's L1–L3's job)
-
-**Typical configuration:**
-```yaml
-guards:
-  - L0: ood
-    phase: 0
-
-boundaries:
-  ood_detector:
-    layer: L0
-    type: single
-    nodes:
-      - callback: ood_detector
-        fallback: hold_position
-        params:
-          backend: welford
-          z_threshold: 3.0
+```
+Observation
+    |
+[ L0 - OOD Detection ]        Is this state familiar?
+    |
+[ L1 - Physical Kinematics ]  Are joint/velocity/workspace limits respected?
+    |
+[ L2 - Task Execution ]       Does the action fit the current task phase?
+    |
+[ L3 - Hardware Monitoring ]   Is the hardware healthy?
+    |
+Action (or rejection)
 ```
 
 ---
 
-### Layer 1: Motion Safety / Physical Kinematics (L1)
+## The Four Guard Layers
 
-**What it guards against:** Joint violations, workspace violations, velocity/acceleration overruns.
+Each layer is documented in detail in [Guard Stack Explained](guards-explained.md).
+Configuration examples live in [Boundary System](boundaries.md). Below is a
+summary of what each layer contributes to the safety model.
 
-L1 is the most mature layer. It enforces hard kinematic and dynamic constraints.
+**L0 -- OOD Detection.** Flags observations that fall outside the distribution
+the policy was trained on. Uses a memory bank (nearest-neighbor distance) or a
+Welford z-score fallback. Statistical by nature -- false negatives and false
+positives are expected.
 
-**Constraints:**
-1. **Joint position limits** — clamps if joint exceeds `[lower_limit, upper_limit]`
-2. **Velocity limits** — scales action if joint velocity would exceed `max_velocities`
-3. **Acceleration limits** — scales action if implied acceleration would exceed `max_acceleration`
-4. **Workspace bounds** — rejects if end-effector goes outside `[xmin..xmax, ymin..ymax, zmin..zmax]`
+**L1 -- Physical Kinematics.** Enforces hard kinematic and dynamic constraints:
+joint position limits, velocity limits, acceleration limits, and workspace
+bounds. Position and velocity violations are clamped; workspace violations are
+rejected outright.
 
-**Example:**
-```yaml
-guards:
-  - L1: motion
-    phase: 0
+**L2 -- Task Execution.** Enforces task-level constraints defined as boundary
+callbacks -- workspace bounds scoped to a task phase, gripper clearance checks,
+phase timeouts. Callback correctness is the user's responsibility.
 
-boundaries:
-  joint_position_limits:
-    layer: L1
-    type: single
-    nodes:
-      - callback: joint_position_limits
-        params:
-          upper: [1.57, 1.57, 1.57, 1.57, 1.57, 0.08]
-          lower: [-1.57, -1.57, -1.57, -1.57, -1.57, 0.0]
-  joint_velocity_limit:
-    layer: L1
-    type: single
-    nodes:
-      - callback: joint_velocity_limit
-        params:
-          max_velocities: [1.5, 1.5, 1.5, 1.5, 1.5, 0.5]
-```
-
-**Behavior:**
-- **Joint position:** Clamped to limits
-- **Velocity:** Proportionally scaled (all joints by same ratio)
-- **Acceleration:** Target velocity scaled back
-- **Workspace:** **Rejected** (cannot clamp an end-effector back into bounds without knowing which joints to move)
-
-**Expected behavior when configured correctly:**
-- Joint limits are clamped to configured `upper` and `lower` values.
-- Velocity and acceleration are bounded according to configured limits.
-- Workspace callbacks respond when end-effector pose leaves the configured box.
-- Collision-free motion still requires a dedicated simulation or collision checker.
-
----
-
-### Layer 2: Task Execution (L2)
-
-**What it guards against:** Actions that violate task-level constraints.
-
-Boundaries define the safety envelope for a task. L2 enforces them.
-
-**Checks (in order):**
-1. **Callback** — executes the active node's registered L2 boundary callback
-2. **Timeout** — rejects if boundary node has been active > `timeout_sec`
-
-Built-in L2 callbacks include task speed, task workspace, gripper clearance,
-and task-phase gripper command validation.
-
-**Example:**
-```yaml
-boundaries:
-  pick_and_place:
-    layer: L2
-    type: list
-    nodes:
-      - callback: task_workspace_bounds
-        params:
-          bounds: [[-0.35, 0.35], [-0.05, 0.45], [0.01, 0.40]]
-        fallback: hold_position
-        timeout_sec: 15.0
-```
-
-**Expected behavior when configured correctly:**
-- Actions violating active boundary callbacks are rejected or clamped according to the callback.
-- Timeouts reject task phases that exceed `timeout_sec`.
-- Custom callback correctness remains the user's responsibility.
-
----
-
-### Layer 3: Hardware Monitoring (L3)
-
-**What it guards against:** Hardware faults (motor overheating, disconnection, watchdog timeout).
-
-L3 queries the hardware sink to check motor status, temperature, and other health indicators.
-
-**Example health check:**
-```python
-class MySink:
-    def health_check(self) -> HealthStatus:
-        return HealthStatus(
-            motors_ok=True,
-            temp_celsius=45.2,  # Normal
-            watchdog_ok=True,
-            connected=True,
-        )
-```
-
-L3 rejects any action if:
-- Motor is faulted
-- Temperature exceeds safe limit
-- Watchdog is not responding
-- Sensor is disconnected
-
-**Expected behavior when configured correctly:**
-- Actions are rejected when configured hardware health checks report unhealthy state.
-- DAM cannot prevent hardware faults themselves; it can only react to signals it receives.
+**L3 -- Hardware Monitoring.** Queries the hardware sink for motor faults,
+temperature, watchdog status, and connectivity. Rejects actions when any health
+check reports an unhealthy state. DAM cannot prevent hardware faults; it can
+only react to reported signals.
 
 ---
 
@@ -184,204 +109,59 @@ L3 rejects any action if:
 
 ### Rust Data Plane
 
-The Rust layer is responsible for the real-time critical path:
-- Observation bus multiplexing
-- Action evaluation
-- Decision caching
-
-**Runtime properties:**
-- Rust helps avoid memory-safety classes such as use-after-free and data races.
-- Moving high-volume messaging away from Python reduces GIL-related timing noise.
-- Actual cycle timing must still be measured on the target machine and watched in the console.
+The Rust layer handles the real-time critical path: observation multiplexing,
+action evaluation, and decision caching. Rust eliminates memory-safety classes
+like use-after-free and data races, and reduces GIL-related timing noise. Actual
+cycle timing must still be measured on the target machine and monitored via the
+console.
 
 ### Python Fallback
 
-If Rust extension is not compiled:
-- The same guard semantics are used where supported.
-- The Python runtime may have more timing variability.
-- Validate latency before using hardware.
+If the Rust extension is not compiled, the same guard semantics run in Python
+with more timing variability. Validate latency on your hardware before relying
+on the Python path.
 
----
+### Hot-Reload
 
-## Hot-Reload Safety
-
-When you edit a Stackfile and trigger a reload:
-
-```python
-watcher = StackfileWatcher(
-    path="mystack.yaml",
-    on_change=runtime.apply_pending_reload,
-)
-```
-
-DAM performs atomic updates:
-1. Parse new Stackfile
-2. Validate against schema
-3. **Verify all guards are in consistent state**
-4. Swap config atomically at the start of the next cycle
-5. Old config is kept as fallback if validation fails
-
-**Expected behavior:**
-- Partial or invalid new config is not applied.
-- Guards see a consistent config snapshot.
-- Validate hot-reload behavior in your own deployment before relying on it around hardware.
-
----
-
-## What DAM Does NOT Guarantee
-
-### 1. Policy Safety
-DAM **intercepts and validates actions**, but it does not guarantee the policy itself is safe.
-
-```python
-# Policy: "always move to [10, 10, 10] meters"
-# This is physically impossible, but policy doesn't know that.
-# L1 guard will reject it.  ✓
-
-# Policy: "move to [1, 1, 1], but only if you see a red object"
-# If the policy hallucinates red, action is still proposed to DAM.
-# OOD guard may catch it, but not guaranteed.  ⚠️
-```
-
-### 2. Collision Avoidance
-DAM does **not** inherently prevent collisions. Add a dedicated simulation or
-collision-checking boundary when collision guarantees are required:
-
-Use **task boundaries** (L2) to constrain reachable workspace as a proxy for collision safety.
-
-### 3. Human Safety in Collaborative Tasks
-DAM is **not certified** for human-robot collaboration. It cannot:
-- Detect human presence reliably
-- Predict human motion
-- Comply with ISO/TS 15066 force/torque limits (though L3 can enforce them if you specify thresholds)
-
-### 4. Protection Against Adversarial Inputs
-DAM assumes your sensor data is honest. If an attacker spoofs sensor values:
-- OOD guard may not catch it
-- Policies may produce unsafe outputs
-- DAM will reject based on the corrupted data
-
-### 5. Formal Safety Proof
-DAM's design follows best practices, but proofs are ongoing work. The system is **experimental-grade**, not formally verified.
-
----
-
-## Design vs. Implementation
-
-DAM has two safety components:
-
-### Design Safety
-The architecture is designed for conservative behavior:
-- Fail-to-reject principle
-- Layered guards
-- Hot-reload atomicity
-- Memory safety (Rust)
-
-### Implementation Safety
-It still requires careful code review and testing:
-- No logic bugs in guard evaluators
-- No off-by-one errors in boundary checks
-- Proper error handling
-
-DAM includes:
-- Unit, integration, safety, and regression tests
-- MCAP replay for post-incident analysis
-- No formal verification claim
+When a Stackfile changes at runtime, DAM parses, validates, and swaps the
+config atomically at the start of the next cycle. Partial or invalid configs are
+not applied. Verify hot-reload behavior in your own deployment before relying on
+it around hardware.
 
 ---
 
 ## Practical Safety Recommendations
 
-### 1. Layer Your Guards
-Always enable multiple guards. Don't rely on a single layer.
+1. **Enable all four layers.** Do not rely on a single guard. Defense-in-depth
+   only works when the layers are actually running.
 
-```yaml
-guards:
-  - L0: ood
-    phase: 0
-  - L1: motion
-    phase: 0
-  - L2: execution
-    phase: 1
-  - L3: hardware
-    always: true
-```
+2. **Start with tight boundaries.** Begin with conservative limits and loosen
+   them incrementally as you validate behavior.
 
-### 2. Tight Boundaries
-Start with conservative boundary parameters. Loosen them incrementally as you validate behavior.
+3. **Monitor the MCAP buffer.** When a reject or clamp occurs, analyze the
+   surrounding context. The risk log and MCAP replay give you the evidence to
+   understand what happened.
 
-```yaml
-# Phase 1: Very conservative
-boundaries:
-  reach:
-    layer: L2
-    type: single
-    nodes:
-      - callback: task_workspace_bounds
-        params:
-          bounds: [[-0.1, 0.1], [0.1, 0.2], [0.0, 0.3]]
+4. **Test fallbacks before hardware.** Force rejections in simulation to verify
+   that fallback behaviors (hold-position, safe-retreat, etc.) do what you
+   expect.
 
-# Phase 2: Loosen as you gain confidence
-boundaries:
-  reach:
-    layer: L2
-    type: single
-    nodes:
-      - callback: task_workspace_bounds
-        params:
-          bounds: [[-0.3, 0.3], [0.05, 0.45], [0.01, 0.40]]
-```
-
-### 3. Monitor the MCAP Buffer
-When a reject or clamp occurs, analyze the ±30-second context:
-
-```bash
-# Export violations for offline analysis
-curl http://localhost:8080/api/risk-log/export/json > violations.json
-mcap cat violations.mcap | jq '.' | head -100
-```
-
-### 4. Test Fallbacks
-Before deploying to hardware, verify fallback behavior:
-
-```python
-runtime.inject_rejection_for_testing()  # Force next N cycles to test fallbacks
-```
-
-### 5. Use Stackfile Validation
-Always validate your Stackfile before loading:
-
-```bash
-dam validate mystack.yaml
-```
-
----
-
-## Versioning & Updates
-
-DAM is versioned according to the Stackfile schema. Breaking changes in guard behavior are rare, but:
-- Guard parameters may be added/removed
-- New guard layers may be introduced
-- Fallback strategies may expand
-
-Always test new versions in simulation before deploying to hardware.
+5. **Validate your Stackfile.** Run `dam validate mystack.yaml` before loading.
+   Schema errors caught early are cheaper than surprises on hardware.
 
 ---
 
 ## Next Steps
 
-- **Understand the guards in detail** → [Guard Stack Explained](guards-explained.md)
-- **Configure boundaries** → [Boundary System](boundaries.md)
-- **Prepare hardware carefully** → [Hardware Readiness](../getting-started/hardware-readiness.md)
-- **Monitor with the Console** → [DAM Console](../console.md)
+- [Guard Stack Explained](guards-explained.md) -- how each guard works and how
+  to configure it
+- [Boundary System](boundaries.md) -- defining and composing safety boundaries
+- [Hardware Readiness](../getting-started/hardware-readiness.md) -- preparing
+  hardware for safe operation
+- [DAM Console](../console.md) -- real-time monitoring and diagnostics
 
 ---
 
-## Questions?
-
-Safety is paramount. If you have concerns about a specific scenario:
-1. Check [GitHub Discussions](https://github.com/ez945y/DAM/discussions)
-2. File an issue with the safety tag
-3. Contact the DAM team
-
-**Remember:** DAM is currently experimental-grade. For safety-critical production use, combine it with formal methods, extensive testing, independent hardware safety procedures, and human oversight.
+DAM is experimental-grade software. For safety-critical deployments, combine it
+with formal methods, extensive testing, independent hardware safety systems, and
+human oversight.

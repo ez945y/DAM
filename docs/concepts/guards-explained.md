@@ -392,9 +392,7 @@ boundaries:
 
 ## Guard Layering Strategy
 
-### Conservative Approach (Recommended for Learning)
-
-Enable **all** guards. Let them work together.
+Start with all guards enabled. Disable individual layers only after you have validated that their checks are not needed for your deployment.
 
 ```yaml
 guards:
@@ -408,134 +406,25 @@ guards:
     always: true
 ```
 
-**Benefit:** Multiple layers catch different failure modes.
-**Trade-off:** More restrictive (may reject safe actions).
-
-### Aggressive Approach (After Validation)
-
-Disable less relevant guards to speed up execution.
-
-```yaml
-guards:
-  - L0: ood
-    enabled: false              # Skip if OOD is rare
-  - L1: motion
-    phase: 0
-  - L2: execution
-    phase: 1
-  - L3: hardware
-    always: true
-```
-
-**Benefit:** Faster control loop.
-**Risk:** Single-layer failures are not caught.
+For simulation without hardware, set L3 to `enabled: false`. For production, keep all four active.
 
 ---
 
-## Performance Characteristics
+## Performance
 
-| Guard | Typical Latency | Complexity | GPU Required |
-|-------|-----------------|-----------|--------------|
-| L0 OOD | 0.1–1.0 ms | High (NN lookup) | Optional (FeatureExtractor) |
-| L1 Motion | < 1 ms | Low (algebraic checks) | No |
-| L2 Task Execution | < 1 ms | Low–medium (task callbacks) | No |
-| L3 Hardware | < 0.5 ms | Low (sensor queries) | No |
+| Guard | Typical Latency | GPU Required |
+|-------|-----------------|--------------|
+| L0 OOD | 0.1–1.0 ms | Optional |
+| L1 Motion | < 1 ms | No |
+| L2 Task | < 1 ms | No |
+| L3 Hardware | < 0.5 ms | No |
 
-**Total typical per-cycle latency:** 1–5 ms at 50 Hz control frequency.
-
----
-
-## Common Configurations
-
-### Simulation (Fast, No Hardware)
-
-```yaml
-guards:
-  - L0: ood
-    phase: 0
-  - L1: motion
-    phase: 0
-  - L2: execution
-    phase: 1
-  - L3: hardware
-    enabled: false              # No hardware to monitor
-```
-
-### Hardware Deployment (Conservative)
-
-```yaml
-guards:
-  - L0: ood
-    phase: 0
-  - L1: motion
-    phase: 0
-  - L2: execution
-    phase: 1
-  - L3: hardware
-    always: true
-
-boundaries:
-  joint_position_limits:
-    layer: L1
-    type: single
-    nodes:
-      - callback: joint_position_limits
-        params:
-          upper: [1.57, 1.57, 1.57, 1.57, 1.57, 0.08]
-          lower: [-1.57, -1.57, -1.57, -1.57, -1.57, 0.0]
-  joint_velocity_limit:
-    layer: L1
-    type: single
-    nodes:
-      - callback: joint_velocity_limit
-        params:
-          max_velocities: [1.0, 1.0, 1.0, 1.0, 1.0, 0.3]
-  workspace:
-    layer: L1
-    type: single
-    nodes:
-      - callback: workspace
-        params:
-          bounds: [[-0.3, 0.3], [0.1, 0.5], [0.0, 1.0]]
-  hardware_watchdog:
-    layer: L3
-    type: single
-    nodes:
-      - callback: hardware_watchdog
-        warn_frames: 3
-        fallback: emergency_stop
-        params:
-          max_staleness_ms: 1000
-  temperature_limit:
-    layer: L3
-    type: single
-    nodes:
-      - callback: temperature_limit
-        warn_frames: 5
-        fallback: slow_down
-        params:
-          max_temperature_c: 55
-```
-
-### Multi-Robot Deployment (Heterogeneous)
-
-```yaml
-guards:
-  - L0: ood
-    phase: 0
-  - L1: motion
-    phase: 0
-  - L2: execution
-    phase: 1
-  - L3: hardware
-    always: true
-```
+Total per-cycle: 1–5 ms at 50 Hz. See [Common Stackfile Edits](../getting-started/common-stackfile-edits.md) for full configuration examples.
 
 ---
 
 ## Next Steps
 
-- **Configure boundaries** → [Boundary System](boundaries.md)
-- **Learn about the safety model** → [Safety Model](safety.md)
-- **Deploy with Stackfiles** → [Quick Start Guide](../quick-stack.md)
-- **Dive deeper** → [Full Specification](../DAM_Specification.md)
+- [Boundary System](boundaries.md) -- defining safety envelopes
+- [Safety Model](safety.md) -- what DAM does and does not guarantee
+- [Stackfile Guide](../quick-stack.md) -- complete field reference

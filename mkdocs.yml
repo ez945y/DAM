@@ -52,6 +52,7 @@ nav:
   - Home: index.md
   - Getting Started:
     - Quick Start: getting-started/quickstart.md
+    - Safe Recording: getting-started/safe-recording.md
     - Commands: getting-started/commands.md
     - Stackfile Walkthrough: getting-started/stackfile-walkthrough.md
     - Common Stackfile Edits: getting-started/common-stackfile-edits.md
@@ -67,6 +68,7 @@ nav:
     - Glossary: learn/glossary.md
   - Concepts:
     - Architecture: concepts/architecture.md
+    - Use Cases: concepts/use-cases.md
     - Guard Stack: concepts/guards-explained.md
     - Boundaries: concepts/boundaries.md
     - Safety Model: concepts/safety.md

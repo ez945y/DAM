@@ -1,10 +1,20 @@
 # DAM — Detachable Action Monitor
 
-**Safety middleware for ML-driven robot control**
+**See where your policy breaks before your hardware does.**
 
-DAM sits between a policy and robot hardware. Every proposed action is checked by guard layers before it reaches the actuator, then DAM either **passes**, **clamps**, or **rejects** the action and records what happened.
+ML policies look fine in simulation. Then they hit real hardware — and you have no idea which commands are unsafe, which motions are out of distribution, or where the policy's learned behavior falls apart. Failures are silent until they're physical.
 
-Use DAM when you want to change safety rules, task boundaries, or monitoring behavior without retraining the policy or rewriting hardware drivers.
+DAM sits between a policy and robot hardware and makes those boundaries visible. Every proposed action passes through guard layers that **pass**, **clamp**, or **reject** it — and every decision is recorded. The point isn't to hide failures. It's to make them visible and easier to understand.
+
+---
+
+## Where DAM Helps
+
+**Data collection.** DAM smooths motions during teleoperation and flags segments where commands hit limits. Bad data gets caught before it enters your dataset, not after a policy learns from it.
+
+**Training.** When a policy explores bad behaviors — joint limits, workspace violations, unfamiliar observations — DAM logs exactly what went wrong. You see which training runs produce policies that respect boundaries and which don't.
+
+**Deployment.** This is where DAM matters most. Instead of binary pass/fail, you see a continuous picture of where the policy works confidently and where it breaks down. Guard events, clamp rates, and risk state tell you what to fix next.
 
 ---
 
@@ -20,48 +30,24 @@ Use DAM when you want to change safety rules, task boundaries, or monitoring beh
 
 ---
 
-## What DAM Checks
+## What DAM Watches
 
-DAM organizes safety into four guard layers:
+Four guard layers, each asking a different question about every action:
 
 | Layer | Question |
 |-------|----------|
 | L0 OOD | Is the observation familiar enough to trust the policy? |
-| L1 Motion | Are joint limits, velocity limits, and workspace constraints safe? |
+| L1 Motion | Are joint limits, velocity limits, and workspace constraints respected? |
 | L2 Task | Does the command fit the active task phase? |
 | L3 Hardware | Is the robot and host environment healthy? |
 
-The most restrictive decision wins: `REJECT` beats `CLAMP`, and `CLAMP` beats `PASS`.
-
-For the deeper model, read [Guard Stack Explained](concepts/guards-explained.md).
-
----
-
-## Typical Workflow
-
-1. Configure a Stackfile.
-2. Validate it with `dam validate` or `make validate`.
-3. Run DAM with the selected task.
-4. Watch the console for pass, clamp, reject, latency, and risk state.
-5. Use logs and MCAP sessions to inspect safety events.
-
-Start with the no-hardware demo before moving to real robot hardware.
-
----
-
-## Why Teams Use It
-
-- Safety rules live in versioned configuration.
-- Built-in guard layers can be enabled per task.
-- Fail-to-reject behavior makes guard failures conservative.
-- MCAP loopback logs help replay and audit safety events.
-- LeRobot, ROS 2, and dataset-style workflows can share the same safety model.
+The most restrictive decision wins: `REJECT` beats `CLAMP`, and `CLAMP` beats `PASS`. For the deeper model, read [Guard Stack Explained](concepts/guards-explained.md).
 
 ---
 
 ## Safety Status
 
-DAM is research and experimental-grade software. It is not certified for safety-critical production use or unsupervised human-collaborative environments. Treat it as a safety research and development tool, validate your Stackfiles carefully, and keep hardware emergency procedures in place.
+DAM is research and experimental-grade software. It is not certified for safety-critical production use or unsupervised human-collaborative environments. Treat it as a development and research tool, validate your Stackfiles carefully, and keep hardware emergency procedures in place.
 
 ---
 
