@@ -66,9 +66,10 @@ recording:
     num_episodes: 2
     single_task: "pick and place"
     push_to_hub: true
+    vcodec: libx264               # libsvtav1 (AV1) is slow; libx264 is ~3x faster
     streaming_encoding: true
-    encoder_threads: 2
-  display_data: true
+    encoder_threads: 4
+  display_data: false             # rerun adds ~5% CPU overhead; disable for max FPS
   resume: true
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
