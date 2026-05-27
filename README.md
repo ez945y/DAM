@@ -9,7 +9,7 @@ A safety layer between your ML policy and robot hardware.
 [![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen)](LICENSE)
 [![Discussions](https://img.shields.io/badge/Chat-GitHub_Discussions-blue?logo=github)](https://github.com/ez945y/DAM/discussions)
 
-[What It Does](#what-it-does) · [Code Example](#see-it-in-code) · [Quick Start](#quick-start) · [Architecture](#architecture) · [Docs](#documentation)
+[Quick Start](#quick-start) · [Safe Recording](#safe-recording-for-imitation-learning) · [Architecture](#architecture) · [Docs](#documentation)
 </div>
 
 
@@ -18,59 +18,11 @@ https://github.com/user-attachments/assets/a10711ea-a419-4aee-ba06-de1e2d437d49
 
 ## What It Does
 
-DAM intercepts every action your policy proposes and evaluates it through a layered guard pipeline before it reaches hardware. Each action is either **passed**, **clamped** (modified to be safe), or **rejected** — without touching your policy weights or hardware drivers.
+DAM intercepts every action your policy proposes and evaluates it through a layered guard pipeline before it reaches hardware. Each action is either **passed**, **clamped**, or **rejected**.
 
-```
-Policy ──▶ [ L0: OOD ] ──▶ [ L1: Kinematics ] ──▶ [ L2: Task ] ──▶ [ L3: Hardware ] ──▶ Robot
-              │                    │                    │                   │
-         Is this input         Can this move        Does this make      Is the hardware
-         in-distribution?      physically happen?   sense for the task? healthy?
-```
+<img src="docs/diagrams/diagram1_system_architecture.png" alt="System Architecture" width="700" />
 
-**Why this exists:** ML policies can propose unsafe actions — out-of-distribution inputs, joint limits exceeded, task logic violated, or hardware overheating. DAM makes those safety boundaries explicit, configurable, and inspectable.
-
-> **Important:** DAM is experimental research software. It is not certified for safety-critical or production use. Safety is genuinely hard — we provide tools to help define and enforce boundaries, but cannot guarantee they will catch every failure mode. Use it as one layer of defense, not the only one.
-
----
-
-## See It in Code
-
-A guard is a Python class with a single `check()` method:
-
-```python
-import numpy as np
-import dam
-from dam import Guard, GuardResult, Observation, ActionProposal, ValidatedAction
-
-@dam.guard("L1")
-class JointLimitGuard(Guard):
-    expected_decisions = frozenset({dam.GuardDecision.PASS, dam.GuardDecision.CLAMP})
-
-    def __init__(self, limit: float = 1.0):
-        self.limit = limit
-
-    def check(self, obs: Observation, action: ActionProposal, **kwargs) -> GuardResult:
-        target = action.target_joint_positions
-        if np.all(np.abs(target) <= self.limit):
-            return GuardResult.pass_result(self.get_name(), self.get_layer())
-
-        clamped = np.clip(target, -self.limit, self.limit)
-        return GuardResult.clamp(
-            ValidatedAction(target_joint_positions=clamped),
-            self.get_name(), self.get_layer(),
-            reason=f"Clamped to [{-self.limit}, {self.limit}]",
-        )
-```
-
-Run it without any server or hardware:
-
-```bash
-python examples/hello_guard.py
-# Safe:      PASS  reason=''
-# Dangerous: CLAMP  reason='Clamped joints to [-1.0, 1.0]'
-```
-
-More examples in [`examples/`](examples/): custom callbacks, minimal Stackfiles, and full robot configs.
+> **Important:** DAM is experimental research software. It is not certified for safety-critical or production use.
 
 ---
 
@@ -83,20 +35,15 @@ make setup    # Python venv + Rust extension + npm install (~3 min)
 make run      # Backend :8080 + Console :3000
 ```
 
-Open **http://localhost:3000** to see the DAM Console. The demo Stackfile replays a dataset through the full guard pipeline — you can see real guard decisions without hardware.
-
-For the step-by-step walkthrough, see the [Quick Start guide](docs/getting-started/quickstart.md).
+Open **http://localhost:3000** — the demo Stackfile replays a dataset through the full guard pipeline without hardware.
 
 ### CLI
-
-After `make setup`, the `dam` CLI is available:
 
 ```bash
 dam doctor                                # check environment
 dam callbacks                             # list 18 built-in safety checks
 dam validate examples/stackfiles/*.yaml   # schema-check Stackfiles
 dam run examples/stackfiles/demo.yaml --cycles 200 --task demo
-dam replay <session>.mcap                 # summarize a recorded session
 ```
 
 ### Make Targets
@@ -107,162 +54,53 @@ dam replay <session>.mcap                 # summarize a recorded session
 | `make run` | Backend + pre-built frontend |
 | `make dev` | Backend + frontend with hot-reload |
 | `make test` | Full test suite (688+ Python tests + 109 frontend tests) |
-| `make record` | Safe recording with DAM guards (see below) |
+| `make record` | Safe IL recording with DAM guards |
 | `make validate` | Validate example Stackfiles |
 
 ---
 
 ## Safe Recording for Imitation Learning
 
-DAM integrates with [LeRobot](https://github.com/huggingface/lerobot) to safety-guard actions **during data collection**. Every action in your recorded dataset passes through the guard pipeline — out-of-range positions are clamped, excessive velocities are limited, and the output shape is identical to the input so your training pipeline doesn't change.
+DAM integrates with [LeRobot](https://github.com/huggingface/lerobot) to safety-guard actions **during data collection**. Every action passes through the guard pipeline — out-of-range positions are clamped, excessive velocities are limited, and the output shape is identical to the input.
 
-### Level 1: One-Liner
-
-The simplest API — validate a single action against a safety stackfile:
-
-```python
-import dam
-
-safe_action = dam.safe(action, obs, stackfile="examples/stackfiles/safety.yaml")
-```
-
-Input and output have the same type and shape (`dict[str, Any]` or `np.ndarray`). If the action violates any boundary, it is automatically clamped to the nearest safe value.
-
-### Level 2: Stateful Guard
-
-For recording loops, use `SafetyGuard` — it maintains state between calls (velocity estimation, cycle tracking) and amortises the setup cost:
-
-```python
-import dam
-
-guard = dam.SafetyGuard("examples/stackfiles/safety.yaml", task="record")
-
-# In your recording loop:
-for step in range(num_steps):
-    obs = robot.get_observation()          # dict: {"shoulder_pan.pos": 45.0, ...}
-    action = teleop.get_action()           # dict: {"shoulder_pan.pos": 47.0, ...}
-    safe_action = guard(action, obs)       # same dict, values clamped if needed
-    robot.send_action(safe_action)
-```
-
-Key features:
-- **Auto-detects** `joint_names` and `degrees_mode` from the stackfile's hardware preset
-- **Dict or ndarray** — pass either format, get the same format back
-- **Reject → hold position** — if an action is fully rejected, returns the current observation positions (the safest fallback for IL)
-- **Inspect results** — `guard.last_results` shows which guards fired and why
-
-### Level 3: LeRobot Processor Integration
-
-The most powerful integration — plug directly into LeRobot's processing pipeline. Add **one line** to your existing `lerobot-record` setup:
-
-```python
-from lerobot.processor.factory import make_default_processors
-from dam import SafetyProcessorStep
-
-teleop_proc, robot_action_proc, obs_proc = make_default_processors()
-robot_action_proc.steps.insert(0, SafetyProcessorStep("examples/stackfiles/safety.yaml"))
-```
-
-Or use the convenience wrapper that does the same thing:
-
-```python
-from dam.processor import make_safe_processors
-
-teleop_proc, robot_action_proc, obs_proc = make_safe_processors("examples/stackfiles/safety.yaml")
-```
-
-Or skip Python entirely and use the Makefile target:
+### One-Liner
 
 ```bash
 make record   # reads everything from examples/stackfiles/safety.yaml
 ```
 
-### Safety Stackfile
+Edit [`examples/stackfiles/safety.yaml`](examples/stackfiles/safety.yaml) — one file contains hardware, safety boundaries, and recording config. CLI args override YAML values:
 
-The safety stackfile ([`examples/stackfiles/safety.yaml`](examples/stackfiles/safety.yaml)) is a **single file** that contains BOTH the DAM safety config AND the lerobot-record arguments.  Edit it once, then just run `make record`:
-
-```yaml
-version: "1"
-
-# ── Recording args (forwarded to lerobot-record) ──────────────
-recording:
-  robot:
-    type: so101_follower
-    port: /dev/tty.usbmodem5AA90244141
-    id: follower_arm
-    cameras: '{"top": {"type": "opencv", "index_or_path": 0, ...}}'
-  teleop:
-    type: so101_leader
-    port: /dev/tty.usbmodem5AA90244081
-  dataset:
-    repo_id: ${HF_USER}/my-dataset
-    num_episodes: 10
-    single_task: "Pick up the cube"
-  display_data: true
-
-# ── DAM safety config ─���───────────────────────────────────────
-hardware:
-  preset: so101_follower          # auto-resolves joint_names + degrees_mode
-
-safety:
-  control_frequency_hz: 30
-  enforcement_mode: enforce
-
-guards:
-  - L1: motion
-
-boundaries:
-  joint_position_limits:
-    layer: L1
-    type: single
-    nodes:
-      - callback: joint_position_limits
-        params:
-          upper: [1.8243, 1.7691, 1.8326, 1.8067, 3.0741, 1.7453]
-          lower: [-1.8243, -1.7691, -1.8326, -1.8067, -3.0741, 0.0]
-
-  joint_velocity_limit:
-    layer: L1
-    type: single
-    nodes:
-      - callback: joint_velocity_limit
-        params:
-          max_velocities: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5]   # rad/s
-
-tasks:
-  record:
-    boundaries: [joint_position_limits, joint_velocity_limit]
+```bash
+make record ARGS="--dataset.num_episodes=20"
 ```
 
-Edit `recording:` to match your hardware, then just `make record`. CLI args can override YAML values: `make record ARGS="--dataset.num_episodes=20"`.
+### Python API (3 levels)
 
-Customise safety by changing the `preset` and adjusting the limits. Run `dam callbacks` to see all available safety checks.
+```python
+import dam
+
+# Level 1: one-liner (notebooks)
+safe_action = dam.safe(action, obs, stackfile="safety.yaml")
+
+# Level 2: stateful guard (recording loops)
+guard = dam.SafetyGuard("safety.yaml", task="record")
+safe_action = guard(action, obs)          # dict in → dict out, ndarray in → ndarray out
+
+# Level 3: lerobot pipeline (one line addition)
+from dam import SafetyProcessorStep
+robot_action_processor.steps.insert(0, SafetyProcessorStep("safety.yaml"))
+```
 
 ### How It Works
 
-```
-Teleop/Policy ──▶ SafetyProcessorStep ──▶ robot.send_action() ──▶ dataset.add_frame()
-                        │
-                  dam.SafetyGuard
-                        │
-                  GuardRuntime.validate()
-                        │
-                  ┌─────┴─────┐
-                  │  L1 Guards │
-                  └─────┬─────┘
-                        │
-              PASS: action unchanged
-              CLAMP: action modified to nearest safe value
-              REJECT: hold current position
-```
+<img src="docs/diagrams/diagram2_runtime_workflow.png" alt="Runtime Workflow" width="600" />
 
 The recorded dataset contains **only safe actions** — your IL policy trains on data that already respects all physical constraints.
 
 ---
 
 ## Architecture
-
-<img src="docs/diagrams/diagram1_system_architecture.png" alt="System Architecture" width="600" />
 
 ### Guard Layers
 
@@ -273,62 +111,34 @@ The recorded dataset contains **only safe actions** — your IL policy trains on
 | **L2** Task Execution | Does this make sense for the task? | Gripper sequence, progress enforcement |
 | **L3** Hardware Monitoring | Is the hardware healthy? | Temperature, current, voltage, heartbeat |
 
-The final decision is the **most restrictive** outcome across all active layers.
+L0 and L1 run **in parallel**. The final decision is the **most restrictive** outcome across all active layers.
 
 ### Stackfile Configuration
 
-Everything is configured in a YAML Stackfile — boundaries, fallbacks, tasks, hardware, and policy:
+Everything is configured in a YAML Stackfile:
 
 ```yaml
 boundaries:
-  workspace:
+  joint_position_limits:
     layer: L1
     type: single
     nodes:
-      - callback: workspace
+      - callback: joint_position_limits
         params:
-          bounds: [[-0.4, 0.4], [-0.4, 0.4], [0.02, 0.6]]
-
-  temperature_limit:
-    layer: L3
-    type: single
-    nodes:
-      - callback: temperature_limit
-        fallback: slow_down
-        params:
-          max_temperature_c: 55.0
+          upper: [1.8243, 1.7691, 1.8326, 1.8067, 3.0741, 1.7453]
+          lower: [-1.8243, -1.7691, -1.8326, -1.8067, -3.0741, 0.0]
 ```
 
-Start from [`examples/stackfiles/minimal.yaml`](examples/stackfiles/minimal.yaml) (smallest valid config) or see the [Stackfile Walkthrough](docs/getting-started/stackfile-walkthrough.md).
+Start from [`examples/stackfiles/minimal.yaml`](examples/stackfiles/minimal.yaml) or see the [Stackfile Walkthrough](docs/getting-started/stackfile-walkthrough.md).
 
 ### 18 Built-in Safety Checks
 
-List them with `dam callbacks`:
+Run `dam callbacks` to list them all:
 
-- **L0:** OOD detector with selectable backends (Real-NVP, Memory Bank, Welford)
+- **L0:** OOD detector (Real-NVP, Memory Bank, Welford)
 - **L1:** Joint position/velocity limits, workspace bounds, keep-out zones, orientation, geofence, Cartesian velocity, smoothness
 - **L2:** Task gripper sequence enforcement
 - **L3:** Temperature, current, voltage, force/torque, hardware watchdog, host health
-
-### Fallback State Machine
-
-When a guard rejects an action, the runtime pushes a fallback context onto a severity-ordered stack. Each boundary specifies its own fallback strategy, and fallbacks auto-escalate if the trigger doesn't clear:
-
-```
-Normal → SlowDown → HoldPosition → SafeRetreat → EmergencyStop
-```
-
-<img src="docs/diagrams/diagram2_runtime_workflow.png" alt="Runtime Workflow" width="600" />
-
----
-
-## Key Capabilities
-
-- **YAML-driven** — adjust safety boundaries without code changes
-- **MCAP recording** — every observation, action, and guard decision is logged for replay and post-hoc analysis
-- **Real-time console** — cycle-by-cycle inspection of guard decisions, latency, and risk
-- **Adapter isolation** — swap between LeRobot, ROS 2, dataset replay, or custom adapters
-- **Experiment harness** — reproducible evaluations (RQ1-RQ5) with cached artifacts
 
 ---
 
@@ -338,53 +148,26 @@ Normal → SlowDown → HoldPosition → SafeRetreat → EmergencyStop
 |------|------------|
 | Learn DAM step by step | [Learn DAM](docs/learn/index.md) |
 | Read a Stackfile | [Stackfile Walkthrough](docs/getting-started/stackfile-walkthrough.md) |
-| Make safe config edits | [Common Stackfile Edits](docs/getting-started/common-stackfile-edits.md) |
+| Common config edits | [Common Stackfile Edits](docs/getting-started/common-stackfile-edits.md) |
 | Understand the console | [Console Walkthrough](docs/getting-started/console-walkthrough.md) |
 | Prepare for hardware | [Hardware Readiness](docs/getting-started/hardware-readiness.md) |
-| Fix first-run issues | [Troubleshooting](docs/getting-started/troubleshooting.md) |
-
-```bash
-make docs   # preview locally
-```
-
----
-
-## Project Structure
-
-```
-dam/                    # Python core — guard pipeline, runtime, services
-dam-console/            # Next.js dashboard (TypeScript + React)
-dam-rust/               # Rust extension for high-throughput MCAP recording
-examples/               # Runnable examples and Stackfile templates
-  hello_guard.py        #   ← start here: minimal guard in 20 lines
-  custom_callback.py    #   ← write your own boundary callback
-  safe_record.py        #   ← IL safe recording (3 API levels)
-  stackfiles/           #   ← YAML configs from minimal to full robot
-    safety.yaml         #   ← ready-to-use config for safe IL recording
-tests/                  # Unit, integration, safety, and property tests
-docs/                   # MkDocs documentation site
-```
+| Troubleshooting | [Troubleshooting](docs/getting-started/troubleshooting.md) |
 
 ---
 
 ## Contributing
 
-See [Contributing](docs/contributing.md) for setup and guidelines. We welcome help with:
-
-- Safety testing and adversarial scenarios
-- Real-time performance optimization
-- Additional hardware adapters
-- Documentation and example Stackfiles
+See [Contributing](docs/contributing.md). We welcome safety testing, hardware adapters, performance optimization, and example Stackfiles.
 
 ---
 
 ## Research
 
-DAM includes an experiment harness for reproducible evaluation (RQ1-RQ5), runnable from the console or CLI:
+DAM includes an experiment harness for reproducible evaluation (RQ1-RQ5):
 
 ```bash
 dam experiment list
 dam experiment run l0-calibration
 ```
 
-Results are cached — rerunning the same configuration reuses trained models and extracted features. See [Experiment Runners](docs/experiments.md) for details.
+See [Experiment Runners](docs/experiments.md) for details.

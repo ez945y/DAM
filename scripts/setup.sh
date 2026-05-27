@@ -251,6 +251,17 @@ if ! $RUST_ONLY && [[ -f .pre-commit-config.yaml ]]; then
     ok "Pre-commit hooks initialized"
 fi
 
+# ── Rerun Viewer (for lerobot display_data) ───────────────────────────────────
+if ! $RUST_ONLY; then
+    if ! "$ROOT/.venv/bin/python" -c "import rerun" 2>/dev/null; then
+        info "Installing Rerun SDK (visualization for recording)…"
+        "$UV" pip install --python "$ROOT/.venv/bin/python" rerun-sdk --quiet
+        ok "Rerun SDK installed"
+    else
+        ok "Rerun SDK already installed"
+    fi
+fi
+
 # ── Done ───────────────────────────────────────────────────────────────────────
 echo ""
 ok "Setup complete."
