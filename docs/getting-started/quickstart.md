@@ -142,17 +142,8 @@ make help     # Show all available targets
 
 ## Next Steps
 
-- **Follow the guided path** → [Learn DAM](../learn/index.md)
-- **Read a Stackfile step by step** → [Stackfile Walkthrough](stackfile-walkthrough.md)
-- **Read the console output** → [Console Walkthrough](console-walkthrough.md)
-- **Find a command quickly** → [Command Cheat Sheet](commands.md)
-- **Fix first-run issues** → [Troubleshooting](troubleshooting.md)
-- **Learn the concepts** → [Architecture Overview](../concepts/architecture.md)
-- **Understand guards** → [Guard Stack Explained](../concepts/guards-explained.md)
-- **Design boundaries** → [Boundary System](../concepts/boundaries.md)
-- **Full learning path** → [Complete Tutorial](../learn/tutorial.md)
-- **Look up terms** → [Glossary](../learn/glossary.md)
-
----
-
-You are running DAM. Next, use the console to connect what the runtime is doing with the Stackfile that configured it.
+- [Learn DAM](../learn/index.md) -- guided learning path
+- [Safe Recording](safe-recording.md) -- guard actions during IL data collection
+- [Stackfile Walkthrough](stackfile-walkthrough.md) -- read a Stackfile field by field
+- [Use Cases](../concepts/use-cases.md) -- how DAM helps at each stage of the ML pipeline
+- [Troubleshooting](troubleshooting.md) -- fix first-run issues

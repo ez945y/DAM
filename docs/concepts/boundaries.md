@@ -382,84 +382,9 @@ def my_callback(*, obs: Observation, my_param: float = 1.0) -> CallbackResult:
 
 ## Design Patterns
 
-### Pattern 1: Nested Workspace Boundaries
+### Always-On Safety Zone + Task Boundaries
 
-Start conservative, loosen as task progresses.
-
-```yaml
-boundaries:
-  pick_and_place:
-    layer: L2
-    type: list
-    nodes:
-      # Phase 1: Conservative approach
-      - callback: task_workspace_bounds
-        params:
-          bounds: [[-0.2, 0.2], [0.1, 0.3], [0.0, 0.2]]
-        timeout_sec: 10.0
-
-      # Phase 2: Tighter bound for precision
-      - callback: task_workspace_bounds
-        params:
-          bounds: [[-0.05, 0.05], [0.15, 0.25], [0.0, 0.1]]
-        timeout_sec: 5.0
-
-      # Phase 3: Lift phase (larger space)
-      - callback: task_workspace_bounds
-        params:
-          bounds: [[-0.3, 0.3], [0.05, 0.45], [0.0, 0.5]]
-        timeout_sec: 10.0
-```
-
-### Pattern 2: Error Recovery
-
-Chain recovery boundaries for different failure modes.
-
-```yaml
-boundaries:
-  main_task:
-    layer: L2
-    type: list
-    nodes:
-      - callback: task_workspace_bounds
-        params:
-          bounds: [[-0.35, 0.35], [-0.05, 0.45], [0.01, 0.40]]
-        fallback: retreat
-
-  error_recovery:
-    layer: L2
-    type: single
-    nodes:
-      - callback: task_joint_speed_limit
-        params:
-          max_speed: 0.05
-        fallback: hold_position
-
-tasks:
-  with_recovery:
-    boundaries: [main_task, error_recovery]
-```
-
-### Pattern 3: Force-Limited Interaction
-
-Use force bounds for soft manipulation.
-
-```yaml
-boundaries:
-  soft_assembly:
-    layer: L2
-    type: single
-    nodes:
-      - callback: force_limited_grasp
-        params:
-          max_force_n: 10.0        # Max 10 N contact force
-        fallback: hold_position
-        timeout_sec: 30.0
-```
-
-### Pattern 4: Always-On Safety Zone
-
-Define a global workspace limit active during all tasks.
+Combine a global L1 workspace limit (always active) with task-specific L2 boundaries:
 
 ```yaml
 boundaries:
@@ -472,11 +397,38 @@ boundaries:
           bounds: [[-0.5, 0.5], [-0.2, 0.6], [-0.1, 1.5]]
         fallback: emergency_stop
 
+  main_task:
+    layer: L2
+    type: list
+    nodes:
+      - callback: task_workspace_bounds
+        params:
+          bounds: [[-0.35, 0.35], [-0.05, 0.45], [0.01, 0.40]]
+        fallback: retreat
+
 tasks:
-  any_task:
-    boundaries:
-      - global_safety      # Always active
-      - task_specific      # Task-dependent
+  pick_and_place:
+    boundaries: [global_safety, main_task]
+```
+
+### Error Recovery
+
+Chain a low-speed recovery boundary alongside the main task:
+
+```yaml
+boundaries:
+  error_recovery:
+    layer: L2
+    type: single
+    nodes:
+      - callback: task_joint_speed_limit
+        params:
+          max_speed: 0.05
+        fallback: hold_position
+
+tasks:
+  with_recovery:
+    boundaries: [main_task, error_recovery]
 ```
 
 ---
@@ -518,53 +470,22 @@ mcap cat violations.mcap | jq '.[] | select(.rejecting_guard == "L3")'
 
 ---
 
-## Best Practices
+## Tips
 
-1. **Start Conservative**
-   Define tight bounds, then loosen as you validate behavior.
-
-2. **Use Multiple Boundaries**
-   Combine global safety zone (always active) + task-specific boundaries.
-
-3. **Test Fallbacks**
-   Verify that your fallback strategies work before deploying.
-
-4. **Monitor Violations**
-   Track when boundaries are hit. High violation rates indicate need for adjustment.
-
-5. **Callback Simplicity**
-   Keep callbacks simple (< 5 ms execution). Complex logic belongs in the policy.
-
-6. **Version Boundaries**
-   Keep Stackfiles in version control. Track which boundary versions worked for which tasks.
-
----
-
-## Common Mistakes
-
-| Mistake | Fix |
-|---------|-----|
-| Workspace bounds too tight | Increase bounds; retest |
-| Bounds in wrong coordinate frame | Verify base frame matches your robot |
-| Timeout too short | Increase `timeout_sec` or test in simulation first |
-| Callback always rejects | Add logging to debug; simplify logic |
-| Force limit too low | Calibrate force sensor; adjust threshold |
-| Fallback causes thrashing | Use less aggressive fallback (hold instead of e-stop) |
+| Tip | Why |
+|-----|-----|
+| Start with tight bounds, loosen incrementally | Easier to relax constraints than debug a crash |
+| Combine global L1 + task-specific L2 boundaries | Defense in depth |
+| Test fallbacks in simulation first | Verify hold/retreat/e-stop before hardware |
+| Keep callbacks under 5 ms | Complex logic belongs in the policy, not the guard |
+| Watch clamp rates | High rates often mean bounds are too tight or calibration is off |
+| Version your Stackfiles | Track which boundaries worked for which tasks |
 
 ---
 
 ## Next Steps
 
-- **Configure guards** → [Guard Stack Explained](guards-explained.md)
-- **Deploy with examples** → [Quick Start Guide](../quick-stack.md)
-- **Monitor execution** → [DAM Console](../console.md)
-- **Full reference** → [Specification](../DAM_Specification.md)
-
----
-
-## Examples
-
-See the `examples/stackfiles/` directory in the repository for complete Stackfile examples:
-- `sim_demo.yaml` — Simulation with basic boundaries
-- `so101.yaml` — SO-ARM101 hardware operation with multi-phase boundaries
-- `dataset_replay_check.yaml` — Dataset actions validated before real hardware output
+- [Guard Stack Explained](guards-explained.md) -- how guards evaluate boundaries
+- [Boundary Callbacks](../boundary-callbacks.md) -- callback catalog and custom callback API
+- [Common Stackfile Edits](../getting-started/common-stackfile-edits.md) -- quick config recipes
+- [Stackfile Reference](../quick-stack.md) -- full field reference
