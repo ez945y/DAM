@@ -193,6 +193,11 @@ def main() -> None:
 
     _original = factory_mod.make_default_processors
 
+    # Ensure .venv/bin is on PATH so rerun viewer binary can be found
+    venv_bin = str(Path(sys.executable).parent)
+    if venv_bin not in os.environ.get("PATH", ""):
+        os.environ["PATH"] = venv_bin + os.pathsep + os.environ.get("PATH", "")
+
     # Suppress lerobot's verbose config dump unless --verbose
     import logging
 
