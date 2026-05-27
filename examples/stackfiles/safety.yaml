@@ -60,9 +60,10 @@ hardware:
 # Recording — dataset and display settings (forwarded to lerobot-record)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 recording:
+  hf_user: MikeChenYZ              # sets HF_USER if not in shell env
   dataset:
     repo_id: ${HF_USER}/soarm-fmb-v3
-    num_episodes: 10
+    num_episodes: 2
     single_task: "pick and place"
     streaming_encoding: true
     encoder_threads: 2

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import sys
 import unittest.mock
 from pathlib import Path
@@ -42,21 +43,13 @@ def _flatten_dict(d: dict, prefix: str = "") -> list[str]:
         elif value is None:
             continue
         else:
-            # Expand environment variables (e.g. ${HF_USER})
-            str_val = str(value)
-            str_val = os.path.expandvars(str_val)
+            str_val = os.path.expandvars(str(value))
             args.append(f"--{full_key}={str_val}")
     return args
 
 
 def _build_hardware_args(data: dict) -> list[str]:
-    """Extract robot, cameras, and teleop CLI args from the hardware: section.
-
-    Mapping:
-      hardware.sources (type: motor) → --robot.type, --robot.port, --robot.id
-      hardware.sources (type: opencv) → --robot.cameras='{"name": {...}, ...}'
-      hardware.teleop → --teleop.type, --teleop.port, --teleop.id
-    """
+    """Extract robot, cameras, and teleop CLI args from the hardware: section."""
     import json
 
     hardware = data.get("hardware")
@@ -109,47 +102,45 @@ def _build_hardware_args(data: dict) -> list[str]:
     return args
 
 
-def _dataset_exists_locally_or_remote(repo_id: str) -> bool:
-    """Check if dataset exists locally (cached) or on HuggingFace.
+def _resolve_hf_user(data: dict) -> None:
+    """Set HF_USER env var from recording.hf_user if not already set."""
+    recording = data.get("recording")
+    if not recording or not isinstance(recording, dict):
+        return
+    hf_user = recording.get("hf_user")
+    if hf_user and not os.environ.get("HF_USER"):
+        os.environ["HF_USER"] = str(hf_user)
+        print(f"[DAM] HF_USER={hf_user} (from stackfile)")
 
-    A local dataset is only considered valid if it has ALL required metadata
-    files. Incomplete leftovers from crashed runs are cleaned up automatically.
-    """
-    import shutil
-    from pathlib import Path as _Path
 
-    cache_dir = _Path.home() / ".cache" / "huggingface" / "lerobot" / repo_id
-    required_files = ["meta/info.json", "meta/tasks.parquet", "meta/episodes.parquet"]
+def _dataset_cache_dir(repo_id: str) -> Path:
+    return Path.home() / ".cache" / "huggingface" / "lerobot" / repo_id
 
-    # Local cache is valid only if ALL required metadata files exist
+
+_REQUIRED_META = ["meta/info.json", "meta/tasks.parquet", "meta/episodes.parquet"]
+
+
+def _local_dataset_valid(repo_id: str) -> bool:
+    """True if local cache has all required metadata files."""
+    cache_dir = _dataset_cache_dir(repo_id)
+    return cache_dir.exists() and all((cache_dir / f).exists() for f in _REQUIRED_META)
+
+
+def _cleanup_stale_cache(repo_id: str) -> None:
+    """Remove incomplete local dataset cache from a crashed run."""
+    cache_dir = _dataset_cache_dir(repo_id)
     if cache_dir.exists():
-        if all((cache_dir / f).exists() for f in required_files):
-            return True
-        # Incomplete — leftover from a crashed run. Clean it up.
         shutil.rmtree(cache_dir)
         print(f"[DAM] Removed incomplete dataset cache: {cache_dir}")
-
-    # Check HuggingFace
-    try:
-        from huggingface_hub import HfApi
-
-        api = HfApi()
-        api.dataset_info(repo_id)
-        return True
-    except Exception:
-        return False
 
 
 def _load_recording_args(stackfile: str) -> list[str]:
     """Read hardware: + recording: from the stackfile and flatten to CLI args.
 
-    - hardware.sources (motor) → --robot.*
-    - hardware.sources (opencv) → --robot.cameras='{...}'
-    - hardware.teleop → --teleop.*
-    - recording.* → --dataset.*, --display_data, --resume, etc.
-
     Auto-detects issues:
+    - hf_user in YAML → sets HF_USER env var if not already set
     - resume=true but dataset doesn't exist → downgrades to resume=false
+    - Incomplete local cache from crashed runs → cleaned up automatically
     """
     path = Path(stackfile)
     if not path.exists():
@@ -159,6 +150,9 @@ def _load_recording_args(stackfile: str) -> list[str]:
     with path.open() as f:
         data = yaml.safe_load(f)
 
+    # Set HF_USER from YAML before expanding env vars
+    _resolve_hf_user(data)
+
     args: list[str] = []
 
     # Hardware → robot / cameras / teleop args
@@ -167,15 +161,38 @@ def _load_recording_args(stackfile: str) -> list[str]:
     # Recording → dataset / display / resume args
     recording = data.get("recording")
     if recording and isinstance(recording, dict):
-        # Safeguard: if resume=true but dataset doesn't exist, auto-downgrade
+        # Don't forward hf_user to lerobot (it's a DAM-only key)
+        recording = {k: v for k, v in recording.items() if k != "hf_user"}
+
         dataset_cfg = recording.get("dataset", {})
-        repo_id = dataset_cfg.get("repo_id", "")
-        repo_id = os.path.expandvars(repo_id)
+        repo_id = os.path.expandvars(str(dataset_cfg.get("repo_id", "")))
         is_resume = recording.get("resume", False)
 
-        if is_resume and repo_id and not _dataset_exists_locally_or_remote(repo_id):
-            print(f"[DAM] Dataset '{repo_id}' not found — starting fresh (resume=false)")
-            recording = {**recording, "resume": False}
+        if repo_id and not _local_dataset_valid(repo_id):
+            _cleanup_stale_cache(repo_id)
+
+        if is_resume and repo_id and not _local_dataset_valid(repo_id):
+            # Check HuggingFace — but only trust it if the repo has real data
+            hf_valid = False
+            try:
+                from huggingface_hub import HfApi
+
+                api = HfApi()
+                info = api.dataset_info(repo_id, files_metadata=False)
+                # A valid lerobot dataset must have all required meta files
+                sibling_names = {s.rfilename for s in (info.siblings or [])}
+                hf_valid = all(f in sibling_names for f in _REQUIRED_META)
+            except Exception:
+                pass
+
+            if hf_valid:
+                print(f"[DAM] Resuming from HuggingFace: {repo_id}")
+            else:
+                print(
+                    f"[DAM] Dataset '{repo_id}' not found or incomplete — "
+                    "starting fresh (resume=false)"
+                )
+                recording = {**recording, "resume": False}
 
         args.extend(_flatten_dict(recording))
 
