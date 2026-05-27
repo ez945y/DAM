@@ -287,37 +287,21 @@ def main() -> None:
 
     # Fix VideoToolbox bitrate error: lerobot doesn't set an explicit bitrate,
     # causing VideoToolbox to fail with "Error setting bitrate property: -12900".
-    # Patch _CameraEncoderThread.run to set bit_rate on the stream after add_stream.
+    # Patch _get_codec_options to inject average_bitrate for VT codecs.
     import lerobot.datasets.video_utils as _vutils
 
     _VT_CODECS = {"h264_videotoolbox", "hevc_videotoolbox"}
-    _orig_thread_run = _vutils._CameraEncoderThread.run
+    _orig_get_codec_options = _vutils._get_codec_options
 
-    def _patched_thread_run(self: _vutils._CameraEncoderThread) -> None:  # type: ignore[no-untyped-def]
-        if self.vcodec in _VT_CODECS:
-            _orig_add_stream = __import__("av").container.output.OutputContainer.add_stream
+    def _patched_get_codec_options(*args, **kwargs):  # type: ignore[no-untyped-def]
+        opts = _orig_get_codec_options(*args, **kwargs)
+        # Determine vcodec from positional or keyword args
+        vcodec = args[0] if args else kwargs.get("vcodec", "")
+        if vcodec in _VT_CODECS:
+            opts["average_bitrate"] = "2000000"  # 2 Mbps
+        return opts
 
-            def _add_stream_with_bitrate(
-                container_self,
-                codec_name,
-                rate=None,
-                **kwargs,  # type: ignore[no-untyped-def]
-            ):  # type: ignore[no-untyped-def]
-                stream = _orig_add_stream(container_self, codec_name, rate, **kwargs)
-                if codec_name in _VT_CODECS:
-                    stream.bit_rate = 2_000_000  # 2 Mbps — reasonable for 640x480@30
-                return stream
-
-            with unittest.mock.patch.object(
-                __import__("av").container.output.OutputContainer,
-                "add_stream",
-                _add_stream_with_bitrate,
-            ):
-                _orig_thread_run(self)
-        else:
-            _orig_thread_run(self)
-
-    _vutils._CameraEncoderThread.run = _patched_thread_run  # type: ignore[assignment]
+    _vutils._get_codec_options = _patched_get_codec_options  # type: ignore[assignment]
 
     with unittest.mock.patch.object(
         factory_mod, "make_default_processors", _patched_make_default_processors
