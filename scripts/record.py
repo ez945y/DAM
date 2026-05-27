@@ -285,21 +285,29 @@ def main() -> None:
         # lerobot's record() also logs via the root logger
         logging.getLogger().setLevel(logging.WARNING)
 
-    # Fix VideoToolbox bitrate error: lerobot doesn't set an explicit bitrate,
-    # causing VideoToolbox to fail with "Error setting bitrate property: -12900".
-    # Patch _get_codec_options to inject average_bitrate for VT codecs.
+    # Fix VideoToolbox bitrate error: pyav calculates a default bit_rate that
+    # VideoToolbox rejects with "Error setting bitrate property: -12900".
+    # Workaround: patch _get_codec_options to skip quality params for VT codecs
+    # and add allow_sw=1 as a fallback. Also patch _CameraEncoderThread to set
+    # bit_rate=0 on the stream after creation (before first encode).
     import lerobot.datasets.video_utils as _vutils
 
     _VT_CODECS = {"h264_videotoolbox", "hevc_videotoolbox"}
     _orig_get_codec_options = _vutils._get_codec_options
 
     def _patched_get_codec_options(*args, **kwargs):  # type: ignore[no-untyped-def]
-        opts = _orig_get_codec_options(*args, **kwargs)
-        # Determine vcodec from positional or keyword args
         vcodec = args[0] if args else kwargs.get("vcodec", "")
         if vcodec in _VT_CODECS:
-            opts["average_bitrate"] = "2000000"  # 2 Mbps
-        return opts
+            # Skip lerobot's quality options — they cause the bitrate error.
+            # Let VideoToolbox use its own defaults + allow software fallback.
+            opts = {}
+            g = args[2] if len(args) > 2 else kwargs.get("g", 2)
+            if g is not None:
+                opts["g"] = str(g)
+            opts["allow_sw"] = "1"
+            opts["realtime"] = "1"
+            return opts
+        return _orig_get_codec_options(*args, **kwargs)
 
     _vutils._get_codec_options = _patched_get_codec_options  # type: ignore[assignment]
 
