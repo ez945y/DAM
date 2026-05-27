@@ -111,12 +111,20 @@ def _build_hardware_args(data: dict) -> list[str]:
 
 def _dataset_exists_locally_or_remote(repo_id: str) -> bool:
     """Check if dataset exists locally (cached) or on HuggingFace."""
+    import shutil
     from pathlib import Path as _Path
 
-    # Check local cache
     cache_dir = _Path.home() / ".cache" / "huggingface" / "lerobot" / repo_id
+
+    # Local cache exists and has valid metadata → real dataset
     if (cache_dir / "meta" / "info.json").exists():
         return True
+
+    # Directory exists but no metadata → leftover from a failed run.
+    # Remove it so lerobot can create a fresh dataset (it uses exist_ok=False).
+    if cache_dir.exists():
+        shutil.rmtree(cache_dir)
+        print(f"[DAM] Removed stale cache directory: {cache_dir}")
 
     # Check HuggingFace
     try:
