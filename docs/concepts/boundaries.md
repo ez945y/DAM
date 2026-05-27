@@ -235,7 +235,20 @@ Rules for custom callbacks:
 
 ---
 
-## Debugging
+## Seeing Boundaries in Action
+
+You don't need to read logs to understand what your boundaries are doing. The DAM Console (`http://localhost:3000`) visualizes boundary activity in real time:
+
+- Per-boundary pass/clamp/reject counts and rates
+- Which guard layer triggered and by how much the action was adjusted
+- Latency breakdown per cycle
+- Risk state timeline
+
+Open the console alongside your run -- it's the fastest way to tell whether your boundaries are too tight, too loose, or just right.
+
+For post-session analysis, MCAP logs capture +/-30 seconds of context around every violation. See [Console Walkthrough](../getting-started/console-walkthrough.md) for a guided tour.
+
+## Debugging from CLI
 
 ```bash
 .venv/bin/dam validate mystack.yaml     # catch schema errors early
@@ -249,8 +262,6 @@ result = runtime.step()
 if result.was_rejected:
     print(result.rejecting_guard, result.decision_reason)
 ```
-
-In the console: watch clamp rates per boundary. A high clamp rate usually means bounds are too tight or calibration is off -- not that the policy is bad.
 
 ---
 
@@ -268,7 +279,7 @@ In the console: watch clamp rates per boundary. A high clamp rate usually means 
 
 ## Next Steps
 
-- [Boundary Callbacks](../boundary-callbacks.md) -- full parameter reference for all 18 callbacks
+- **Build your own callback** -- [Boundary Callbacks](../boundary-callbacks.md) walks through the full callback API, parameter reference, and step-by-step guide to implementing and registering a custom check
 - [Common Stackfile Edits](../getting-started/common-stackfile-edits.md) -- quick config recipes
 - [Guard Stack Explained](guards-explained.md) -- how guards evaluate boundaries
-- [Stackfile Reference](../quick-stack.md) -- complete field reference
+- [Console Walkthrough](../getting-started/console-walkthrough.md) -- read boundary activity in the dashboard
