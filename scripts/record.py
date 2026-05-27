@@ -109,6 +109,26 @@ def _build_hardware_args(data: dict) -> list[str]:
     return args
 
 
+def _dataset_exists_locally_or_remote(repo_id: str) -> bool:
+    """Check if dataset exists locally (cached) or on HuggingFace."""
+    from pathlib import Path as _Path
+
+    # Check local cache
+    cache_dir = _Path.home() / ".cache" / "huggingface" / "lerobot" / repo_id
+    if (cache_dir / "meta" / "info.json").exists():
+        return True
+
+    # Check HuggingFace
+    try:
+        from huggingface_hub import HfApi
+
+        api = HfApi()
+        api.dataset_info(repo_id)
+        return True
+    except Exception:
+        return False
+
+
 def _load_recording_args(stackfile: str) -> list[str]:
     """Read hardware: + recording: from the stackfile and flatten to CLI args.
 
@@ -116,6 +136,9 @@ def _load_recording_args(stackfile: str) -> list[str]:
     - hardware.sources (opencv) → --robot.cameras='{...}'
     - hardware.teleop → --teleop.*
     - recording.* → --dataset.*, --display_data, --resume, etc.
+
+    Auto-detects issues:
+    - resume=true but dataset doesn't exist → downgrades to resume=false
     """
     path = Path(stackfile)
     if not path.exists():
@@ -133,6 +156,16 @@ def _load_recording_args(stackfile: str) -> list[str]:
     # Recording → dataset / display / resume args
     recording = data.get("recording")
     if recording and isinstance(recording, dict):
+        # Safeguard: if resume=true but dataset doesn't exist, auto-downgrade
+        dataset_cfg = recording.get("dataset", {})
+        repo_id = dataset_cfg.get("repo_id", "")
+        repo_id = os.path.expandvars(repo_id)
+        is_resume = recording.get("resume", False)
+
+        if is_resume and repo_id and not _dataset_exists_locally_or_remote(repo_id):
+            print(f"[DAM] Dataset '{repo_id}' not found — starting fresh (resume=false)")
+            recording = {**recording, "resume": False}
+
         args.extend(_flatten_dict(recording))
 
     return args
