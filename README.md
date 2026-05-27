@@ -40,10 +40,10 @@ Open **http://localhost:3000** — the demo Stackfile replays a dataset through 
 ### CLI
 
 ```bash
-dam doctor                                # check environment
-dam callbacks                             # list 18 built-in safety checks
-dam validate examples/stackfiles/*.yaml   # schema-check Stackfiles
-dam run examples/stackfiles/demo.yaml --cycles 200 --task demo
+.venv/bin/dam doctor                                # check environment
+.venv/bin/dam callbacks                             # list 18 built-in safety checks
+.venv/bin/dam validate examples/stackfiles/*.yaml   # schema-check Stackfiles
+.venv/bin/dam run examples/stackfiles/demo.yaml --cycles 200 --task demo
 ```
 
 ### Make Targets
