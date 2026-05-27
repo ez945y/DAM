@@ -1,79 +1,69 @@
 # session-handoff.md — 會話交接摘要
 
-> 最後更新: 2026-05-26 (Deep DX Audit #2 + README + LinkedIn)
+> 最後更新: 2026-05-27 (IL Safety Integration API — Session #2)
 
 ## 本輪工作
 
-1. 4 agent 平行 DX 審查（Python API / 架構 / 前端 / 測試）
-2. 修正 5 個高優先 DX 問題
-3. README 完整重寫
-4. 新增 3 個可跑範例
-5. LinkedIn 貼文草稿（`linkedin-draft.md`，兩版可選）
-6. Spawn 3 個獨立改善任務
+延續 Session #1 的 IL API 開發，修復實際 `make record` 的運行問題：
+
+1. `scripts/record.py` 從 `hardware:` 讀取 robot/cameras/teleop 配置，轉為 lerobot-record CLI args
+2. 精簡 log 輸出（壓掉 lerobot config dump，加 `--verbose` flag）
+3. Rerun SDK 安裝整合進 `make setup`，修復 `display_data: true` crash
+4. `.venv/bin` 加入 PATH 讓 rerun viewer binary 可被找到
+5. `resume: true` 防呆：dataset 不存在時自動降級為 `resume=false`
+6. 清理 lerobot 失敗後留下的 stale cache 空目錄
+7. README 重寫：~390 行 → ~140 行，使用實際架構圖，修正 L0/L1 平行關係
 
 ## 當前已驗證
 
-- Python tests: 668 passed
-- Frontend tests: 109 passed
-- TypeScript: zero errors
-- Lint: all passed
-- Stackfile validation: 5/5 valid
-- Examples: all runnable
-- Commits: `046a532`, `b14b327`
+- Python tests: 641 passed (含 20 IL API 測試)
+- pre-commit hooks: all passed
+- `record.py` dry-run: 正確生成 14 個 lerobot-record args
+- resume 防呆: 自動清理 stale dir + 降級成 resume=false
 
-## 改動摘要
+## 尚未驗證
 
-### Commit `046a532` — refactor: eliminate frozen-dataclass mutation, improve DX
-- `Observation.merged()` factory（替代 `object.__setattr__` hack）
-- `GuardResult.pass_result()` alias
-- `examples/hello_guard.py`
-- OODTrainer API 集中化
-- Silent exception logging
+- **`make record` 端到端**：rerun + lerobot + 硬體連線完整跑通
+  - rerun PATH fix 已驗證（binary 在 .venv/bin/）
+  - resume 防呆已驗證
+  - 但還沒有成功完成一次完整錄製
 
-### Commit `b14b327` — docs: rewrite README, add examples
-- README 重寫：problem-first、code example、honest disclaimer
-- `examples/custom_callback.py`
-- `examples/stackfiles/minimal.yaml`
+## commits (本輪)
 
-## LinkedIn 貼文
-
-在 `linkedin-draft.md` 中，有兩個版本：
-- **Version A**（推薦）：長版 problem-first，講述動機和誠實的限制
-- **Version B**：短版 direct，適合快速發布
-
-兩版都強調 DAM 是研究軟體、安全很難、不保證 catch 所有 failure mode。
-
-## 已 Spawn 的獨立改善任務
-
-1. **Extract ObservationCompositor from GuardRuntime** — 減少 god class 複雜度
-2. **Add concurrency tests** — hot-reload racing、start/stop race
-3. **Add negative config validation tests** — 空 container、矛盾 limits
+- `adc735a` feat: add IL safe recording API
+- `2ecd7cb` fix: reduce record.py log verbosity
+- `8ae30e5` docs: rewrite README, use actual diagrams
+- `ba27b8c` fix: add .venv/bin to PATH for rerun
+- `f18cb78` fix: auto-downgrade resume when dataset doesn't exist
+- `2c87e47` fix: clean up stale cache dir from failed dataset creation
 
 ## 待後續處理
 
-### P0 — 架構
+### P0 — 需要硬體驗證
+- `make record` 完整端到端錄製
+
+### P1 — 架構
 - Legacy shim `guard/callbacks.py` 語義分叉
 - 兩套注入系統並存
-- GuardRuntime 仍 1700+ 行（等 ObservationCompositor spawn 完成）
+- GuardRuntime 仍 1700+ 行
 
-### P1 — 前端
-- `guard/page.tsx` 1761 行 God Component → 需拆 BoundaryEditor
-- `RiskLogTable.tsx` 1278 行 → 需拆 PerfBreakdown / FilterBar
-
-### P1 — 功能
+### P2 — 功能
 - Vision OOD 閾值校準（percentile-based）
 - 機器人微振盪（action smoothing）
 - MCAP 回讀 Risk Log
-- RQ1 action feature
+- RL 整合（SafetyEnv wrapper — 未來）
 
 ## 命令速查
 
 ```bash
-make dev                                           # 開發模式
-make test                                          # 完整測試
-make lint                                          # linter
-python examples/hello_guard.py                     # 最小 guard 範例
-python examples/custom_callback.py                 # callback 範例
-dam validate examples/stackfiles/*.yaml            # 驗證所有 stackfile
-dam callbacks                                      # 列出 18 個內建安全檢查
+make setup                              # 首次安裝（含 rerun）
+make dev                                # 開發模式
+make test                               # 完整測試
+make record                             # 安全錄製（讀 safety.yaml）
+make record ARGS="--dataset.num_episodes=20"  # 覆寫參數
+make record ARGS="--verbose"            # 顯示完整 args
+make lint                               # linter
+python examples/safe_record.py          # IL 安全錄製範例
+dam validate examples/stackfiles/*.yaml # 驗證所有 stackfile
+dam callbacks                           # 列出 18 個內建安全檢查
 ```

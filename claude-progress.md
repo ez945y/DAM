@@ -6,7 +6,7 @@
 - **倉庫根目錄**: `/Users/chenyizhong/Documents/Claude/Projects/Security Guard.nosync`
 - **標準啟動路徑**: `make dev`
 - **標準驗證路徑**: `make test`
-- **基線狀態**: unit tests passing（截至 2026-05-26, 668 passed + 109 frontend）
+- **基線狀態**: unit tests passing（截至 2026-05-27, 688 passed + 109 frontend）
 
 ## 當前最高優先級未完成功能
 
@@ -19,6 +19,50 @@
 無
 
 ## 會話記錄
+
+### Session 2026-05-27 #1 (IL Safety Integration API)
+
+- **本輪目標**: 設計開發者友好的 IL 整合 API — SafetyGuard / safe() / SafetyProcessorStep / make record
+- **已完成**:
+  - `dam.SafetyGuard(stackfile)` — 有狀態的 guard，支援 dict/ndarray 雙格式、度/弧度自動轉換
+  - `dam.safe(action, obs, stackfile)` — 一行搞定的便利函數
+  - `dam.SafetyProcessorStep` — lerobot RobotActionProcessorStep 子類，加一行就能安全錄製
+  - `dam.processor.make_safe_processors()` — make_default_processors 的安全版替代
+  - `scripts/record.py` — safe recording wrapper，注入 SafetyProcessorStep
+  - `make record` Makefile target
+  - `examples/safe_record.py` — 三層 API 範例
+  - 20 個新增測試（SafetyGuard 10 / safe 3 / ProcessorStep 7）
+- **執行過的驗證**:
+  - `.venv/bin/python -m pytest tests/unit/test_safety_guard.py -x -v` — 20 passed
+  - `.venv/bin/python -m pytest tests/unit/ -x -q` — 641 passed (含 regression)
+  - `.venv/bin/ruff check dam/ tests/ examples/ scripts/record.py` — all passed
+  - `.venv/bin/python examples/safe_record.py` — 三層 API 全部正確運行
+  - `make check` (pre-commit hooks) — all passed
+- **API 設計亮點**:
+  - 輸出形狀與輸入完全一致（dict→dict, ndarray→ndarray）
+  - Reject 時自動 hold position（不中斷 recording loop）
+  - degrees_mode 從 preset 自動推斷
+  - ProcessorStep lazy init（避免 import-time side effects）
+  - `scripts/record.py` 從 stackfile 的 `hardware:` 讀取 robot/cameras/teleop，從 `recording:` 讀取 dataset/display/resume，全部轉為 lerobot-record CLI args
+  - 用戶只需編輯一個 YAML 檔就能設定硬體 + 安全邊界 + 錄製參數
+- **commits**: `adc735a`, `2ecd7cb`, `8ae30e5`, `ba27b8c`, `f18cb78`, `2c87e47`
+
+### Session 2026-05-27 #2 (make record 實戰修復)
+
+- **本輪目標**: 修復 `make record` 端到端運行問題
+- **已完成**:
+  - `scripts/record.py` 讀取 `hardware:` 段並轉為 lerobot-record CLI args（robot/cameras/teleop）
+  - 精簡 log（壓掉 lerobot config dump，加 `--verbose` flag）
+  - Rerun SDK 安裝加入 `scripts/setup.sh`
+  - `.venv/bin` 加入 PATH 修復 rerun viewer binary not found
+  - `resume: true` 防呆：dataset 不存在自動降級 + 清理 stale cache 空目錄
+  - README 重寫：~390→~140 行，用實際架構圖，修正 L0/L1 平行
+- **執行過的驗證**:
+  - `python -m pytest tests/unit/test_safety_guard.py -x -q` — 20 passed
+  - `record.py` dry-run — 正確生成 14 個 args
+  - resume 防呆 — 自動清理 stale dir + 降級成 resume=false
+  - pre-commit hooks — all passed
+- **commits**: `adc735a`, `2ecd7cb`, `8ae30e5`, `ba27b8c`, `f18cb78`, `2c87e47`
 
 ### Session 2026-05-26 #2 (Deep DX Audit + README Rewrite + LinkedIn)
 
