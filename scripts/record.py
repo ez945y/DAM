@@ -110,21 +110,24 @@ def _build_hardware_args(data: dict) -> list[str]:
 
 
 def _dataset_exists_locally_or_remote(repo_id: str) -> bool:
-    """Check if dataset exists locally (cached) or on HuggingFace."""
+    """Check if dataset exists locally (cached) or on HuggingFace.
+
+    A local dataset is only considered valid if it has ALL required metadata
+    files. Incomplete leftovers from crashed runs are cleaned up automatically.
+    """
     import shutil
     from pathlib import Path as _Path
 
     cache_dir = _Path.home() / ".cache" / "huggingface" / "lerobot" / repo_id
+    required_files = ["meta/info.json", "meta/tasks.parquet", "meta/episodes.parquet"]
 
-    # Local cache exists and has valid metadata → real dataset
-    if (cache_dir / "meta" / "info.json").exists():
-        return True
-
-    # Directory exists but no metadata → leftover from a failed run.
-    # Remove it so lerobot can create a fresh dataset (it uses exist_ok=False).
+    # Local cache is valid only if ALL required metadata files exist
     if cache_dir.exists():
+        if all((cache_dir / f).exists() for f in required_files):
+            return True
+        # Incomplete — leftover from a crashed run. Clean it up.
         shutil.rmtree(cache_dir)
-        print(f"[DAM] Removed stale cache directory: {cache_dir}")
+        print(f"[DAM] Removed incomplete dataset cache: {cache_dir}")
 
     # Check HuggingFace
     try:
