@@ -57,6 +57,7 @@ Open **http://localhost:3000** — the demo Stackfile replays a dataset through 
 | `make dev` | Backend + frontend with hot-reload |
 | `make test` | Full test suite (688+ Python tests + 109 frontend tests) |
 | `make record` | Safe IL recording with DAM guards |
+| `make callbacks` | List all 18 built-in safety checks |
 | `make validate` | Validate example Stackfiles |
 
 ---

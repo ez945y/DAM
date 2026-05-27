@@ -39,7 +39,7 @@ The callback does the actual work. The boundary just names it and feeds it param
 
 ## 18 Built-in Callbacks
 
-Run `.venv/bin/dam callbacks` to see all of them. Grouped by layer:
+Run `make callbacks` (or `.venv/bin/dam callbacks`) to see all of them. Grouped by layer:
 
 **L0 -- Out-of-Distribution**
 
@@ -252,7 +252,7 @@ For post-session analysis, MCAP logs capture +/-30 seconds of context around eve
 
 ```bash
 .venv/bin/dam validate mystack.yaml     # catch schema errors early
-.venv/bin/dam callbacks                 # verify your callback is registered
+make callbacks                          # verify your callback is registered
 ```
 
 In code:

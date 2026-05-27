@@ -118,6 +118,9 @@ help:   ## Show this help message
 dam:   ## Run the dam CLI (e.g. make dam ARGS="inspect" or ARGS="callbacks")
 	@.venv/bin/dam $(ARGS)
 
+callbacks:  ## List all 18 built-in boundary callbacks
+	@.venv/bin/dam callbacks
+
 validate:   ## Validate all example Stackfiles (the CI stackfile gate)
 	@.venv/bin/dam validate examples/stackfiles/*.yaml
 
