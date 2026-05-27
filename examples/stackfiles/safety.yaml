@@ -65,6 +65,7 @@ recording:
     repo_id: ${HF_USER}/soarm-fmb-v3
     num_episodes: 2
     single_task: "pick and place"
+    push_to_hub: true
     streaming_encoding: true
     encoder_threads: 2
   display_data: true
