@@ -152,6 +152,12 @@ def main() -> None:
         dest="task",
         help="Task name in the stackfile (default: first task)",
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Show full lerobot-record args and config",
+    )
     our_args, cli_overrides = parser.parse_known_args()
 
     # Build lerobot args: YAML defaults + CLI overrides (CLI wins)
@@ -163,11 +169,13 @@ def main() -> None:
     lerobot_argv = yaml_filtered + cli_overrides
 
     print(f"[DAM] Stackfile: {our_args.stackfile}")
-    print(f"[DAM] Task: {our_args.task or '(auto — first task in stackfile)'}")
-    print(f"[DAM] lerobot-record args ({len(lerobot_argv)}):")
-    for arg in lerobot_argv:
-        print(f"       {arg}")
-    print()
+    print(f"[DAM] Task: {our_args.task or '(auto)'}")
+    print(f"[DAM] Forwarding {len(lerobot_argv)} args to lerobot-record")
+    if cli_overrides:
+        print(f"[DAM] CLI overrides: {' '.join(cli_overrides)}")
+    if our_args.verbose:
+        for arg in lerobot_argv:
+            print(f"       {arg}")
 
     # Monkey-patch make_default_processors to inject safety step.
     from dam.processor import SafetyProcessorStep
@@ -184,6 +192,12 @@ def main() -> None:
     import lerobot.processor.factory as factory_mod
 
     _original = factory_mod.make_default_processors
+
+    # Suppress lerobot's verbose config dump unless --verbose
+    import logging
+
+    if not our_args.verbose:
+        logging.getLogger("lerobot").setLevel(logging.WARNING)
 
     with unittest.mock.patch.object(
         factory_mod, "make_default_processors", _patched_make_default_processors
