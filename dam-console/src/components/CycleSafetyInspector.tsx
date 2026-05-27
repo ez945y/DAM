@@ -1,5 +1,5 @@
 'use client'
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { Activity, AlertTriangle, ChevronDown, ChevronRight, Cpu, Shield } from 'lucide-react'
 import type { FailureType, HostHardwareSnapshot } from '@/lib/types'
 import { useDisplayUnit, type DisplayUnit } from '@/hooks/useDisplayUnit'
@@ -762,11 +762,11 @@ export function CycleSafetyInspector({ guards, latency, totalMs, failure, observ
                     <div className="flex justify-between"><span className="text-dam-muted">Temp</span><span className="text-dam-text">{hardware.host_health.temperature_c.toFixed(1)}°C</span></div>
                   )}
                   {hardware.host_health.gpus?.map((gpu, i) => (
-                    <React.Fragment key={i}>
+                    <Fragment key={i}>
                       {gpu.util_percent != null && <div className="flex justify-between"><span className="text-dam-muted">GPU{i}</span><span className="text-dam-text">{gpu.util_percent.toFixed(0)}%</span></div>}
                       {gpu.temperature_c != null && <div className="flex justify-between"><span className="text-dam-muted">GPU{i} Temp</span><span className="text-dam-text">{gpu.temperature_c.toFixed(0)}°C</span></div>}
                       {gpu.memory_used_mb != null && gpu.memory_total_mb != null && <div className="flex justify-between"><span className="text-dam-muted">GPU{i} Mem</span><span className="text-dam-text">{gpu.memory_used_mb.toFixed(0)}/{gpu.memory_total_mb.toFixed(0)} MB</span></div>}
-                    </React.Fragment>
+                    </Fragment>
                   ))}
                 </div>
               </div>
