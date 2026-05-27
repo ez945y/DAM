@@ -1,0 +1,123 @@
+# safety.yaml — Safety stackfile for IL (Imitation Learning) recording.
+#
+# ONE file = hardware + teleop + safety + recording config.
+#
+# Usage:
+#   make record
+#   .venv/bin/python scripts/record.py
+#   .venv/bin/python scripts/record.py --dataset.num_episodes=20   # override
+#
+# Programmatic:
+#   guard = dam.SafetyGuard("examples/stackfiles/safety.yaml")
+#   safe_action = guard(action, obs)
+
+version: "1"
+
+# ━━━━━━━━━━━━━━━━━━��━━━━━━━━━━━━━━��━━━━━━━━━��━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Hardware — robot, cameras, teleop (reuses DAM's standard format)
+# ━━━���━━━━━━━━��━━━━━━━━━━��━━━━━━��━━━━━━���━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+hardware:
+  preset: so101_follower
+
+  sources:
+    arm:
+      type: motor
+      port: /dev/tty.usbmodem5AA90244141
+      robot_type: so101_follower
+      id: follower_arm
+    top:
+      type: opencv
+      index_or_path: 0
+      width: 640
+      height: 480
+      fps: 30
+    wrist:
+      type: opencv
+      index_or_path: 1
+      width: 640
+      height: 480
+      fps: 30
+    current:
+      type: current
+      ref: arm
+    temperature:
+      type: temperature
+      ref: arm
+    voltage:
+      type: voltage
+      ref: arm
+
+  teleop:
+    type: so101_leader
+    port: /dev/tty.usbmodem5AA90244081
+    id: my_awesome_leader_arm
+
+  sinks:
+    command:
+      ref: sources.arm
+
+# ━━━���━━━━━━━���━━━━━━━━━━━━━��━━━━━���━━━━━━━━��━━━━━━━━━━━━━━━━━━━━━━��━━━━━━━━━
+# Recording — dataset and display settings (forwarded to lerobot-record)
+# ━━━���━━━━━━━━━━━━━━━���━━━━━���━━━━━━━━━━━━━━━━━━━━━���━━━━━━━━━━━━━━━━━━━━━━━━━
+recording:
+  dataset:
+    repo_id: ${HF_USER}/soarm-fmb-v2
+    num_episodes: 8
+    single_task: "insert fmb into assembling"
+    streaming_encoding: true
+    encoder_threads: 2
+  display_data: true
+  resume: true
+
+# ━━━━━━━━━━━━━━���━━━━━━━━━━━���━━━━━━━��━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Safety — DAM guard configuration
+# ━━━���━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━���━━━━━━━━���━━━━━━━━���━━━━━━━━
+safety:
+  control_frequency_hz: 30
+  enforcement_mode: enforce
+  no_task_behavior: hold_position
+
+fallbacks:
+  hold_position:
+    type: hold_position
+    severity: 80
+  slow_down:
+    type: slow_down
+    severity: 40
+    requires_proposal: true
+    params:
+      scale: 0.5
+
+guards:
+  - L1: motion
+    phase: 0
+    timeout_ms: 20
+
+boundaries:
+  # Joint position limits (radians) — SO-101 factory limits
+  joint_position_limits:
+    layer: L1
+    type: single
+    nodes:
+      - callback: joint_position_limits
+        params:
+          # [shoulder_pan, shoulder_lift, elbow_flex, wrist_flex, wrist_roll, gripper]
+          upper: [1.8243, 1.7691, 1.8326, 1.8067, 3.0741, 1.7453]
+          lower: [-1.8243, -1.7691, -1.8326, -1.8067, -3.0741, 0.0]
+
+  # Joint velocity limit — 1.5 rad/s ≈ 86°/s
+  joint_velocity_limit:
+    layer: L1
+    type: single
+    nodes:
+      - callback: joint_velocity_limit
+        fallback: slow_down
+        params:
+          max_velocities: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5]
+
+tasks:
+  record:
+    description: "Safe IL recording — position and velocity limits active"
+    boundaries:
+      - joint_position_limits
+      - joint_velocity_limit

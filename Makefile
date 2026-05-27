@@ -14,7 +14,7 @@
 #   make ci-import         ← build Rust + import
 #   make ci-stackfile     ← validate stackfile
 #
-.PHONY: setup setup-lerobot ros dev build run docs docs-check test test-py test-rs test-ui test-one lint format typecheck check build-rs clean help dam validate ci-lint ci-syntax ci-import ci-stackfile _kill_port
+.PHONY: setup setup-lerobot ros dev build run docs docs-check test test-py test-rs test-ui test-one lint format typecheck check build-rs clean help dam validate record ci-lint ci-syntax ci-import ci-stackfile _kill_port
 
 # Ensure scripts are executable before every target that uses them
 _chmod:
@@ -58,6 +58,9 @@ dev: _chmod _kill_port  ## Dev mode: hot-reload backend + Next.js dev server
 
 run: _chmod _kill_port  ## Production mode: start backend + existing frontend build
 	@$(_DYLD_PREFIX)bash scripts/run_prod.sh
+
+record: _chmod  ## Safe recording with DAM guards (edit examples/stackfiles/safety.yaml, or pass ARGS)
+	@.venv/bin/python scripts/record.py $(ARGS)
 
 docs:   ## Preview documentation locally at http://127.0.0.1:8002/DAM/
 	@export PATH="$$HOME/.local/bin:$$HOME/.cargo/bin:/opt/homebrew/bin:$$PATH"; \

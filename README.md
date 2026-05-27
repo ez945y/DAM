@@ -106,8 +106,157 @@ dam replay <session>.mcap                 # summarize a recorded session
 | `make setup` | First-time install (venv + Rust + npm) |
 | `make run` | Backend + pre-built frontend |
 | `make dev` | Backend + frontend with hot-reload |
-| `make test` | Full test suite (668+ Python tests + 109 frontend tests) |
+| `make test` | Full test suite (688+ Python tests + 109 frontend tests) |
+| `make record` | Safe recording with DAM guards (see below) |
 | `make validate` | Validate example Stackfiles |
+
+---
+
+## Safe Recording for Imitation Learning
+
+DAM integrates with [LeRobot](https://github.com/huggingface/lerobot) to safety-guard actions **during data collection**. Every action in your recorded dataset passes through the guard pipeline — out-of-range positions are clamped, excessive velocities are limited, and the output shape is identical to the input so your training pipeline doesn't change.
+
+### Level 1: One-Liner
+
+The simplest API — validate a single action against a safety stackfile:
+
+```python
+import dam
+
+safe_action = dam.safe(action, obs, stackfile="examples/stackfiles/safety.yaml")
+```
+
+Input and output have the same type and shape (`dict[str, Any]` or `np.ndarray`). If the action violates any boundary, it is automatically clamped to the nearest safe value.
+
+### Level 2: Stateful Guard
+
+For recording loops, use `SafetyGuard` — it maintains state between calls (velocity estimation, cycle tracking) and amortises the setup cost:
+
+```python
+import dam
+
+guard = dam.SafetyGuard("examples/stackfiles/safety.yaml", task="record")
+
+# In your recording loop:
+for step in range(num_steps):
+    obs = robot.get_observation()          # dict: {"shoulder_pan.pos": 45.0, ...}
+    action = teleop.get_action()           # dict: {"shoulder_pan.pos": 47.0, ...}
+    safe_action = guard(action, obs)       # same dict, values clamped if needed
+    robot.send_action(safe_action)
+```
+
+Key features:
+- **Auto-detects** `joint_names` and `degrees_mode` from the stackfile's hardware preset
+- **Dict or ndarray** — pass either format, get the same format back
+- **Reject → hold position** — if an action is fully rejected, returns the current observation positions (the safest fallback for IL)
+- **Inspect results** — `guard.last_results` shows which guards fired and why
+
+### Level 3: LeRobot Processor Integration
+
+The most powerful integration — plug directly into LeRobot's processing pipeline. Add **one line** to your existing `lerobot-record` setup:
+
+```python
+from lerobot.processor.factory import make_default_processors
+from dam import SafetyProcessorStep
+
+teleop_proc, robot_action_proc, obs_proc = make_default_processors()
+robot_action_proc.steps.insert(0, SafetyProcessorStep("examples/stackfiles/safety.yaml"))
+```
+
+Or use the convenience wrapper that does the same thing:
+
+```python
+from dam.processor import make_safe_processors
+
+teleop_proc, robot_action_proc, obs_proc = make_safe_processors("examples/stackfiles/safety.yaml")
+```
+
+Or skip Python entirely and use the Makefile target:
+
+```bash
+make record   # reads everything from examples/stackfiles/safety.yaml
+```
+
+### Safety Stackfile
+
+The safety stackfile ([`examples/stackfiles/safety.yaml`](examples/stackfiles/safety.yaml)) is a **single file** that contains BOTH the DAM safety config AND the lerobot-record arguments.  Edit it once, then just run `make record`:
+
+```yaml
+version: "1"
+
+# ── Recording args (forwarded to lerobot-record) ──────────────
+recording:
+  robot:
+    type: so101_follower
+    port: /dev/tty.usbmodem5AA90244141
+    id: follower_arm
+    cameras: '{"top": {"type": "opencv", "index_or_path": 0, ...}}'
+  teleop:
+    type: so101_leader
+    port: /dev/tty.usbmodem5AA90244081
+  dataset:
+    repo_id: ${HF_USER}/my-dataset
+    num_episodes: 10
+    single_task: "Pick up the cube"
+  display_data: true
+
+# ── DAM safety config ─���───────────────────────────────────────
+hardware:
+  preset: so101_follower          # auto-resolves joint_names + degrees_mode
+
+safety:
+  control_frequency_hz: 30
+  enforcement_mode: enforce
+
+guards:
+  - L1: motion
+
+boundaries:
+  joint_position_limits:
+    layer: L1
+    type: single
+    nodes:
+      - callback: joint_position_limits
+        params:
+          upper: [1.8243, 1.7691, 1.8326, 1.8067, 3.0741, 1.7453]
+          lower: [-1.8243, -1.7691, -1.8326, -1.8067, -3.0741, 0.0]
+
+  joint_velocity_limit:
+    layer: L1
+    type: single
+    nodes:
+      - callback: joint_velocity_limit
+        params:
+          max_velocities: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5]   # rad/s
+
+tasks:
+  record:
+    boundaries: [joint_position_limits, joint_velocity_limit]
+```
+
+Edit `recording:` to match your hardware, then just `make record`. CLI args can override YAML values: `make record ARGS="--dataset.num_episodes=20"`.
+
+Customise safety by changing the `preset` and adjusting the limits. Run `dam callbacks` to see all available safety checks.
+
+### How It Works
+
+```
+Teleop/Policy ──▶ SafetyProcessorStep ──▶ robot.send_action() ──▶ dataset.add_frame()
+                        │
+                  dam.SafetyGuard
+                        │
+                  GuardRuntime.validate()
+                        │
+                  ┌─────┴─────┐
+                  │  L1 Guards │
+                  └─────┬─────┘
+                        │
+              PASS: action unchanged
+              CLAMP: action modified to nearest safe value
+              REJECT: hold current position
+```
+
+The recorded dataset contains **only safe actions** — your IL policy trains on data that already respects all physical constraints.
 
 ---
 
@@ -209,7 +358,9 @@ dam-rust/               # Rust extension for high-throughput MCAP recording
 examples/               # Runnable examples and Stackfile templates
   hello_guard.py        #   ← start here: minimal guard in 20 lines
   custom_callback.py    #   ← write your own boundary callback
+  safe_record.py        #   ← IL safe recording (3 API levels)
   stackfiles/           #   ← YAML configs from minimal to full robot
+    safety.yaml         #   ← ready-to-use config for safe IL recording
 tests/                  # Unit, integration, safety, and property tests
 docs/                   # MkDocs documentation site
 ```
