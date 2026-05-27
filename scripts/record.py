@@ -60,6 +60,7 @@ def _build_hardware_args(data: dict) -> list[str]:
     sources = hardware.get("sources", {})
 
     # Find the motor source → robot config
+    _calib_base = Path.home() / ".cache" / "huggingface" / "lerobot" / "calibration"
     for _name, src in sources.items():
         if not isinstance(src, dict):
             continue
@@ -71,6 +72,14 @@ def _build_hardware_args(data: dict) -> list[str]:
                 args.append(f"--robot.port={src['port']}")
             if src.get("id"):
                 args.append(f"--robot.id={src['id']}")
+            # Auto-resolve calibration_dir from robot_type
+            calib_dir = src.get("calibration_dir")
+            if not calib_dir and robot_type:
+                auto_dir = _calib_base / "robots" / robot_type
+                if auto_dir.exists():
+                    calib_dir = str(auto_dir)
+            if calib_dir:
+                args.append(f"--robot.calibration_dir={calib_dir}")
             break
 
     # Collect opencv sources → cameras JSON
@@ -92,12 +101,21 @@ def _build_hardware_args(data: dict) -> list[str]:
     # Teleop config
     teleop = hardware.get("teleop", {})
     if isinstance(teleop, dict) and teleop:
-        if teleop.get("type"):
-            args.append(f"--teleop.type={teleop['type']}")
+        teleop_type = teleop.get("type", "")
+        if teleop_type:
+            args.append(f"--teleop.type={teleop_type}")
         if teleop.get("port"):
             args.append(f"--teleop.port={teleop['port']}")
         if teleop.get("id"):
             args.append(f"--teleop.id={teleop['id']}")
+        # Auto-resolve calibration_dir from teleop type
+        calib_dir = teleop.get("calibration_dir")
+        if not calib_dir and teleop_type:
+            auto_dir = _calib_base / "teleoperators" / teleop_type
+            if auto_dir.exists():
+                calib_dir = str(auto_dir)
+        if calib_dir:
+            args.append(f"--teleop.calibration_dir={calib_dir}")
 
     return args
 
@@ -264,6 +282,8 @@ def main() -> None:
 
     if not our_args.verbose:
         logging.getLogger("lerobot").setLevel(logging.WARNING)
+        # lerobot's record() also logs via the root logger
+        logging.getLogger().setLevel(logging.WARNING)
 
     with unittest.mock.patch.object(
         factory_mod, "make_default_processors", _patched_make_default_processors
