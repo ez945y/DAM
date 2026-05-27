@@ -285,6 +285,40 @@ def main() -> None:
         # lerobot's record() also logs via the root logger
         logging.getLogger().setLevel(logging.WARNING)
 
+    # Fix VideoToolbox bitrate error: lerobot doesn't set an explicit bitrate,
+    # causing VideoToolbox to fail with "Error setting bitrate property: -12900".
+    # Patch _CameraEncoderThread.run to set bit_rate on the stream after add_stream.
+    import lerobot.datasets.video_utils as _vutils
+
+    _VT_CODECS = {"h264_videotoolbox", "hevc_videotoolbox"}
+    _orig_thread_run = _vutils._CameraEncoderThread.run
+
+    def _patched_thread_run(self: _vutils._CameraEncoderThread) -> None:  # type: ignore[no-untyped-def]
+        if self.vcodec in _VT_CODECS:
+            _orig_add_stream = __import__("av").container.output.OutputContainer.add_stream
+
+            def _add_stream_with_bitrate(
+                container_self,
+                codec_name,
+                rate=None,
+                **kwargs,  # type: ignore[no-untyped-def]
+            ):  # type: ignore[no-untyped-def]
+                stream = _orig_add_stream(container_self, codec_name, rate, **kwargs)
+                if codec_name in _VT_CODECS:
+                    stream.bit_rate = 2_000_000  # 2 Mbps — reasonable for 640x480@30
+                return stream
+
+            with unittest.mock.patch.object(
+                __import__("av").container.output.OutputContainer,
+                "add_stream",
+                _add_stream_with_bitrate,
+            ):
+                _orig_thread_run(self)
+        else:
+            _orig_thread_run(self)
+
+    _vutils._CameraEncoderThread.run = _patched_thread_run  # type: ignore[assignment]
+
     with unittest.mock.patch.object(
         factory_mod, "make_default_processors", _patched_make_default_processors
     ):
