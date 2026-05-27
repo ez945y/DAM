@@ -151,16 +151,3 @@ Run `dam callbacks` to list them all:
 ## Contributing
 
 See [Contributing](docs/contributing.md). We welcome safety testing, hardware adapters, performance optimization, and example Stackfiles.
-
----
-
-## Research
-
-DAM includes an experiment harness for reproducible evaluation (RQ1-RQ5):
-
-```bash
-dam experiment list
-dam experiment run l0-calibration
-```
-
-See [Experiment Runners](docs/experiments.md) for details.
