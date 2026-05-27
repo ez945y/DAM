@@ -1,55 +1,155 @@
 # Library API
 
-Besides the `dam` CLI and the web console, DAM can be embedded as a library.
-The public surface is intentionally small and stable:
+DAM can be embedded as a Python library. The public surface lives in `import dam`:
 
 ```python
 import dam
 
-dam.build_runner(stack, *, ros2_node=None) -> dam.Runner
-dam.run(stack, *, task="default", cycles=100, ros2_node=None) -> dam.RunSummary
-dam.Runner          # = the runner ABC (lifecycle: connect/verify/start/stop/shutdown)
-dam.RunnerStatus    # IDLE / STARTING / RUNNING / PAUSED / STOPPING / STOPPED / EMERGENCY
+# Runtime
+dam.run(stack, *, task, cycles, ros2_node)  -> RunSummary
+dam.build_runner(stack, *, ros2_node)       -> Runner
+
+# Safety guard (no hardware loop needed)
+dam.safe(action, obs, stackfile, *, ...)    -> ndarray | dict
+dam.SafetyGuard(stackfile, *, task, ...)    -> callable guard
+dam.SafetyProcessorStep(stackfile, *, ...)  -> LeRobot processor step
+
+# Registration decorators
+@dam.callback(name)                         # register a boundary callback
+@dam.guard(layer, *, phase, always)         # register a Guard subclass
+@dam.fallback(name, *, monitors_hardware)   # register a fallback Context
+
+# Types
 dam.RunSummary      # frozen: .status (str), .cycles (int), .emergency (bool)
+dam.Runner          # runner ABC (connect/verify/start/stop/shutdown)
+dam.RunnerStatus    # IDLE / STARTING / RUNNING / PAUSED / STOPPING / STOPPED / EMERGENCY
+dam.GuardResult     # per-guard evaluation outcome
+dam.GuardDecision   # PASS / CLAMP / REJECT
+dam.Observation     # sensor state snapshot
+dam.ActionProposal  # proposed action from policy
+dam.ValidatedAction # action after guard processing
+dam.RiskLevel       # NORMAL / ELEVATED / CRITICAL / EMERGENCY
+dam.CycleResult     # full cycle telemetry record
 ```
 
-Built-in callbacks, fallbacks, and guards are auto-registered for you.
+---
 
-## Managed loop
+## Managed Loop
 
-The full lifecycle in one call — build → connect → verify → start → wait
-for a terminal state → shutdown:
+Full lifecycle in one call — build, connect, verify, start, wait, shutdown:
 
 ```python
 import dam
 
-summary = dam.run("examples/stackfiles/demo.yaml", cycles=200)
+summary = dam.run("demo.yaml", task="pick_place", cycles=200)
 print(summary.status, summary.cycles)
-if summary.emergency:
-    raise SystemExit("runtime ended in EMERGENCY")
 ```
 
-`cycles=-1` runs unbounded until stopped or faulted. Build/connect failures
-raise; `KeyboardInterrupt` stops the runner and shuts down before re-raising.
+`cycles=-1` runs unbounded until stopped or faulted. `KeyboardInterrupt` triggers a clean shutdown.
 
-## Manual control
+## Manual Control
 
-When you need to drive the lifecycle yourself (custom loop, pausing,
-inspecting the runner):
+Drive the lifecycle yourself when you need custom loop logic:
 
 ```python
-import dam
-
-runner = dam.build_runner("examples/stackfiles/demo.yaml")  # built, not connected
+runner = dam.build_runner("demo.yaml")
 runner.connect()
 runner.verify()
-runner.start(task="default", n_cycles=50)
+runner.start(task="pick_place", n_cycles=50)
+
 try:
     while runner.status not in (dam.RunnerStatus.STOPPED, dam.RunnerStatus.EMERGENCY):
-        ...  # observe runner.cycle_count / runner.status
+        pass  # observe runner.cycle_count / runner.status
 finally:
     runner.shutdown()
 ```
 
-The `dam run` CLI subcommand is a thin shell over `dam.run` — same
-behaviour, same exit semantics (exit 1 on `EMERGENCY`).
+---
+
+## Safety Guard API
+
+For validating actions without running a full hardware loop — during recording, offline evaluation, or testing.
+
+### `dam.safe()` — one-liner
+
+```python
+safe_action = dam.safe(action, obs, stackfile="safety.yaml")
+```
+
+Creates a `SafetyGuard` internally. Convenient but re-initializes every call — use `SafetyGuard` directly for repeated calls.
+
+### `dam.SafetyGuard` — stateful
+
+```python
+guard = dam.SafetyGuard("safety.yaml", task="record")
+
+for action, obs in teleop_stream:
+    safe_action = guard(action, obs)   # dict→dict or ndarray→ndarray
+
+    # Inspect what happened
+    for r in guard.last_results:
+        print(r.decision, r.guard_name, r.reason)
+```
+
+- Auto-detects `joint_names` and `degrees_mode` from the stackfile's `hardware.preset`
+- Rejected actions return hold-position (current joint positions) so loops never break
+- Access the underlying runtime via `guard.runtime`
+
+### `dam.SafetyProcessorStep` — LeRobot integration
+
+```python
+from dam import SafetyProcessorStep
+
+robot_action_processor.steps.insert(0, SafetyProcessorStep("safety.yaml"))
+```
+
+Drop-in `RobotActionProcessorStep` subclass. Lazy init — the guard is created on the first call, not at import time. Falls back to a no-op if LeRobot is not installed.
+
+---
+
+## Registration Decorators
+
+Extend DAM by registering custom callbacks, guards, or fallbacks.
+
+### `@dam.callback(name)`
+
+Register a boundary callback function:
+
+```python
+@dam.callback("my_check")
+def my_check(*, obs, action, my_param=1.0):
+    if obs.joint_positions[0] > my_param:
+        return CallbackResult.violate("my_check", "exceeded limit")
+    return CallbackResult.ok("my_check")
+```
+
+Then reference `callback: my_check` in your Stackfile.
+
+### `@dam.guard(layer)`
+
+Register a Guard subclass:
+
+```python
+@dam.guard("L2", phase=1)
+class MyTaskGuard(Guard):
+    def check(self, obs, action, **kwargs):
+        ...
+```
+
+### `@dam.fallback(name)`
+
+Register a fallback Context:
+
+```python
+@dam.fallback("my_recovery", monitors_hardware=True)
+class MyRecovery(StepContext):
+    ...
+```
+
+Then reference `fallback: my_recovery` on boundary nodes.
+
+---
+
+## CLI
+
+The `dam run` CLI subcommand is a thin shell over `dam.run()` — same behaviour, exit 1 on `EMERGENCY`.
