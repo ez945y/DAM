@@ -5,12 +5,12 @@ import logging
 import threading
 import time
 import uuid
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 import dam.runtime.builtin_contexts  # noqa: F401 - imports builtin fallback Context registrations
-from dam.bus import ObservationBus, PipelineMetricBus, RiskController, WatchdogTimer
+from dam.bus import ObservationBus, PipelineMetricBus, RiskController
 from dam.guard.layer import GuardLayer
 from dam.guard.stage import Stage
 from dam.injection.static import precompute_injection
@@ -19,16 +19,15 @@ from dam.runtime.context import (
     NormalContext,
 )
 from dam.runtime.execution_engine import ExecutionEngine, ValidationContext, _filter_kwargs
-from dam.runtime.failure_classify import classify_failure, select_failure_results
 from dam.types.action import ActionProposal, ValidatedAction
 from dam.types.enforcement import EnforcementMode
 from dam.types.observation import Observation
-from dam.types.result import GuardDecision, GuardResult
+from dam.types.result import GuardResult
 from dam.types.risk import CycleResult, RiskLevel
 
 if TYPE_CHECKING:
     from dam.boundary.container import BoundaryContainer
-    from dam.config.schema import FallbackConfig, StackfileConfig
+    from dam.config.schema import StackfileConfig
     from dam.guard.base import Guard
     from dam.kinematics.resolver import KinematicsResolver
 
@@ -128,13 +127,12 @@ class GuardRuntime:
         _obs_capacity = max(100, int(_obs_window_sec * 2 * control_frequency_hz) + 50)
         self._obs_bus: ObservationBus = ObservationBus(capacity=_obs_capacity)
 
-        # LoopbackWriter: streaming MCAP writer in a dedicated daemon thread.
-        # Receives every CycleRecord non-blocking; does all I/O off the hot path.
-        self._loopback: Any | None = None
+        # Cycle telemetry — loopback recording, frame hub, latency logging
+        _loopback: Any | None = None
         if loopback_config is not None:
             from dam.logging.loopback_writer import LoopbackWriter
 
-            self._loopback = LoopbackWriter(
+            _loopback = LoopbackWriter(
                 output_dir=loopback_config.output_dir,
                 obs_bus=self._obs_bus,
                 control_frequency_hz=control_frequency_hz,
@@ -146,19 +144,23 @@ class GuardRuntime:
                 frame_hub=frame_hub,
             )
 
+        from dam.runtime._cycle_telemetry import CycleTelemetry
+
+        self._telemetry = CycleTelemetry(
+            loopback=_loopback,
+            frame_hub=frame_hub,
+            control_frequency_hz=control_frequency_hz,
+        )
+
         # Hot reload double-buffer.  config_version is bumped on every
         # successful swap so MCAP readers can correlate cycles ↔ config.
         self._pending_config: StackfileConfig | None = None
         self._hot_reload_lock = threading.Lock()
         self._config_pool = dict(config_pool)
-        # 0 = initial config, never hot-reloaded.  Bumped on every successful
-        # swap; readers can use it to distinguish "no swap yet" from "swap N".
         self._config_version: int = 0
 
         self._running = False
-        self._live_img_no_data_warned = False  # one-shot warning for missing camera images
         self._shutdown_complete = False
-        self._source_latency_log_t = 0.0
 
         # Execution pipeline (pure compute — no hardware I/O)
         self._engine = ExecutionEngine(
@@ -220,8 +222,10 @@ class GuardRuntime:
 
     def set_frame_hub(self, frame_hub: Any | None) -> None:
         self._frame_hub = frame_hub
-        if self._loopback is not None and hasattr(self._loopback, "set_frame_hub"):
-            self._loopback.set_frame_hub(frame_hub)
+        self._telemetry._frame_hub = frame_hub
+        loopback = self._telemetry.loopback
+        if loopback is not None and hasattr(loopback, "set_frame_hub"):
+            loopback.set_frame_hub(frame_hub)
 
     def register_policy(self, policy: Any) -> None:
         self._policy = policy
@@ -391,18 +395,12 @@ class GuardRuntime:
         self.stop_recording()
 
     def start_recording(self) -> None:
-        """Start loopback recording for an active runner loop.
-
-        Task activation alone must not create MCAP sessions; the runner calls
-        this only when the user starts execution.
-        """
-        if self._loopback is not None:
-            self._loopback.start()
+        """Start loopback recording for an active runner loop."""
+        self._telemetry.start_recording()
 
     def stop_recording(self) -> None:
         """Stop loopback recording if it was started."""
-        if self._loopback is not None:
-            self._loopback.shutdown()
+        self._telemetry.stop_recording()
 
     def advance_container(self, name: str) -> None:
         """Advance a named container to its next node and reset its start time."""
@@ -726,6 +724,20 @@ class GuardRuntime:
 
         return ContextStateMachine.find_worst_reject(results)
 
+    # ── Telemetry delegators (backward compat for tests) ─────────────────
+
+    def _build_failure_harvest(self, **kwargs: Any) -> dict[str, Any]:
+        kwargs.setdefault("cycle_id", self._cycle_id - 1)
+        kwargs.setdefault("active_task", self._active_task)
+        kwargs.setdefault("active_container_names", self._active_container_names)
+        from dam.runtime._cycle_telemetry import CycleTelemetry
+
+        return CycleTelemetry._build_failure_harvest(**kwargs)
+
+    @property
+    def _loopback(self) -> Any:
+        return self._telemetry.loopback
+
     # ── step() — single cycle ───────────────────────────────────────────────
 
     def step(self) -> CycleResult:
@@ -888,7 +900,7 @@ class GuardRuntime:
             # the shared hub so live preview and the Rust MCAP image writer
             # both see them — exactly as the hardware camera-adapter path
             # already does, but owned here once instead of per source.
-            self._publish_frames_to_hub(source_embedded_images, obs.timestamp)
+            self._telemetry.publish_frames_to_hub(source_embedded_images, obs.timestamp)
         bus_obs = obs.merged(images=None) if obs.images else obs
         self._obs_bus.write(bus_obs)  # scalar observation ring buffer for loopback / MCAP capture
         _obs_bus_ms = (time.monotonic() - t_bus) * 1000.0
@@ -917,7 +929,7 @@ class GuardRuntime:
         self._metric_bus.push_stage("sink", _sink_ms)
         self._metric_bus.push_stage("total", _total_ms)
         self._metric_bus.commit_cycle()
-        self._log_source_latency_if_slow(_src_ms, source_latencies)
+        self._telemetry.log_source_latency_if_slow(_src_ms, source_latencies)
 
         # Surface the active Context name in the legacy ``fallback_triggered``
         # field — None when we're sitting in NormalContext, the Context's name
@@ -931,8 +943,8 @@ class GuardRuntime:
         context_event = self._ctx_sm.consume_pending_event()
 
         # ── Loopback: build CycleRecord and hand off to writer thread ────────
-        if self._loopback is not None:
-            self._submit_loopback(
+        if self._telemetry.loopback is not None:
+            self._telemetry.submit_loopback(
                 obs=obs,
                 action=action,
                 validated=validated,
@@ -946,6 +958,10 @@ class GuardRuntime:
                     "sink": _sink_ms,
                     "total": _total_ms,
                 },
+                cycle_id=self._cycle_id - 1,
+                active_task=self._active_task,
+                active_container_names=self._active_container_names,
+                config_version=self._config_version,
                 active_cameras=active_camera_names,
                 active_context=self._ctx_sm.active_context.name,
                 context_severity=self._ctx_sm.active_context.severity,
@@ -972,255 +988,16 @@ class GuardRuntime:
             risk_level=risk,
             active_task=self._active_task,
             active_boundaries=list(self._active_container_names),
-            mcap_filename=self._loopback.current_filename if self._loopback else None,
+            mcap_filename=self._telemetry.loopback.current_filename
+            if self._telemetry.loopback
+            else None,
             hardware_snapshot=self._build_hardware_snapshot(obs),
             observation=obs,
         )
 
-    def _publish_frames_to_hub(self, images: dict[str, Any], timestamp: float) -> None:
-        """Bridge source-embedded camera frames into the shared frame hub.
-
-        This is the single place that turns ``Observation.images`` (numpy
-        arrays delivered by simulation / dataset sources) into JPEGs in the
-        hub, so both live preview (``get_latest_images``) and the Rust MCAP
-        image writer consume the one hub — sources never re-implement this.
-        Hardware frames already arrive in the hub via the camera adapter and
-        are intentionally not routed here (no double-encode).
-        """
-        if self._frame_hub is None or not hasattr(self._frame_hub, "put_jpeg"):
-            return
-        from dam.logging.loopback_writer import _compress_image
-
-        for cam, arr in images.items():
-            try:
-                jpeg, w, h, _fmt = _compress_image(arr)
-                if jpeg:
-                    self._frame_hub.put_jpeg(str(cam), timestamp, jpeg, w, h)
-            except Exception:  # noqa: BLE001 — a bad frame must not stall the loop
-                continue
-
     def get_latest_images(self) -> dict[str, bytes]:
-        """Return latest camera JPEGs for live preview.
-
-        Backed solely by the shared camera frame hub: hardware adapters feed
-        it from the camera thread, and the runtime bridges source-embedded
-        (simulation) frames into it via ``_publish_frames_to_hub``. Live
-        preview never forces images through the control-loop record path.
-        """
-        result = (
-            self._frame_hub.latest_jpegs()
-            if self._frame_hub is not None and hasattr(self._frame_hub, "latest_jpegs")
-            else {}
-        )
-        if result:
-            return {str(name): bytes(jpeg) for name, jpeg in result.items()}
-
-        if not self._live_img_no_data_warned:
-            self._live_img_no_data_warned = True
-            logger.info(
-                "get_latest_images: no cached camera images. "
-                "Camera images require a dataset with observation.images.* keys "
-                "or a real camera source (opencv/lerobot with cameras).",
-            )
-        return {}
-
-    # ── Loopback helper ────────────────────────────────────────────────────
-
-    def _submit_loopback(
-        self,
-        obs: Observation,
-        action: ActionProposal | None,
-        validated: ValidatedAction | None,
-        guard_results: list[GuardResult],
-        fallback_triggered: str | None,
-        trace_id: str,
-        latency_stages: dict[str, float],
-        active_cameras: tuple[str, ...] = (),
-        active_context: str = "normal",
-        context_severity: int = 0,
-        context_event: ContextEvent | None = None,
-    ) -> None:
-        """Build a CycleRecord and enqueue it on the LoopbackWriter.
-
-        Runs entirely in the control-loop thread.  All heavy work (serialisation,
-        disk I/O, image fetching) happens inside the writer thread.
-
-        Numpy arrays are converted to Python lists here so the writer thread
-        never calls .tolist() and never contends for the GIL on numpy ops.
-        For a 7-DOF arm this costs ~5 µs total; the payoff is the writer thread
-        running pure Python and keeping up with a 50 Hz producer.
-        """
-        from dam.logging.cycle_record import CycleRecord
-
-        # ── Per-guard latency (embedded by execution methods in result.metadata) ──
-        latency_guards: dict[str, float] = {
-            r.guard_name: r.metadata.get("_latency_ms", 0.0) for r in guard_results
-        }
-
-        # ── Per-layer latency + violation / clamp masks (single O(n_guards) pass) ──
-        latency_layers: dict[str, float] = {}
-        violated_layer_mask = 0
-        clamped_layer_mask = 0
-        has_violation = False
-        has_clamp = False
-        for r in guard_results:
-            lname = f"L{int(r.layer)}"
-            latency_layers[lname] = latency_layers.get(lname, 0.0) + latency_guards.get(
-                r.guard_name, 0.0
-            )
-            if r.decision in (GuardDecision.REJECT, GuardDecision.FAULT):
-                violated_layer_mask |= 1 << int(r.layer)
-                has_violation = True
-            elif r.decision == GuardDecision.CLAMP:
-                clamped_layer_mask |= 1 << int(r.layer)
-                has_clamp = True
-
-        # ── Pre-convert numpy → list so the writer thread is numpy-free ──────────
-        # Observation.iter_channels() owns the name → field mapping; the
-        # runtime stays oblivious to which channels exist.
-        def _to_list(arr: Any) -> list[float] | None:
-            return arr.tolist() if arr is not None else None
-
-        obs_channels: dict[str, list[float]] = {
-            name: arr.tolist() for name, arr in obs.iter_channels()
-        }
-        failure = self._build_failure_harvest(
-            obs=obs,
-            action=action,
-            validated=validated,
-            guard_results=guard_results,
-            fallback_triggered=fallback_triggered,
-            trace_id=trace_id,
-            has_violation=has_violation,
-            has_clamp=has_clamp,
-            violated_layer_mask=violated_layer_mask,
-            clamped_layer_mask=clamped_layer_mask,
-            obs_channels=obs_channels,
-        )
-
-        rec = CycleRecord(
-            cycle_id=self._cycle_id - 1,
-            trace_id=trace_id,
-            triggered_at=time.monotonic(),
-            active_task=self._active_task,
-            active_boundaries=tuple(self._active_container_names),
-            active_cameras=active_cameras,
-            obs_timestamp=obs.timestamp,
-            obs_joint_positions=obs.joint_positions.tolist(),
-            obs_channels=obs_channels,
-            obs_metadata=dict(obs.metadata),
-            action_positions=action.target_joint_positions.tolist() if action is not None else [],
-            action_velocities=_to_list(action.target_joint_velocities)
-            if action is not None
-            else None,
-            validated_positions=_to_list(validated.target_joint_positions if validated else None),
-            validated_velocities=_to_list(validated.target_joint_velocities if validated else None),
-            was_clamped=validated.was_clamped if validated else False,
-            fallback_triggered=fallback_triggered,
-            guard_results=tuple(guard_results),
-            latency_stages=latency_stages,
-            latency_layers=latency_layers,
-            latency_guards=latency_guards,
-            has_violation=has_violation,
-            has_clamp=has_clamp,
-            violated_layer_mask=violated_layer_mask,
-            clamped_layer_mask=clamped_layer_mask,
-            failure_type=failure["failure_type"],
-            failure_guard_names=tuple(failure["guard_names"]),
-            failure_layers=tuple(failure["layers"]),
-            failure_decisions=tuple(failure["decisions"]),
-            failure_reasons=tuple(failure["reasons"]),
-            failure_tuple=failure["tuple"],
-            config_version=self._config_version,
-            active_context=active_context,
-            context_severity=context_severity,
-            context_event=context_event,
-        )
-        self._loopback.submit(rec)  # type: ignore[union-attr]
-
-    def _build_failure_harvest(
-        self,
-        *,
-        obs: Observation,
-        action: ActionProposal | None,
-        validated: ValidatedAction | None,
-        guard_results: list[GuardResult],
-        fallback_triggered: str | None,
-        trace_id: str,
-        has_violation: bool,
-        has_clamp: bool,
-        violated_layer_mask: int,
-        clamped_layer_mask: int,
-        obs_channels: dict[str, list[float]],
-    ) -> dict[str, Any]:
-        failure_results = select_failure_results(guard_results)
-        guard_names = [r.guard_name for r in failure_results]
-        layers = [f"L{int(r.layer)}" for r in failure_results]
-        decisions = [r.decision.name for r in failure_results]
-        reasons = [r.reason for r in failure_results]
-
-        failure_type: str | None = classify_failure(failure_results)
-
-        failure_tuple = None
-        if failure_type is not None:
-            failure_tuple = {
-                "schema": "dam.failure_tuple.v1",
-                "cycle_id": self._cycle_id - 1,
-                "trace_id": trace_id,
-                "timestamp": obs.timestamp,
-                "failure_type": failure_type,
-                "active_task": self._active_task,
-                "active_boundaries": list(self._active_container_names),
-                "guard_names": guard_names,
-                "layers": layers,
-                "decisions": decisions,
-                "reasons": reasons,
-                "fault_sources": [r.fault_source for r in failure_results],
-                "has_violation": has_violation,
-                "has_clamp": has_clamp,
-                "violated_layer_mask": violated_layer_mask,
-                "clamped_layer_mask": clamped_layer_mask,
-                "fallback_triggered": fallback_triggered,
-                "action_target_positions": (
-                    action.target_joint_positions.tolist() if action is not None else []
-                ),
-                "validated_positions": (
-                    validated.target_joint_positions.tolist()
-                    if validated is not None and validated.target_joint_positions is not None
-                    else None
-                ),
-                "observation_channels": sorted(obs_channels),
-            }
-
-        return {
-            "failure_type": failure_type,
-            "guard_names": guard_names,
-            "layers": layers,
-            "decisions": decisions,
-            "reasons": reasons,
-            "tuple": failure_tuple,
-        }
-
-    def _log_source_latency_if_slow(
-        self,
-        total_source_ms: float,
-        source_latencies: dict[str, float],
-    ) -> None:
-        """Log per-source timing when the aggregate source stage exceeds budget."""
-        source_budget_ms = 1000.0 / self._control_frequency_hz
-        if total_source_ms <= source_budget_ms:
-            return
-        now = time.monotonic()
-        if now - self._source_latency_log_t < 1.0:
-            return
-        self._source_latency_log_t = now
-        parts = " ".join(f"{name}={lat:.1f}ms" for name, lat in source_latencies.items())
-        logger.warning(
-            "source stage over budget: total=%.1fms budget=%.1fms sources=%s",
-            total_source_ms,
-            source_budget_ms,
-            parts,
-        )
+        """Return latest camera JPEGs for live preview."""
+        return self._telemetry.get_latest_images()
 
     def stop(self) -> None:
         """Signal ``run()`` to exit after the current cycle completes."""
@@ -1268,9 +1045,9 @@ class GuardRuntime:
                     except Exception as exc:
                         logger.debug("GuardRuntime: sink disconnect failed: %s", exc)
 
-        if self._loopback is not None:
+        if self._telemetry.loopback is not None:
             try:
-                self._loopback.shutdown()
+                self._telemetry.loopback.shutdown()
             except Exception as exc:
                 logger.debug("GuardRuntime: loopback shutdown failed: %s", exc)
 
