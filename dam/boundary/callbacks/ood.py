@@ -65,21 +65,20 @@ def _welford_verdict(
     w = ood_context.get_backend(kind=OODBackendKind.WELFORD, key=key, warmup=warmup)
     raw = ood_context.raw_features(obs)
     score = w.score(raw)
-    threshold = w.threshold(sigma)  # type: ignore[attr-defined]
-    in_warmup = w.in_warmup  # type: ignore[attr-defined]
+    threshold = w.threshold(sigma)
     meta: dict[str, Any] = {
         "score": score,
         "threshold": threshold,
         "backend": "welford",
-        "warmup": in_warmup,
+        "warmup": w.in_warmup,
     }
-    if not in_warmup and _exceeds_threshold(score, threshold):
+    if not w.in_warmup and _exceeds_threshold(score, threshold):
         return CallbackResult.violate(
             bname,
             f"OOD z-score={score:.2f} > threshold={threshold:.2f} (Welford)",
             metadata=meta,
         )
-    w.observe(raw)  # type: ignore[attr-defined]
+    w.observe(raw)
     return CallbackResult.ok(bname, metadata=meta)
 
 
@@ -98,8 +97,15 @@ def _welford_verdict(
         "vision_model": "Optional pretrained vision model fused with robot-state features.",
         "vision_weight": "Weight of vision features in the fused embedding.",
         "vision_cameras": "Camera name(s) for vision fusion (list or comma-separated string). Empty = all cameras in obs.",
-        "temporal_smoothing_frames": "Deprecated. Consecutive violation frames before rejection; use warn_frames on the boundary node instead.",
     },
+    internal_params=[
+        "temporal_smoothing_frames",
+        "nn_threshold",
+        "z_threshold",
+        "nll_sigma",
+        "nll_threshold",
+        "vision_camera",
+    ],
 )
 def ood_detector(
     *,
@@ -165,7 +171,7 @@ def ood_detector(
             )
         key = _key(bname, ood_model_path, bank_path, kind.value)
         detector = ood_context.get_backend(kind=kind, key=key, device=device)
-        ood_context.load_backend(
+        ood_context.ensure_backend_loaded(
             detector,
             key=key,
             obs=obs,
@@ -194,15 +200,10 @@ def ood_detector(
             else:
                 calibrated = _load_calibrated_threshold(ood_model_path)
 
-        if kind is OODBackendKind.MEMORY_BANK:
-            if not user_set_sigma and nn_threshold is not None:
-                threshold = nn_threshold
-            else:
-                threshold = detector.threshold(effective_sigma)  # type: ignore[attr-defined]
+        if kind is OODBackendKind.MEMORY_BANK and not user_set_sigma and nn_threshold is not None:
+            threshold = nn_threshold
         else:
-            threshold = detector.threshold(  # type: ignore[attr-defined]
-                effective_sigma, calibrated_threshold=calibrated
-            )
+            threshold = detector.threshold(effective_sigma, calibrated_threshold=calibrated)
 
         reason = f"OOD score={score:.4f} > threshold={threshold:.4f} ({kind.value})"
         meta: dict[str, Any] = {

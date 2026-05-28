@@ -110,8 +110,8 @@ class TestOODContextVision:
         components = np.random.randn(64, 576).astype(np.float32)
         ctx.set_vision_pca(mean, components)
         z = ctx.features(dummy_obs_with_image)
-        # joint=128, vision after PCA=64, padded to 128 → concat = 256
-        assert z.shape[0] == 256
+        # joint=128, vision after PCA=64 → concat = 192
+        assert z.shape[0] == 192
 
     def test_features_batch_matches_single_extraction(self, dummy_obs_with_image):
         class FakeVisionExtractor:

@@ -41,6 +41,7 @@ class VisionFeatureExtractor:
         self._model: Any = None
         self._ready = False
         self._embedding_dim: int = 0
+        self._model_type: str = ""
 
     @property
     def embedding_dim(self) -> int:
@@ -87,6 +88,7 @@ class VisionFeatureExtractor:
         self._embedding_dim = 960
         self._device = device
         self._model = model
+        self._model_type = "mobilenet"
         self._mean = torch.tensor([0.485, 0.456, 0.406], device=device).view(1, 3, 1, 1)
         self._std = torch.tensor([0.229, 0.224, 0.225], device=device).view(1, 3, 1, 1)
 
@@ -99,6 +101,7 @@ class VisionFeatureExtractor:
         self._embedding_dim = 576
         self._device = device
         self._model = model
+        self._model_type = "mobilenet"
         self._mean = torch.tensor([0.485, 0.456, 0.406], device=device).view(1, 3, 1, 1)
         self._std = torch.tensor([0.229, 0.224, 0.225], device=device).view(1, 3, 1, 1)
 
@@ -118,7 +121,7 @@ class VisionFeatureExtractor:
         self._model = model
         self._mean = torch.tensor([0.485, 0.456, 0.406], device=device).view(1, 3, 1, 1)
         self._std = torch.tensor([0.229, 0.224, 0.225], device=device).view(1, 3, 1, 1)
-        self._is_theia = True
+        self._model_type = "theia"
 
     def extract(self, images: np.ndarray) -> np.ndarray:
         """Extract features from RGB images.
@@ -140,7 +143,7 @@ class VisionFeatureExtractor:
         img_t = (img_t - self._mean) / self._std
 
         with torch.no_grad():
-            if hasattr(self, "_is_theia") and self._is_theia:
+            if self._model_type == "theia":
                 features = self._model.backbone.model(
                     pixel_values=img_t, interpolate_pos_encoding=True
                 )

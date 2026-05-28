@@ -73,18 +73,40 @@ class OODBackend(Protocol):
     """Uniform interface every OOD algorithm presents to the L0 callbacks.
 
     ``score`` returns a scalar where **higher means more out-of-distribution**;
-    the callback compares it against a backend-appropriate threshold.
+    the callback compares it against ``threshold(sigma)``.
+
+    ``is_ready`` returns True when the backend can produce actionable scores.
+    Welford returns True even during warmup because it deliberately produces
+    conservative (in-distribution) scores until enough samples accumulate.
     """
 
     kind: OODBackendKind
 
-    def is_ready(self) -> bool:
-        """True when the backend can produce a meaningful score (trained/fitted)."""
-        ...
+    def is_ready(self) -> bool: ...
 
     def score(self, features: np.ndarray) -> float: ...
 
     def train(self, features: np.ndarray) -> None: ...
+
+    def threshold(self, sigma: float, calibrated_threshold: float | None = None) -> float:
+        """Effective OOD cutoff for the given sensitivity.
+
+        ``calibrated_threshold`` is used by normalizing-flow when an EER/RQ1
+        value is available; other backends ignore it.
+        """
+        ...
+
+    def observe(self, features: np.ndarray) -> None:
+        """Feed an in-distribution sample for online adaptation (Welford only).
+
+        Default is a no-op for backends that don't adapt online.
+        """
+        ...
+
+    @property
+    def in_warmup(self) -> bool:
+        """True while the backend is accumulating initial statistics."""
+        ...
 
     def diagnostics(self) -> dict[str, Any]: ...
 
@@ -126,7 +148,7 @@ class WelfordBackend:
             return 0.0
         return self._w.z_score_max(np.asarray(features, dtype=np.float64))
 
-    def threshold(self, sigma: float) -> float:
+    def threshold(self, sigma: float, calibrated_threshold: float | None = None) -> float:
         return sigma
 
     def observe(self, features: np.ndarray) -> None:
@@ -187,10 +209,17 @@ class MemoryBankBackend:
             self.mean_train_dist = float(np.mean(dists))
             self.std_train_dist = float(np.std(dists))
 
-    def threshold(self, sigma: float) -> float:
+    def threshold(self, sigma: float, calibrated_threshold: float | None = None) -> float:
         if self.mean_train_dist is not None and self.std_train_dist is not None:
             return self.mean_train_dist + sigma * self.std_train_dist
         return sigma
+
+    def observe(self, features: np.ndarray) -> None:
+        pass
+
+    @property
+    def in_warmup(self) -> bool:
+        return False
 
     def diagnostics(self) -> dict[str, Any]:
         return {
@@ -274,6 +303,13 @@ class RealNVPFlowBackend:
         if self.mean_train_nll is not None and self.std_train_nll is not None:
             return self.mean_train_nll + sigma * self.std_train_nll
         return sigma
+
+    def observe(self, features: np.ndarray) -> None:
+        pass
+
+    @property
+    def in_warmup(self) -> bool:
+        return False
 
     def diagnostics(self) -> dict[str, Any]:
         return {

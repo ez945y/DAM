@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _FLOW_SUFFIX = "_flow.pt"
+_VISION_FEATURE_DIM = 128
 
 
 class OODContext:
@@ -48,7 +49,7 @@ class OODContext:
         self._vision_weight: float = 0.3
         self._vision_cameras: list[str] | None = None  # None = use all available in obs.images
         self._vision_pca: Any | None = None  # (mean, components) for projecting vision features
-        self._vision_dim: int = 128
+        self._vision_dim: int = _VISION_FEATURE_DIM
 
     @classmethod
     def default(cls) -> OODContext:
@@ -125,10 +126,9 @@ class OODContext:
     def features(self, obs: Observation) -> np.ndarray:
         """Embedding vector for the bank / flow backends.
 
-        Without vision: 128-dim joint embedding (existing behaviour).
-        With vision: fused vector combining joint and vision embeddings (256-dim).
-        When vision is configured but no image is available for this frame,
-        pads with zeros to maintain consistent dimensionality.
+        Without vision: 128-dim joint embedding.
+        With vision: fused (joint_dim + vision_dim) vector (default 128+128=256;
+        changes when PCA reduces vision_dim).
         """
         if self._vision_extractor is None:
             return self.feature_extractor.extract(obs)
@@ -147,7 +147,7 @@ class OODContext:
             joint_z = joint_z / joint_norm
 
         if vision_z is None:
-            vision_z = np.zeros(128, dtype=np.float32)
+            vision_z = np.zeros(self._vision_dim, dtype=np.float32)
         else:
             vision_norm = np.linalg.norm(vision_z)
             if vision_norm > 1e-9:
@@ -170,8 +170,8 @@ class OODContext:
         """Extract embeddings in batches, using batched pretrained vision inference.
 
         Multiple cameras are each processed in a separate batch pass and then
-        averaged together before fusion, keeping the output dimension fixed at
-        256 regardless of how many cameras are present.
+        averaged together before fusion.  Output dimension is joint_dim +
+        vision_dim regardless of how many cameras are present.
         """
         if self._vision_extractor is None:
             return np.stack([self.feature_extractor.extract(obs) for obs in observations], axis=0)
@@ -191,7 +191,7 @@ class OODContext:
             cameras = sorted(cam_set)
 
         # Accumulate per-camera vision embeddings then average.
-        vision_sum = np.zeros((len(observations), 128), dtype=np.float32)
+        vision_sum = np.zeros((len(observations), self._vision_dim), dtype=np.float32)
         vision_count = np.zeros(len(observations), dtype=np.float32)
 
         for camera in cameras:
@@ -200,7 +200,7 @@ class OODContext:
                 for i, obs in enumerate(observations)
                 if obs.images and camera in obs.images
             ]
-            cam_vision = np.zeros((len(observations), 128), dtype=np.float32)
+            cam_vision = np.zeros((len(observations), self._vision_dim), dtype=np.float32)
             for offset in range(0, len(with_images), vision_batch_size):
                 batch = with_images[offset : offset + vision_batch_size]
                 images = np.stack([img for _idx, img in batch], axis=0)
@@ -214,7 +214,7 @@ class OODContext:
             vision_sum[has_cam] += cam_vision[has_cam]
             vision_count[has_cam] += 1
 
-        vision = np.zeros((len(observations), 128), dtype=np.float32)
+        vision = np.zeros((len(observations), self._vision_dim), dtype=np.float32)
         valid = vision_count > 0
         vision[valid] = vision_sum[valid] / vision_count[valid, np.newaxis]
 
@@ -248,11 +248,10 @@ class OODContext:
         if self._vision_pca is not None:
             mean, components = self._vision_pca
             raw_feat = ((raw_feat - mean) @ components.T).astype(np.float32)
-        target = 128
-        if len(raw_feat) > target:
-            return raw_feat[:target]
-        elif len(raw_feat) < target:
-            return np.pad(raw_feat, (0, target - len(raw_feat)))
+        if len(raw_feat) > self._vision_dim:
+            return raw_feat[: self._vision_dim]
+        elif len(raw_feat) < self._vision_dim:
+            return np.pad(raw_feat, (0, self._vision_dim - len(raw_feat)))
         return raw_feat
 
     @staticmethod
@@ -271,8 +270,19 @@ class OODContext:
         **make_kwargs: Any,
     ) -> OODBackend:
         """Return the cached backend for ``key``, constructing it on first use."""
-        if key not in self._backends:
-            self._backends[key] = make_backend(kind, device=device, **make_kwargs)
+        resolved = OODBackendKind.from_value(kind)
+        if key in self._backends:
+            cached = self._backends[key]
+            if cached.kind is not resolved:
+                logger.warning(
+                    "OODContext: backend kind mismatch for key=%s (cached=%s, requested=%s); replacing",
+                    key,
+                    cached.kind.value,
+                    resolved.value,
+                )
+                self._backends[key] = make_backend(resolved, device=device, **make_kwargs)
+            return self._backends[key]
+        self._backends[key] = make_backend(resolved, device=device, **make_kwargs)
         return self._backends[key]
 
     def ensure_extractor(
@@ -288,7 +298,7 @@ class OODContext:
             )
             self._extractor_loaded_from = model_path
 
-    def load_backend(
+    def ensure_backend_loaded(
         self,
         backend: OODBackend,
         *,
@@ -298,7 +308,11 @@ class OODContext:
         bank_path: str | None = None,
         device: str = "cpu",
     ) -> None:
-        """Load a backend's weights from disk once per ``(key, path)``."""
+        """Load a backend's weights from disk once per ``(key, path)``.
+
+        No-op on subsequent calls with the same key+path.  On load failure
+        the backend runs untrained (Welford fallback handles this).
+        """
         try:
             if backend.kind is OODBackendKind.MEMORY_BANK and bank_path:
                 marker = f"bank:{bank_path}"
@@ -313,8 +327,23 @@ class OODContext:
                     self.ensure_extractor(obs, model_path, device)
                     backend.load(flow_path)
                     self._loaded[key] = marker
-        except Exception:  # noqa: BLE001 — missing/corrupt model → run untrained
-            logger.exception("OODContext: backend load failed for key=%s", key)
+        except (OSError, ValueError, RuntimeError):
+            logger.warning("OODContext: backend load failed for key=%s", key, exc_info=True)
+
+    def load_backend(
+        self,
+        backend: OODBackend,
+        *,
+        key: str,
+        obs: Observation,
+        model_path: str | None = None,
+        bank_path: str | None = None,
+        device: str = "cpu",
+    ) -> None:
+        """Deprecated alias for :meth:`ensure_backend_loaded`."""
+        self.ensure_backend_loaded(
+            backend, key=key, obs=obs, model_path=model_path, bank_path=bank_path, device=device
+        )
 
     def diagnostics(self) -> dict[str, Any]:
         out: dict[str, Any] = {

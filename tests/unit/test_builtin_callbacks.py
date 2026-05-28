@@ -281,12 +281,12 @@ class TestRegisterAll:
         assert "metres" in by_name["task_gripper_command_guard"]["params"]["zone"]["description"]
         assert set(by_name["joint_position_limits"]["unit_params"]) == {"upper", "lower"}
         assert by_name["joint_velocity_limit"]["unit_params"] == ["max_velocities"]
-        assert (
-            "Consecutive"
-            in by_name["ood_detector"]["params"]["temporal_smoothing_frames"]["description"]
-        )
-        assert by_name["ood_detector"]["params"]["sigma"]["default"] == 3.0
-        assert "ood_context" not in by_name["ood_detector"]["params"]
+        ood_params = by_name["ood_detector"]["params"]
+        assert ood_params["temporal_smoothing_frames"].get("internal") is True
+        assert ood_params["nn_threshold"].get("internal") is True
+        assert ood_params["sigma"]["default"] == 3.0
+        assert ood_params["sigma"].get("internal") is not True
+        assert "ood_context" not in ood_params
         assert not {"ood_welford", "ood_memory_bank", "ood_normalizing_flow"} & set(by_name)
 
 
