@@ -43,6 +43,7 @@ class GraphContainer(BoundaryContainer):
             raise ValueError(f"Initial node '{initial_node_id}' not in nodes dict")
         self._nodes = nodes
         self._transitions = transitions
+        self._initial_node_id = initial_node_id
         self._current_node_id = initial_node_id
 
     def get_active_node(self) -> BoundaryNode:
@@ -76,8 +77,7 @@ class GraphContainer(BoundaryContainer):
         return None  # No satisfied edge — terminal state
 
     def reset(self) -> None:
-        # Graph containers intentionally do not reset — maintain current node.
-        pass
+        self._current_node_id = self._initial_node_id
 
     def snapshot(self) -> dict[str, Any]:
         return {"node_id": self._current_node_id}

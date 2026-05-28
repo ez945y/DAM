@@ -169,6 +169,15 @@ class TestCheckVelocitySmooth:
         obs = _obs()
         assert check_velocity_smooth(obs=obs) is True
 
+    def test_new_param_name(self):
+        obs = _obs(velocities=[5.0] * 6)
+        assert check_velocity_smooth(obs=obs, max_velocity_norm=1.0) is False
+        assert check_velocity_smooth(obs=obs, max_velocity_norm=100.0) is True
+
+    def test_legacy_alias_takes_priority(self):
+        obs = _obs(velocities=[5.0] * 6)
+        assert check_velocity_smooth(obs=obs, max_velocity_norm=100.0, max_jerk_norm=1.0) is False
+
 
 # ── check_force_torque_safe ───────────────────────────────────────────────────
 

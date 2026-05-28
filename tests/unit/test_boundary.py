@@ -124,3 +124,13 @@ def test_graph_container_snapshot_restore():
     assert container.get_active_node().node_id == "b"
     container.restore(state)
     assert container.get_active_node().node_id == "a"
+
+
+def test_graph_container_reset():
+    nodes = {"a": make_node("a"), "b": make_node("b")}
+    transitions = {"a": [Transition(to_node="b")]}
+    container = GraphContainer(nodes, transitions, "a")
+    container.advance()
+    assert container.get_active_node().node_id == "b"
+    container.reset()
+    assert container.get_active_node().node_id == "a"
