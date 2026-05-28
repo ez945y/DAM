@@ -17,9 +17,6 @@ from dam.injection.static import precompute_injection
 from dam.runtime.context import (
     ContextEvent,
     NormalContext,
-    StepContext,
-    get_context_class,
-    make_context,
 )
 from dam.runtime.execution_engine import ExecutionEngine, ValidationContext, _filter_kwargs
 from dam.runtime.failure_classify import classify_failure, select_failure_results
@@ -36,9 +33,6 @@ if TYPE_CHECKING:
     from dam.kinematics.resolver import KinematicsResolver
 
 logger = logging.getLogger(__name__)
-
-
-from dam.runtime._stackfile_builder import ResolvedFallback
 
 
 class GuardRuntime:
@@ -92,26 +86,12 @@ class GuardRuntime:
         self._enforcement_mode = enforcement_mode
         self._cycle_id = 0
         self._prev_validated_positions: list[float] | None = None
-        # Execution context state machine — STACK. NormalContext sits at the
-        # bottom permanently; fallback Contexts push on top via severity-based
-        # preemption. is_done pops (resume the previous Context); popping past
-        # the bottom restores plain Normal operation. See
-        # project_runtime_context_state_machine memory for the full design.
-        self._context_stack: list[StepContext] = [NormalContext()]
-        # Wall-clock activation time of the current top-of-stack Context.
-        # Updated on every push AND pop (= whenever the active Context changes).
-        # Runtime owns the timer; Contexts ask via ``should_escalate(elapsed)``.
-        self._active_context_since: float = time.monotonic()
-        # Named fallback configurations from the stackfile (``fallbacks:``
-        # dict in YAML). Each entry has a ``type`` matching a registered
-        # fallback Context name plus optional ``params``. Populated by from_stackfile;
-        # empty for runtimes built directly (defaults to inline-name shorthand
-        # — node.fallback that doesn't match an entry here is tried as a
-        # builtin Context name with empty params).
-        self._fallbacks_config: dict[str, FallbackConfig] = {}
-        # Set when a transition happens this cycle; consumed by _submit_loopback
-        # and reset back to None. Used by /dam/context_events MCAP topic.
-        self._pending_context_event: ContextEvent | None = None
+        # Context state machine — delegated to ContextStateMachine helper
+        from dam.runtime._context_state_machine import ContextStateMachine
+
+        self._ctx_sm = ContextStateMachine(
+            default_fallback=default_fallback,
+        )
         self._active_task: str | None = None
         self._active_containers: list[BoundaryContainer] = []
         self._active_container_names: list[str] = []
@@ -120,7 +100,6 @@ class GuardRuntime:
         self._policy: Any = None
         self._sink: Any = None
         self._kinematics_resolver = kinematics_resolver
-        self._default_fallback = default_fallback
         self._stages: list[Any] | None = None
         self._frame_hub = frame_hub
         # Real camera shapes populated by the runner during verify(); reused
@@ -408,7 +387,7 @@ class GuardRuntime:
         self._active_containers = []
         self._active_container_names = []
         self._node_start_times = {}
-        self._reset_context_stack()
+        self._ctx_sm.reset_stack()
         self.stop_recording()
 
     def start_recording(self) -> None:
@@ -608,7 +587,7 @@ class GuardRuntime:
         now: float | None,
     ) -> list[GuardResult]:
         """Run L3 / always-on monitors for Contexts that bypass the chassis."""
-        if not self._active_context.monitors_hardware:
+        if not self._ctx_sm.active_context.monitors_hardware:
             return []
         if any(r.layer == GuardLayer.L3 for r in existing_results):
             return []
@@ -711,164 +690,41 @@ class GuardRuntime:
 
         return snapshot or None
 
-    # ── Context state machine helpers ───────────────────────────────────────
+    # ── Context state machine delegators (backward compat for tests) ─────────
 
     @property
-    def _active_context(self) -> StepContext:
-        return self._context_stack[-1]
+    def _active_context(self) -> NormalContext:
+        return self._ctx_sm.active_context  # type: ignore[return-value]
 
-    def _resolve_fallback_name(self, fallback_name: str) -> ResolvedFallback | None:
-        """Turn a ``node.fallback`` string into a ResolvedFallback.
+    @property
+    def _context_stack(self) -> list[Any]:
+        return self._ctx_sm._context_stack
 
-        Resolution order:
-          1. Look up in stackfile ``fallbacks:`` dict → FallbackConfig fields
-          2. Treat the string itself as a builtin Context name with empty params
-             and no escalation
-          3. None (unknown)
-        """
-        entry = self._fallbacks_config.get(fallback_name)
-        if entry is not None:
-            ctx_type = getattr(entry, "type", None)
-            if isinstance(ctx_type, str):
-                return ResolvedFallback(
-                    context_type=ctx_type,
-                    params=dict(getattr(entry, "params", {}) or {}),
-                    escalate_after_seconds=getattr(entry, "escalate_after_seconds", None),
-                    escalate_to=getattr(entry, "escalate_to", None),
-                )
-        # Inline shorthand: node.fallback is itself a registered Context name.
-        if get_context_class(fallback_name) is not None:
-            return ResolvedFallback(context_type=fallback_name)
-        return None
+    @property
+    def _fallbacks_config(self) -> dict[str, Any]:
+        return self._ctx_sm._fallbacks_config
 
-    def _make_context_from_fallback_name(self, fallback_name: str) -> StepContext | None:
-        """Resolve a fallback name + instantiate the Context with all the
-        config (params, escalation). Returns None on unknown/invalid names."""
-        resolved = self._resolve_fallback_name(fallback_name)
-        if resolved is None:
-            logger.warning("Unknown fallback '%s' — no Context picked", fallback_name)
-            return None
-        if get_context_class(resolved.context_type) is None:
-            logger.warning(
-                "fallbacks['%s'].type='%s' is not a registered fallback Context",
-                fallback_name,
-                resolved.context_type,
-            )
-            return None
-        try:
-            ctx = make_context(resolved.context_type, **resolved.params)
-        except TypeError as e:
-            logger.error(
-                "Context '%s' rejected params %s: %s",
-                resolved.context_type,
-                resolved.params,
-                e,
-            )
-            return None
-        # Apply escalation config as per-instance attrs (overrides class defaults).
-        if resolved.escalate_after_seconds is not None:
-            ctx.escalate_after_seconds = float(resolved.escalate_after_seconds)
-        if resolved.escalate_to is not None:
-            ctx.escalate_to = str(resolved.escalate_to)
-        return ctx
+    @_fallbacks_config.setter
+    def _fallbacks_config(self, value: dict[str, Any]) -> None:
+        self._ctx_sm._fallbacks_config = value
 
-    def _pick_context_for(self, rejected: GuardResult) -> StepContext | None:
-        """Resolve the Context for a rejecting GuardResult.
-
-        Route: rejected guard_name (often a boundary id after fan-out) →
-        boundary's active node.fallback → resolve via fallbacks dict or
-        builtin Context name. Falls back to ``self._default_fallback``
-        (``safety.no_task_behavior``, default "emergency_stop") when the
-        boundary has no fallback configured.
-        """
-        fallback_name: str | None = None
-        container = self._boundary_containers.get(rejected.guard_name)
-        if container is not None:
-            node = container.get_active_node()
-            if node is not None and getattr(node, "fallback", None):
-                fallback_name = node.fallback
-        # No boundary match (guard_name is a guard kind, or the reject came
-        # from guard_code with no boundary context) → fall to runtime default.
-        # Deliberately NOT guessing "first active container" — that would route
-        # an unrelated boundary's fallback and be unpredictable.
-        if fallback_name is None:
-            fallback_name = self._default_fallback
-        return self._make_context_from_fallback_name(fallback_name)
-
-    def _push_context(
-        self, new_ctx: StepContext, *, trigger: GuardResult | None, event: str
-    ) -> None:
-        """Push a new Context on top of the stack and fire on_enter."""
-        from_ctx = self._active_context
-        new_ctx.on_enter(self, trigger=trigger)
-        self._context_stack.append(new_ctx)
-        self._active_context_since = time.monotonic()
-        self._record_transition(event=event, ctx=new_ctx, from_ctx=from_ctx, trigger=trigger)
+    def _push_context(self, new_ctx: Any, *, trigger: GuardResult | None, event: str) -> None:
+        self._ctx_sm.push_context(new_ctx, self, trigger=trigger, event=event)
 
     def _pop_context(self) -> None:
-        """Pop the top Context (resume the previous). Never pops past
-        the bottom NormalContext. The resumed Context is NOT re-entered —
-        its internal state is preserved across the preemption. Resume restarts
-        the escalation timer (the situation may have changed during preemption)."""
-        if len(self._context_stack) <= 1:
-            return  # already at Normal
-        from_ctx = self._context_stack.pop()
-        new_top = self._active_context
-        self._active_context_since = time.monotonic()
-        self._record_transition(event="exit", ctx=new_top, from_ctx=from_ctx, trigger=None)
-
-    def _record_transition(
-        self,
-        *,
-        event: str,
-        ctx: StepContext,
-        from_ctx: StepContext,
-        trigger: GuardResult | None,
-    ) -> None:
-        self._pending_context_event = ContextEvent(
-            event=event,
-            ctx_name=ctx.name,
-            ctx_severity=ctx.severity,
-            from_ctx_name=from_ctx.name,
-            from_ctx_severity=from_ctx.severity,
-            trigger_guard=trigger.guard_name if trigger is not None else None,
-            trigger_reason=trigger.reason if trigger is not None else None,
-        )
-        logger.info(
-            "Context %s: %s(sev=%d) → %s(sev=%d) | trigger=%s reason=%s | stack_depth=%d",
-            event.upper(),
-            from_ctx.name,
-            from_ctx.severity,
-            ctx.name,
-            ctx.severity,
-            trigger.guard_name if trigger is not None else None,
-            trigger.reason if trigger is not None else None,
-            len(self._context_stack),
-        )
+        self._ctx_sm.pop_context()
 
     def _reset_context_stack(self) -> None:
-        """Collapse the context stack back to NormalContext.
-
-        Called on stop_task so a fresh start always begins in normal mode.
-        Fires exit transitions for each popped context so MCAP / telemetry
-        records the unwind.
-        """
-        while len(self._context_stack) > 1:
-            self._pop_context()
+        self._ctx_sm.reset_stack()
 
     def _consume_pending_context_event(self) -> ContextEvent | None:
-        ev = self._pending_context_event
-        self._pending_context_event = None
-        return ev
+        return self._ctx_sm.consume_pending_event()
 
     @staticmethod
     def _find_worst_reject(results: list[GuardResult]) -> GuardResult | None:
-        """Return the highest-priority REJECT/FAULT (or None if all PASS/CLAMP)."""
-        bad = [r for r in results if r.decision in (GuardDecision.REJECT, GuardDecision.FAULT)]
-        if not bad:
-            return None
-        # FAULT > REJECT; within same decision, higher layer wins on ties.
-        return max(bad, key=lambda r: (r.decision.value, r.layer.value))
+        from dam.runtime._context_state_machine import ContextStateMachine
+
+        return ContextStateMachine.find_worst_reject(results)
 
     # ── step() — single cycle ───────────────────────────────────────────────
 
@@ -950,34 +806,37 @@ class GuardRuntime:
             # resolving (trigger still violating), push the escalate_to target.
             # Runs before pop so a stuck Context graduates to something stricter
             # rather than yielding back down.
-            if not isinstance(self._active_context, NormalContext):
-                elapsed = t_start - self._active_context_since
-                if self._active_context.should_escalate(elapsed):
-                    target_name = self._active_context.escalate_to
+            if not isinstance(self._ctx_sm.active_context, NormalContext):
+                elapsed = t_start - self._ctx_sm.active_context_since
+                if self._ctx_sm.active_context.should_escalate(elapsed):
+                    target_name = self._ctx_sm.active_context.escalate_to
                     if target_name:
-                        target = self._make_context_from_fallback_name(target_name)
-                        if target is not None and target.severity > self._active_context.severity:
-                            self._push_context(target, trigger=None, event="escalate")
+                        target = self._ctx_sm.make_context_from_fallback_name(target_name)
+                        if (
+                            target is not None
+                            and target.severity > self._ctx_sm.active_context.severity
+                        ):
+                            self._ctx_sm.push_context(target, self, trigger=None, event="escalate")
 
             # Pop cascading: if a popped Context's predecessor is also done,
             # keep popping. Limit iterations to stack depth as a safety net.
-            for _ in range(len(self._context_stack)):
-                if isinstance(self._active_context, NormalContext):
+            for _ in range(self._ctx_sm.stack_depth):
+                if isinstance(self._ctx_sm.active_context, NormalContext):
                     break
-                if not self._active_context.is_done(obs, self):
+                if not self._ctx_sm.active_context.is_done(obs, self):
                     break
-                self._pop_context()
+                self._ctx_sm.pop_context()
 
         t_ctx = time.monotonic()
 
         # ── Action proposal (skipped when active Context doesn't need it) ──
         action: ActionProposal | None = (
-            self._policy.predict(obs) if self._active_context.requires_proposal else None
+            self._policy.predict(obs) if self._ctx_sm.active_context.requires_proposal else None
         )
         t_policy = time.monotonic()
 
         # ── Run the active Context's step ──
-        step_result = self._active_context.step(
+        step_result = self._ctx_sm.active_context.step(
             obs, self, proposal=action, trace_id=trace_id, now=t_start
         )
         guard_results = step_result.guard_results
@@ -987,14 +846,16 @@ class GuardRuntime:
 
         # ── Check for reject/fault → push higher-severity Context if any ──
         # Suppressed in non-ENFORCE modes — monitor must not intervene.
-        rejected = self._find_worst_reject(guard_results) if state_machine_on else None
+        rejected = self._ctx_sm.find_worst_reject(guard_results) if state_machine_on else None
         if rejected is not None:
-            new_ctx = self._pick_context_for(rejected)
-            if new_ctx is not None and new_ctx.severity > self._active_context.severity:
+            new_ctx = self._ctx_sm.pick_context_for(rejected, self._boundary_containers)
+            if new_ctx is not None and new_ctx.severity > self._ctx_sm.active_context.severity:
                 event = (
-                    "preempt" if not isinstance(self._active_context, NormalContext) else "enter"
+                    "preempt"
+                    if not isinstance(self._ctx_sm.active_context, NormalContext)
+                    else "enter"
                 )
-                self._push_context(new_ctx, trigger=rejected, event=event)
+                self._ctx_sm.push_context(new_ctx, self, trigger=rejected, event=event)
                 # Re-step in the new Context this cycle so the sink gets a
                 # fallback action immediately rather than a silent cycle.
                 if new_ctx.requires_proposal and action is None:
@@ -1063,11 +924,11 @@ class GuardRuntime:
         # otherwise. Will be renamed to ``active_context`` once all consumers
         # migrate (one-release back-compat alias).
         fallback_triggered = (
-            self._active_context.name
-            if not isinstance(self._active_context, NormalContext)
+            self._ctx_sm.active_context.name
+            if not isinstance(self._ctx_sm.active_context, NormalContext)
             else None
         )
-        context_event = self._consume_pending_context_event()
+        context_event = self._ctx_sm.consume_pending_event()
 
         # ── Loopback: build CycleRecord and hand off to writer thread ────────
         if self._loopback is not None:
@@ -1086,8 +947,8 @@ class GuardRuntime:
                     "total": _total_ms,
                 },
                 active_cameras=active_camera_names,
-                active_context=self._active_context.name,
-                context_severity=self._active_context.severity,
+                active_context=self._ctx_sm.active_context.name,
+                context_severity=self._ctx_sm.active_context.severity,
                 context_event=context_event,
             )
 

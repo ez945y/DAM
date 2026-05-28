@@ -79,7 +79,7 @@ def from_config(runtime_cls: type, config: StackfileConfig, frame_hub: Any | Non
     )
 
     _apply_guard_overrides(config, guards_by_kind, runtime)
-    runtime._fallbacks_config = dict(config.fallbacks)
+    runtime._ctx_sm.fallbacks_config = dict(config.fallbacks)
 
     return runtime
 
