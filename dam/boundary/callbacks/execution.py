@@ -8,6 +8,8 @@ the geometric invariants in :mod:`kinematics`).
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 
 from dam.boundary.callbacks._helpers import _all_finite
@@ -15,6 +17,11 @@ from dam.boundary.callbacks._registry import boundary_callback
 from dam.guard.pipeline import CallbackResult
 from dam.types.action import ActionProposal, ValidatedAction
 from dam.types.observation import Observation
+
+logger = logging.getLogger(__name__)
+
+_VALID_COMMANDS = {"close", "open", "none", "noop", "no_op"}
+_LEGACY_WARNED = False
 
 
 def _in_box(point: np.ndarray, bounds: list[list[float]] | None) -> bool:
@@ -75,11 +82,10 @@ def _suppress_gripper(action: ActionProposal) -> ValidatedAction:
     params={
         "allowed_command": "Allowed gripper command for this task node: close, open, or none.",
         "zone": "EE zone where the allowed gripper command may run: [[xmin,xmax],[ymin,ymax],[zmin,zmax]] in metres.",
-        "pick_zone": "Legacy close zone for old stackfiles. Prefer allowed_command + zone.",
-        "place_zone": "Legacy open zone for old stackfiles. Prefer allowed_command + zone.",
-        "close_threshold": "gripper_action <= this value is treated as close.",
-        "open_threshold": "gripper_action >= this value is treated as open.",
+        "close_threshold": "gripper_action (0.0–1.0) at or below this value is treated as close. Default 0.25.",
+        "open_threshold": "gripper_action (0.0–1.0) at or above this value is treated as open. Default 0.75.",
     },
+    internal_params=("pick_zone", "place_zone"),
 )
 def task_gripper_command_guard(
     *,
@@ -100,9 +106,27 @@ def task_gripper_command_guard(
     EE box where that command is allowed. Legacy ``pick_zone`` / ``place_zone``
     are still accepted for older stackfiles.
     """
+    global _LEGACY_WARNED  # noqa: PLW0603
     bname = "task_gripper_command_guard"
     if action is None or action.gripper_action is None:
         return CallbackResult.ok(bname)
+
+    # Warn once about legacy zone params.
+    if (pick_zone is not None or place_zone is not None) and not _LEGACY_WARNED:
+        _LEGACY_WARNED = True
+        logger.warning(
+            "%s: pick_zone/place_zone are deprecated; use allowed_command + zone instead",
+            bname,
+        )
+
+    # Validate allowed_command early.
+    if allowed_command is not None and allowed_command.lower() not in _VALID_COMMANDS:
+        return _clamp_gripper(
+            bname=bname,
+            action=action,
+            reason=f"invalid allowed_command '{allowed_command}'; expected one of: close, open, none",
+            allowed_command=allowed_command,
+        )
 
     gripper = float(action.gripper_action)
     if not np.isfinite(gripper):

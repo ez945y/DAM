@@ -318,3 +318,79 @@ def test_timeout_streak_resets_when_no_longer_timed_out(EG):
     )
     assert result.decision == GuardDecision.CLAMP
     assert "warn 1/5" in result.reason
+
+
+# ── Edge-case tests for task_gripper_command_guard ────────────────────────────
+
+
+def test_gripper_dead_zone_passes(EG):
+    """gripper_action in (close_threshold, open_threshold) is neither open nor close — passes."""
+    from dam.boundary.builtin_callbacks import register_all
+
+    register_all()
+    g = EG()
+    precompute_injection(g, {})
+    container = make_container(callback="task_gripper_command_guard", allowed_command="none")
+    result = g.check(
+        obs=make_obs(),
+        action=make_gripper_action(0.5),
+        active_containers=[container],
+        node_start_times={},
+    )
+    assert result.decision == GuardDecision.PASS
+
+
+def test_non_finite_gripper_clamps(EG):
+    from dam.boundary.builtin_callbacks import register_all
+
+    register_all()
+    g = EG()
+    precompute_injection(g, {})
+    container = make_container(callback="task_gripper_command_guard", allowed_command="close")
+    result = g.check(
+        obs=make_obs(),
+        action=make_gripper_action(float("nan")),
+        active_containers=[container],
+        node_start_times={},
+    )
+    assert result.decision == GuardDecision.CLAMP
+    assert "non-finite" in result.reason
+
+
+def test_missing_ee_pose_with_zone_clamps(EG):
+    from dam.boundary.builtin_callbacks import register_all
+
+    register_all()
+    g = EG()
+    precompute_injection(g, {})
+    container = make_container(
+        callback="task_gripper_command_guard",
+        allowed_command="close",
+        zone=LEFT_PICK_ZONE,
+    )
+    obs = Observation(timestamp=0.0, joint_positions=np.zeros(6))
+    result = g.check(
+        obs=obs,
+        action=make_gripper_action(0.0),
+        active_containers=[container],
+        node_start_times={},
+    )
+    assert result.decision == GuardDecision.CLAMP
+    assert "missing end-effector" in result.reason
+
+
+def test_invalid_allowed_command_clamps(EG):
+    from dam.boundary.builtin_callbacks import register_all
+
+    register_all()
+    g = EG()
+    precompute_injection(g, {})
+    container = make_container(callback="task_gripper_command_guard", allowed_command="toggle")
+    result = g.check(
+        obs=make_obs(),
+        action=make_gripper_action(0.0),
+        active_containers=[container],
+        node_start_times={},
+    )
+    assert result.decision == GuardDecision.CLAMP
+    assert "invalid allowed_command" in result.reason
