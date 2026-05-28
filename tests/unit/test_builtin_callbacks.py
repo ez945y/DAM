@@ -157,26 +157,37 @@ class TestJointVelocityLimit:
 
 
 class TestCheckVelocitySmooth:
-    def test_low_velocity_pass(self):
-        obs = _obs(velocities=[0.1] * 6)
-        assert check_velocity_smooth(obs=obs, max_jerk_norm=10.0) is True
+    def setup_method(self):
+        from dam.boundary.callbacks.kinematics import _prev_velocities
 
-    def test_high_velocity_fail(self):
+        _prev_velocities.clear()
+
+    def test_first_cycle_always_passes(self):
         obs = _obs(velocities=[5.0] * 6)
-        assert check_velocity_smooth(obs=obs, max_jerk_norm=1.0) is False
+        assert check_velocity_smooth(obs=obs, max_jerk_norm=0.001) is True
 
     def test_no_velocities_pass(self):
         obs = _obs()
         assert check_velocity_smooth(obs=obs) is True
 
-    def test_new_param_name(self):
-        obs = _obs(velocities=[5.0] * 6)
-        assert check_velocity_smooth(obs=obs, max_velocity_norm=1.0) is False
-        assert check_velocity_smooth(obs=obs, max_velocity_norm=100.0) is True
+    def test_low_jerk_pass(self):
+        obs1 = _obs(velocities=[1.0] * 6)
+        obs2 = _obs(velocities=[1.01] * 6)
+        check_velocity_smooth(obs=obs1, dt=0.02, max_jerk_norm=10.0)
+        assert check_velocity_smooth(obs=obs2, dt=0.02, max_jerk_norm=10.0) is True
 
-    def test_legacy_alias_takes_priority(self):
-        obs = _obs(velocities=[5.0] * 6)
-        assert check_velocity_smooth(obs=obs, max_velocity_norm=100.0, max_jerk_norm=1.0) is False
+    def test_high_jerk_fail(self):
+        obs1 = _obs(velocities=[0.0] * 6)
+        obs2 = _obs(velocities=[5.0] * 6)
+        check_velocity_smooth(obs=obs1, dt=0.02, max_jerk_norm=1.0)
+        # jerk = (5.0 - 0.0) / 0.02 = 250 per joint → norm >> 1.0
+        assert check_velocity_smooth(obs=obs2, dt=0.02, max_jerk_norm=1.0) is False
+
+    def test_steady_velocity_zero_jerk(self):
+        obs = _obs(velocities=[3.0] * 6)
+        check_velocity_smooth(obs=obs, dt=0.02, max_jerk_norm=0.001)
+        # Same velocity → jerk = 0
+        assert check_velocity_smooth(obs=obs, dt=0.02, max_jerk_norm=0.001) is True
 
 
 # ── check_force_torque_safe ───────────────────────────────────────────────────

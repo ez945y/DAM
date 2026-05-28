@@ -391,29 +391,40 @@ def _ee_linear_jacobian(obs: Observation, dynamics: Any | None) -> np.ndarray | 
     return jac[:3, :].copy()
 
 
+_prev_velocities: dict[str, np.ndarray] = {}
+
+
 @boundary_callback(
     name="check_velocity_smooth",
     layer="L1",
     category="kinematics",
-    description="Rejects if the joint velocity norm exceeds a smoothness threshold.",
+    description="Rejects if the joint-space jerk norm (rate of velocity change) exceeds a threshold.",
     params={
-        "max_velocity_norm": "Maximum allowed Euclidean norm of the joint velocity vector (rad/s).",
-        "max_jerk_norm": "Deprecated alias for max_velocity_norm.",
+        "max_jerk_norm": "Maximum allowed norm of (v_current − v_prev)/dt in rad/s².",
     },
-    internal_params=("max_jerk_norm",),
 )
 def check_velocity_smooth(
     *,
     obs: Observation,
-    max_velocity_norm: float = 10.0,
-    max_jerk_norm: float | None = None,
+    dt: float = 0.02,
+    max_jerk_norm: float = 10.0,
 ) -> bool:
-    """Return False if the joint velocity norm is too high."""
+    """Return False if ‖(v_current − v_prev) / dt‖ exceeds the jerk threshold.
+
+    Requires consecutive observations with ``joint_velocities`` populated.
+    Passes on the first cycle (no previous velocity to compare against).
+    """
+    bname = "check_velocity_smooth"
     if obs.joint_velocities is None:
         return True
-    limit = max_jerk_norm if max_jerk_norm is not None else max_velocity_norm
-    vel_norm = float(np.linalg.norm(obs.joint_velocities))
-    return vel_norm <= limit
+    v_cur = np.asarray(obs.joint_velocities, dtype=np.float64)
+    v_prev = _prev_velocities.get(bname)
+    _prev_velocities[bname] = v_cur.copy()
+    if v_prev is None or v_prev.shape != v_cur.shape:
+        return True
+    jerk = (v_cur - v_prev) / max(float(dt), 1e-6)
+    jerk_norm = float(np.linalg.norm(jerk))
+    return jerk_norm <= max_jerk_norm
 
 
 @boundary_callback(
