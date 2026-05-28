@@ -153,6 +153,54 @@ class TestJointVelocityLimit:
         )
 
 
+# ── dynamic joint count ────────────────────────────────────────────────────────
+
+
+class TestDynamicJointCount:
+    """L1 callbacks adapt to however many joints the action/obs contain."""
+
+    def test_position_limits_4dof_defaults(self):
+        result = joint_position_limits(action=_action([0.0] * 4))
+        assert result.decision == GuardDecision.PASS
+
+    def test_position_limits_4dof_clamps(self):
+        result = joint_position_limits(action=_action([5.0, 0.0, 0.0, -5.0]))
+        assert result.decision == GuardDecision.CLAMP
+        clamped = result.clamped_action.target_joint_positions
+        assert len(clamped) == 4
+        assert clamped[0] == pytest.approx(np.pi)
+        assert clamped[3] == pytest.approx(-np.pi)
+
+    def test_position_limits_7dof(self):
+        result = joint_position_limits(action=_action([0.5] * 7))
+        assert result.decision == GuardDecision.PASS
+
+    def test_velocity_limit_4dof_defaults(self):
+        result = joint_velocity_limit(
+            obs=_obs(positions=[0.0] * 4),
+            action=_action([0.1] * 4),
+            dt=0.1,
+        )
+        assert result.decision == GuardDecision.PASS
+
+    def test_velocity_limit_4dof_clamps(self):
+        result = joint_velocity_limit(
+            obs=_obs(positions=[0.0] * 4),
+            action=_action([10.0] * 4),
+            dt=0.1,
+        )
+        assert result.decision == GuardDecision.CLAMP
+        assert len(result.clamped_action.target_joint_positions) == 4
+
+    def test_velocity_limit_7dof(self):
+        result = joint_velocity_limit(
+            obs=_obs(positions=[0.0] * 7),
+            action=_action([0.01] * 7),
+            dt=0.1,
+        )
+        assert result.decision == GuardDecision.PASS
+
+
 # ── check_velocity_smooth ─────────────────────────────────────────────────────
 
 

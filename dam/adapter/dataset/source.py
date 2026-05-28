@@ -71,6 +71,7 @@ class DatasetSimSource:
         self._cursor: float = 0.0
         self._current_frame: dict[str, Any] | None = None
         self._strict = strict
+        self._n_joints = 6  # updated from first loaded frame
 
         # Pre-loaded episode data: list of {"joint_positions", "images"?, "action"?}
         self._frames: list[dict[str, Any]] = []
@@ -85,9 +86,12 @@ class DatasetSimSource:
                 raise ValueError(
                     "Dataset hardware replay requires a non-empty episode with an action per frame"
                 )
+            if self._frames:
+                self._n_joints = len(self._frames[0]["joint_positions"])
             logger.info(
-                "DatasetSimSource: ready — %d frames, source_fps: %.1f, cameras: %s",
+                "DatasetSimSource: ready — %d frames, %d joints, source_fps: %.1f, cameras: %s",
                 len(self._frames),
+                self._n_joints,
                 self._source_fps,
                 sorted({k for f in self._frames[:1] for k in (f.get("images") or {})}),
             )
@@ -163,8 +167,7 @@ class DatasetSimSource:
 
     # ── Dataset loading ────────────────────────────────────────────────────
 
-    @staticmethod
-    def _load_episode(repo_id: str, episode: int) -> tuple[list[dict[str, Any]], float]:
+    def _load_episode(self, repo_id: str, episode: int) -> tuple[list[dict[str, Any]], float]:
         """Download + decode one episode.  Returns (frames, fps)."""
         try:
             from lerobot.datasets.lerobot_dataset import LeRobotDataset
@@ -199,7 +202,7 @@ class DatasetSimSource:
                     state = state.detach().cpu().numpy()
                 frame["joint_positions"] = np.asarray(state, dtype=float)
             else:
-                frame["joint_positions"] = np.zeros(6)
+                frame["joint_positions"] = np.zeros(self._n_joints)
 
             # ── Camera images ──────────────────────────────────────────
             images: dict[str, np.ndarray] = {}
@@ -244,8 +247,8 @@ class DatasetSimSource:
         """Random-walk fallback when dataset loading fails."""
         if not hasattr(self, "_rng"):
             self._rng = np.random.default_rng(42)
-            self._rng_pos = self._rng.uniform(-0.3, 0.3, size=6)
-        delta = self._rng.normal(0.0, 0.03, size=6)
+            self._rng_pos = self._rng.uniform(-0.3, 0.3, size=self._n_joints)
+        delta = self._rng.normal(0.0, 0.03, size=self._n_joints)
         self._rng_pos = np.clip(self._rng_pos + delta, -1.9, 1.9)
         return Observation(
             timestamp=time.monotonic(),

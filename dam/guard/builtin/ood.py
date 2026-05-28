@@ -948,6 +948,7 @@ class OODGuard(Guard):
         bank_path: str | None = None,
         device: str = "cpu",
         camera_shapes: dict[str, tuple[int, int]] | None = None,
+        n_joints: int = 6,
         **kwargs: Any,
     ) -> None:
         """Load model/bank and run one warmup check through the callback
@@ -970,7 +971,7 @@ class OODGuard(Guard):
 
         dummy_obs = Observation(
             timestamp=time.monotonic(),
-            joint_positions=np.zeros(6),
+            joint_positions=np.zeros(n_joints),
             images=images or None,
         )
         container = self._build_default_container(

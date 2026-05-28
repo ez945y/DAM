@@ -49,18 +49,19 @@ def _to_array(x: Any, *, name: str) -> np.ndarray:
     return arr
 
 
-def _check_dim(actual: int, expected: int, *, callback: str, param: str) -> None:
-    """Warn once if param array length doesn't match the robot's joint count."""
-    if actual != expected:
+def _check_dim(n_joints: int, n_param: int, *, callback: str, param: str) -> None:
+    """Warn once if param array length doesn't match the observed joint count."""
+    if n_joints != n_param:
         key = f"{callback}:{param}"
         if key not in _DIM_WARNED:
             _DIM_WARNED.add(key)
             logger.warning(
-                "%s: %s has %d elements but robot has %d joints; extra joints are unconstrained",
+                "%s: %s has %d elements but observation has %d joints; "
+                "mismatched joints are unconstrained",
                 callback,
                 param,
-                expected,
-                actual,
+                n_param,
+                n_joints,
             )
 
 
@@ -94,19 +95,20 @@ def joint_velocity_limit(
     consistent.  Reads ``dt`` from the pool (auto-injected by GuardRuntime).
     """
     bname = "joint_velocity_limit"
-    if max_velocities is None:
-        max_velocities = [1.5, 1.5, 1.5, 1.5, 1.5, 1.5]
     if obs.joint_positions is None:
         return CallbackResult.ok(bname, "no joint state to act on")
-
-    v_max = _to_array(max_velocities, name="max_velocities")
 
     target_pos = np.asarray(action.target_joint_positions, dtype=np.float64)
     cur_pos = np.asarray(obs.joint_positions, dtype=np.float64)
     if not _all_finite(target_pos) or not _all_finite(cur_pos):
         return CallbackResult.violate(bname, "non-finite joint state or action")
     n = min(target_pos.shape[0], cur_pos.shape[0])
-    _check_dim(n, v_max.shape[0], callback=bname, param="max_velocities")
+
+    if max_velocities is None:
+        v_max = np.full(n, 1.5)
+    else:
+        v_max = _to_array(max_velocities, name="max_velocities")
+        _check_dim(n, v_max.shape[0], callback=bname, param="max_velocities")
 
     if action.target_joint_velocities is not None:
         velocities = np.asarray(action.target_joint_velocities, dtype=np.float64)[:n]
@@ -206,24 +208,28 @@ def joint_position_limits(
 ) -> CallbackResult:
     """Clip ``action.target_joint_positions`` element-wise into [lower, upper].
 
-    Default limits (in radians) match the historical defaults: a 6-DoF
-    SO100/SO101-style arm.  Override via the boundary's static params.
+    When limits are omitted, defaults to ±π for however many joints the
+    action contains — no hardcoded joint count assumption.
     """
     bname = "joint_position_limits"
-    if lower is None:
-        lower = [-1.82, -1.77, -1.6, -1.81, -3.07, 0.0]
-    if upper is None:
-        upper = [1.82, 1.77, 1.6, 1.81, 3.07, 1.75]
-
-    lo = _to_array(lower, name="lower")
-    up = _to_array(upper, name="upper")
 
     target = np.asarray(action.target_joint_positions, dtype=np.float64)
     if not _all_finite(target):
         return CallbackResult.violate(bname, "non-finite joint position action")
-    n = min(target.shape[0], lo.shape[0], up.shape[0])
-    _check_dim(target.shape[0], lo.shape[0], callback=bname, param="lower")
-    _check_dim(target.shape[0], up.shape[0], callback=bname, param="upper")
+    n_joints = target.shape[0]
+
+    if lower is None:
+        lo = np.full(n_joints, -np.pi)
+    else:
+        lo = _to_array(lower, name="lower")
+        _check_dim(n_joints, lo.shape[0], callback=bname, param="lower")
+    if upper is None:
+        up = np.full(n_joints, np.pi)
+    else:
+        up = _to_array(upper, name="upper")
+        _check_dim(n_joints, up.shape[0], callback=bname, param="upper")
+
+    n = min(n_joints, lo.shape[0], up.shape[0])
     clipped = target.copy()
     clipped[:n] = np.clip(target[:n], lo[:n], up[:n])
 

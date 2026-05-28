@@ -50,6 +50,7 @@ class ROS2SourceAdapter(SensorAdapter):
         channel_topic_overrides: dict[str, str] | None = None,
         qos: str = "reliable",
         qos_depth: int = 10,
+        n_joints: int = 6,
     ) -> None:
         """Construct the adapter.
 
@@ -79,6 +80,7 @@ class ROS2SourceAdapter(SensorAdapter):
         self._connected = False
         self._qos_reliability = qos
         self._qos_depth = qos_depth
+        self._n_joints = n_joints
 
         self._channel_topic_overrides: dict[str, str] = dict(channel_topic_overrides or {})
         self._channel_topics: dict[str, str] = {}
@@ -141,8 +143,8 @@ class ROS2SourceAdapter(SensorAdapter):
         if msg is None:
             return Observation(
                 timestamp=time.monotonic(),
-                joint_positions=np.zeros(6),
-                joint_velocities=np.zeros(6),
+                joint_positions=np.zeros(self._n_joints),
+                joint_velocities=np.zeros(self._n_joints),
                 channels=channels,
             )
         return self._convert(msg, channels)
