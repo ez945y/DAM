@@ -408,8 +408,9 @@ def _summary(
         for name in ("workspace", "cartesian_velocity_limit", "keep_out_zone", "orientation_limit"):
             if name in active:
                 add(name, "end_effector_pose missing")
-    if not saw_ft and "force_limit" in active:
-        add("force_limit", "force_torque missing")
+    for ft_name in ("force_limit", "force_torque_limit"):
+        if not saw_ft and ft_name in active:
+            add(ft_name, "force_torque missing")
 
     # Aggregate which guards drove the decision changes — the actionable
     # "what to tune in the replay stackfile" view. Keyed by guard name.

@@ -337,8 +337,9 @@ def _replay_through_guards(args: argparse.Namespace) -> int:
         for name in ("workspace", "cartesian_velocity_limit", "keep_out_zone", "orientation_limit"):
             if name in active:
                 add_degraded(name, "end_effector_pose missing")
-    if not saw_force_torque and "force_limit" in active:
-        add_degraded("force_limit", "force_torque missing")
+    for ft_name in ("force_limit", "force_torque_limit"):
+        if not saw_force_torque and ft_name in active:
+            add_degraded(ft_name, "force_torque missing")
 
     comparable = [name for name in active if name not in degraded]
     degraded_bits = [f"{name} ({'; '.join(reasons)})" for name, reasons in degraded.items()]

@@ -12,12 +12,16 @@ from dam.boundary.builtin_callbacks import (
     check_force_torque_safe,
     check_joints_not_moving,
     check_velocity_smooth,
+    current_limit,
+    force_torque_limit,
     get_catalog,
     joint_position_limits,
     joint_velocity_limit,
     keep_out_zone,
     orientation_limit,
     register_all,
+    temperature_limit,
+    voltage_limit,
 )
 from dam.registry.callback import CallbackRegistry
 from dam.types.action import ActionProposal
@@ -262,6 +266,107 @@ class TestCheckForceTorqueSafe:
         obs = _obs()
         r = check_force_torque_safe(obs=obs)
         assert r.decision.name == "PASS"
+
+
+# ── force_torque_limit ───────────────────────────────────────────────────────
+
+
+class TestForceTorqueLimit:
+    def test_both_under_limits_pass(self):
+        obs = _obs(force_torque=[1.0, 0, 0, 0.5, 0, 0])
+        r = force_torque_limit(obs=obs, max_force_n=50.0, max_torque_nm=10.0)
+        assert r.decision.name == "PASS"
+        assert "force_n" in r.metadata
+        assert "torque_nm" in r.metadata
+
+    def test_force_over_limit_reject(self):
+        obs = _obs(force_torque=[100.0, 0, 0, 0, 0, 0])
+        r = force_torque_limit(obs=obs, max_force_n=50.0, max_torque_nm=10.0)
+        assert r.decision.name == "REJECT"
+        assert "force" in r.reason
+
+    def test_torque_over_limit_reject(self):
+        obs = _obs(force_torque=[0, 0, 0, 20.0, 0, 0])
+        r = force_torque_limit(obs=obs, max_force_n=50.0, max_torque_nm=10.0)
+        assert r.decision.name == "REJECT"
+        assert "torque" in r.reason
+
+    def test_no_data_pass(self):
+        obs = _obs()
+        r = force_torque_limit(obs=obs)
+        assert r.decision.name == "PASS"
+
+    def test_channel_based_reading(self):
+        obs = Observation(
+            timestamp=0.0,
+            joint_positions=np.array([0.0] * 6),
+            channels={"ft_sensor": np.array([100.0, 0, 0, 0, 0, 0])},
+        )
+        r = force_torque_limit(obs=obs, max_force_n=50.0, channel="ft_sensor")
+        assert r.decision.name == "REJECT"
+        assert "force" in r.reason
+
+    def test_channel_fallback_to_obs_force_torque(self):
+        """When channel is missing, falls back to obs.force_torque."""
+        obs = _obs(force_torque=[100.0, 0, 0, 0, 0, 0])
+        r = force_torque_limit(obs=obs, max_force_n=50.0, channel="nonexistent")
+        assert r.decision.name == "REJECT"
+
+    def test_short_data_no_torque_check(self):
+        """When data has < 6 elements, torque is treated as 0."""
+        obs = Observation(
+            timestamp=0.0,
+            joint_positions=np.array([0.0] * 6),
+            channels={"force_torque": np.array([1.0, 0, 0])},
+        )
+        r = force_torque_limit(obs=obs, max_force_n=50.0, max_torque_nm=10.0)
+        assert r.decision.name == "PASS"
+        assert r.metadata["torque_nm"] == 0.0
+
+
+# ── NaN/Inf protection (L3 telemetry callbacks) ──────────────────────────────
+
+
+class TestNonFiniteSensorData:
+    """NaN/Inf in sensor data must REJECT, not silently pass or produce empty reasons."""
+
+    def test_temperature_nan_rejects(self):
+        obs = _obs(metadata={"channels": None})
+        obs = Observation(
+            timestamp=0.0,
+            joint_positions=np.array([0.0] * 6),
+            channels={"temperature": np.array([np.nan, 42.0])},
+        )
+        r = temperature_limit(obs=obs, max_temperature_c=55.0)
+        assert r.decision.name == "REJECT"
+        assert "Non-finite" in r.reason
+
+    def test_current_inf_rejects(self):
+        obs = Observation(
+            timestamp=0.0,
+            joint_positions=np.array([0.0] * 6),
+            channels={"current": np.array([0.5, np.inf])},
+        )
+        r = current_limit(obs=obs, max_current_a=1.5)
+        assert r.decision.name == "REJECT"
+        assert "Non-finite" in r.reason
+
+    def test_voltage_nan_rejects_with_reason(self):
+        obs = Observation(
+            timestamp=0.0,
+            joint_positions=np.array([0.0] * 6),
+            channels={"voltage": np.array([np.nan])},
+        )
+        r = voltage_limit(obs=obs)
+        assert r.decision.name == "REJECT"
+        assert "Non-finite" in r.reason
+        assert r.reason != ""
+
+    def test_force_torque_nan_rejects(self):
+        obs = _obs(force_torque=[np.nan, 0, 0, 0, 0, 0])
+        r = force_torque_limit(obs=obs, max_force_n=50.0)
+        assert r.decision.name == "REJECT"
+        assert "Non-finite" in r.reason
 
 
 # ── check_joints_not_moving ───────────────────────────────────────────────────

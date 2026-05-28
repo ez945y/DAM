@@ -7,23 +7,29 @@ state.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import subprocess
 import time
+import warnings
 from contextlib import suppress
 from typing import Any
 
 import numpy as np
 
-from dam.boundary.callbacks._helpers import _read_channel
+from dam.boundary.callbacks._helpers import _all_finite, _read_channel
 from dam.boundary.callbacks._registry import boundary_callback
 from dam.guard.layer import GuardLayer
 from dam.types.observation import Observation
 from dam.types.result import GuardDecision, GuardResult
 
 _HOST_HEALTH_CACHE: dict[str, Any] = {"t": 0.0, "value": {}}
+
+
+def _reset_host_health_cache() -> None:
+    """Reset the host-health cache to its initial state (for tests)."""
+    _HOST_HEALTH_CACHE["t"] = 0.0
+    _HOST_HEALTH_CACHE["value"] = {}
 
 
 def _indexed_map(arr: np.ndarray) -> dict[str, float]:
@@ -136,10 +142,9 @@ def collect_host_health(*, ttl_sec: float = 1.0) -> dict[str, Any]:
     data.setdefault("cpu_percent", _load_average_percent())
     data.update(_try_nvidia_smi())
     data["timestamp"] = time.time()
-    clean = json.loads(json.dumps(data))
     _HOST_HEALTH_CACHE["t"] = now
-    _HOST_HEALTH_CACHE["value"] = clean
-    return dict(clean)
+    _HOST_HEALTH_CACHE["value"] = data
+    return dict(data)
 
 
 @boundary_callback(
@@ -208,6 +213,14 @@ def temperature_limit(
     data = _read_channel(obs, channel)
     if data is None:
         return GuardResult.success("temperature_limit", GuardLayer.L3)
+    if not _all_finite(data):
+        return GuardResult(
+            decision=GuardDecision.REJECT,
+            guard_name="temperature_limit",
+            layer=GuardLayer.L3,
+            reason="Non-finite temperature sensor data (NaN/Inf)",
+            metadata={"temperatures": _indexed_map(data), "limit_c": max_temperature_c},
+        )
     meta: dict[str, Any] = {
         "temperatures": _indexed_map(data),
         "limit_c": max_temperature_c,
@@ -243,6 +256,14 @@ def current_limit(
     data = _read_channel(obs, channel)
     if data is None:
         return GuardResult.success("current_limit", GuardLayer.L3)
+    if not _all_finite(data):
+        return GuardResult(
+            decision=GuardDecision.REJECT,
+            guard_name="current_limit",
+            layer=GuardLayer.L3,
+            reason="Non-finite current sensor data (NaN/Inf)",
+            metadata={"currents": _indexed_map(data), "limit_a": max_current_a},
+        )
     abs_data = np.abs(data)
     meta: dict[str, Any] = {
         "currents": _indexed_map(data),
@@ -282,6 +303,14 @@ def voltage_limit(
     data = _read_channel(obs, channel)
     if data is None:
         return GuardResult.success("voltage_limit", GuardLayer.L3)
+    if not _all_finite(data):
+        return GuardResult(
+            decision=GuardDecision.REJECT,
+            guard_name="voltage_limit",
+            layer=GuardLayer.L3,
+            reason="Non-finite voltage sensor data (NaN/Inf)",
+            metadata={"voltages": _indexed_map(data), "range_v": [min_voltage_v, max_voltage_v]},
+        )
     meta: dict[str, Any] = {
         "voltages": _indexed_map(data),
         "range_v": [min_voltage_v, max_voltage_v],
@@ -307,10 +336,70 @@ def voltage_limit(
 
 
 @boundary_callback(
+    name="force_torque_limit",
+    layer="L3",
+    category="hardware",
+    description="Rejects if force or torque magnitude exceeds thresholds.",
+    params={
+        "max_force_n": "Maximum allowed force magnitude in Newtons.",
+        "max_torque_nm": "Maximum allowed torque magnitude in Newton-metres.",
+        "channel": "Observation channel name to read from obs.channels.",
+    },
+)
+def force_torque_limit(
+    *,
+    obs: Observation,
+    max_force_n: float = 50.0,
+    max_torque_nm: float = 10.0,
+    channel: str = "force_torque",
+) -> GuardResult:
+    data = _read_channel(obs, channel)
+    if data is None:
+        if obs.force_torque is not None:
+            data = np.asarray(obs.force_torque)
+        else:
+            return GuardResult.success("force_torque_limit", GuardLayer.L3)
+    if not _all_finite(data):
+        return GuardResult(
+            decision=GuardDecision.REJECT,
+            guard_name="force_torque_limit",
+            layer=GuardLayer.L3,
+            reason="Non-finite force/torque sensor data (NaN/Inf)",
+            metadata={"limit_force_n": max_force_n, "limit_torque_nm": max_torque_nm},
+        )
+    force = data[:3] if len(data) >= 6 else data
+    f_mag = float(np.linalg.norm(force))
+    torque = data[3:] if len(data) >= 6 else None
+    t_mag = float(np.linalg.norm(torque)) if torque is not None else 0.0
+    meta: dict[str, Any] = {
+        "force_n": round(f_mag, 3),
+        "torque_nm": round(t_mag, 3),
+        "limit_force_n": max_force_n,
+        "limit_torque_nm": max_torque_nm,
+    }
+    if f_mag <= max_force_n and t_mag <= max_torque_nm:
+        return GuardResult.success("force_torque_limit", GuardLayer.L3, metadata=meta)
+    parts: list[str] = []
+    if f_mag > max_force_n:
+        parts.append(f"force {f_mag:.1f}N > {max_force_n:.1f}N")
+    if t_mag > max_torque_nm:
+        parts.append(f"torque {t_mag:.1f}Nm > {max_torque_nm:.1f}Nm")
+    return GuardResult(
+        decision=GuardDecision.REJECT,
+        guard_name="force_torque_limit",
+        layer=GuardLayer.L3,
+        reason="; ".join(parts),
+        metadata=meta,
+    )
+
+
+# Keep force_limit as an alias for backward compatibility — it delegates to
+# force_torque_limit but only checks force (torque limit set to infinity).
+@boundary_callback(
     name="force_limit",
     layer="L3",
     category="hardware",
-    description="Rejects if force magnitude exceeds threshold (N).",
+    description="Deprecated: use force_torque_limit. Rejects if force magnitude exceeds threshold (N).",
     params={
         "max_force_n": "Maximum allowed force magnitude in Newtons.",
         "channel": "Observation channel name to read from obs.channels.",
@@ -322,31 +411,31 @@ def force_limit(
     max_force_n: float = 50.0,
     channel: str = "force_torque",
 ) -> GuardResult:
-    data = _read_channel(obs, channel)
-    if data is None:
-        if obs.force_torque is not None:
-            data = np.asarray(obs.force_torque)
-        else:
-            return GuardResult.success("force_limit", GuardLayer.L3)
-    force = data[:3] if len(data) >= 6 else data
-    f_mag = float(np.linalg.norm(force))
-    meta: dict[str, Any] = {"force_n": round(f_mag, 3), "limit_n": max_force_n}
-    if f_mag <= max_force_n:
-        return GuardResult.success("force_limit", GuardLayer.L3, metadata=meta)
-    return GuardResult(
-        decision=GuardDecision.REJECT,
-        guard_name="force_limit",
-        layer=GuardLayer.L3,
-        reason=f"Force {f_mag:.1f}N exceeds {max_force_n:.1f}N",
-        metadata=meta,
+    result = force_torque_limit(
+        obs=obs,
+        max_force_n=max_force_n,
+        max_torque_nm=float("inf"),
+        channel=channel,
     )
+    # Re-label guard_name so existing consumers see the old name.
+    return GuardResult(
+        decision=result.decision,
+        guard_name="force_limit",
+        layer=result.layer,
+        reason=result.reason,
+        metadata=result.metadata,
+        clamped_action=result.clamped_action,
+    )
+
+
+_check_force_torque_safe_warned = False
 
 
 @boundary_callback(
     name="check_force_torque_safe",
     layer="L3",
     category="hardware",
-    description="Rejects if force or torque magnitude exceeds thresholds.",
+    description="Deprecated: use force_torque_limit. Rejects if force or torque magnitude exceeds thresholds.",
     params={
         "max_force_n": "Maximum allowed force magnitude in Newtons.",
         "max_torque_nm": "Maximum allowed torque magnitude in Newton-metres.",
@@ -355,29 +444,23 @@ def force_limit(
 def check_force_torque_safe(
     *, obs: Observation, max_force_n: float = 50.0, max_torque_nm: float = 10.0
 ) -> GuardResult:
-    if obs.force_torque is None:
-        return GuardResult.success("check_force_torque_safe", GuardLayer.L3)
-    f_mag = float(np.linalg.norm(obs.force_torque[:3]))
-    t_mag = float(np.linalg.norm(obs.force_torque[3:]))
-    meta: dict[str, Any] = {
-        "force_n": round(f_mag, 3),
-        "torque_nm": round(t_mag, 3),
-        "limit_force_n": max_force_n,
-        "limit_torque_nm": max_torque_nm,
-    }
-    if f_mag <= max_force_n and t_mag <= max_torque_nm:
-        return GuardResult.success("check_force_torque_safe", GuardLayer.L3, metadata=meta)
-    parts: list[str] = []
-    if f_mag > max_force_n:
-        parts.append(f"force {f_mag:.1f}N > {max_force_n:.1f}N")
-    if t_mag > max_torque_nm:
-        parts.append(f"torque {t_mag:.1f}Nm > {max_torque_nm:.1f}Nm")
+    global _check_force_torque_safe_warned
+    if not _check_force_torque_safe_warned:
+        warnings.warn(
+            "check_force_torque_safe is deprecated, use force_torque_limit instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        _check_force_torque_safe_warned = True
+    result = force_torque_limit(obs=obs, max_force_n=max_force_n, max_torque_nm=max_torque_nm)
+    # Re-label guard_name so existing consumers see the old name.
     return GuardResult(
-        decision=GuardDecision.REJECT,
+        decision=result.decision,
         guard_name="check_force_torque_safe",
-        layer=GuardLayer.L3,
-        reason="; ".join(parts),
-        metadata=meta,
+        layer=result.layer,
+        reason=result.reason,
+        metadata=result.metadata,
+        clamped_action=result.clamped_action,
     )
 
 
@@ -441,14 +524,14 @@ def host_health_limit(
     if reasons:
         return GuardResult(
             decision=GuardDecision.FAULT,
-            guard_name="host_health",
+            guard_name="host_health_limit",
             layer=GuardLayer.L3,
             reason="; ".join(reasons),
             fault_source="hardware",
             metadata={"host_health": health},
         )
     return GuardResult.success(
-        guard_name="host_health",
+        guard_name="host_health_limit",
         layer=GuardLayer.L3,
         reason="host health within limits",
         metadata={"host_health": health},
