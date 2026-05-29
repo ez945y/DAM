@@ -325,6 +325,7 @@ def workspace(
     bounds: list[list[float]] | None = None,
     cbf_alpha: float = 1.0,
     slack_weight: float = 1e6,
+    dt: float = 0.02,
     ee_pos: np.ndarray | None = None,
     J_linear: np.ndarray | None = None,
     kinematics_resolver: KinematicsResolver | None = None,
@@ -336,6 +337,7 @@ def workspace(
     them as a :class:`QPTerm`.  The QP aggregator fuses this with other L1
     constraints to find the least-perturbing safe action.
 
+    ``dt`` is the control period (seconds), auto-injected by MotionGuard.
     Falls back to halt (freeze current joints) when Jacobian is unavailable.
     """
     bname = "workspace"
@@ -391,6 +393,7 @@ def workspace(
         J_linear=J_linear,
         bounds=b,
         cbf_alpha=cbf_alpha,
+        dt=dt,
     )
 
     n = J_linear.shape[1]
@@ -454,6 +457,7 @@ def keep_out_zone(
     spheres: list[list[float]] | None = None,
     cbf_alpha: float = 1.0,
     slack_weight: float = 1e6,
+    dt: float = 0.02,
     ee_pos: np.ndarray | None = None,
     J_linear: np.ndarray | None = None,
     kinematics_resolver: KinematicsResolver | None = None,
@@ -464,6 +468,7 @@ def keep_out_zone(
     Each sphere ``[cx, cy, cz, radius]`` produces one linear inequality
     via CBF linearization, attached as a :class:`QPTerm`.
 
+    ``dt`` is the control period (seconds), auto-injected by MotionGuard.
     Falls back to halt when Jacobian is unavailable and EE is inside a zone.
     """
     bname = "keep_out_zone"
@@ -517,6 +522,7 @@ def keep_out_zone(
         J_linear=J_linear,
         spheres=spheres,
         cbf_alpha=cbf_alpha,
+        dt=dt,
     )
 
     n = J_linear.shape[1]
@@ -582,6 +588,7 @@ def orientation_limit(
     tool_axis: list[float] | None = None,
     cbf_alpha: float = 1.0,
     slack_weight: float = 1e6,
+    dt: float = 0.02,
     ee_rot: np.ndarray | None = None,
     J_angular: np.ndarray | None = None,
     kinematics_resolver: KinematicsResolver | None = None,
@@ -591,7 +598,8 @@ def orientation_limit(
 
     Useful for keeping carried payloads upright (open containers, trays).
     Linearises the tilt constraint via the angular Jacobian and contributes
-    a :class:`QPTerm`.  Falls back to halt when angular Jacobian is unavailable.
+    a :class:`QPTerm`.  ``dt`` is the control period (seconds), auto-injected
+    by MotionGuard.  Falls back to halt when angular Jacobian is unavailable.
     """
     bname = "orientation_limit"
     ref = np.asarray(
@@ -655,6 +663,7 @@ def orientation_limit(
         reference_axis=ref,
         tool_axis=tool,
         cbf_alpha=cbf_alpha,
+        dt=dt,
     )
 
     n = J_angular.shape[1]

@@ -325,8 +325,10 @@ class ExecutionEngine:
         # without each computing it independently.
         if obs.joint_positions is not None:
             _compute_fk_into_pool(pool, obs.joint_positions, ctx.dynamics)
-        # Self-reference: guards that dispatch to their own callbacks
-        # (ExecutionGuard) can forward the full pool.
+        # Guards that dispatch to their own callbacks (MotionGuard,
+        # ExecutionGuard) receive the full pool via the 'runtime_pool' key
+        # and merge it with their own kwargs before calling run_callbacks.
+        # NOTE: circular self-reference — do NOT serialize or deepcopy this pool.
         pool["runtime_pool"] = pool
         return pool
 

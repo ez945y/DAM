@@ -129,8 +129,12 @@ def sphere_keepout_constraints(
         diff = ee - center
         dist = float(np.linalg.norm(diff))
         if dist < 1e-12:
+            # EE is at/near sphere center — pick an arbitrary escape direction
+            # so the CBF constraint has a non-degenerate gradient.
+            n = np.array([1.0, 0.0, 0.0])
             dist = 1e-12
-        n = diff / dist
+        else:
+            n = diff / dist
         h = dist - radius
         # -nᵀ J u ≤ -nᵀ J q + γ h
         nJ = n @ J_linear

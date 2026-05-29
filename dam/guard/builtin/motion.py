@@ -52,16 +52,13 @@ class MotionGuard(Guard):
         active_containers: list[Any] | None = None,
         dt: float = 0.02,
         dynamics: Any | None = None,
+        runtime_pool: dict[str, Any] | None = None,
     ) -> GuardResult:
-        runtime_pool: dict[str, Any] = {
-            "obs": obs,
-            "action": action,
-            "dt": dt,
-            "dynamics": dynamics,
-        }
+        pool: dict[str, Any] = dict(runtime_pool) if runtime_pool else {}
+        pool.update({"obs": obs, "action": action, "dt": dt, "dynamics": dynamics})
         _results, final = run_and_aggregate(
             containers=active_containers,
-            runtime_pool=runtime_pool,
+            runtime_pool=pool,
             expected_layer="L1",
             guard_name=self.get_name(),
             guard_layer=self.get_layer(),

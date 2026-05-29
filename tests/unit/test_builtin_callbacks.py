@@ -436,6 +436,18 @@ class TestKeepOutZone:
             r.clamped_action.target_joint_positions, obs.joint_positions
         )
 
+    def test_ee_at_sphere_center_still_clamps(self):
+        """EE exactly at sphere center should still produce a non-degenerate CLAMP."""
+        obs = _obs(positions=[0.0] * 6, ee_pose=[0.2, 0.0, 0.3, 0, 0, 0, 1])
+        action = _action([0.0] * 6)
+        J = np.eye(3, 6) * 0.1
+        r = keep_out_zone(obs=obs, action=action, spheres=self.SPHERES, J_linear=J)
+        assert r.decision == GuardDecision.CLAMP
+        assert "motion_qp" in r.metadata
+        # The QPTerm A matrix must have at least one non-zero row
+        # (regression: zero-normal bug produced all-zero A when EE == center)
+        assert np.any(np.abs(r.metadata["motion_qp"].A) > 1e-12)
+
     def test_multiple_spheres(self):
         spheres = [[0.2, 0.0, 0.3, 0.05], [-0.2, 0.0, 0.3, 0.05]]
         obs = _obs(positions=[0.0] * 6, ee_pose=[0.0, 0.0, 0.3, 0, 0, 0, 1])
