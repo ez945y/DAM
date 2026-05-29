@@ -68,8 +68,15 @@ class ExecutionGuard(Guard):
 
             # 1. callback check
             if constraint.callback:
-                pool = dict(runtime_pool) if runtime_pool else {}
-                pool.update({"obs": obs, "action": action})
+                # Use the full pool from the engine when available (has
+                # ee_pos, dt, J_linear, etc.).  For standalone / test usage
+                # build a minimal pool; merge test-provided keys on top.
+                if runtime_pool is not None and "obs" in runtime_pool:
+                    pool = runtime_pool
+                else:
+                    pool = {"obs": obs, "action": action}
+                    if runtime_pool:
+                        pool.update(runtime_pool)
                 cb_results = run_callbacks(
                     containers=[container],
                     runtime_pool=pool,

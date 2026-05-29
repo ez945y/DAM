@@ -164,6 +164,7 @@ class GuardRuntime:
             enforcement_mode=enforcement_mode,
             metric_bus=self._metric_bus,
             default_fallback=default_fallback,
+            control_frequency_hz=control_frequency_hz,
         )
 
         # Startup: pre-compute injection for all guards
@@ -488,6 +489,7 @@ class GuardRuntime:
             runtime=self,
             prev_validated_positions=self._prev_validated_positions,
             dynamics=self._select_dynamics(),
+            config_pool=self._hot_reload.config_pool,
         )
         return self._engine.validate(obs, action, trace_id, ctx, now=now)
 

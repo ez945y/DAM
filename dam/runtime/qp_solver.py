@@ -89,7 +89,9 @@ def workspace_cbf_constraints(
         raise ValueError(f"bounds must be shape (3,2), got {bounds_arr.shape}")
     b_min = bounds_arr[:, 0]
     b_max = bounds_arr[:, 1]
-    Jq = J_linear @ np.asarray(q, dtype=np.float64)
+    n_dof = J_linear.shape[1]
+    q_arr = np.asarray(q, dtype=np.float64)[:n_dof]
+    Jq = J_linear @ q_arr
     ee = np.asarray(ee_pos, dtype=np.float64)
 
     # Upper:  J_i·u ≤ γ·(b_max_i − ee_i) + J_i·q
@@ -119,7 +121,8 @@ def sphere_keepout_constraints(
     """
     gamma = float(cbf_alpha) * float(dt)
     ee = np.asarray(ee_pos, dtype=np.float64)
-    q_arr = np.asarray(q, dtype=np.float64)
+    n_dof = J_linear.shape[1]
+    q_arr = np.asarray(q, dtype=np.float64)[:n_dof]
     A_rows: list[np.ndarray] = []
     b_vals: list[float] = []
 
@@ -176,7 +179,8 @@ def orientation_tilt_constraint(
     # ∂h/∂q = (tool_world × ref)ᵀ · J_angular
     cross = np.cross(tool_world, ref)
     dh_dq = cross @ np.asarray(J_angular, dtype=np.float64)
-    q_arr = np.asarray(q, dtype=np.float64)
+    n_dof = J_angular.shape[1]
+    q_arr = np.asarray(q, dtype=np.float64)[:n_dof]
 
     # -dh_dq @ u ≤ -dh_dq @ q + γ h
     A = -dh_dq.reshape(1, -1)

@@ -36,7 +36,23 @@
   - `python -m pytest tests/safety/ -x -q` — 35 passed
   - `ruff check` + `mypy` — all passed
   - `scripts/check_docs.py` — passed
-- **commits**: `fc370c7`, `922d1b4`, `5625737`, `08e2ef1`
+- **commits**: `fc370c7`, `922d1b4`, `5625737`, `08e2ef1`, `40a07de`, `218d0cf`, `50f151f`, `c590b29`
+
+### Session 2026-05-29 #6b (L2 Unification + Pool Forwarding + Review Fixes)
+
+- **本輪目標**: L2 callback 統一讀 pool ee_pos、review findings 修復
+- **已完成**:
+  - ExecutionGuard 轉傳 runtime_pool 給 L2 callbacks
+  - 新增 `task_workspace_bounds` 和 `task_joint_speed_limit` L2 callbacks（之前只在文檔，未實作）
+  - 統一 pool forwarding：engine builds once → guards forward（不再自建 pool）
+  - ValidationContext 帶 config_pool，_build_runtime_pool merge 進去
+  - Fix: sphere center zero-normal（用 arbitrary escape direction）
+  - Fix: CBF callbacks 從 pool 接收 actual dt（不再 hardcode 0.02）
+  - Fix: MotionGuard 也轉傳 pool（之前自建 pool 丟掉了 ee_pos 等預計算）
+  - 7 個新測試（2 pool forwarding + 3 task_workspace_bounds + 2 task_joint_speed_limit + 1 sphere-center）
+- **執行過的驗證**:
+  - `python -m pytest tests/unit/ tests/safety/ tests/property/ -x -q` — 660 passed, 29 skipped
+  - `ruff check` + `mypy` — all passed
 
 ### Session 2026-05-29 #1 (GuardRuntime Decomposition + Legacy Shim Elimination)
 

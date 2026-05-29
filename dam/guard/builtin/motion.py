@@ -54,8 +54,12 @@ class MotionGuard(Guard):
         dynamics: Any | None = None,
         runtime_pool: dict[str, Any] | None = None,
     ) -> GuardResult:
-        pool: dict[str, Any] = dict(runtime_pool) if runtime_pool else {}
-        pool.update({"obs": obs, "action": action, "dt": dt, "dynamics": dynamics})
+        # Use the full pool from the engine when available (has ee_pos,
+        # J_linear, dt, etc.).  For standalone / test usage build a minimal pool.
+        if runtime_pool is not None and "obs" in runtime_pool:
+            pool = runtime_pool
+        else:
+            pool = {"obs": obs, "action": action, "dt": dt, "dynamics": dynamics}
         _results, final = run_and_aggregate(
             containers=active_containers,
             runtime_pool=pool,

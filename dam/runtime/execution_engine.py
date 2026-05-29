@@ -158,6 +158,10 @@ class ValidationContext:
     # DynamicsContext (FK + cached Jacobians) refreshed by the sensor adapter
     # in its read() path.  Guards consume it via the ``dynamics`` injection key.
     dynamics: Any | None = None
+    # Config pool: static params (dt, per-boundary params) resolved once at
+    # startup / hot-reload.  Merged into the runtime pool so callbacks get
+    # everything from one dict.
+    config_pool: dict[str, Any] | None = None
 
 
 def _make_dummy_node(fallback_name: str) -> Any:
@@ -205,10 +209,12 @@ class ExecutionEngine:
         enforcement_mode: EnforcementMode,
         metric_bus: PipelineMetricBus,
         default_fallback: str = "emergency_stop",
+        control_frequency_hz: float = 50.0,
     ) -> None:
         self._enforcement_mode = enforcement_mode
         self._metric_bus = metric_bus
         self._default_fallback = default_fallback
+        self._dt = 1.0 / control_frequency_hz
         self._thread_pool: ThreadPoolExecutor | None = None
 
     def _get_executor(self, max_workers: int) -> ThreadPoolExecutor:
@@ -301,26 +307,35 @@ class ExecutionEngine:
             for n in ctx.active_container_names
             if n in ctx.boundary_containers
         ]
-        pool: dict[str, Any] = {
-            "obs": obs,
-            "action": action,
-            "cycle_id": ctx.cycle_id,
-            "trace_id": trace_id,
-            "timestamp": obs.timestamp,
-            "active_task": ctx.active_task,
-            "active_boundaries": ctx.active_container_names,
-            "active_containers": active,
-            "active_map": {
-                n: ctx.boundary_containers[n]
-                for n in ctx.active_container_names
-                if n in ctx.boundary_containers
-            },
-            "node_start_times": ctx.node_start_times,
-            "kinematics_resolver": ctx.kinematics_resolver,
-            "dynamics": ctx.dynamics,
-            "prev_validated_positions": ctx.prev_validated_positions,
-            "now": now,
-        }
+        # Start from config_pool (dt, per-boundary params) so callbacks
+        # see both static and runtime values in one dict.
+        pool: dict[str, Any] = dict(ctx.config_pool) if ctx.config_pool else {}
+        # Guarantee dt is always present — callbacks like joint_velocity_limit
+        # require it.  config_pool may carry a stackfile-overridden dt; only
+        # inject the engine default when it is absent.
+        pool.setdefault("dt", self._dt)
+        pool.update(
+            {
+                "obs": obs,
+                "action": action,
+                "cycle_id": ctx.cycle_id,
+                "trace_id": trace_id,
+                "timestamp": obs.timestamp,
+                "active_task": ctx.active_task,
+                "active_boundaries": ctx.active_container_names,
+                "active_containers": active,
+                "active_map": {
+                    n: ctx.boundary_containers[n]
+                    for n in ctx.active_container_names
+                    if n in ctx.boundary_containers
+                },
+                "node_start_times": ctx.node_start_times,
+                "kinematics_resolver": ctx.kinematics_resolver,
+                "dynamics": ctx.dynamics,
+                "prev_validated_positions": ctx.prev_validated_positions,
+                "now": now,
+            }
+        )
         # Pre-compute FK so L1/L2 callbacks can read EE pose from pool
         # without each computing it independently.
         if obs.joint_positions is not None:

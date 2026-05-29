@@ -288,12 +288,16 @@ class RuntimeFactory:
         if obs_channels:
             motor.set_observation_channels(obs_channels)
 
-        # Keep the dataset first: its state/images are the replay observation;
-        # the motor source contributes current hardware telemetry and is the sink.
-        # The policy follows the native dataset cursor; only the observation
-        # view namespaces image keys before multi-source composition.
-        runtime.register_source(dataset_name, replay_observation_source)
+        # Motor FIRST: its obs.joint_positions is the *real* hardware state
+        # that guards must validate against.  When the dataset was first,
+        # velocity limits compared dataset_action − dataset_obs (tiny delta)
+        # instead of dataset_action − real_motor_pos (potentially huge jump
+        # when start pose differs), letting dangerous commands pass unchecked.
+        # The dataset source contributes only replay images (namespaced) and
+        # advances its internal cursor so DatasetReplayPolicy.current_action()
+        # stays in sync.
         runtime.register_source(motor_name, motor)
+        runtime.register_source(dataset_name, replay_observation_source)
         runtime.register_policy(DatasetReplayPolicy(dataset_source))
         runtime.register_sink(motor)
 

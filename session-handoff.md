@@ -1,6 +1,6 @@
 # session-handoff.md — 會話交接摘要
 
-> 最後更新: 2026-05-29 (L1 CBF Unification)
+> 最後更新: 2026-05-29 (L1/L2 CBF Unification + Pool Forwarding)
 
 ## 本輪工作
 
@@ -22,10 +22,24 @@
 - 有 Jacobian → CBF 線性化 → QPTerm → QP solver 融合
 - 無 Jacobian → halt（凍結 action，原有行為）
 
+### Unified Pool Forwarding
+
+解決了 guards 自建 pool 丟掉預計算 FK 的問題：
+- `ValidationContext` 帶 `config_pool`
+- `_build_runtime_pool` 把 config_pool（dt 等）merge 進 runtime pool
+- MotionGuard / ExecutionGuard 直接轉傳 engine 的 pool，不再自建
+- 結果：L1/L2 callbacks 都能讀到 `ee_pos`, `J_linear`, `J_angular`, `dt`
+
+### Review Fixes
+- sphere center zero-normal → 用 arbitrary escape direction [1,0,0]
+- dt hardcoded 0.02 → 三個 CBF callback 從 pool 接收 actual dt
+- pool forwarding → 統一為 engine builds once, guards forward
+
 **下一步**:
 - 實機驗證 CBF 參數（cbf_alpha, slack_weight）在 SO-101 上的表現
 - keep-out box（非凸，需要不同策略）
 - `base_geofence` 考慮是否值得回歸（mobile base 場景）
+- CBF 三個 callback 的 boilerplate 可抽 helper（halt_fallback + qp_result 約 25 行 × 3）
 
 ### GuardRuntime 拆分 (1726 → ~1037 lines)
 
