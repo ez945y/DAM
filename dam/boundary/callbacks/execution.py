@@ -97,6 +97,7 @@ def task_gripper_command_guard(
     place_zone: list[list[float]] | None = None,
     close_threshold: float = 0.25,
     open_threshold: float = 0.75,
+    ee_pos: np.ndarray | None = None,
 ) -> CallbackResult:
     """Clamp task-section gripper command anomalies.
 
@@ -184,14 +185,15 @@ def task_gripper_command_guard(
             metadata={"gripper_command": command, "allowed_command": expected},
         )
 
-    if obs.end_effector_pose is None:
-        return _clamp_gripper(
-            bname=bname,
-            action=action,
-            reason="missing end-effector pose for gripper zone check",
-        )
-
-    ee_pos = np.asarray(obs.end_effector_pose[:3], dtype=np.float64)
+    # Prefer pre-computed ee_pos from pool (post-L1 FK); fall back to obs.
+    if ee_pos is None:
+        if obs.end_effector_pose is None:
+            return _clamp_gripper(
+                bname=bname,
+                action=action,
+                reason="missing end-effector pose for gripper zone check",
+            )
+        ee_pos = np.asarray(obs.end_effector_pose[:3], dtype=np.float64)
     if not _all_finite(ee_pos):
         return _clamp_gripper(
             bname=bname,
