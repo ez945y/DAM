@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import threading
 import time
 import uuid
 from typing import TYPE_CHECKING, Any
@@ -152,12 +151,10 @@ class GuardRuntime:
             control_frequency_hz=control_frequency_hz,
         )
 
-        # Hot reload double-buffer.  config_version is bumped on every
-        # successful swap so MCAP readers can correlate cycles ↔ config.
-        self._pending_config: StackfileConfig | None = None
-        self._hot_reload_lock = threading.Lock()
-        self._config_pool = dict(config_pool)
-        self._config_version: int = 0
+        # Hot reload double-buffer
+        from dam.runtime._hot_reload import HotReloadManager
+
+        self._hot_reload = HotReloadManager(config_pool)
 
         self._running = False
         self._shutdown_complete = False
@@ -182,10 +179,10 @@ class GuardRuntime:
         calls ``apply_pending_reload`` which invokes ``_apply_config_swap``
         and handles subsequent changes automatically.
         """
-        self._apply_guards_config(stackfile_config, self._config_pool)
+        self._apply_guards_config(stackfile_config, self._hot_reload.config_pool)
         # Re-compute injection for all active guards with updated pool
         for g in self._guards:
-            precompute_injection(g, self._config_pool)
+            precompute_injection(g, self._hot_reload.config_pool)
 
     def _apply_guards_config(
         self,
@@ -304,7 +301,11 @@ class GuardRuntime:
                 try:
                     kwargs = dict(g._static_kwargs)
                     kwargs.update(
-                        {k: self._config_pool[k] for k in g._runtime_keys if k in self._config_pool}
+                        {
+                            k: self._hot_reload.config_pool[k]
+                            for k in g._runtime_keys
+                            if k in self._hot_reload.config_pool
+                        }
                     )
                     if pair_bname is not None and pair_bname in self._boundary_containers:
                         node = self._boundary_containers[pair_bname].get_active_node()
@@ -429,119 +430,32 @@ class GuardRuntime:
     # ── 3G: Hot Reload ─────────────────────────────────────────────────────
 
     def apply_pending_reload(self, new_config: StackfileConfig) -> None:
-        """Store a new config for thread-safe application at the next cycle boundary.
-
-        Called from the StackfileWatcher callback thread.  The actual swap
-        happens inside ``step()`` before any guards run, so config is never
-        changed mid-cycle.
-        """
-        with self._hot_reload_lock:
-            self._pending_config = new_config
+        """Store a new config for thread-safe application at the next cycle boundary."""
+        self._hot_reload.queue_reload(new_config)
 
     @staticmethod
     def _build_config_pool(new_config: StackfileConfig) -> dict[str, Any]:
-        """Pure function: merge boundary node params into a fresh config pool.
+        from dam.runtime._hot_reload import HotReloadManager
 
-        Merge strategy is data-defined: each parameter name resolves to a
-        :mod:`dam.runtime.merge_policy` callable via the registry.  Unknown
-        names default to last-write-wins with a warning when values disagree.
-
-        Auto-injects ``dt`` from ``safety.control_frequency_hz`` so any guard
-        declaring ``dt`` in its check() signature receives the control period
-        without the stackfile having to repeat it inside boundary params.
-
-        Returns a brand-new dict; never touches runtime state.  May raise
-        ``TypeError`` / ``ValueError`` from a registered merge strategy when
-        shapes mismatch — caller treats that as a validation failure.
-        """
-        from dam.runtime.merge_policy import resolve as resolve_merge
-
-        pool: dict[str, Any] = {}
-
-        # Auto-inject dt so QP / CBF / any time-aware guard can pick it up
-        # without the stackfile manually duplicating it in every boundary.
-        if new_config.safety and new_config.safety.control_frequency_hz > 0:
-            pool["dt"] = 1.0 / new_config.safety.control_frequency_hz
-
-        # Structural keys that belong to Container/Node config, never to the
-        # guard pool.  Defence-in-depth against parser bugs that might
-        # accidentally leak these into node params.
-        _STRUCTURAL = {
-            "layer",
-            "type",
-            "callback",
-            "fallback",
-            "timeout_sec",
-            "node_id",
-            "nodes",
-            "loop",
-            "params",
-        }
-
-        from dam.boundary.callbacks._registry import normalize_unit_params
-
-        for bname, bcfg in new_config.boundaries.items():
-            if bcfg.type == "list":
-                continue
-            for ncfg in bcfg.nodes:
-                # Normalise per-node: degrees→radians once, strip use_degrees
-                # so the hot path never sees a unit flag.
-                cb_name = getattr(ncfg, "callback", None) or ""
-                normalised = normalize_unit_params(cb_name, ncfg.params)
-                for pk, pv in normalised.items():
-                    if pk in _STRUCTURAL:
-                        continue
-                    if pk not in pool:
-                        pool[pk] = pv
-                        continue
-                    merge_fn = resolve_merge(pk)
-                    merged = merge_fn(pool[pk], pv)
-                    # Only the default ``overwrite`` strategy can silently
-                    # drop information — warn so the user notices a real
-                    # conflict (registered strategies are deliberate).
-                    if merge_fn.__name__ == "overwrite" and not np.array_equal(pool[pk], pv):
-                        logger.warning(
-                            "GuardRuntime: Parameter '%s' overwritten by boundary "
-                            "'%s' (prev: %s, new: %s).  Register a merge strategy "
-                            "in dam.runtime.merge_policy if this isn't desired.",
-                            pk,
-                            bname,
-                            pool[pk],
-                            pv,
-                        )
-                    pool[pk] = merged
-        return pool
+        return HotReloadManager.build_config_pool(new_config)
 
     def _apply_config_swap(self, new_config: StackfileConfig) -> None:
-        """Validate then commit a new config.
-
-        Build the candidate pool as a pure computation first; only mutate
-        runtime state once it succeeds.  A failed swap leaves the runtime on
-        the previous config — no half-applied state.  ``_build_config_pool``
-        already logs per-parameter overwrites, so this method stays quiet
-        unless something interesting (commit / reject) happens.
-        """
         try:
             candidate_pool = self._build_config_pool(new_config)
         except Exception:
             logger.error(
                 "GuardRuntime: config swap REJECTED; keeping previous config (v%d)",
-                self._config_version,
+                self._hot_reload.config_version,
                 exc_info=True,
             )
             return
-
-        # Commit: from here on, mutations are simple assignments.
-        self._config_pool = candidate_pool
-        self._apply_guards_config(new_config, candidate_pool)
-        for g in self._guards:
-            precompute_injection(g, candidate_pool)
-        now = time.monotonic()
-        for cname in self._node_start_times:
-            self._node_start_times[cname] = now
-
-        self._config_version += 1
-        logger.info("GuardRuntime: config swap committed (v%d)", self._config_version)
+        self._hot_reload.apply_swap(
+            new_config,
+            candidate_pool=candidate_pool,
+            guards=self._guards,
+            apply_guards_config=self._apply_guards_config,
+            node_start_times=self._node_start_times,
+        )
 
     # ── Core validate (thin wrapper → ExecutionEngine) ───────────────────────
 
@@ -738,15 +652,37 @@ class GuardRuntime:
     def _loopback(self) -> Any:
         return self._telemetry.loopback
 
+    # ── Hot reload delegators (backward compat for tests) ──────────────────
+
+    @property
+    def _hot_reload_lock(self) -> Any:
+        return self._hot_reload.lock
+
+    @property
+    def _pending_config(self) -> Any:
+        return self._hot_reload._pending_config
+
+    @_pending_config.setter
+    def _pending_config(self, value: Any) -> None:
+        self._hot_reload._pending_config = value
+
+    @property
+    def _config_pool(self) -> dict[str, Any]:
+        return self._hot_reload.config_pool
+
+    @property
+    def _config_version(self) -> int:
+        return self._hot_reload.config_version
+
+    @_config_version.setter
+    def _config_version(self, value: int) -> None:
+        self._hot_reload._config_version = value
+
     # ── step() — single cycle ───────────────────────────────────────────────
 
     def step(self) -> CycleResult:
         # 3G: Apply pending hot-reload config swap BEFORE the cycle runs
-        with self._hot_reload_lock:
-            pending = self._pending_config
-            if pending is not None:
-                self._pending_config = None
-
+        pending = self._hot_reload.consume_pending()
         if pending is not None:
             self._apply_config_swap(pending)
 
@@ -961,7 +897,7 @@ class GuardRuntime:
                 cycle_id=self._cycle_id - 1,
                 active_task=self._active_task,
                 active_container_names=self._active_container_names,
-                config_version=self._config_version,
+                config_version=self._hot_reload.config_version,
                 active_cameras=active_camera_names,
                 active_context=self._ctx_sm.active_context.name,
                 context_severity=self._ctx_sm.active_context.severity,
