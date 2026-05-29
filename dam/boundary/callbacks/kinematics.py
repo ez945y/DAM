@@ -9,6 +9,7 @@ Callbacks:
     ``joint_position_limits`` — box bounds on joint positions
     ``joint_velocity_limit``  — velocity + acceleration limits
     ``workspace``             — EE position box (CBF constraint via QP)
+    ``keep_out_zone``         — spherical keep-out zones (CBF constraint via QP)
 """
 
 from __future__ import annotations
@@ -428,5 +429,129 @@ def workspace(
             "ee_pos": ee_pos.tolist(),
             "cbf_margin_min": float(np.min(margin)),
             "_units": {"workspace_bounds": "m", "ee_pos": "m"},
+        },
+    )
+
+
+@boundary_callback(
+    name="keep_out_zone",
+    layer="L1",
+    category="kinematics",
+    description="Keeps the end-effector outside spherical keep-out zones via CBF constraints fed to the QP solver.",
+    params={
+        "spheres": "Keep-out spheres as [[cx,cy,cz,radius], ...] in metres.",
+        "cbf_alpha": "CBF decay rate (0,∞). Higher → repel later, lower → repel earlier. Default 1.0.",
+        "slack_weight": "QP soft-constraint penalty.",
+    },
+    internal_params=("slack_weight",),
+)
+def keep_out_zone(
+    *,
+    obs: Observation,
+    action: ActionProposal,
+    spheres: list[list[float]] | None = None,
+    cbf_alpha: float = 1.0,
+    slack_weight: float = 1e6,
+    ee_pos: np.ndarray | None = None,
+    J_linear: np.ndarray | None = None,
+    kinematics_resolver: KinematicsResolver | None = None,
+    dynamics: Any | None = None,
+) -> CallbackResult:
+    """CBF constraint that keeps the EE outside spherical keep-out zones.
+
+    Each sphere ``[cx, cy, cz, radius]`` produces one linear inequality
+    via CBF linearization, attached as a :class:`QPTerm`.
+
+    Falls back to halt when Jacobian is unavailable and EE is inside a zone.
+    """
+    bname = "keep_out_zone"
+    if not spheres:
+        return CallbackResult.ok(bname, "no keep-out zones configured")
+
+    if ee_pos is None:
+        ee_pos = _resolve_ee_translation(
+            obs, kinematics_resolver=kinematics_resolver, dynamics=dynamics
+        )
+    if ee_pos is None or obs.joint_positions is None:
+        return CallbackResult.ok(bname, "EE pose unavailable; skip keep-out check")
+
+    q = np.asarray(obs.joint_positions, dtype=np.float64)
+    target = np.asarray(action.target_joint_positions, dtype=np.float64)
+
+    # Check if EE is currently inside any sphere
+    violated_sphere = None
+    for sphere in spheres:
+        s = np.asarray(sphere, dtype=np.float64)
+        dist = float(np.linalg.norm(ee_pos - s[:3]))
+        if dist <= float(s[3]):
+            violated_sphere = sphere
+            break
+
+    if J_linear is None:
+        if violated_sphere is None:
+            return CallbackResult.ok(
+                bname,
+                metadata={"ee_pos": ee_pos.tolist(), "n_spheres": len(spheres)},
+            )
+        halt = ValidatedAction(
+            target_joint_positions=q.copy(),
+            target_joint_velocities=None,
+            was_clamped=True,
+            original_proposal=action,
+            timestamp=action.timestamp,
+        )
+        return CallbackResult.clamp(
+            bname,
+            halt,
+            reason=f"EE inside keep-out sphere {violated_sphere} (no Jacobian); halting",
+            metadata={"ee_pos": ee_pos.tolist()},
+        )
+
+    from dam.runtime import qp_solver
+
+    cbf_A, cbf_b = qp_solver.sphere_keepout_constraints(
+        q=q,
+        ee_pos=ee_pos,
+        J_linear=J_linear,
+        spheres=spheres,
+        cbf_alpha=cbf_alpha,
+    )
+
+    n = J_linear.shape[1]
+    margin = cbf_b - cbf_A @ target[:n]
+    satisfied = bool(np.all(margin >= -1e-8))
+
+    if violated_sphere is None and satisfied:
+        return CallbackResult.ok(
+            bname,
+            metadata={
+                "ee_pos": ee_pos.tolist(),
+                "n_spheres": len(spheres),
+                "cbf_margin_min": float(np.min(margin)),
+            },
+        )
+
+    qp_meta = QPTerm(A=cbf_A, b=cbf_b, slack_weight=float(slack_weight))
+    clamped = ValidatedAction(
+        target_joint_positions=target.copy(),
+        target_joint_velocities=action.target_joint_velocities,
+        was_clamped=True,
+        original_proposal=action,
+        timestamp=action.timestamp,
+    )
+    if violated_sphere is not None:
+        reason = f"EE inside keep-out sphere {violated_sphere}; CBF pushing out"
+    else:
+        reason = f"EE action would enter keep-out zone; CBF active (margin_min={float(np.min(margin)):.4f})"
+    return CallbackResult.clamp(
+        bname,
+        clamped,
+        reason=reason,
+        metadata={
+            "motion_qp": qp_meta,
+            "ee_pos": ee_pos.tolist(),
+            "n_spheres": len(spheres),
+            "cbf_margin_min": float(np.min(margin)),
+            "_units": {"ee_pos": "m"},
         },
     )

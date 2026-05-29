@@ -13,6 +13,7 @@ from dam.boundary.builtin_callbacks import (
     get_catalog,
     joint_position_limits,
     joint_velocity_limit,
+    keep_out_zone,
     register_all,
     temperature_limit,
     voltage_limit,
@@ -384,6 +385,64 @@ class TestWorkspace:
         np.testing.assert_array_almost_equal(
             r.clamped_action.target_joint_positions, obs.joint_positions
         )
+
+
+# ── keep_out_zone ─────────────────────────────────────────────────────────────
+
+
+class TestKeepOutZone:
+    SPHERES = [[0.2, 0.0, 0.3, 0.05]]  # center=(0.2,0,0.3), r=0.05
+
+    def test_outside_sphere_pass(self):
+        obs = _obs(positions=[0.0] * 6, ee_pose=[0.0, 0.0, 0.3, 0, 0, 0, 1])
+        action = _action([0.0] * 6)
+        J = np.eye(3, 6) * 0.1
+        r = keep_out_zone(obs=obs, action=action, spheres=self.SPHERES, J_linear=J)
+        assert r.decision == GuardDecision.PASS
+
+    def test_inside_sphere_clamp_with_qp(self):
+        obs = _obs(positions=[0.0] * 6, ee_pose=[0.2, 0.0, 0.3, 0, 0, 0, 1])
+        action = _action([0.0] * 6)
+        J = np.eye(3, 6) * 0.1
+        r = keep_out_zone(obs=obs, action=action, spheres=self.SPHERES, J_linear=J)
+        assert r.decision == GuardDecision.CLAMP
+        assert "motion_qp" in r.metadata
+        assert r.metadata["motion_qp"].A is not None
+
+    def test_action_entering_sphere_clamp(self):
+        """EE outside but action would push it in → CLAMP."""
+        obs = _obs(positions=[0.0] * 6, ee_pose=[0.15, 0.0, 0.3, 0, 0, 0, 1])
+        J = np.zeros((3, 6))
+        J[0, 0] = 1.0  # joint 0 → x
+        # Large positive action pushes EE toward sphere at x=0.2
+        action = _action([0.3, 0.0, 0.0, 0.0, 0.0, 0.0])
+        r = keep_out_zone(obs=obs, action=action, spheres=self.SPHERES, J_linear=J)
+        assert r.decision == GuardDecision.CLAMP
+        assert r.metadata["cbf_margin_min"] < 0
+
+    def test_no_spheres_pass(self):
+        obs = _obs(positions=[0.0] * 6, ee_pose=[0.2, 0.0, 0.3, 0, 0, 0, 1])
+        action = _action([0.0] * 6)
+        r = keep_out_zone(obs=obs, action=action, spheres=[])
+        assert r.decision == GuardDecision.PASS
+
+    def test_no_jacobian_inside_halts(self):
+        obs = _obs(positions=[0.1, 0.2, 0.3, 0.0, 0.0, 0.0], ee_pose=[0.2, 0.0, 0.3, 0, 0, 0, 1])
+        action = _action([0.0] * 6)
+        r = keep_out_zone(obs=obs, action=action, spheres=self.SPHERES)
+        assert r.decision == GuardDecision.CLAMP
+        np.testing.assert_array_almost_equal(
+            r.clamped_action.target_joint_positions, obs.joint_positions
+        )
+
+    def test_multiple_spheres(self):
+        spheres = [[0.2, 0.0, 0.3, 0.05], [-0.2, 0.0, 0.3, 0.05]]
+        obs = _obs(positions=[0.0] * 6, ee_pose=[0.0, 0.0, 0.3, 0, 0, 0, 1])
+        action = _action([0.0] * 6)
+        J = np.eye(3, 6) * 0.1
+        r = keep_out_zone(obs=obs, action=action, spheres=spheres, J_linear=J)
+        assert r.decision == GuardDecision.PASS
+        assert r.metadata["n_spheres"] == 2
 
 
 # ── check_force_torque_safe ───────────────────────────────────────────────────

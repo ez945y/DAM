@@ -102,6 +102,44 @@ def workspace_cbf_constraints(
     return np.vstack([A_up, A_lo]), np.concatenate([b_up, b_lo])
 
 
+def sphere_keepout_constraints(
+    *,
+    q: np.ndarray,
+    ee_pos: np.ndarray,
+    J_linear: np.ndarray,
+    spheres: list[list[float]],
+    cbf_alpha: float = 1.0,
+    dt: float = 0.02,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Build linear CBF constraints for spherical keep-out zones.
+
+    Each sphere ``[cx, cy, cz, radius]`` generates one inequality.
+    CBF: ``h(q) = ||ee_pos − center|| − radius ≥ 0``, linearised to
+    ``A @ u ≤ b`` (one row per sphere).
+    """
+    gamma = float(cbf_alpha) * float(dt)
+    ee = np.asarray(ee_pos, dtype=np.float64)
+    q_arr = np.asarray(q, dtype=np.float64)
+    A_rows: list[np.ndarray] = []
+    b_vals: list[float] = []
+
+    for sphere in spheres:
+        s = np.asarray(sphere, dtype=np.float64)
+        center, radius = s[:3], float(s[3])
+        diff = ee - center
+        dist = float(np.linalg.norm(diff))
+        if dist < 1e-12:
+            dist = 1e-12
+        n = diff / dist
+        h = dist - radius
+        # -nᵀ J u ≤ -nᵀ J q + γ h
+        nJ = n @ J_linear
+        A_rows.append(-nJ)
+        b_vals.append(-float(nJ @ q_arr) + gamma * h)
+
+    return np.array(A_rows), np.array(b_vals)
+
+
 def available() -> bool:
     """True when ``proxsuite`` is importable.  Lets the caller decide whether
     to dispatch to the QP path or fall back to box-clamp."""
