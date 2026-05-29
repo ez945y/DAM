@@ -179,7 +179,7 @@ def test_dataset_and_live_camera_images_reach_policy_without_republishing_live_f
 
     runtime = GuardRuntime._from_config(config, frame_hub=FrameHub())
     published = []
-    runtime._publish_frames_to_hub = lambda images, _timestamp: published.extend(images)
+    runtime._telemetry.publish_frames_to_hub = lambda images, _timestamp: published.extend(images)
 
     class Source:
         def read(self):

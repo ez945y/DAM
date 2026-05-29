@@ -1,57 +1,67 @@
 # session-handoff.md — 會話交接摘要
 
-> 最後更新: 2026-05-27 (IL Safety Integration API — Session #2)
+> 最後更新: 2026-05-29 (GuardRuntime Decomposition + Legacy Shim Elimination)
 
 ## 本輪工作
 
-延續 Session #1 的 IL API 開發，修復實際 `make record` 的運行問題：
+### GuardRuntime 拆分 (1726 → ~1037 lines)
 
-1. `scripts/record.py` 從 `hardware:` 讀取 robot/cameras/teleop 配置，轉為 lerobot-record CLI args
-2. 精簡 log 輸出（壓掉 lerobot config dump，加 `--verbose` flag）
-3. Rerun SDK 安裝整合進 `make setup`，修復 `display_data: true` crash
-4. `.venv/bin` 加入 PATH 讓 rerun viewer binary 可被找到
-5. `resume: true` 防呆：dataset 不存在時自動降級為 `resume=false`
-6. 清理 lerobot 失敗後留下的 stale cache 空目錄
-7. README 重寫：~390 行 → ~140 行，使用實際架構圖，修正 L0/L1 平行關係
+Composition pattern: GuardRuntime creates helper instances in `__init__`, delegates via `self._ctx_sm`, `self._telemetry`, `self._hot_reload`.
+
+- **`_stackfile_builder.py`** (296 lines) — `from_stackfile()`, `from_config()`, boundary construction classmethods
+- **`_context_state_machine.py`** (221 lines) — Stack-based push/pop context, fallback routing, worst-reject selection
+- **`_cycle_telemetry.py`** (284 lines) — Loopback recording, frame hub bridging, failure harvest, latency logging
+- **`_hot_reload.py`** (141 lines) — Thread-safe double-buffer config swap, config pool building
+
+Zero test modifications: backward-compat delegator properties/methods (~75 lines) on GuardRuntime preserve existing test code.
+
+### Legacy Shim Elimination
+
+- `dam/guard/callbacks.py` **deleted** — the `evaluate_boundary_callbacks` shim that wrapped pipeline results into `(saw_callback, GuardResult|None)`
+- `ExecutionGuard` now calls `run_callbacks` + `aggregate` directly
+- `HardwareGuard` now calls `run_callbacks` directly with manual worst-result selection + flat metadata merge for PASS path
+
+### Injection System Assessment
+
+Investigated whether the two injection systems are redundant. Conclusion: **they are NOT**.
+- **Static injection** (`precompute_injection`): binds config-pool params to `guard.check()` signatures
+- **Pipeline injection** (`resolve_kwargs`): binds runtime-pool + config-pool params to boundary callback signatures
+- Different consumers, different lifecycles — no unification needed.
+
+### Tests + Features
+
+- Added 7 workspace callback unit tests (commit `ff77cad`)
+- **Percentile-based OOD threshold** — stores training score percentiles (90, 95, 97.5, 99, 99.5, 99.9) in model checkpoints. New `threshold_percentile` param in `ood_detector` callback selects empirical percentile cutoff. More robust than Gaussian mean+σ·std for skewed NLL distributions (commit `107a7ed`)
+- **`action_smooth` L1 callback** — EMA-based oscillation damping. Configurable alpha (0.01-1.0). Addresses micro-oscillation from noisy policy outputs without modifying the model (commit `38d243a`)
 
 ## 當前已驗證
 
-- Python tests: 641 passed (含 20 IL API 測試)
-- pre-commit hooks: all passed
-- `record.py` dry-run: 正確生成 14 個 lerobot-record args
-- resume 防呆: 自動清理 stale dir + 降級成 resume=false
+- **`make test` ALL PASSED**: 686 unit + 28 integration + 47 safety + 2 property + 55 Rust + 109 frontend = 0 failures
+- pre-commit hooks: all passed (ruff + mypy + format)
 
-## 尚未驗證
+## Commits (本輪)
 
-- **`make record` 端到端**：rerun + lerobot + 硬體連線完整跑通
-  - rerun PATH fix 已驗證（binary 在 .venv/bin/）
-  - resume 防呆已驗證
-  - 但還沒有成功完成一次完整錄製
-
-## commits (本輪)
-
-- `adc735a` feat: add IL safe recording API
-- `2ecd7cb` fix: reduce record.py log verbosity
-- `8ae30e5` docs: rewrite README, use actual diagrams
-- `ba27b8c` fix: add .venv/bin to PATH for rerun
-- `f18cb78` fix: auto-downgrade resume when dataset doesn't exist
-- `2c87e47` fix: clean up stale cache dir from failed dataset creation
+- `f68501c` refactor: extract stackfile factory from GuardRuntime into _stackfile_builder.py
+- `36187e7` refactor: extract context state machine from GuardRuntime into _context_state_machine.py
+- `949e71f` refactor: extract cycle telemetry from GuardRuntime into _cycle_telemetry.py
+- `e488008` refactor: extract hot reload from GuardRuntime into _hot_reload.py
+- `81cd86a` refactor: eliminate legacy callback shim — guards call pipeline directly
+- `ff77cad` test: add workspace callback unit tests (7 cases)
+- `107a7ed` feat: add percentile-based OOD threshold strategy
+- `38d243a` feat: add action_smooth L1 callback for EMA-based oscillation damping
+- `7bba34f` fix: update monkeypatch target after GuardRuntime telemetry extraction
 
 ## 待後續處理
 
-### P0 — 需要硬體驗證
-- `make record` 完整端到端錄製
+### P0 — Spawned tasks (可獨立完成)
+- Stackfile validation: warn when boundary references channel that no source provides (needs channel registry design first)
+- Stackfile examples for 6 missing L1 callbacks (low priority)
 
-### P1 — 架構
-- Legacy shim `guard/callbacks.py` 語義分叉
-- 兩套注入系統並存
-- GuardRuntime 仍 1700+ 行
-
-### P2 — 功能
-- Vision OOD 閾值校準（percentile-based）
-- 機器人微振盪（action smoothing）
-- MCAP 回讀 Risk Log
-- RL 整合（SafetyEnv wrapper — 未來）
+### P1 — 功能
+- ~~Vision OOD 閾值校準（percentile-based）~~ ✅ Done
+- ~~機器人微振盪（action smoothing）~~ ✅ Done (`action_smooth` callback)
+- ~~MCAP 回讀 Risk Log~~ ✅ Already implemented (backend: `/api/risk-log/mcap/{filename}`, frontend: MCAP viewer page)
+- `make record` 端到端硬體驗證（needs real hardware）
 
 ## 命令速查
 
@@ -60,10 +70,8 @@ make setup                              # 首次安裝（含 rerun）
 make dev                                # 開發模式
 make test                               # 完整測試
 make record                             # 安全錄製（讀 safety.yaml）
-make record ARGS="--dataset.num_episodes=20"  # 覆寫參數
-make record ARGS="--verbose"            # 顯示完整 args
 make lint                               # linter
-python examples/safe_record.py          # IL 安全錄製範例
+python -m pytest tests/unit/ -x -q      # 快速 unit test
 dam validate examples/stackfiles/*.yaml # 驗證所有 stackfile
-dam callbacks                           # 列出 18 個內建安全檢查
+dam callbacks                           # 列出內建安全檢查
 ```

@@ -6,19 +6,82 @@
 - **倉庫根目錄**: `/Users/chenyizhong/Documents/Claude/Projects/Security Guard.nosync`
 - **標準啟動路徑**: `make dev`
 - **標準驗證路徑**: `make test`
-- **基線狀態**: unit tests passing（截至 2026-05-27, 688 passed + 109 frontend）
+- **基線狀態**: `make test` ALL PASSED（截至 2026-05-29, 686 unit + 28 integration + 47 safety + 2 property + 55 Rust + 109 frontend = 0 failures）
 
 ## 當前最高優先級未完成功能
 
-1. **Vision OOD 閾值校準**：Vision fusion 跨場景分離力極好（abnormal detection=100%），但 mean+3σ 閾值策略過於保守導致 FPR 過高。需改用 percentile-based 閾值或 normal_test 校準。
-2. **機器人微振盪**：模型輸出高頻方向翻轉（~60% cycles 有 sign change），幅度 <1° 所以 guard PASS，但肉眼抖動明顯。這不是 guard pipeline 問題，是模型輸出問題。可能需要 action smoothing / EMA filter。
-3. **MCAP 回讀 Risk Log**：用戶提到想從 MCAP 讀取歷史 risk data，尚未實作。
+1. **Vision OOD 閾值校準**：✅ **已實作 percentile-based threshold**（`threshold_percentile` param）。需在實際 dataset 上重新 calibrate 以驗證 FPR 改善。
+2. **機器人微振盪**：✅ **已實作 `action_smooth` L1 callback**。EMA-based oscillation damping (alpha=0.5 default)。需在實機驗證效果。
+3. **MCAP 回讀 Risk Log**：✅ **已實現**。Backend: `/api/risk-log/mcap/{filename}`，Frontend: MCAP viewer page with cycle detail expand。
+4. **`make record` 端到端硬體驗證**：需要實機環境。
 
 ## 當前 blocker
 
 無
 
 ## 會話記錄
+
+### Session 2026-05-29 #1 (GuardRuntime Decomposition + Legacy Shim Elimination)
+
+- **本輪目標**: 拆分 1726 行 GuardRuntime God Object 為 5 個模組，消除 legacy callback shim
+- **已完成**:
+  - Extracted `_stackfile_builder.py` (296 lines) — stackfile → runtime construction
+  - Extracted `_context_state_machine.py` (221 lines) — context stack push/pop/routing
+  - Extracted `_cycle_telemetry.py` (284 lines) — loopback, frame hub, failure harvest
+  - Extracted `_hot_reload.py` (141 lines) — thread-safe config swap double-buffer
+  - GuardRuntime reduced from 1726 → ~1037 lines
+  - Added ~75 lines backward-compat delegators (zero test modifications needed)
+  - Deleted `dam/guard/callbacks.py` (legacy shim, 103 lines)
+  - Rewrote `ExecutionGuard` to use `run_callbacks` + `aggregate` directly
+  - Rewrote `HardwareGuard` to use `run_callbacks` directly (manual worst-result + flat metadata merge)
+  - Assessed injection systems: static (guard.check) and pipeline (callback) are NOT redundant — different consumers, different lifecycles
+- **執行過的驗證**:
+  - `python -m pytest tests/unit/ -x -q` — 616 passed, 28 skipped (each commit verified independently)
+  - pre-commit hooks (ruff + mypy + format) — all passed on each commit
+- **commits**: `f68501c`, `36187e7`, `949e71f`, `e488008`, `81cd86a`
+
+### Session 2026-05-29 #2 (Features: Percentile OOD + Action Smooth)
+
+- **本輪目標**: 完成 P0/P1 backlog — workspace tests, OOD threshold, action smoothing
+- **已完成**:
+  - 7 workspace callback unit tests (inside/outside bounds, no-EE, default bounds, cbf_gamma validation, clamp behavior, motion_qp metadata)
+  - **Percentile-based OOD threshold**: stores 6 percentiles (90-99.9) at training time; new `threshold_percentile` param in `ood_detector`; supports flow + memory_bank backends; interpolates between stored percentiles
+  - **`action_smooth` L1 callback**: EMA-based oscillation damping (alpha=0.01-1.0, default 0.5); first cycle pass-through; smoothes with previous target each subsequent cycle
+  - Confirmed MCAP Risk Log replay already implemented (backend + frontend)
+  - Updated all progress docs
+- **執行過的驗證**:
+  - `python -m pytest tests/unit/ -x -q` — 636 passed, 29 skipped
+  - pre-commit hooks — all passed on each commit
+- **commits**: `ff77cad`, `107a7ed`, `38d243a`
+
+### Session 2026-05-29 #3 (Test Fix + Full Review)
+
+- **本輪目標**: 修復所有 `make test` failures，分段 review items 2 & 3
+- **已完成**:
+  - Fixed `test_dataset_and_live_camera_images_reach_policy_without_republishing_live_frame` — monkeypatch target updated after GuardRuntime telemetry extraction (`runtime._telemetry.publish_frames_to_hub`)
+  - Completed 3-segment code review: legacy shim elimination, percentile OOD threshold, action_smooth
+  - Confirmed injection systems assessment: static vs pipeline injection are NOT redundant
+- **執行過的驗證**:
+  - `make test` — ALL PASSED (686 unit + 28 integration + 47 safety + 2 property + 55 Rust + 109 frontend)
+- **commit**: `7bba34f`
+
+### Session 2026-05-28 #2 (L3 Hardware DX Audit)
+
+- **本輪目標**: 以開發者角度審計 L3 Hardware 層，修復會讓開發者傻眼的設計
+- **已完成**:
+  - Consolidated `force_limit` + `check_force_torque_safe` → `force_torque_limit` (channel fallback + force/torque dual check)
+  - Deprecated old force callbacks with one-time `DeprecationWarning`
+  - Fixed `host_health_limit` guard_name mismatch (`"host_health"` → `"host_health_limit"`)
+  - Added NaN/Inf protection to 4 telemetry callbacks — fixes voltage_limit empty-reason REJECT on NaN
+  - Removed `json.dumps/loads` round-trip in `collect_host_health`
+  - Added `_reset_host_health_cache()` for test isolation
+  - Investigated missing-channel → PASS behavior (intentional, tested; config-time validation gap spawned as task)
+  - 11 new tests (7 force_torque_limit + 4 NaN/Inf protection)
+- **執行過的驗證**:
+  - `python -m pytest tests/unit/ -x -q` — 616 passed, 28 skipped
+  - `ruff check` + `mypy` — all passed
+  - pre-commit hooks — all passed
+- **commit**: `c8c51b2`
 
 ### Session 2026-05-27 #1 (IL Safety Integration API)
 
