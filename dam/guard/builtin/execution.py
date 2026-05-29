@@ -19,7 +19,7 @@ from typing import Any
 
 import dam
 from dam.guard.base import Guard
-from dam.guard.callbacks import evaluate_boundary_callbacks
+from dam.guard.pipeline import aggregate, run_callbacks
 from dam.types.action import ActionProposal
 from dam.types.observation import Observation
 from dam.types.result import GuardDecision, GuardResult
@@ -67,16 +67,17 @@ class ExecutionGuard(Guard):
 
             # 1. callback check
             if constraint.callback:
-                _, callback_res = evaluate_boundary_callbacks(
+                cb_results = run_callbacks(
                     containers=[container],
-                    base_kwargs={"obs": obs, "action": action},
+                    runtime_pool={"obs": obs, "action": action},
                     expected_layer="L2",
-                    guard_name=boundary_name,
-                    guard_layer=layer,
-                    violation_decision=GuardDecision.REJECT,
-                    fault_source="guard_code",
                 )
-                if callback_res:
+                if cb_results:
+                    callback_res = aggregate(
+                        cb_results,
+                        guard_name=boundary_name,
+                        guard_layer=layer,
+                    )
                     if callback_res.decision in (GuardDecision.REJECT, GuardDecision.FAULT):
                         streak = self.bump_streak(boundary_name)
                         if streak < threshold:
@@ -91,7 +92,8 @@ class ExecutionGuard(Guard):
                                     "warn_frames": threshold,
                                 },
                             )
-                    return callback_res
+                    if callback_res.decision != GuardDecision.PASS:
+                        return callback_res
 
             # 2. timeout_sec check
             if node.timeout_sec is not None and node_start_times:

@@ -18,7 +18,7 @@ from typing import Any
 
 import dam
 from dam.guard.base import Guard
-from dam.guard.callbacks import evaluate_boundary_callbacks
+from dam.guard.pipeline import run_callbacks
 from dam.types.observation import Observation
 from dam.types.result import GuardDecision, GuardResult
 
@@ -50,27 +50,78 @@ class HardwareGuard(Guard):
         layer = self.get_layer()
         name = self.get_name()
 
-        # Run L3 boundary callbacks.
-        _, callback_res = evaluate_boundary_callbacks(
+        cb_results = run_callbacks(
             containers=active_containers,
-            base_kwargs={
+            runtime_pool={
                 "obs": obs,
                 "now": now,
                 "node_start_times": node_start_times or {},
             },
             expected_layer=layer.name,
-            guard_name=name,
-            guard_layer=layer,
-            violation_decision=GuardDecision.FAULT,
-            fault_source="hardware",
         )
 
-        if callback_res and callback_res.decision in (
+        if not cb_results:
+            if active_containers:
+                for c in active_containers:
+                    bname = getattr(c, "_runtime_boundary_name", None)
+                    if bname:
+                        self.reset_streak(bname)
+            return GuardResult.success(guard_name=name, layer=layer)
+
+        # Find first non-PASS result (priority: FAULT > REJECT > CLAMP)
+        worst = None
+        for r in cb_results:
+            if r.decision == GuardDecision.FAULT:
+                worst = r
+                break
+        if worst is None:
+            for r in cb_results:
+                if r.decision == GuardDecision.REJECT:
+                    worst = r
+                    break
+        if worst is None:
+            for r in cb_results:
+                if r.decision == GuardDecision.CLAMP:
+                    worst = r
+                    break
+
+        if worst is not None:
+            # L3 promotes REJECT → FAULT (hardware violations are faults)
+            decision = worst.decision
+            fault_source = worst.fault_source
+            if decision == GuardDecision.REJECT:
+                decision = GuardDecision.FAULT
+                fault_source = "hardware"
+            callback_res = GuardResult(
+                decision=decision,
+                guard_name=name,
+                layer=layer,
+                reason=worst.reason,
+                fault_source=fault_source,
+                clamped_action=worst.clamped_action,
+                metadata=dict(worst.metadata),
+            )
+        else:
+            # All PASS — merge metadata flat so telemetry reaches the inspector
+            merged_meta: dict[str, Any] = {}
+            for r in cb_results:
+                if r.metadata:
+                    merged_meta.update(r.metadata)
+            callback_res = (
+                GuardResult(
+                    decision=GuardDecision.PASS,
+                    guard_name=name,
+                    layer=layer,
+                    metadata=merged_meta,
+                )
+                if merged_meta
+                else None
+            )
+
+        if callback_res is not None and callback_res.decision in (
             GuardDecision.FAULT,
             GuardDecision.REJECT,
         ):
-            # Use the first active container's boundary name for streak tracking,
-            # since evaluate_boundary_callbacks merges results under guard_name.
             streak_key = name
             threshold = 1
             if active_containers:
@@ -105,8 +156,8 @@ class HardwareGuard(Guard):
                 },
             )
 
-        if callback_res:
-            # Reset streaks on PASS — violations cleared.
+        # PASS or CLAMP — reset streaks on PASS
+        if callback_res is not None:
             if callback_res.decision == GuardDecision.PASS and active_containers:
                 for c in active_containers:
                     bname = getattr(c, "_runtime_boundary_name", None)
@@ -114,13 +165,12 @@ class HardwareGuard(Guard):
                         self.reset_streak(bname)
             return callback_res
 
-        # No callbacks ran — reset streaks and return empty success.
+        # All PASS with no metadata
         if active_containers:
             for c in active_containers:
                 bname = getattr(c, "_runtime_boundary_name", None)
                 if bname:
                     self.reset_streak(bname)
-
         return GuardResult.success(guard_name=name, layer=layer)
 
     @staticmethod
