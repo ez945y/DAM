@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+import pytest
 
 from dam.boundary.callbacks.ood import _exceeds_threshold, _key, ood_detector
 from dam.guard.builtin.ood import OODGuard
@@ -227,3 +228,78 @@ def test_ood_guard_pipeline_respects_temporal_smoothing() -> None:
     b = g.check(obs=_obs([100.0] * 6), active_containers=[container], temporal_smoothing_frames=2)
     assert a.decision == GuardDecision.PASS  # suppressed by smoothing
     assert b.decision == GuardDecision.REJECT
+
+
+# ── Percentile-based threshold ────────────────────────────────────────────────
+
+
+class TestPercentileThreshold:
+    def test_compute_percentiles(self):
+        from dam.guard.ood_backend import _compute_percentiles
+
+        scores = np.linspace(0.0, 100.0, 1001)
+        pct = _compute_percentiles(scores)
+        assert pct[90.0] == pytest.approx(90.0, abs=0.2)
+        assert pct[99.0] == pytest.approx(99.0, abs=0.2)
+        assert pct[99.9] == pytest.approx(99.9, abs=0.2)
+
+    def test_lookup_exact(self):
+        from dam.guard.ood_backend import _lookup_percentile
+
+        stored = {90.0: 10.0, 95.0: 15.0, 99.0: 20.0}
+        assert _lookup_percentile(stored, 95.0) == 15.0
+
+    def test_lookup_interpolates(self):
+        from dam.guard.ood_backend import _lookup_percentile
+
+        stored = {90.0: 10.0, 95.0: 15.0, 99.0: 20.0}
+        val = _lookup_percentile(stored, 92.5)
+        assert val == pytest.approx(12.5)
+
+    def test_lookup_clamps_below(self):
+        from dam.guard.ood_backend import _lookup_percentile
+
+        stored = {90.0: 10.0, 95.0: 15.0}
+        assert _lookup_percentile(stored, 80.0) == 10.0
+
+    def test_lookup_clamps_above(self):
+        from dam.guard.ood_backend import _lookup_percentile
+
+        stored = {90.0: 10.0, 95.0: 15.0}
+        assert _lookup_percentile(stored, 99.0) == 15.0
+
+    def test_memory_bank_percentile_threshold(self):
+        from dam.guard.ood_backend import MemoryBankBackend
+
+        backend = MemoryBankBackend()
+        features = np.random.randn(200, 8).astype(np.float32)
+        backend.train(features)
+        assert backend.train_percentiles is not None
+        threshold_pct = backend.threshold(3.0, percentile=99.0)
+        assert threshold_pct == pytest.approx(backend.train_percentiles[99.0])
+        assert 90.0 in backend.train_percentiles
+        assert 99.0 in backend.train_percentiles
+
+    def test_flow_backend_stores_percentiles(self):
+        pytest.importorskip("torch")
+        from dam.guard.ood_backend import RealNVPFlowBackend
+
+        backend = RealNVPFlowBackend(device="cpu")
+        features = np.random.randn(50, 4).astype(np.float32)
+        backend.train(features, epochs=1)
+        assert backend.train_percentiles is not None
+        assert 99.0 in backend.train_percentiles
+        threshold_pct = backend.threshold(3.0, percentile=99.0)
+        assert threshold_pct == pytest.approx(backend.train_percentiles[99.0])
+
+    def test_ood_detector_callback_uses_percentile(self):
+        ctx = OODContext()
+        result = ood_detector(
+            obs=_obs([0.1] * 6),
+            ood_context=ctx,
+            backend="welford",
+            sigma=3.0,
+            threshold_percentile=99.0,
+            warmup=5,
+        )
+        assert result.decision == GuardDecision.PASS

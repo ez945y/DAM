@@ -92,6 +92,7 @@ def _welford_verdict(
         "ood_model_path": "Path to the trained OOD feature/model artifact.",
         "bank_path": "Path to memory-bank calibration vectors when using memory_bank.",
         "sigma": "Unified sensitivity: standard deviations from training mean before OOD rejection.",
+        "threshold_percentile": "Use a training-data percentile (e.g. 99.0) as the OOD cutoff instead of mean+sigma*std. More robust when score distributions are non-Gaussian.",
         "device": "Device used by the OOD backend, such as cpu, cuda, or mps.",
         "warmup": "Number of Welford warm-up observations before online rejection.",
         "vision_model": "Optional pretrained vision model fused with robot-state features.",
@@ -115,6 +116,7 @@ def ood_detector(
     ood_model_path: str = "",
     bank_path: str = "",
     sigma: float = _DEFAULT_SIGMA,
+    threshold_percentile: float | None = None,
     # Legacy params — migrated to sigma; kept for stackfile backward compat.
     nn_threshold: float | None = None,
     z_threshold: float | None = None,
@@ -203,7 +205,11 @@ def ood_detector(
         if kind is OODBackendKind.MEMORY_BANK and not user_set_sigma and nn_threshold is not None:
             threshold = nn_threshold
         else:
-            threshold = detector.threshold(effective_sigma, calibrated_threshold=calibrated)
+            threshold = detector.threshold(
+                effective_sigma,
+                calibrated_threshold=calibrated,
+                percentile=threshold_percentile,
+            )
 
         reason = f"OOD score={score:.4f} > threshold={threshold:.4f} ({kind.value})"
         meta: dict[str, Any] = {
@@ -213,6 +219,8 @@ def ood_detector(
         }
         if calibrated is not None:
             meta["calibrated"] = True
+        if threshold_percentile is not None:
+            meta["threshold_percentile"] = threshold_percentile
         if _exceeds_threshold(score, threshold):
             return CallbackResult.violate(bname, reason, metadata=meta)
         return CallbackResult.ok(bname, metadata=meta)

@@ -31,6 +31,29 @@ if TYPE_CHECKING:
     from dam.guard.builtin.ood import MemoryBank, RealNVPFlow, _WelfordStats
 
 _WARMUP_SAMPLES = 30
+_STORED_PERCENTILES = (90.0, 95.0, 97.5, 99.0, 99.5, 99.9)
+
+
+def _compute_percentiles(scores: np.ndarray) -> dict[float, float]:
+    """Compute a fixed set of percentiles from training scores."""
+    return {p: float(np.percentile(scores, p)) for p in _STORED_PERCENTILES}
+
+
+def _lookup_percentile(stored: dict[float, float], p: float) -> float:
+    """Look up a percentile, interpolating between stored values if needed."""
+    keys = sorted(stored)
+    if p in stored:
+        return stored[p]
+    if p <= keys[0]:
+        return stored[keys[0]]
+    if p >= keys[-1]:
+        return stored[keys[-1]]
+    for i in range(len(keys) - 1):
+        if keys[i] <= p <= keys[i + 1]:
+            lo, hi = keys[i], keys[i + 1]
+            t = (p - lo) / (hi - lo)
+            return stored[lo] + t * (stored[hi] - stored[lo])
+    return stored[keys[-1]]
 
 
 class OODBackendKind(Enum):
@@ -88,11 +111,19 @@ class OODBackend(Protocol):
 
     def train(self, features: np.ndarray) -> None: ...
 
-    def threshold(self, sigma: float, calibrated_threshold: float | None = None) -> float:
+    def threshold(
+        self,
+        sigma: float,
+        calibrated_threshold: float | None = None,
+        *,
+        percentile: float | None = None,
+    ) -> float:
         """Effective OOD cutoff for the given sensitivity.
 
         ``calibrated_threshold`` is used by normalizing-flow when an EER/RQ1
         value is available; other backends ignore it.
+        ``percentile`` selects a training-data percentile cutoff (e.g. 99.0)
+        instead of the Gaussian mean+σ·std assumption.
         """
         ...
 
@@ -148,7 +179,13 @@ class WelfordBackend:
             return 0.0
         return self._w.z_score_max(np.asarray(features, dtype=np.float64))
 
-    def threshold(self, sigma: float, calibrated_threshold: float | None = None) -> float:
+    def threshold(
+        self,
+        sigma: float,
+        calibrated_threshold: float | None = None,
+        *,
+        percentile: float | None = None,
+    ) -> float:
         return sigma
 
     def observe(self, features: np.ndarray) -> None:
@@ -194,6 +231,7 @@ class MemoryBankBackend:
         self._bank: MemoryBank = bank or MemoryBank()
         self.mean_train_dist: float | None = None
         self.std_train_dist: float | None = None
+        self.train_percentiles: dict[float, float] | None = None
 
     def is_ready(self) -> bool:
         return self._bank.is_trained
@@ -208,8 +246,17 @@ class MemoryBankBackend:
             dists = np.array([self._bank.nearest_distance(row) for row in arr], dtype=np.float64)
             self.mean_train_dist = float(np.mean(dists))
             self.std_train_dist = float(np.std(dists))
+            self.train_percentiles = _compute_percentiles(dists)
 
-    def threshold(self, sigma: float, calibrated_threshold: float | None = None) -> float:
+    def threshold(
+        self,
+        sigma: float,
+        calibrated_threshold: float | None = None,
+        *,
+        percentile: float | None = None,
+    ) -> float:
+        if percentile is not None and self.train_percentiles is not None:
+            return _lookup_percentile(self.train_percentiles, percentile)
         if self.mean_train_dist is not None and self.std_train_dist is not None:
             return self.mean_train_dist + sigma * self.std_train_dist
         return sigma
@@ -222,7 +269,7 @@ class MemoryBankBackend:
         return False
 
     def diagnostics(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "bank_trained": self._bank.is_trained,
             "bank_size": self._bank.size,
             "bank_dim": (
@@ -232,6 +279,9 @@ class MemoryBankBackend:
             "mean_train_dist": self.mean_train_dist,
             "std_train_dist": self.std_train_dist,
         }
+        if self.train_percentiles is not None:
+            d["train_percentiles"] = self.train_percentiles
+        return d
 
     def save(self, path: str | Path) -> None:
         self._bank.save(str(path))
@@ -248,7 +298,9 @@ class RealNVPFlowBackend:
 
     Records the training NLL distribution (``mean_train_nll`` /
     ``std_train_nll``) so a caller can derive a σ-based threshold the same way
-    the old guard did.
+    the old guard did.  Also stores percentile cutoffs for percentile-based
+    thresholding (more robust than Gaussian mean+σ·std when the NLL
+    distribution is skewed).
     """
 
     kind = OODBackendKind.NORMALIZING_FLOW
@@ -258,6 +310,7 @@ class RealNVPFlowBackend:
         self._device = device
         self.mean_train_nll: float | None = None
         self.std_train_nll: float | None = None
+        self.train_percentiles: dict[float, float] | None = None
 
     def is_ready(self) -> bool:
         return self._flow is not None and self._flow.is_fitted
@@ -290,16 +343,23 @@ class RealNVPFlowBackend:
         train_nlls = self._flow.neg_log_prob_batch(vectors)
         self.mean_train_nll = float(np.mean(train_nlls))
         self.std_train_nll = float(np.std(train_nlls))
+        self.train_percentiles = _compute_percentiles(train_nlls)
 
-    def threshold(self, sigma: float, calibrated_threshold: float | None = None) -> float:
+    def threshold(
+        self,
+        sigma: float,
+        calibrated_threshold: float | None = None,
+        *,
+        percentile: float | None = None,
+    ) -> float:
         """Effective cutoff.
 
-        When *calibrated_threshold* is provided (from RQ1 / EER), uses it
-        directly.  Otherwise uses mean + σ·std from training statistics.
-        Falls back to *sigma* as a raw value when no stats are available.
+        Priority: *calibrated_threshold* → *percentile* → mean + σ·std → raw σ.
         """
         if calibrated_threshold is not None:
             return calibrated_threshold
+        if percentile is not None and self.train_percentiles is not None:
+            return _lookup_percentile(self.train_percentiles, percentile)
         if self.mean_train_nll is not None and self.std_train_nll is not None:
             return self.mean_train_nll + sigma * self.std_train_nll
         return sigma
@@ -312,11 +372,14 @@ class RealNVPFlowBackend:
         return False
 
     def diagnostics(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "flow_fitted": self.is_ready(),
             "mean_train_nll": self.mean_train_nll,
             "std_train_nll": self.std_train_nll,
         }
+        if self.train_percentiles is not None:
+            d["train_percentiles"] = self.train_percentiles
+        return d
 
     def save(self, path: str | Path) -> None:
         if self._flow is not None:
@@ -324,6 +387,7 @@ class RealNVPFlowBackend:
                 str(path),
                 mean_train_nll=self.mean_train_nll,
                 std_train_nll=self.std_train_nll,
+                train_percentiles=self.train_percentiles,
             )
 
     def load(self, path: str | Path) -> None:
@@ -335,6 +399,7 @@ class RealNVPFlowBackend:
         if mean_nll is not None:
             self.mean_train_nll = mean_nll
             self.std_train_nll = std_nll
+        self.train_percentiles = self._flow.train_percentiles
 
 
 def make_backend(kind: OODBackendKind | str, **kwargs: Any) -> OODBackend:

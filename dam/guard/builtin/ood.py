@@ -447,6 +447,7 @@ class RealNVPFlow:
         self._device = device
         self._model: Any | None = None  # torch.nn.Module
         self._is_fitted = False
+        self._train_percentiles: dict[float, float] | None = None
 
     @staticmethod
     def _torch_available() -> bool:
@@ -633,6 +634,7 @@ class RealNVPFlow:
         path: str,
         mean_train_nll: float | None = None,
         std_train_nll: float | None = None,
+        train_percentiles: dict[float, float] | None = None,
     ) -> None:
         if self._model is not None:
             import torch
@@ -645,6 +647,7 @@ class RealNVPFlow:
                     "hidden": self._hidden,
                     "mean_train_nll": mean_train_nll,
                     "std_train_nll": std_train_nll,
+                    "train_percentiles": train_percentiles,
                 },
                 path,
             )
@@ -654,6 +657,10 @@ class RealNVPFlow:
                 mean_train_nll,
                 std_train_nll,
             )
+
+    @property
+    def train_percentiles(self) -> dict[float, float] | None:
+        return self._train_percentiles
 
     def load(self, path: str, device: str = "cpu") -> tuple[float | None, float | None]:
         """Load model from checkpoint.
@@ -676,6 +683,7 @@ class RealNVPFlow:
         self._model.load_state_dict(ckpt["state_dict"])
         self._model.eval()
         self._is_fitted = True
+        self._train_percentiles = ckpt.get("train_percentiles")
         logger.info("RealNVP loaded from %s (device=%s)", path, self._device)
         return ckpt.get("mean_train_nll"), ckpt.get("std_train_nll")
 
