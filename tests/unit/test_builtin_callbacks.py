@@ -14,6 +14,7 @@ from dam.boundary.builtin_callbacks import (
     joint_position_limits,
     joint_velocity_limit,
     keep_out_zone,
+    orientation_limit,
     register_all,
     temperature_limit,
     voltage_limit,
@@ -443,6 +444,73 @@ class TestKeepOutZone:
         r = keep_out_zone(obs=obs, action=action, spheres=spheres, J_linear=J)
         assert r.decision == GuardDecision.PASS
         assert r.metadata["n_spheres"] == 2
+
+
+# ── orientation_limit ─────────────────────────────────────────────────────────
+
+
+def _rotation_x(deg: float) -> np.ndarray:
+    """Rotation matrix about X axis."""
+    r = np.radians(deg)
+    return np.array([[1, 0, 0], [0, np.cos(r), -np.sin(r)], [0, np.sin(r), np.cos(r)]])
+
+
+class TestOrientationLimit:
+    def test_upright_pass(self):
+        """Tool axis aligned with reference → PASS."""
+        R = np.eye(3)
+        obs = _obs(positions=[0.0] * 6)
+        action = _action([0.0] * 6)
+        J_ang = np.eye(3, 6) * 0.1
+        r = orientation_limit(obs=obs, action=action, ee_rot=R, J_angular=J_ang, max_tilt_deg=30.0)
+        assert r.decision == GuardDecision.PASS
+        assert r.metadata["tilt_deg"] < 1.0
+
+    def test_tilted_beyond_limit_clamp(self):
+        """Tool axis tilted 45° with 30° limit → CLAMP with QPTerm."""
+        R = _rotation_x(45.0)
+        obs = _obs(positions=[0.0] * 6)
+        action = _action([0.0] * 6)
+        J_ang = np.eye(3, 6) * 0.1
+        r = orientation_limit(obs=obs, action=action, ee_rot=R, J_angular=J_ang, max_tilt_deg=30.0)
+        assert r.decision == GuardDecision.CLAMP
+        assert "motion_qp" in r.metadata
+        assert r.metadata["tilt_deg"] > 30.0
+
+    def test_no_angular_jacobian_upright_pass(self):
+        """Without angular Jacobian but within limit → PASS."""
+        R = np.eye(3)
+        obs = _obs(positions=[0.0] * 6)
+        action = _action([0.0] * 6)
+        r = orientation_limit(obs=obs, action=action, ee_rot=R, max_tilt_deg=30.0)
+        assert r.decision == GuardDecision.PASS
+
+    def test_no_angular_jacobian_violated_halts(self):
+        """Without angular Jacobian and beyond limit → halt fallback."""
+        R = _rotation_x(45.0)
+        obs = _obs(positions=[0.1, 0.2, 0.3, 0.0, 0.0, 0.0])
+        action = _action([0.0] * 6)
+        r = orientation_limit(obs=obs, action=action, ee_rot=R, max_tilt_deg=30.0)
+        assert r.decision == GuardDecision.CLAMP
+        np.testing.assert_array_almost_equal(
+            r.clamped_action.target_joint_positions, obs.joint_positions
+        )
+
+    def test_custom_axes(self):
+        R = np.eye(3)
+        obs = _obs(positions=[0.0] * 6)
+        action = _action([0.0] * 6)
+        J_ang = np.eye(3, 6) * 0.1
+        r = orientation_limit(
+            obs=obs,
+            action=action,
+            ee_rot=R,
+            J_angular=J_ang,
+            max_tilt_deg=30.0,
+            reference_axis=[0.0, 0.0, 1.0],
+            tool_axis=[0.0, 0.0, 1.0],
+        )
+        assert r.decision == GuardDecision.PASS
 
 
 # ── check_force_torque_safe ───────────────────────────────────────────────────

@@ -10,6 +10,7 @@ Callbacks:
     ``joint_velocity_limit``  — velocity + acceleration limits
     ``workspace``             — EE position box (CBF constraint via QP)
     ``keep_out_zone``         — spherical keep-out zones (CBF constraint via QP)
+    ``orientation_limit``     — EE tilt limit (CBF constraint via QP)
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ import numpy as np
 
 from dam.boundary.callbacks._helpers import (
     _all_finite,
+    _resolve_ee_rotation,
     _resolve_ee_translation,
 )
 from dam.boundary.callbacks._registry import boundary_callback
@@ -553,5 +555,143 @@ def keep_out_zone(
             "n_spheres": len(spheres),
             "cbf_margin_min": float(np.min(margin)),
             "_units": {"ee_pos": "m"},
+        },
+    )
+
+
+@boundary_callback(
+    name="orientation_limit",
+    layer="L1",
+    category="kinematics",
+    description="Limits end-effector tilt from a reference axis via CBF constraint in the QP solver.",
+    params={
+        "max_tilt_deg": "Maximum allowed tool tilt from the reference axis, in degrees. Default 30.",
+        "reference_axis": "World-frame axis to align with. Defaults to [0,0,1] (up).",
+        "tool_axis": "Tool-frame axis that should stay aligned. Defaults to [0,0,1].",
+        "cbf_alpha": "CBF decay rate (0,∞). Higher → correct later, lower → correct earlier. Default 1.0.",
+        "slack_weight": "QP soft-constraint penalty.",
+    },
+    internal_params=("slack_weight",),
+)
+def orientation_limit(
+    *,
+    obs: Observation,
+    action: ActionProposal,
+    max_tilt_deg: float = 30.0,
+    reference_axis: list[float] | None = None,
+    tool_axis: list[float] | None = None,
+    cbf_alpha: float = 1.0,
+    slack_weight: float = 1e6,
+    ee_rot: np.ndarray | None = None,
+    J_angular: np.ndarray | None = None,
+    kinematics_resolver: KinematicsResolver | None = None,
+    dynamics: Any | None = None,
+) -> CallbackResult:
+    """CBF constraint that limits the tool axis tilt from a reference direction.
+
+    Useful for keeping carried payloads upright (open containers, trays).
+    Linearises the tilt constraint via the angular Jacobian and contributes
+    a :class:`QPTerm`.  Falls back to halt when angular Jacobian is unavailable.
+    """
+    bname = "orientation_limit"
+    ref = np.asarray(
+        reference_axis if reference_axis is not None else [0.0, 0.0, 1.0],
+        dtype=np.float64,
+    )
+    tool = np.asarray(
+        tool_axis if tool_axis is not None else [0.0, 0.0, 1.0],
+        dtype=np.float64,
+    )
+    ref_norm = float(np.linalg.norm(ref))
+    tool_norm = float(np.linalg.norm(tool))
+    if ref_norm < 1e-12 or tool_norm < 1e-12:
+        return CallbackResult.ok(bname, "zero-length axis; skip")
+    ref = ref / ref_norm
+    tool = tool / tool_norm
+
+    if ee_rot is None:
+        ee_rot = _resolve_ee_rotation(
+            obs, kinematics_resolver=kinematics_resolver, dynamics=dynamics
+        )
+    if ee_rot is None or obs.joint_positions is None:
+        return CallbackResult.ok(bname, "EE orientation unavailable; skip")
+
+    R = np.asarray(ee_rot, dtype=np.float64)
+    tool_world = R @ tool
+    cos_tilt = float(np.clip(np.dot(tool_world, ref), -1.0, 1.0))
+    tilt_deg = float(np.degrees(np.arccos(cos_tilt)))
+
+    q = np.asarray(obs.joint_positions, dtype=np.float64)
+    target = np.asarray(action.target_joint_positions, dtype=np.float64)
+    violated = tilt_deg > max_tilt_deg
+
+    if J_angular is None:
+        if not violated:
+            return CallbackResult.ok(
+                bname,
+                metadata={"tilt_deg": tilt_deg, "max_tilt_deg": max_tilt_deg},
+            )
+        halt = ValidatedAction(
+            target_joint_positions=q.copy(),
+            target_joint_velocities=None,
+            was_clamped=True,
+            original_proposal=action,
+            timestamp=action.timestamp,
+        )
+        return CallbackResult.clamp(
+            bname,
+            halt,
+            reason=f"EE tilt {tilt_deg:.1f}° > {max_tilt_deg}° (no angular Jacobian); halting",
+            metadata={"tilt_deg": tilt_deg, "max_tilt_deg": max_tilt_deg},
+        )
+
+    from dam.runtime import qp_solver
+
+    cbf_A, cbf_b = qp_solver.orientation_tilt_constraint(
+        q=q,
+        ee_rot=R,
+        J_angular=J_angular,
+        max_tilt_deg=max_tilt_deg,
+        reference_axis=ref,
+        tool_axis=tool,
+        cbf_alpha=cbf_alpha,
+    )
+
+    n = J_angular.shape[1]
+    margin = cbf_b - cbf_A @ target[:n]
+    satisfied = bool(np.all(margin >= -1e-8))
+
+    if not violated and satisfied:
+        return CallbackResult.ok(
+            bname,
+            metadata={
+                "tilt_deg": tilt_deg,
+                "max_tilt_deg": max_tilt_deg,
+                "cbf_margin_min": float(np.min(margin)),
+            },
+        )
+
+    qp_meta = QPTerm(A=cbf_A, b=cbf_b, slack_weight=float(slack_weight))
+    clamped = ValidatedAction(
+        target_joint_positions=target.copy(),
+        target_joint_velocities=action.target_joint_velocities,
+        was_clamped=True,
+        original_proposal=action,
+        timestamp=action.timestamp,
+    )
+    if violated:
+        reason = f"EE tilt {tilt_deg:.1f}° > {max_tilt_deg}°; CBF correcting"
+    else:
+        reason = f"EE action would exceed tilt limit; CBF active (margin_min={float(np.min(margin)):.4f})"
+    return CallbackResult.clamp(
+        bname,
+        clamped,
+        reason=reason,
+        metadata={
+            "motion_qp": qp_meta,
+            "tilt_deg": tilt_deg,
+            "max_tilt_deg": max_tilt_deg,
+            "cbf_margin_min": float(np.min(margin)),
+            "_units": {"tilt_deg": "deg", "max_tilt_deg": "deg"},
         },
     )

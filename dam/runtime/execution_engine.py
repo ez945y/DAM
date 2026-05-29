@@ -60,6 +60,7 @@ def _compute_fk_into_pool(
         pool["ee_pos"] = np.asarray(placement.translation, dtype=np.float64).copy()
         pool["ee_rot"] = np.asarray(placement.rotation, dtype=np.float64).copy()
         pool["J_linear"] = J_full[:3, :].copy()
+        pool["J_angular"] = J_full[3:, :].copy()
     except Exception:  # noqa: BLE001
         # FK failure is non-fatal; callbacks degrade gracefully without EE data.
         pass

@@ -140,6 +140,46 @@ def sphere_keepout_constraints(
     return np.array(A_rows), np.array(b_vals)
 
 
+def orientation_tilt_constraint(
+    *,
+    q: np.ndarray,
+    ee_rot: np.ndarray,
+    J_angular: np.ndarray,
+    max_tilt_deg: float,
+    reference_axis: np.ndarray,
+    tool_axis: np.ndarray,
+    cbf_alpha: float = 1.0,
+    dt: float = 0.02,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Build a linear CBF constraint for EE orientation tilt limit.
+
+    CBF: ``h(q) = cos(tilt) - cos(max_tilt) ≥ 0``, where tilt is the angle
+    between the tool axis (rotated to world frame) and the reference axis.
+    Linearised via the angular Jacobian to ``A @ u ≤ b``.
+    """
+    gamma = float(cbf_alpha) * float(dt)
+    R = np.asarray(ee_rot, dtype=np.float64)
+    tool_local = np.asarray(tool_axis, dtype=np.float64)
+    tool_local = tool_local / (np.linalg.norm(tool_local) + 1e-12)
+    ref = np.asarray(reference_axis, dtype=np.float64)
+    ref = ref / (np.linalg.norm(ref) + 1e-12)
+
+    tool_world = R @ tool_local
+    cos_tilt = float(np.clip(np.dot(tool_world, ref), -1.0, 1.0))
+    cos_max = float(np.cos(np.radians(max_tilt_deg)))
+    h = cos_tilt - cos_max
+
+    # ∂h/∂q = (tool_world × ref)ᵀ · J_angular
+    cross = np.cross(tool_world, ref)
+    dh_dq = cross @ np.asarray(J_angular, dtype=np.float64)
+    q_arr = np.asarray(q, dtype=np.float64)
+
+    # -dh_dq @ u ≤ -dh_dq @ q + γ h
+    A = -dh_dq.reshape(1, -1)
+    b_val = -float(dh_dq @ q_arr) + gamma * h
+    return A, np.array([b_val])
+
+
 def available() -> bool:
     """True when ``proxsuite`` is importable.  Lets the caller decide whether
     to dispatch to the QP path or fall back to box-clamp."""

@@ -60,6 +60,7 @@ from a function name.
 | `joint_position_limits` | kinematics | A commanded joint target would exceed joint travel | clamp to the permitted position |
 | `workspace` | kinematics | End effector would leave its allowed work volume | CBF constraint via QP (falls back to halt without Jacobian) |
 | `keep_out_zone` | kinematics | End effector would enter a spherical keep-out zone | CBF constraint via QP (falls back to halt without Jacobian) |
+| `orientation_limit` | kinematics | Tool axis tilt exceeds the configured limit | CBF constraint via QP (falls back to halt without angular Jacobian) |
 | `task_joint_speed_limit` | execution | Optional task-local aggregate speed cap for custom workflows | `hold_position` after the configured warning streak |
 | `task_workspace_bounds` | execution | Current task phase leaves its local work area | `hold_position` after the configured warning streak |
 | `check_gripper_clear` | execution | Gripper is obstructed/closed when clearance is required | `hold_position` |

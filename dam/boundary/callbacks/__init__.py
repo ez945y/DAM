@@ -37,6 +37,7 @@ from dam.boundary.callbacks.kinematics import (
     joint_position_limits,
     joint_velocity_limit,
     keep_out_zone,
+    orientation_limit,
     workspace,
 )
 from dam.boundary.callbacks.ood import ood_detector
@@ -56,6 +57,7 @@ __all__ = [
     "joint_velocity_limit",
     "keep_out_zone",
     "ood_detector",
+    "orientation_limit",
     "register_all",
     "task_gripper_command_guard",
     "temperature_limit",
