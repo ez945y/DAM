@@ -446,3 +446,105 @@ def test_runtime_pool_ee_pos_outside_zone_clamps(EG):
     )
     assert result.decision == GuardDecision.CLAMP
     assert "allowed zone" in result.reason
+
+
+# ── task_workspace_bounds ─────────────────────────────────────────────────────
+
+
+def test_task_workspace_bounds_inside_pass(EG):
+    from dam.boundary.builtin_callbacks import register_all
+
+    register_all()
+    g = EG()
+    precompute_injection(g, {})
+    container = make_container(
+        callback="task_workspace_bounds",
+        bounds=[[-0.3, 0.3], [-0.3, 0.3], [0.0, 0.5]],
+    )
+    result = g.check(
+        obs=make_obs(),
+        action=make_action(),
+        active_containers=[container],
+        node_start_times={},
+        runtime_pool={"ee_pos": np.array([0.1, 0.0, 0.2])},
+    )
+    assert result.decision == GuardDecision.PASS
+
+
+def test_task_workspace_bounds_outside_rejects(EG):
+    from dam.boundary.builtin_callbacks import register_all
+
+    register_all()
+    g = EG()
+    precompute_injection(g, {})
+    container = make_container(
+        callback="task_workspace_bounds",
+        bounds=[[-0.3, 0.3], [-0.3, 0.3], [0.0, 0.5]],
+    )
+    result = g.check(
+        obs=make_obs(),
+        action=make_action(),
+        active_containers=[container],
+        node_start_times={},
+        runtime_pool={"ee_pos": np.array([0.5, 0.0, 0.2])},
+    )
+    assert result.decision in (GuardDecision.REJECT, GuardDecision.CLAMP)
+    assert "outside task workspace" in result.reason
+
+
+def test_task_workspace_bounds_no_ee_rejects(EG):
+    from dam.boundary.builtin_callbacks import register_all
+
+    register_all()
+    g = EG()
+    precompute_injection(g, {})
+    container = make_container(
+        callback="task_workspace_bounds",
+        bounds=[[-0.3, 0.3], [-0.3, 0.3], [0.0, 0.5]],
+    )
+    obs = Observation(timestamp=0.0, joint_positions=np.zeros(6))
+    result = g.check(
+        obs=obs,
+        action=make_action(),
+        active_containers=[container],
+        node_start_times={},
+    )
+    assert result.decision in (GuardDecision.REJECT, GuardDecision.CLAMP)
+
+
+# ── task_joint_speed_limit ────────────────────────────────────────────────────
+
+
+def test_task_joint_speed_limit_slow_pass(EG):
+    from dam.boundary.builtin_callbacks import register_all
+
+    register_all()
+    g = EG()
+    precompute_injection(g, {})
+    container = make_container(callback="task_joint_speed_limit", max_speed=2.0)
+    obs = make_obs(velocities=[0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
+    result = g.check(
+        obs=obs,
+        action=make_action(),
+        active_containers=[container],
+        node_start_times={},
+    )
+    assert result.decision == GuardDecision.PASS
+
+
+def test_task_joint_speed_limit_fast_rejects(EG):
+    from dam.boundary.builtin_callbacks import register_all
+
+    register_all()
+    g = EG()
+    precompute_injection(g, {})
+    container = make_container(callback="task_joint_speed_limit", max_speed=0.5)
+    obs = make_obs(velocities=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
+    result = g.check(
+        obs=obs,
+        action=make_action(),
+        active_containers=[container],
+        node_start_times={},
+    )
+    assert result.decision in (GuardDecision.REJECT, GuardDecision.CLAMP)
+    assert "aggregate joint speed" in result.reason

@@ -22,6 +22,8 @@ from dam.boundary.callbacks._registry import (
 # Importing the layer modules triggers their decorators (registry population).
 from dam.boundary.callbacks.execution import (
     task_gripper_command_guard,
+    task_joint_speed_limit,
+    task_workspace_bounds,
 )
 from dam.boundary.callbacks.hardware import (
     check_force_torque_safe,
@@ -60,6 +62,8 @@ __all__ = [
     "orientation_limit",
     "register_all",
     "task_gripper_command_guard",
+    "task_joint_speed_limit",
+    "task_workspace_bounds",
     "temperature_limit",
     "voltage_limit",
     "workspace",

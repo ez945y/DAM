@@ -4,6 +4,8 @@ Constraints tied to task semantics / expected mission state (as opposed to
 the geometric invariants in :mod:`kinematics`).
 
 ``task_gripper_command_guard`` gates gripper open/close per task phase.
+``task_workspace_bounds``      rejects when EE leaves the phase's local zone.
+``task_joint_speed_limit``     caps aggregate joint speed per task phase.
 """
 
 from __future__ import annotations
@@ -213,4 +215,95 @@ def task_gripper_command_guard(
         reason=f"gripper {command} outside allowed zone: ee={ee_pos.tolist()}",
         command=command,
         allowed_command=expected,
+    )
+
+
+@boundary_callback(
+    name="task_workspace_bounds",
+    layer="L2",
+    category="execution",
+    description=("Rejects when the end-effector leaves the task phase's local workspace zone."),
+    params={
+        "bounds": "Allowed EE box: [[xmin,xmax],[ymin,ymax],[zmin,zmax]] in metres.",
+    },
+)
+def task_workspace_bounds(
+    *,
+    obs: Observation,
+    bounds: list[list[float]] | None = None,
+    ee_pos: np.ndarray | None = None,
+) -> CallbackResult:
+    """Reject when the EE is outside the task phase's workspace zone.
+
+    Unlike L1 ``workspace`` which clamps via CBF, this L2 callback triggers
+    a task-level fallback (e.g. hold_position) — it does not modify the action.
+
+    ``ee_pos`` is pre-computed by the execution engine and injected via the
+    runtime pool.  Falls back to ``obs.end_effector_pose``.
+    """
+    bname = "task_workspace_bounds"
+    if bounds is None:
+        return CallbackResult.ok(bname, "no task workspace bounds configured")
+
+    if ee_pos is None:
+        if obs.end_effector_pose is not None and len(obs.end_effector_pose) >= 3:
+            ee_pos = np.asarray(obs.end_effector_pose[:3], dtype=np.float64)
+        else:
+            return CallbackResult.violate(bname, "EE pose unavailable for workspace check")
+
+    if not _all_finite(ee_pos):
+        return CallbackResult.violate(bname, "non-finite EE position")
+
+    if _in_box(ee_pos, bounds):
+        return CallbackResult.ok(
+            bname,
+            metadata={"ee_pos": ee_pos.tolist(), "bounds": bounds},
+        )
+
+    return CallbackResult.violate(
+        bname,
+        reason=f"EE {ee_pos.tolist()} outside task workspace {bounds}",
+        metadata={"ee_pos": ee_pos.tolist(), "bounds": bounds},
+    )
+
+
+@boundary_callback(
+    name="task_joint_speed_limit",
+    layer="L2",
+    category="execution",
+    description=("Rejects when the aggregate joint speed exceeds a task-phase cap."),
+    params={
+        "max_speed": "Maximum allowed aggregate joint speed (norm of velocity vector) in rad/s.",
+    },
+)
+def task_joint_speed_limit(
+    *,
+    obs: Observation,
+    max_speed: float = 1.0,
+) -> CallbackResult:
+    """Reject when the aggregate joint speed exceeds the phase cap.
+
+    Computes the L2 norm of ``obs.joint_velocities`` and compares it to
+    ``max_speed``.  Intended as a task-level safety net — L1 velocity limits
+    bound per-joint velocities, while this bounds the overall speed.
+    """
+    bname = "task_joint_speed_limit"
+    if obs.joint_velocities is None:
+        return CallbackResult.ok(bname, "no velocity data")
+
+    v = np.asarray(obs.joint_velocities, dtype=np.float64)
+    if not _all_finite(v):
+        return CallbackResult.violate(bname, "non-finite joint velocities")
+
+    speed = float(np.linalg.norm(v))
+    if speed <= max_speed:
+        return CallbackResult.ok(
+            bname,
+            metadata={"speed": speed, "max_speed": max_speed, "_units": {"speed": "rad/s"}},
+        )
+
+    return CallbackResult.violate(
+        bname,
+        reason=f"aggregate joint speed {speed:.3f} rad/s > {max_speed:.3f} rad/s",
+        metadata={"speed": speed, "max_speed": max_speed, "_units": {"speed": "rad/s"}},
     )
