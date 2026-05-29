@@ -21,21 +21,22 @@
 
 ## 會話記錄
 
-### Session 2026-05-29 #6 (Workspace → QP CBF Contributor)
+### Session 2026-05-29 #6 (L1 CBF Unification — workspace, keep_out_zone, orientation_limit)
 
-- **本輪目標**: workspace callback 從 halt 改成 CBF constraint contributor
+- **本輪目標**: 將所有 L1 kinematics callback 統一為 QP CBF contributor
 - **已完成**:
-  - `workspace` callback 使用 `workspace_cbf_constraints` 線性化 → QPTerm(A, b)
-  - 有 Jacobian 時：CBF constraint 透過 QP 平滑避障（不再 halt）
-  - 無 Jacobian 時：fallback 到原本的 halt 行為
-  - 新增 `cbf_alpha` 和 `slack_weight` 參數
-  - 4 個新 CBF workspace 測試
-  - 6 個文檔更新（boundary-callbacks, boundaries, guards-explained, safe-recording, glossary, quick-stack）
+  - `workspace` → CBF QPTerm(A, b) via `workspace_cbf_constraints`（4 new tests）
+  - `keep_out_zone` (NEW) → sphere CBF QPTerm(A, b) via `sphere_keepout_constraints`（6 new tests + 1 QP integration test）
+  - `orientation_limit` (NEW) → tilt CBF QPTerm(A, b) via `orientation_tilt_constraint`（5 new tests）
+  - `J_angular` added to EE precomputation pool（1 line in execution_engine）
+  - All three have halt fallback when Jacobian is unavailable
+  - 8 doc files updated
 - **執行過的驗證**:
-  - `python -m pytest tests/unit/ -x -q` — 603 passed, 29 skipped
+  - `python -m pytest tests/unit/ -x -q` — 615 passed, 29 skipped
   - `python -m pytest tests/safety/ -x -q` — 35 passed
   - `ruff check` + `mypy` — all passed
   - `scripts/check_docs.py` — passed
+- **commits**: `fc370c7`, `922d1b4`, `5625737`, `08e2ef1`
 
 ### Session 2026-05-29 #1 (GuardRuntime Decomposition + Legacy Shim Elimination)
 

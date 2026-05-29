@@ -1,24 +1,31 @@
 # session-handoff.md — 會話交接摘要
 
-> 最後更新: 2026-05-29 (Workspace → QP CBF Contributor)
+> 最後更新: 2026-05-29 (L1 CBF Unification)
 
 ## 本輪工作
 
-### Workspace → QP CBF Contributor
+### L1 CBF Unification
 
-`workspace` callback 從 halt 改成 CBF constraint contributor：
-- 有 `J_linear`（pool 預計算）：`workspace_cbf_constraints` 線性化 → `QPTerm(A, b)`
-- 無 `J_linear`：fallback 到 halt（凍結 action）
-- 新增 `cbf_alpha`（CBF 衰減率）和 `slack_weight` 參數
+所有 L1 kinematics callbacks 現在都走 QP CBF：
 
-**L1 現在 3 個 callback 全部走 QP**:
+**L1 callback 全景**（6 個）:
 - `joint_position_limits` → QPTerm(upper, lower)
 - `joint_velocity_limit` → QPTerm(upper, lower) + 加速度限制
-- `workspace` → QPTerm(A, b) via CBF 線性化
+- `workspace` → QPTerm(A, b) via workspace box CBF
+- `keep_out_zone` (NEW) → QPTerm(A, b) via sphere CBF（一個不等式/sphere）
+- `orientation_limit` (NEW) → QPTerm(A, b) via tilt CBF（angular Jacobian）
+
+**EE precomputation pool**:
+`pool["ee_pos"]`, `pool["ee_rot"]`, `pool["J_linear"]`, `pool["J_angular"]`（新增）
+
+**所有 callback 的 fallback**:
+- 有 Jacobian → CBF 線性化 → QPTerm → QP solver 融合
+- 無 Jacobian → halt（凍結 action，原有行為）
 
 **下一步**:
-- keep-out zone 回歸為 QP constraint term（需要 Jacobian + CBF on spherical/convex obstacle）
-- orientation limit 回歸為 QP constraint term（需要 rotation Jacobian）
+- 實機驗證 CBF 參數（cbf_alpha, slack_weight）在 SO-101 上的表現
+- keep-out box（非凸，需要不同策略）
+- `base_geofence` 考慮是否值得回歸（mobile base 場景）
 
 ### GuardRuntime 拆分 (1726 → ~1037 lines)
 
