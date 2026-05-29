@@ -1,8 +1,24 @@
 # session-handoff.md — 會話交接摘要
 
-> 最後更新: 2026-05-29 (GuardRuntime Decomposition + Legacy Shim Elimination)
+> 最後更新: 2026-05-29 (Workspace → QP CBF Contributor)
 
 ## 本輪工作
+
+### Workspace → QP CBF Contributor
+
+`workspace` callback 從 halt 改成 CBF constraint contributor：
+- 有 `J_linear`（pool 預計算）：`workspace_cbf_constraints` 線性化 → `QPTerm(A, b)`
+- 無 `J_linear`：fallback 到 halt（凍結 action）
+- 新增 `cbf_alpha`（CBF 衰減率）和 `slack_weight` 參數
+
+**L1 現在 3 個 callback 全部走 QP**:
+- `joint_position_limits` → QPTerm(upper, lower)
+- `joint_velocity_limit` → QPTerm(upper, lower) + 加速度限制
+- `workspace` → QPTerm(A, b) via CBF 線性化
+
+**下一步**:
+- keep-out zone 回歸為 QP constraint term（需要 Jacobian + CBF on spherical/convex obstacle）
+- orientation limit 回歸為 QP constraint term（需要 rotation Jacobian）
 
 ### GuardRuntime 拆分 (1726 → ~1037 lines)
 
@@ -52,6 +68,11 @@ Investigated whether the two injection systems are redundant. Conclusion: **they
 - `7bba34f` fix: update monkeypatch target after GuardRuntime telemetry extraction
 - `84745fa` refactor: consolidate L1 kinematics — acceleration limit + remove weak callbacks
 - `7f39640` docs: update L1 callback documentation after consolidation
+- `b3dd856` refactor: QP mandatory + delete weak L1 callbacks
+- `73c8ed6` docs: align docs, examples, templates with QP-mandatory L1
+- `1300d1e` feat: EE precomputation — FK once per cycle, shared via pool
+- `6246d33` feat: L2 gripper callback reads pre-computed ee_pos from pool
+- `239c764` refactor: MotionQPConstraint → QPTerm — generic box + linear inequality
 
 ## 待後續處理
 

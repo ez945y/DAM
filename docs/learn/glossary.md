@@ -287,7 +287,7 @@ A timeout mechanism for detecting when the control loop exceeds its configured b
 An online statistical method for OOD detection. Maintains running mean and variance; rejects if any dimension's z-score exceeds threshold.
 
 **Workspace Bounds**
-3D spatial limits (x, y, z ranges in meters) for the end-effector. L1 workspace boundaries can halt or clamp motion, while L2 task workspace boundaries reject task actions outside the configured zone.
+3D spatial limits (x, y, z ranges in meters) for the end-effector. L1 workspace boundaries use CBF constraints in the QP to keep the end-effector inside the box, while L2 task workspace boundaries reject task actions outside the configured zone.
 
 ---
 

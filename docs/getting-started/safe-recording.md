@@ -118,7 +118,7 @@ When an operator's command hits a boundary:
 |-----------|---------------|------------------------|
 | Joint exceeds position limit | Clamp to limit | Arm resists slightly |
 | Velocity too high | Scale all joints proportionally | Motion slows down smoothly |
-| End-effector leaves workspace | Reject, hold position | Arm stops, holds |
+| End-effector approaching workspace boundary | CBF clamp via QP | Motion steered away from boundary |
 
 The clamped action is what gets recorded. Your dataset contains only actions that respect all configured boundaries.
 

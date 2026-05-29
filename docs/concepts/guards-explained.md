@@ -249,7 +249,7 @@ boundaries:
 | Position exceeds limit | Clamp to limit | PASS (clamped) |
 | Velocity exceeds max | Scale proportionally | PASS (clamped) |
 | Acceleration exceeds max | Reduce target velocity | PASS (clamped) |
-| End-effector outside workspace | Cannot fix | **REJECT** |
+| End-effector approaching/outside workspace | CBF constraint via QP | PASS (clamped) |
 
 ### Expected Enforcement
 

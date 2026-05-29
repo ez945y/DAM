@@ -21,6 +21,22 @@
 
 ## 會話記錄
 
+### Session 2026-05-29 #6 (Workspace → QP CBF Contributor)
+
+- **本輪目標**: workspace callback 從 halt 改成 CBF constraint contributor
+- **已完成**:
+  - `workspace` callback 使用 `workspace_cbf_constraints` 線性化 → QPTerm(A, b)
+  - 有 Jacobian 時：CBF constraint 透過 QP 平滑避障（不再 halt）
+  - 無 Jacobian 時：fallback 到原本的 halt 行為
+  - 新增 `cbf_alpha` 和 `slack_weight` 參數
+  - 4 個新 CBF workspace 測試
+  - 6 個文檔更新（boundary-callbacks, boundaries, guards-explained, safe-recording, glossary, quick-stack）
+- **執行過的驗證**:
+  - `python -m pytest tests/unit/ -x -q` — 603 passed, 29 skipped
+  - `python -m pytest tests/safety/ -x -q` — 35 passed
+  - `ruff check` + `mypy` — all passed
+  - `scripts/check_docs.py` — passed
+
 ### Session 2026-05-29 #1 (GuardRuntime Decomposition + Legacy Shim Elimination)
 
 - **本輪目標**: 拆分 1726 行 GuardRuntime God Object 為 5 個模組，消除 legacy callback shim
@@ -53,6 +69,23 @@
   - `python -m pytest tests/unit/ -x -q` — 636 passed, 29 skipped
   - pre-commit hooks — all passed on each commit
 - **commits**: `ff77cad`, `107a7ed`, `38d243a`
+
+### Session 2026-05-29 #5 (QP Mandatory + EE Precomputation)
+
+- **本輪目標**: QP 強制化、刪除弱 callback、EE 預計算注入、L2 pool 讀取
+- **已完成**:
+  - 刪除 `keep_out_zone`、`orientation_limit`、`base_geofence`（REJECT-on-obs，無 QP）
+  - MotionGuard 預設使用 `motion_qp_aggregator`，移除 sequential fallback
+  - Stackfile builder 精簡：只驗證 proxsuite 可用性
+  - `execution_engine._build_runtime_pool` 預計算 FK → `pool["ee_pos"]`, `pool["ee_rot"]`, `pool["J_linear"]`
+  - `_accumulate_phase_clamps` 在 L1 clamp 後重算 FK，更新 pool
+  - `workspace` callback 讀 pool `ee_pos`（fallback 到自算 FK）
+  - `task_gripper_command_guard` 讀 pool `ee_pos`（fallback 到 `obs.end_effector_pose`）
+  - 對齊 docs、examples、templates（刪除 qp_solver/cbf_gamma 殘留）
+  - QP 數值容差調整（safety/property/integration tests 放寬到 1e-3）
+- **執行過的驗證**:
+  - `make test` — ALL PASSED
+- **commits**: `b3dd856`, `73c8ed6`, `1300d1e`, `6246d33`
 
 ### Session 2026-05-29 #4 (L1 Kinematics Consolidation)
 

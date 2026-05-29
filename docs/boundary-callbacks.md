@@ -58,7 +58,7 @@ from a function name.
 | `ood_detector` | anomaly | Observation no longer resembles calibrated normal operation | `hold_position` while the operator reviews context |
 | `joint_velocity_limit` | kinematics | A commanded joint rate or acceleration would exceed its limit | clamp to the permitted rate/acceleration |
 | `joint_position_limits` | kinematics | A commanded joint target would exceed joint travel | clamp to the permitted position |
-| `workspace` | kinematics | End effector would leave its allowed work volume | halt motion at the current joint state |
+| `workspace` | kinematics | End effector would leave its allowed work volume | CBF constraint via QP (falls back to halt without Jacobian) |
 | `task_joint_speed_limit` | execution | Optional task-local aggregate speed cap for custom workflows | `hold_position` after the configured warning streak |
 | `task_workspace_bounds` | execution | Current task phase leaves its local work area | `hold_position` after the configured warning streak |
 | `check_gripper_clear` | execution | Gripper is obstructed/closed when clearance is required | `hold_position` |

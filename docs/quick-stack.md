@@ -131,7 +131,7 @@ with `monitors_hardware`; `emergency_stop` is terminal and disables it.
 
 ### `guards.builtin.motion` (L1)
 
-Enforces joint position limits, velocity limits, and acceleration limits. Clamps action proposals rather than rejecting them when possible. Rejects when the end-effector is outside workspace bounds.
+Enforces joint position limits, velocity limits, acceleration limits, and workspace bounds. All constraints are fused via a single QP solve that finds the least-perturbing safe action.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|

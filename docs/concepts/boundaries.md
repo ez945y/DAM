@@ -53,7 +53,7 @@ Run `make callbacks` (or `.venv/bin/dam callbacks`) to see all of them. Grouped 
 |----------|----------|
 | `joint_position_limits` | **Clamps** joints to `[lower, upper]` via QP |
 | `joint_velocity_limit` | **Clamps** velocities to `±max_velocities` and accelerations to `±max_acceleration` via QP |
-| `workspace` | **Halts** motion if end-effector leaves the workspace box |
+| `workspace` | **Clamps** via CBF constraint in the QP to keep end-effector inside the workspace box |
 
 **L2 -- Task Execution**
 

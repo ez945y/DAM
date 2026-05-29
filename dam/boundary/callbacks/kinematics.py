@@ -8,7 +8,7 @@ least-perturbing safe action.
 Callbacks:
     ``joint_position_limits`` — box bounds on joint positions
     ``joint_velocity_limit``  — velocity + acceleration limits
-    ``workspace``             — EE position box (halt when outside)
+    ``workspace``             — EE position box (CBF constraint via QP)
 """
 
 from __future__ import annotations
@@ -307,24 +307,33 @@ def joint_position_limits(
     name="workspace",
     layer="L1",
     category="kinematics",
-    description="Halts motion when the end-effector is outside the workspace box.",
+    description="Keeps the end-effector inside an axis-aligned workspace box via CBF constraints fed to the QP solver.",
     params={
         "bounds": "Axis-aligned allowed EE box: [[xmin,xmax],[ymin,ymax],[zmin,zmax]] in metres.",
+        "cbf_alpha": "CBF decay rate (0,∞). Higher → brake later, lower → brake earlier. Default 1.0.",
+        "slack_weight": "QP soft-constraint penalty. Higher values make violating this limit more expensive.",
     },
+    internal_params=("slack_weight",),
 )
 def workspace(
     *,
     obs: Observation,
     action: ActionProposal,
     bounds: list[list[float]] | None = None,
+    cbf_alpha: float = 1.0,
+    slack_weight: float = 1e6,
     ee_pos: np.ndarray | None = None,
+    J_linear: np.ndarray | None = None,
     kinematics_resolver: KinematicsResolver | None = None,
     dynamics: Any | None = None,
 ) -> CallbackResult:
-    """When the current EE is outside ``bounds``, freeze the action.
+    """CBF constraint that keeps the EE inside ``bounds``.
 
-    ``ee_pos`` is pre-computed by the execution engine and injected via the
-    runtime pool.  Falls back to FK computation when not available.
+    Linearises the workspace box into ``A @ u ≤ b`` constraints and attaches
+    them as a :class:`QPTerm`.  The QP aggregator fuses this with other L1
+    constraints to find the least-perturbing safe action.
+
+    Falls back to halt (freeze current joints) when Jacobian is unavailable.
     """
     bname = "workspace"
     if bounds is None:
@@ -342,30 +351,82 @@ def workspace(
         )
 
     b = np.asarray(bounds, dtype=np.float64)
-    if np.all((ee_pos >= b[:, 0]) & (ee_pos <= b[:, 1])):
+    q = np.asarray(obs.joint_positions, dtype=np.float64)
+    target = np.asarray(action.target_joint_positions, dtype=np.float64)
+
+    inside = bool(np.all((ee_pos >= b[:, 0]) & (ee_pos <= b[:, 1])))
+
+    if J_linear is None:
+        if inside:
+            return CallbackResult.ok(
+                bname,
+                metadata={"bounds": b.tolist(), "ee_pos": ee_pos.tolist()},
+            )
+        halt = ValidatedAction(
+            target_joint_positions=q.copy(),
+            target_joint_velocities=None,
+            was_clamped=True,
+            original_proposal=action,
+            timestamp=action.timestamp,
+        )
+        return CallbackResult.clamp(
+            bname,
+            halt,
+            reason=f"EE {ee_pos.tolist()} outside workspace (no Jacobian); halting",
+            metadata={
+                "workspace_bounds": b.tolist(),
+                "ee_pos": ee_pos.tolist(),
+                "_units": {"workspace_bounds": "m", "ee_pos": "m"},
+            },
+        )
+
+    from dam.runtime import qp_solver
+
+    cbf_A, cbf_b = qp_solver.workspace_cbf_constraints(
+        q=q,
+        ee_pos=ee_pos,
+        J_linear=J_linear,
+        bounds=b,
+        cbf_alpha=cbf_alpha,
+    )
+
+    n = J_linear.shape[1]
+    margin = cbf_b - cbf_A @ target[:n]
+    satisfied = bool(np.all(margin >= -1e-8))
+
+    if inside and satisfied:
         return CallbackResult.ok(
             bname,
             metadata={
                 "bounds": b.tolist(),
                 "ee_pos": ee_pos.tolist(),
+                "cbf_margin_min": float(np.min(margin)),
             },
         )
 
-    halt = ValidatedAction(
-        target_joint_positions=np.asarray(obs.joint_positions, dtype=np.float64).copy(),
-        target_joint_velocities=None,
+    qp_meta = QPTerm(A=cbf_A, b=cbf_b, slack_weight=float(slack_weight))
+    clamped = ValidatedAction(
+        target_joint_positions=target.copy(),
+        target_joint_velocities=action.target_joint_velocities,
         was_clamped=True,
         original_proposal=action,
         timestamp=action.timestamp,
     )
-    reason = f"EE {ee_pos.tolist()} outside workspace {bounds}; halting"
+    if inside:
+        reason = (
+            f"EE action would leave workspace; CBF active (margin_min={float(np.min(margin)):.4f})"
+        )
+    else:
+        reason = f"EE {ee_pos.tolist()} outside workspace {b.tolist()}; CBF pushing back"
     return CallbackResult.clamp(
         bname,
-        halt,
+        clamped,
         reason=reason,
         metadata={
-            "workspace_bounds": bounds,
+            "motion_qp": qp_meta,
+            "workspace_bounds": b.tolist(),
             "ee_pos": ee_pos.tolist(),
+            "cbf_margin_min": float(np.min(margin)),
             "_units": {"workspace_bounds": "m", "ee_pos": "m"},
         },
     )

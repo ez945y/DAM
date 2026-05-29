@@ -340,6 +340,51 @@ class TestWorkspace:
         assert r.decision == GuardDecision.CLAMP
         np.testing.assert_array_almost_equal(r.clamped_action.target_joint_positions, positions)
 
+    def test_cbf_inside_safe_action_pass(self):
+        """With Jacobian, an action that stays inside should PASS."""
+        obs = _obs(positions=[0.0] * 6, ee_pose=[0.1, 0.1, 0.3, 0, 0, 0, 1])
+        action = _action([0.0] * 6)
+        J = np.zeros((3, 6))
+        J[0, 0] = 0.1  # small Jacobian
+        r = workspace(obs=obs, action=action, bounds=self.BOUNDS, J_linear=J)
+        assert r.decision == GuardDecision.PASS
+        assert "cbf_margin_min" in r.metadata
+
+    def test_cbf_outside_clamp_with_qp_term(self):
+        """With Jacobian, outside EE should produce CLAMP with motion_qp."""
+        obs = _obs(positions=[0.0] * 6, ee_pose=[0.5, 0.1, 0.3, 0, 0, 0, 1])
+        action = _action([0.1] * 6)
+        J = np.eye(3, 6) * 0.1
+        r = workspace(obs=obs, action=action, bounds=self.BOUNDS, J_linear=J)
+        assert r.decision == GuardDecision.CLAMP
+        assert "motion_qp" in r.metadata
+        qp = r.metadata["motion_qp"]
+        assert qp.A is not None
+        assert qp.b is not None
+        assert qp.A.shape == (6, 6)
+
+    def test_cbf_action_leaving_workspace_clamp(self):
+        """Inside EE but action would push EE out → CLAMP with QPTerm."""
+        obs = _obs(positions=[0.0] * 6, ee_pose=[0.39, 0.0, 0.3, 0, 0, 0, 1])
+        # Large action in the direction J maps to +x EE
+        J = np.zeros((3, 6))
+        J[0, 0] = 1.0  # joint 0 → x
+        action = _action([0.5, 0.0, 0.0, 0.0, 0.0, 0.0])
+        r = workspace(obs=obs, action=action, bounds=self.BOUNDS, J_linear=J)
+        assert r.decision == GuardDecision.CLAMP
+        assert "motion_qp" in r.metadata
+        assert r.metadata["cbf_margin_min"] < 0
+
+    def test_cbf_no_jacobian_outside_halts(self):
+        """Without Jacobian, outside EE should still halt (fallback)."""
+        obs = _obs(positions=[0.1, 0.2, 0.3, 0.0, 0.0, 0.0], ee_pose=[0.5, 0.1, 0.3, 0, 0, 0, 1])
+        action = _action([0.1] * 6)
+        r = workspace(obs=obs, action=action, bounds=self.BOUNDS)
+        assert r.decision == GuardDecision.CLAMP
+        np.testing.assert_array_almost_equal(
+            r.clamped_action.target_joint_positions, obs.joint_positions
+        )
+
 
 # ── check_force_torque_safe ───────────────────────────────────────────────────
 
