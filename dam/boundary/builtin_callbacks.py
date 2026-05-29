@@ -11,13 +11,9 @@ from __future__ import annotations
 from dam.boundary.callbacks import (
     _CALLBACKS,
     _CATALOG,
-    action_smooth,
     base_geofence,
     boundary_callback,
-    cartesian_velocity_limit,
     check_force_torque_safe,
-    check_joints_not_moving,
-    check_velocity_smooth,
     current_limit,
     force_limit,
     force_torque_limit,
@@ -45,13 +41,9 @@ from dam.boundary.callbacks._helpers import (
 )
 
 __all__ = [
-    "action_smooth",
     "base_geofence",
     "boundary_callback",
-    "cartesian_velocity_limit",
     "check_force_torque_safe",
-    "check_joints_not_moving",
-    "check_velocity_smooth",
     "current_limit",
     "force_limit",
     "force_torque_limit",

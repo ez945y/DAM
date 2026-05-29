@@ -401,11 +401,11 @@ def _summary(
         degraded.setdefault(name, []).append(reason)
 
     if not saw_jv:
-        for name in ("joint_velocity_limit", "cartesian_velocity_limit"):
+        for name in ("joint_velocity_limit",):
             if name in active:
                 add(name, "joint_velocities synthetic")
     if not saw_eep:
-        for name in ("workspace", "cartesian_velocity_limit", "keep_out_zone", "orientation_limit"):
+        for name in ("workspace", "keep_out_zone", "orientation_limit"):
             if name in active:
                 add(name, "end_effector_pose missing")
     for ft_name in ("force_limit", "force_torque_limit"):

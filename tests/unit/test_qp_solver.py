@@ -125,12 +125,14 @@ def test_motion_guard_default_aggregator_does_not_need_qp(proxsuite):
     """Without the QP aggregator, MotionGuard still box-clamps via the default
     sequential strategy — QP metadata is simply ignored."""
     from dam.boundary.callbacks._registry import register_all
+    from dam.boundary.callbacks.kinematics import _prev_vel
     from dam.guard.builtin.motion import MotionGuard
     from dam.guard.layer import GuardLayer
     from dam.types.action import ActionProposal
     from dam.types.observation import Observation
     from dam.types.result import GuardDecision
 
+    _prev_vel.clear()
     register_all()
     MotionGuard._guard_layer = GuardLayer.L1
 
@@ -148,13 +150,11 @@ def test_motion_guard_default_aggregator_does_not_need_qp(proxsuite):
 
 def test_fan_out_produces_distinct_results_per_boundary(proxsuite):
     """When MotionGuard runs callbacks across joint_position_limits +
-    joint_velocity_limit + workspace, the cycle inspector must see three
-    *distinct* GuardResults — one per boundary — each carrying that
-    boundary's own decision and reason, not three copies of the aggregated
-    text. Regression: previously the engine replicated the aggregated
-    result via dataclasses.replace(guard_name=...), losing per-boundary
-    detail."""
+    joint_velocity_limit, the cycle inspector must see two *distinct*
+    GuardResults — one per boundary — each carrying that boundary's own
+    decision and reason."""
     from dam.boundary.callbacks._registry import register_all
+    from dam.boundary.callbacks.kinematics import _prev_vel
     from dam.guard.aggregators.motion_qp import motion_qp_aggregator
     from dam.guard.builtin.motion import MotionGuard
     from dam.guard.layer import GuardLayer
@@ -164,6 +164,7 @@ def test_fan_out_produces_distinct_results_per_boundary(proxsuite):
     from dam.types.observation import Observation
     from dam.types.result import GuardDecision
 
+    _prev_vel.clear()
     register_all()
     MotionGuard._guard_layer = GuardLayer.L1
 
@@ -180,7 +181,6 @@ def test_fan_out_produces_distinct_results_per_boundary(proxsuite):
     by_name = {r.guard_name: r for r in fanned}
 
     assert by_name["joint_velocity_limit"].decision == GuardDecision.CLAMP
-    assert "velocity scale" in by_name["joint_velocity_limit"].reason
     # The position-limits boundary didn't contribute → PASS, no clamped_action.
     assert by_name["joint_position_limits"].decision == GuardDecision.PASS
     assert by_name["joint_position_limits"].clamped_action is None

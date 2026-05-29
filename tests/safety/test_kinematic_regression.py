@@ -7,6 +7,15 @@ import numpy as np
 import pytest
 
 from dam.boundary.callbacks._registry import register_all
+from dam.boundary.callbacks.kinematics import _prev_vel
+
+
+@pytest.fixture(autouse=True)
+def _clear_velocity_state():
+    """Clear module-level velocity tracking between tests."""
+    _prev_vel.clear()
+
+
 from dam.boundary.constraint import BoundaryConstraint
 from dam.boundary.node import BoundaryNode
 from dam.boundary.single import SingleNodeContainer

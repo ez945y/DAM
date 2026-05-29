@@ -7,12 +7,8 @@ import pytest
 
 from dam.boundary.builtin_callbacks import (
     _CALLBACKS,
-    action_smooth,
     base_geofence,
-    cartesian_velocity_limit,
     check_force_torque_safe,
-    check_joints_not_moving,
-    check_velocity_smooth,
     current_limit,
     force_torque_limit,
     get_catalog,
@@ -112,6 +108,11 @@ class TestJointLimits:
 
 
 class TestJointVelocityLimit:
+    def setup_method(self):
+        from dam.boundary.callbacks.kinematics import _prev_vel
+
+        _prev_vel.clear()
+
     def test_within_limit_pass(self):
         # Action wants positions [0.1] * 6 from obs [0,...,0] at dt=0.1 → v=1.0
         result = joint_velocity_limit(
@@ -158,12 +159,105 @@ class TestJointVelocityLimit:
             atol=1e-9,
         )
 
+    def test_first_cycle_no_accel_limit(self):
+        """First cycle has no previous velocity, so only velocity limit applies."""
+        # v = 1.5 rad/s (default max), should pass
+        result = joint_velocity_limit(
+            obs=_obs(positions=[0.0] * 6),
+            action=_action([0.15] * 6),
+            dt=0.1,
+        )
+        assert result.decision == GuardDecision.PASS
+
+    def test_acceleration_clamped_on_sudden_jump(self):
+        """From stationary to max velocity in one cycle should be accel-clamped."""
+        # Cycle 1: establish zero velocity baseline
+        joint_velocity_limit(
+            obs=_obs(positions=[0.0] * 6),
+            action=_action([0.0] * 6),
+            dt=0.02,
+            max_acceleration=[5.0] * 6,
+        )
+        # Cycle 2: jump to v=50 rad/s (pos delta=1.0 in 0.02s)
+        # accel = 50/0.02 = 2500 rad/s², limit 5.0 → clamped to 5*0.02=0.1 rad/s
+        result = joint_velocity_limit(
+            obs=_obs(positions=[0.0] * 6),
+            action=_action([1.0] * 6),
+            dt=0.02,
+            max_acceleration=[5.0] * 6,
+        )
+        assert result.decision == GuardDecision.CLAMP
+        # Clamped velocity should be 0 + 5.0 * 0.02 = 0.1 rad/s
+        # → position = 0 + 0.1 * 0.02 = 0.002
+        np.testing.assert_allclose(
+            result.clamped_action.target_joint_positions, [0.002] * 6, atol=1e-6
+        )
+
+    def test_smooth_acceleration_passes(self):
+        """Gradual velocity increase within accel limit should pass."""
+        # Cycle 1: v=1.0
+        joint_velocity_limit(
+            obs=_obs(positions=[0.0] * 6),
+            action=_action([0.1] * 6),
+            dt=0.1,
+            max_acceleration=[20.0] * 6,
+        )
+        # Cycle 2: v=1.1 (accel = 0.1/0.1 = 1.0 rad/s² < 20.0)
+        result = joint_velocity_limit(
+            obs=_obs(positions=[0.1] * 6),
+            action=_action([0.21] * 6),
+            dt=0.1,
+            max_acceleration=[20.0] * 6,
+        )
+        assert result.decision == GuardDecision.PASS
+
+    def test_deceleration_also_clamped(self):
+        """Sudden stop (deceleration) should also be clamped."""
+        # Cycle 1: moving at v=10 (pos delta=1.0 in dt=0.1)
+        joint_velocity_limit(
+            obs=_obs(positions=[0.0] * 6),
+            action=_action([1.0] * 6),
+            dt=0.1,
+            max_velocities=[20.0] * 6,
+            max_acceleration=[5.0] * 6,
+        )
+        # Cycle 2: sudden stop → v=0 (accel = -10/0.1 = -100 rad/s², limit 5.0)
+        result = joint_velocity_limit(
+            obs=_obs(positions=[1.0] * 6),
+            action=_action([1.0] * 6),
+            dt=0.1,
+            max_velocities=[20.0] * 6,
+            max_acceleration=[5.0] * 6,
+        )
+        assert result.decision == GuardDecision.CLAMP
+        # Prev velocity was 10, decel limited to 5.0 → new v = 10 - 5*0.1 = 9.5
+        # → new pos = 1.0 + 9.5 * 0.1 = 1.95
+        np.testing.assert_allclose(
+            result.clamped_action.target_joint_positions, [1.95] * 6, atol=1e-6
+        )
+
+    def test_metadata_includes_acceleration(self):
+        """PASS result should include max_acceleration in metadata."""
+        result = joint_velocity_limit(
+            obs=_obs(positions=[0.0] * 6),
+            action=_action([0.01] * 6),
+            dt=0.1,
+            max_acceleration=[10.0] * 6,
+        )
+        assert result.decision == GuardDecision.PASS
+        assert "max_acceleration" in result.metadata
+
 
 # ── dynamic joint count ────────────────────────────────────────────────────────
 
 
 class TestDynamicJointCount:
     """L1 callbacks adapt to however many joints the action/obs contain."""
+
+    def setup_method(self):
+        from dam.boundary.callbacks.kinematics import _prev_vel
+
+        _prev_vel.clear()
 
     def test_position_limits_4dof_defaults(self):
         result = joint_position_limits(action=_action([0.0] * 4))
@@ -207,43 +301,6 @@ class TestDynamicJointCount:
         assert result.decision == GuardDecision.PASS
 
 
-# ── check_velocity_smooth ─────────────────────────────────────────────────────
-
-
-class TestCheckVelocitySmooth:
-    def setup_method(self):
-        from dam.boundary.callbacks.kinematics import _prev_velocities
-
-        _prev_velocities.clear()
-
-    def test_first_cycle_always_passes(self):
-        obs = _obs(velocities=[5.0] * 6)
-        assert check_velocity_smooth(obs=obs, max_jerk_norm=0.001) is True
-
-    def test_no_velocities_pass(self):
-        obs = _obs()
-        assert check_velocity_smooth(obs=obs) is True
-
-    def test_low_jerk_pass(self):
-        obs1 = _obs(velocities=[1.0] * 6)
-        obs2 = _obs(velocities=[1.01] * 6)
-        check_velocity_smooth(obs=obs1, dt=0.02, max_jerk_norm=10.0)
-        assert check_velocity_smooth(obs=obs2, dt=0.02, max_jerk_norm=10.0) is True
-
-    def test_high_jerk_fail(self):
-        obs1 = _obs(velocities=[0.0] * 6)
-        obs2 = _obs(velocities=[5.0] * 6)
-        check_velocity_smooth(obs=obs1, dt=0.02, max_jerk_norm=1.0)
-        # jerk = (5.0 - 0.0) / 0.02 = 250 per joint → norm >> 1.0
-        assert check_velocity_smooth(obs=obs2, dt=0.02, max_jerk_norm=1.0) is False
-
-    def test_steady_velocity_zero_jerk(self):
-        obs = _obs(velocities=[3.0] * 6)
-        check_velocity_smooth(obs=obs, dt=0.02, max_jerk_norm=0.001)
-        # Same velocity → jerk = 0
-        assert check_velocity_smooth(obs=obs, dt=0.02, max_jerk_norm=0.001) is True
-
-
 # ── workspace ────────────────────────────────────────────────────────────────
 
 
@@ -278,12 +335,6 @@ class TestWorkspace:
         r = workspace(obs=obs, action=action)
         assert r.decision == GuardDecision.PASS
 
-    def test_cbf_gamma_validation(self):
-        obs = _obs(ee_pose=[0.5, 0.1, 0.3, 0, 0, 0, 1])
-        action = _action([0.0] * 6)
-        with pytest.raises(ValueError, match="cbf_gamma"):
-            workspace(obs=obs, action=action, cbf_gamma=2.0)
-
     def test_clamp_holds_current_position(self):
         positions = [0.2, -0.1, 0.5, 0.3, -0.2, 0.1]
         obs = _obs(positions=positions, ee_pose=[0.0, 0.0, 0.8, 0, 0, 0, 1])
@@ -291,12 +342,6 @@ class TestWorkspace:
         r = workspace(obs=obs, action=action, bounds=self.BOUNDS)
         assert r.decision == GuardDecision.CLAMP
         np.testing.assert_array_almost_equal(r.clamped_action.target_joint_positions, positions)
-
-    def test_metadata_contains_motion_qp(self):
-        obs = _obs(ee_pose=[0.5, 0.1, 0.3, 0, 0, 0, 1])
-        action = _action([0.0] * 6)
-        r = workspace(obs=obs, action=action, bounds=self.BOUNDS)
-        assert "motion_qp" in r.metadata
 
 
 # ── check_force_torque_safe ───────────────────────────────────────────────────
@@ -426,23 +471,6 @@ class TestNonFiniteSensorData:
         assert "Non-finite" in r.reason
 
 
-# ── check_joints_not_moving ───────────────────────────────────────────────────
-
-
-class TestCheckJointsNotMoving:
-    def test_stationary_pass(self):
-        obs = _obs(velocities=[0.001] * 6)
-        assert check_joints_not_moving(obs=obs, max_speed_rad_s=0.01) is True
-
-    def test_moving_fail(self):
-        obs = _obs(velocities=[0.1] * 6)
-        assert check_joints_not_moving(obs=obs, max_speed_rad_s=0.01) is False
-
-    def test_no_velocities_pass(self):
-        obs = _obs()
-        assert check_joints_not_moving(obs=obs) is True
-
-
 # ── register_all ──────────────────────────────────────────────────────────────
 
 
@@ -495,10 +523,6 @@ class TestRegisterAll:
         assert "action" not in workspace_params
         assert "kinematics_resolver" not in workspace_params
         assert "dynamics" not in workspace_params
-        assert workspace_params["cbf_gamma"]["internal"] is True
-        assert workspace_params["cbf_alpha"]["internal"] is True
-        assert workspace_params["slack_weight"]["internal"] is True
-        assert workspace_params["cbf_gamma"]["description"]
 
         host_params = by_name["host_health_limit"]["params"]
         assert "host_health" not in host_params
@@ -548,46 +572,6 @@ class _FakeDynamics:
 
     def frame_placement(self, _fid):
         return self._placement
-
-
-# ── cartesian_velocity_limit ──────────────────────────────────────────────────
-
-
-class TestCartesianVelocityLimit:
-    def test_within_limit_pass(self):
-        obs = _obs(positions=[0.0] * 6, velocities=[0.2, 0, 0, 0, 0, 0])
-        dyn = _FakeDynamics(jac=np.eye(6))
-        assert cartesian_velocity_limit(obs=obs, dynamics=dyn, max_linear_speed=0.25) is True
-
-    def test_exceeds_linear_fail(self):
-        obs = _obs(positions=[0.0] * 6, velocities=[0.5, 0, 0, 0, 0, 0])
-        dyn = _FakeDynamics(jac=np.eye(6))
-        result = cartesian_velocity_limit(obs=obs, dynamics=dyn, max_linear_speed=0.25)
-        assert result is not True
-        assert result[0] is False
-
-    def test_exceeds_angular_fail(self):
-        obs = _obs(positions=[0.0] * 6, velocities=[0, 0, 0, 5.0, 0, 0])
-        dyn = _FakeDynamics(jac=np.eye(6))
-        result = cartesian_velocity_limit(
-            obs=obs, dynamics=dyn, max_linear_speed=10.0, max_angular_speed=1.0
-        )
-        assert result is not True
-        assert result[0] is False
-
-    def test_no_dynamics_pass(self):
-        obs = _obs(velocities=[9.0] * 6)
-        assert cartesian_velocity_limit(obs=obs, dynamics=None) is True
-
-    def test_unavailable_dynamics_pass(self):
-        obs = _obs(velocities=[9.0] * 6)
-        dyn = _FakeDynamics(jac=np.eye(6), available=False)
-        assert cartesian_velocity_limit(obs=obs, dynamics=dyn) is True
-
-    def test_no_velocities_pass(self):
-        obs = _obs(positions=[0.0] * 6)
-        dyn = _FakeDynamics(jac=np.eye(6))
-        assert cartesian_velocity_limit(obs=obs, dynamics=dyn) is True
 
 
 # ── keep_out_zone ─────────────────────────────────────────────────────────────
@@ -710,61 +694,3 @@ class TestBaseGeofence:
         result = base_geofence(obs=obs, bounds=self.BOX, channel="odom")
         assert result is not True
         assert result[0] is False
-
-
-# ── action_smooth ────────────────────────────────────────────────────────────
-
-
-class TestActionSmooth:
-    def setup_method(self):
-        from dam.boundary.callbacks.kinematics import _ema_state
-
-        _ema_state.clear()
-
-    def test_first_cycle_pass_through(self):
-        obs = _obs(positions=[0.0] * 6)
-        action = _action([0.5] * 6)
-        r = action_smooth(obs=obs, action=action, alpha=0.5)
-        assert r.decision == GuardDecision.PASS
-
-    def test_second_cycle_smooths(self):
-        obs = _obs(positions=[0.0] * 6)
-        action_smooth(obs=obs, action=_action([0.0] * 6), alpha=0.5)
-        r = action_smooth(obs=obs, action=_action([1.0] * 6), alpha=0.5)
-        assert r.decision == GuardDecision.CLAMP
-        expected = 0.5 * 1.0 + 0.5 * 0.0
-        np.testing.assert_allclose(
-            r.clamped_action.target_joint_positions, [expected] * 6, atol=1e-6
-        )
-
-    def test_alpha_one_no_smoothing(self):
-        obs = _obs(positions=[0.0] * 6)
-        action_smooth(obs=obs, action=_action([0.0] * 6), alpha=1.0)
-        r = action_smooth(obs=obs, action=_action([1.0] * 6), alpha=1.0)
-        assert r.decision == GuardDecision.PASS
-
-    def test_low_alpha_heavy_smoothing(self):
-        obs = _obs(positions=[0.0] * 6)
-        action_smooth(obs=obs, action=_action([0.0] * 6), alpha=0.1)
-        r = action_smooth(obs=obs, action=_action([1.0] * 6), alpha=0.1)
-        assert r.decision == GuardDecision.CLAMP
-        expected = 0.1 * 1.0 + 0.9 * 0.0
-        np.testing.assert_allclose(
-            r.clamped_action.target_joint_positions, [expected] * 6, atol=1e-6
-        )
-
-    def test_oscillation_damped(self):
-        obs = _obs(positions=[0.0] * 6)
-        action_smooth(obs=obs, action=_action([0.0] * 6), alpha=0.3)
-        r1 = action_smooth(obs=obs, action=_action([1.0] * 6), alpha=0.3)
-        r2 = action_smooth(obs=obs, action=_action([0.0] * 6), alpha=0.3)
-        smoothed_1 = r1.clamped_action.target_joint_positions[0]
-        smoothed_2 = r2.clamped_action.target_joint_positions[0]
-        assert abs(smoothed_1 - smoothed_2) < 1.0
-
-    def test_metadata_contains_alpha(self):
-        obs = _obs(positions=[0.0] * 6)
-        action_smooth(obs=obs, action=_action([0.0] * 6), alpha=0.5)
-        r = action_smooth(obs=obs, action=_action([1.0] * 6), alpha=0.5)
-        assert r.metadata["alpha"] == 0.5
-        assert r.metadata["smoothed"] is True

@@ -7,10 +7,7 @@ when you need to register the built-in callback set programmatically.
 from dam.boundary.builtin_callbacks import (
     base_geofence,
     boundary_callback,
-    cartesian_velocity_limit,
     check_force_torque_safe,
-    check_joints_not_moving,
-    check_velocity_smooth,
     current_limit,
     force_limit,
     force_torque_limit,
@@ -31,10 +28,7 @@ from dam.boundary.builtin_callbacks import (
 __all__ = [
     "base_geofence",
     "boundary_callback",
-    "cartesian_velocity_limit",
     "check_force_torque_safe",
-    "check_joints_not_moving",
-    "check_velocity_smooth",
     "current_limit",
     "force_limit",
     "force_torque_limit",

@@ -11,7 +11,6 @@ import numpy as np
 import pytest
 
 from dam.boundary.callbacks import (
-    cartesian_velocity_limit,
     joint_position_limits,
     joint_velocity_limit,
     keep_out_zone,
@@ -99,13 +98,6 @@ class TestNonFiniteInjection:
     def test_orientation_limit(self, bad):
         obs = _obs(ee=[0, 0, 0.3, bad, 0, 0, 1])
         assert not _is_pass(orientation_limit(obs=obs, max_tilt_deg=30.0))
-
-    @pytest.mark.parametrize("bad", NON_FINITE)
-    def test_cartesian_velocity_limit(self, bad):
-        obs = _obs(jp=[0.0] * 6, jv=[bad, 0, 0, 0, 0, 0])
-        assert not _is_pass(
-            cartesian_velocity_limit(obs=obs, dynamics=_FakeDynamics(), max_linear_speed=0.25)
-        )
 
 
 # ── T2: boundary skimming (float-epsilon edges) ───────────────────────────────

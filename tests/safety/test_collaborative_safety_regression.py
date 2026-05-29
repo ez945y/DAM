@@ -6,9 +6,9 @@ rejected. These tests NEVER allow an unsafe condition to pass through.
 
 Covers:
   1. The new callbacks are registered by register_all() and callable.
-  2. End-effector speed above the ISO/TS 15066 reduced-speed cap is rejected.
-  3. End-effector entering a configured keep-out volume is rejected.
-  4. End-effector tilt past the payload-spill limit is rejected.
+  2. End-effector entering a configured keep-out volume is rejected.
+  3. End-effector tilt past the payload-spill limit is rejected.
+  4. Mobile base leaving geofence is rejected.
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ import numpy as np
 
 from dam.boundary.builtin_callbacks import (
     base_geofence,
-    cartesian_velocity_limit,
     keep_out_zone,
     orientation_limit,
     register_all,
@@ -35,32 +34,6 @@ def _obs(positions=None, velocities=None, ee_pose=None) -> Observation:
     )
 
 
-class _Placement:
-    def __init__(self, translation, rotation):
-        self.translation = np.asarray(translation, dtype=float)
-        self.rotation = np.asarray(rotation, dtype=float)
-
-
-class _Dynamics:
-    def __init__(self, jac=None, translation=None, rotation=None):
-        self._jac = jac
-        self._placement = _Placement(
-            translation if translation is not None else [0.0, 0.0, 0.0],
-            rotation if rotation is not None else np.eye(3),
-        )
-        self.available = True
-        self.default_frame_id = 0
-
-    def update(self, q):  # noqa: D401 - test stub
-        pass
-
-    def frame_jacobian(self, _fid):
-        return self._jac
-
-    def frame_placement(self, _fid):
-        return self._placement
-
-
 # ── Registration ──────────────────────────────────────────────────────────────
 
 
@@ -73,7 +46,6 @@ class TestCollaborativeCallbacksRegistered:
         try:
             register_all()
             registered = rcmod._registry.list_all()
-            assert "cartesian_velocity_limit" in registered
             assert "keep_out_zone" in registered
             assert "orientation_limit" in registered
             assert "base_geofence" in registered
@@ -85,14 +57,6 @@ class TestCollaborativeCallbacksRegistered:
 
 
 class TestDangerousScenariosRejected:
-    def test_excessive_ee_speed_rejected(self):
-        """EE driven at 1 m/s with a 0.25 m/s cap must be rejected."""
-        obs = _obs(positions=[0.0] * 6, velocities=[1.0, 0, 0, 0, 0, 0])
-        dyn = _Dynamics(jac=np.eye(6))
-        result = cartesian_velocity_limit(obs=obs, dynamics=dyn, max_linear_speed=0.25)
-        assert result is not True
-        assert result[0] is False
-
     def test_enters_keep_out_volume_rejected(self):
         """EE inside an operator keep-out box must be rejected."""
         obs = _obs(ee_pose=[0.0, 0.0, 0.2, 0, 0, 0, 1])
