@@ -22,6 +22,7 @@ from dam.boundary.builtin_callbacks import (
     register_all,
     temperature_limit,
     voltage_limit,
+    workspace,
 )
 from dam.registry.callback import CallbackRegistry
 from dam.types.action import ActionProposal
@@ -240,6 +241,61 @@ class TestCheckVelocitySmooth:
         check_velocity_smooth(obs=obs, dt=0.02, max_jerk_norm=0.001)
         # Same velocity → jerk = 0
         assert check_velocity_smooth(obs=obs, dt=0.02, max_jerk_norm=0.001) is True
+
+
+# ── workspace ────────────────────────────────────────────────────────────────
+
+
+class TestWorkspace:
+    BOUNDS = [[-0.4, 0.4], [-0.4, 0.4], [0.02, 0.6]]
+
+    def test_inside_bounds_pass(self):
+        obs = _obs(ee_pose=[0.1, 0.1, 0.3, 0, 0, 0, 1])
+        action = _action([0.0] * 6)
+        r = workspace(obs=obs, action=action, bounds=self.BOUNDS)
+        assert r.decision == GuardDecision.PASS
+        assert "ee_pos" in r.metadata
+
+    def test_outside_bounds_clamp(self):
+        obs = _obs(ee_pose=[0.5, 0.1, 0.3, 0, 0, 0, 1])
+        action = _action([0.1] * 6)
+        r = workspace(obs=obs, action=action, bounds=self.BOUNDS)
+        assert r.decision == GuardDecision.CLAMP
+        assert r.clamped_action is not None
+        np.testing.assert_array_equal(r.clamped_action.target_joint_positions, obs.joint_positions)
+
+    def test_no_ee_pose_pass(self):
+        obs = _obs()
+        action = _action([0.0] * 6)
+        r = workspace(obs=obs, action=action, bounds=self.BOUNDS)
+        assert r.decision == GuardDecision.PASS
+        assert "bounds" in r.metadata
+
+    def test_default_bounds_used(self):
+        obs = _obs(ee_pose=[0.1, 0.1, 0.3, 0, 0, 0, 1])
+        action = _action([0.0] * 6)
+        r = workspace(obs=obs, action=action)
+        assert r.decision == GuardDecision.PASS
+
+    def test_cbf_gamma_validation(self):
+        obs = _obs(ee_pose=[0.5, 0.1, 0.3, 0, 0, 0, 1])
+        action = _action([0.0] * 6)
+        with pytest.raises(ValueError, match="cbf_gamma"):
+            workspace(obs=obs, action=action, cbf_gamma=2.0)
+
+    def test_clamp_holds_current_position(self):
+        positions = [0.2, -0.1, 0.5, 0.3, -0.2, 0.1]
+        obs = _obs(positions=positions, ee_pose=[0.0, 0.0, 0.8, 0, 0, 0, 1])
+        action = _action([0.3] * 6)
+        r = workspace(obs=obs, action=action, bounds=self.BOUNDS)
+        assert r.decision == GuardDecision.CLAMP
+        np.testing.assert_array_almost_equal(r.clamped_action.target_joint_positions, positions)
+
+    def test_metadata_contains_motion_qp(self):
+        obs = _obs(ee_pose=[0.5, 0.1, 0.3, 0, 0, 0, 1])
+        action = _action([0.0] * 6)
+        r = workspace(obs=obs, action=action, bounds=self.BOUNDS)
+        assert "motion_qp" in r.metadata
 
 
 # ── check_force_torque_safe ───────────────────────────────────────────────────
