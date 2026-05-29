@@ -627,3 +627,72 @@ def base_geofence(
         if len(verts) >= 3 and not _point_in_polygon(p, verts):
             return False, f"Base ({p[0]:.2f}, {p[1]:.2f}) outside geofence polygon"
     return True
+
+
+# ── Action smoothing ─────────────────────────────────────────────────────────
+
+_ema_state: dict[str, np.ndarray] = {}
+
+
+@boundary_callback(
+    name="action_smooth",
+    layer="L1",
+    category="kinematics",
+    description="Applies exponential moving average to joint position targets, reducing high-frequency oscillation from noisy policies.",
+    params={
+        "alpha": "EMA smoothing factor in (0, 1]. Lower values smooth more aggressively (0.3 = heavy smoothing, 1.0 = no smoothing).",
+    },
+)
+def action_smooth(
+    *,
+    obs: Observation,
+    action: ActionProposal,
+    alpha: float = 0.5,
+) -> CallbackResult:
+    """Smooth the proposed action using an exponential moving average.
+
+    Each cycle: ``smoothed = alpha * proposed + (1 - alpha) * previous``.
+    On the first cycle the proposed action passes through unmodified.
+    """
+    bname = "action_smooth"
+    target = np.asarray(action.target_joint_positions, dtype=np.float64)
+    if not _all_finite(target):
+        return CallbackResult.ok(bname, "non-finite target; skipping smoothing")
+
+    alpha = float(np.clip(alpha, 0.01, 1.0))
+
+    prev = _ema_state.get(bname)
+    if prev is None or prev.shape != target.shape:
+        _ema_state[bname] = target.copy()
+        return CallbackResult.ok(
+            bname,
+            metadata={"alpha": alpha, "smoothed": False},
+        )
+
+    smoothed = alpha * target + (1.0 - alpha) * prev
+    _ema_state[bname] = smoothed.copy()
+
+    if np.allclose(smoothed, target, atol=1e-7):
+        return CallbackResult.ok(
+            bname,
+            metadata={"alpha": alpha, "smoothed": False},
+        )
+
+    clamped = ValidatedAction(
+        target_joint_positions=smoothed,
+        target_joint_velocities=action.target_joint_velocities,
+        was_clamped=True,
+        original_proposal=action,
+        timestamp=action.timestamp,
+    )
+    delta = float(np.max(np.abs(smoothed - target)))
+    return CallbackResult.clamp(
+        bname,
+        clamped,
+        reason=f"EMA smoothing applied (α={alpha:.2f}, max_delta={delta:.4f} rad)",
+        metadata={
+            "alpha": alpha,
+            "max_delta": delta,
+            "smoothed": True,
+        },
+    )

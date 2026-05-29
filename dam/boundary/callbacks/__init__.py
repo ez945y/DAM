@@ -34,6 +34,7 @@ from dam.boundary.callbacks.hardware import (
     voltage_limit,
 )
 from dam.boundary.callbacks.kinematics import (
+    action_smooth,
     base_geofence,
     cartesian_velocity_limit,
     check_joints_not_moving,
@@ -49,6 +50,7 @@ from dam.boundary.callbacks.ood import ood_detector
 __all__ = [
     "_CALLBACKS",
     "_CATALOG",
+    "action_smooth",
     "base_geofence",
     "boundary_callback",
     "cartesian_velocity_limit",

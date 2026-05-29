@@ -7,6 +7,7 @@ import pytest
 
 from dam.boundary.builtin_callbacks import (
     _CALLBACKS,
+    action_smooth,
     base_geofence,
     cartesian_velocity_limit,
     check_force_torque_safe,
@@ -709,3 +710,61 @@ class TestBaseGeofence:
         result = base_geofence(obs=obs, bounds=self.BOX, channel="odom")
         assert result is not True
         assert result[0] is False
+
+
+# ── action_smooth ────────────────────────────────────────────────────────────
+
+
+class TestActionSmooth:
+    def setup_method(self):
+        from dam.boundary.callbacks.kinematics import _ema_state
+
+        _ema_state.clear()
+
+    def test_first_cycle_pass_through(self):
+        obs = _obs(positions=[0.0] * 6)
+        action = _action([0.5] * 6)
+        r = action_smooth(obs=obs, action=action, alpha=0.5)
+        assert r.decision == GuardDecision.PASS
+
+    def test_second_cycle_smooths(self):
+        obs = _obs(positions=[0.0] * 6)
+        action_smooth(obs=obs, action=_action([0.0] * 6), alpha=0.5)
+        r = action_smooth(obs=obs, action=_action([1.0] * 6), alpha=0.5)
+        assert r.decision == GuardDecision.CLAMP
+        expected = 0.5 * 1.0 + 0.5 * 0.0
+        np.testing.assert_allclose(
+            r.clamped_action.target_joint_positions, [expected] * 6, atol=1e-6
+        )
+
+    def test_alpha_one_no_smoothing(self):
+        obs = _obs(positions=[0.0] * 6)
+        action_smooth(obs=obs, action=_action([0.0] * 6), alpha=1.0)
+        r = action_smooth(obs=obs, action=_action([1.0] * 6), alpha=1.0)
+        assert r.decision == GuardDecision.PASS
+
+    def test_low_alpha_heavy_smoothing(self):
+        obs = _obs(positions=[0.0] * 6)
+        action_smooth(obs=obs, action=_action([0.0] * 6), alpha=0.1)
+        r = action_smooth(obs=obs, action=_action([1.0] * 6), alpha=0.1)
+        assert r.decision == GuardDecision.CLAMP
+        expected = 0.1 * 1.0 + 0.9 * 0.0
+        np.testing.assert_allclose(
+            r.clamped_action.target_joint_positions, [expected] * 6, atol=1e-6
+        )
+
+    def test_oscillation_damped(self):
+        obs = _obs(positions=[0.0] * 6)
+        action_smooth(obs=obs, action=_action([0.0] * 6), alpha=0.3)
+        r1 = action_smooth(obs=obs, action=_action([1.0] * 6), alpha=0.3)
+        r2 = action_smooth(obs=obs, action=_action([0.0] * 6), alpha=0.3)
+        smoothed_1 = r1.clamped_action.target_joint_positions[0]
+        smoothed_2 = r2.clamped_action.target_joint_positions[0]
+        assert abs(smoothed_1 - smoothed_2) < 1.0
+
+    def test_metadata_contains_alpha(self):
+        obs = _obs(positions=[0.0] * 6)
+        action_smooth(obs=obs, action=_action([0.0] * 6), alpha=0.5)
+        r = action_smooth(obs=obs, action=_action([1.0] * 6), alpha=0.5)
+        assert r.metadata["alpha"] == 0.5
+        assert r.metadata["smoothed"] is True
