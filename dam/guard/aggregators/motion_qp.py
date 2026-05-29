@@ -1,22 +1,21 @@
 """QP-based clamp fusion for L1 motion constraints.
 
 The mandatory clamp aggregator for MotionGuard.  Each L1 callback attaches
-a :class:`MotionQPConstraint` under ``metadata["motion_qp"]``; the aggregator
-collects them all and solves a single QP that finds the least-perturbing safe
-action subject to all constraints jointly.  ``proxsuite`` is required.
+a :class:`QPTerm` under ``metadata["motion_qp"]``; the aggregator collects
+them all and solves a single QP that finds the least-perturbing safe action
+subject to all constraints jointly.  ``proxsuite`` is required.
 
-The contract between callback and aggregator is deliberately narrow: a callback
-stashes a :class:`MotionQPConstraint` (box bounds and/or linear inequalities).
-The framework pipeline never inspects this — ``MotionQPConstraint`` is
-solver-specific vocabulary that belongs to *this* aggregator, not to the
-generic ``CallbackResult`` schema.
+``QPTerm`` is deliberately generic: just box bounds (upper/lower) and/or
+linear inequalities (A @ u ≤ b).  Each callback is responsible for
+linearizing its own constraint into this form — the aggregator never needs
+to know what *type* of constraint it is.
 """
 
 from __future__ import annotations
 
 import logging
-import typing
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
@@ -30,77 +29,99 @@ METADATA_KEY = "motion_qp"
 
 
 @dataclass(frozen=True)
-class MotionQPConstraint:
-    """One boundary's contribution to the joint motion QP.
+class QPTerm:
+    """One callback's contribution to the joint-space QP.
 
-    A callback only fills the fields relevant to the limit it enforces; the
-    aggregator merges contributions across boundaries (most-restrictive wins)
-    before solving.  Besides the limits themselves the constraint carries the
-    runtime state needed to express them in the QP's joint-position decision
-    space (``q`` / ``dt`` for velocity, ``ee_pos`` / ``J_linear`` for the
-    workspace CBF) because the aggregator only receives the CLAMP results, not
-    the runtime pool.
+    A callback fills whichever fields are relevant:
+
+    - **Box bounds** (``upper`` / ``lower``): direct joint-position limits.
+    - **Linear inequalities** (``A`` / ``b``): ``A @ u ≤ b`` — used for
+      CBF constraints, EE velocity limits, or any linearized constraint.
+
+    The aggregator merges box bounds (element-wise min/max) and stacks
+    linear inequalities.  It never needs to know what the constraint means.
     """
 
-    # Joint-position box (absolute bounds).
+    # Joint-position box bounds.
     upper: np.ndarray | None = None
     lower: np.ndarray | None = None
-    # Joint-velocity limit + the state to turn it into position bounds
-    # (vel bound = q ± max_velocity · dt).
-    max_velocity: np.ndarray | None = None
-    q: np.ndarray | None = None
-    dt: float | None = None
-    # Workspace CBF: axis-aligned box + decay rate + the state to linearise it.
-    workspace_bounds: np.ndarray | None = None
-    cbf_gamma: float | None = None
-    ee_pos: np.ndarray | None = None
-    J_linear: np.ndarray | None = None
-    # Slack penalty for this boundary's soft constraints (stricter boundary wins).
+    # Linear inequality: A @ u ≤ b  (m rows, n cols matching joint count).
+    A: np.ndarray | None = None
+    b: np.ndarray | None = None
+    # Slack penalty — stricter boundary should set a higher weight.
     slack_weight: float = 1e6
 
-    #: Canonical unit map for this dataclass's numeric fields.  Consumed by
-    #: ``CallbackResult.metadata['_units']`` so frontends can display joint
-    #: limits in deg / deg-s when the active source is degree-native, without
-    #: hardcoding field-name knowledge in the frontend.  Fields not listed
-    #: here (slack_weight, J_linear, cbf_gamma) carry no joint-angular unit.
-    UNITS: typing.ClassVar[dict[str, str]] = {
-        "upper": "rad",
-        "lower": "rad",
-        "max_velocity": "rad/s",
-        "q": "rad",
-        "workspace_bounds": "m",
-        "ee_pos": "m",
-        "dt": "s",
-    }
+
+# Backward compat alias — existing code importing MotionQPConstraint still works.
+MotionQPConstraint = QPTerm
 
 
-def motion_qp_units(constraint: MotionQPConstraint) -> dict[str, str]:
-    """Return ``{"motion_qp.<field>": unit}`` for every populated field.
-
-    Use this in callbacks to populate ``CallbackResult.metadata['_units']``
-    alongside the ``"motion_qp"`` entry — that lets the inspector convert
-    rad → deg without hardcoding any field-name knowledge in the frontend.
-
-    Only fields that are non-None on this particular constraint are included
-    so the unit map matches what actually flows out (no stale entries for
-    fields the callback chose not to populate).
-    """
-    return {
-        f"motion_qp.{field}": unit
-        for field, unit in MotionQPConstraint.UNITS.items()
-        if getattr(constraint, field) is not None
-    }
-
-
-def _coerce(value: object) -> MotionQPConstraint:
-    """Accept either a ``MotionQPConstraint`` or an equivalent dict."""
-    if isinstance(value, MotionQPConstraint):
+def _coerce(value: object) -> QPTerm:
+    """Accept a ``QPTerm``, ``MotionQPConstraint``, or an equivalent dict."""
+    if isinstance(value, QPTerm):
         return value
     if isinstance(value, dict):
-        return MotionQPConstraint(**value)
-    raise TypeError(
-        f"metadata['{METADATA_KEY}'] must be a MotionQPConstraint or dict, got {type(value)!r}"
-    )
+        # Support legacy MotionQPConstraint dict format: convert velocity
+        # fields into box bounds, workspace fields into A/b.
+        return _coerce_legacy_dict(value)
+    raise TypeError(f"metadata['{METADATA_KEY}'] must be a QPTerm or dict, got {type(value)!r}")
+
+
+def _coerce_legacy_dict(d: dict[str, Any]) -> QPTerm:
+    """Convert a dict with legacy MotionQPConstraint fields into QPTerm."""
+    upper = _opt_arr(d.get("upper"))
+    lower = _opt_arr(d.get("lower"))
+    A = _opt_arr(d.get("A"))
+    b_vec = _opt_arr(d.get("b"))
+    slack_weight = float(d.get("slack_weight", 1e6))
+
+    # Legacy: max_velocity + q + dt → box bounds
+    if "max_velocity" in d and "q" in d and "dt" in d:
+        vmax = _arr(d["max_velocity"])
+        q = _arr(d["q"])
+        dt = float(d["dt"])
+        m = min(vmax.shape[0], q.shape[0])
+        span = vmax[:m] * dt
+        vel_upper = q[:m] + span
+        vel_lower = q[:m] - span
+        if upper is not None:
+            upper[:m] = np.minimum(upper[:m], vel_upper)
+        else:
+            upper = vel_upper
+        if lower is not None:
+            lower[:m] = np.maximum(lower[:m], vel_lower)
+        else:
+            lower = vel_lower
+
+    # Legacy: workspace_bounds + ee_pos + J_linear → A/b via CBF
+    if "workspace_bounds" in d and "ee_pos" in d and "J_linear" in d:
+        from dam.runtime import qp_solver
+
+        gamma = float(d.get("cbf_gamma", 1.0))
+        J = np.asarray(d["J_linear"], dtype=np.float64)
+        q_cbf = _arr(d["q"]) if "q" in d else np.zeros(J.shape[1])
+        ws_A, ws_b = qp_solver.workspace_cbf_constraints(
+            q=q_cbf,
+            ee_pos=_arr(d["ee_pos"]),
+            J_linear=J,
+            bounds=np.asarray(d["workspace_bounds"], dtype=np.float64),
+            cbf_alpha=gamma,
+            dt=1.0,
+        )
+        if A is not None:
+            A = np.vstack([A, ws_A])
+            b_vec = np.concatenate([b_vec, _arr(ws_b)])
+        else:
+            A = ws_A
+            b_vec = _arr(ws_b)
+
+    return QPTerm(upper=upper, lower=lower, A=A, b=b_vec, slack_weight=slack_weight)
+
+
+def _opt_arr(x: object) -> np.ndarray | None:
+    if x is None:
+        return None
+    return np.asarray(x, dtype=np.float64).ravel()
 
 
 def _arr(x: object) -> np.ndarray:
@@ -119,11 +140,7 @@ def _fit_cols(A: np.ndarray, n: int) -> np.ndarray:
 def _resolve_u_nom(
     clamps: list[CallbackResult], action_in: ValidatedAction | None
 ) -> tuple[np.ndarray | None, ActionProposal | None]:
-    """Nominal action the QP minimises distance to, plus its original proposal.
-
-    Prefer the unmodified policy proposal recorded on the first CLAMP (the QP
-    should pull *that* back, not a value already perturbed by a sibling clamp).
-    """
+    """Nominal action the QP minimises distance to, plus its original proposal."""
     for c in clamps:
         ca = c.clamped_action
         if ca is not None and ca.original_proposal is not None:
@@ -139,20 +156,17 @@ def motion_qp_aggregator(
 ) -> ValidatedAction | None:
     """Fuse L1 CLAMP results into one least-perturbing action via a QP.
 
-    Reads each CLAMP's ``metadata['motion_qp']`` (a :class:`MotionQPConstraint`
-    or equivalent dict).  When none are present, defers to the sequential
-    strategy.  When present but ``proxsuite`` is unavailable, raises.  On QP
-    solver failure, falls back to sequential so the robot still gets a safe
-    (if less optimal) clamp rather than no clamp at all.
+    Each CLAMP's ``metadata['motion_qp']`` is a :class:`QPTerm` with box
+    bounds and/or linear inequalities.  The aggregator merges all terms and
+    solves a single QP.
     """
-    constraints = [
+    terms = [
         _coerce(c.metadata[METADATA_KEY])
         for c in clamps
         if c.metadata and METADATA_KEY in c.metadata
     ]
-    if not constraints:
-        # CLAMPs without QP metadata (e.g. workspace halt) — use the most
-        # conservative clamped action directly instead of dropping to PASS.
+    if not terms:
+        # CLAMPs without QP metadata — use the first clamped action directly.
         for c in clamps:
             if c.clamped_action is not None:
                 return c.clamped_action
@@ -171,57 +185,34 @@ def motion_qp_aggregator(
         return None
     n = u_nom.shape[0]
 
+    # Merge all terms: box bounds → element-wise, A/b → vstack.
     upper = np.full(n, np.inf)
     lower = np.full(n, -np.inf)
-    vel_upper = np.full(n, np.inf)
-    vel_lower = np.full(n, -np.inf)
-    has_box = has_vel = False
-    cbf_A: list[np.ndarray] = []
-    cbf_b: list[np.ndarray] = []
+    has_box = False
+    ineq_A: list[np.ndarray] = []
+    ineq_b: list[np.ndarray] = []
     slack_weight = 0.0
 
-    for con in constraints:
-        slack_weight = max(slack_weight, float(con.slack_weight))
+    for term in terms:
+        slack_weight = max(slack_weight, float(term.slack_weight))
 
-        if con.upper is not None:
-            up = _arr(con.upper)
+        if term.upper is not None:
+            up = _arr(term.upper)
             m = min(n, up.shape[0])
             upper[:m] = np.minimum(upper[:m], up[:m])
             has_box = True
-        if con.lower is not None:
-            lo = _arr(con.lower)
+        if term.lower is not None:
+            lo = _arr(term.lower)
             m = min(n, lo.shape[0])
             lower[:m] = np.maximum(lower[:m], lo[:m])
             has_box = True
 
-        if con.max_velocity is not None and con.q is not None and con.dt is not None:
-            vmax = _arr(con.max_velocity)
-            q = _arr(con.q)
-            m = min(n, vmax.shape[0], q.shape[0])
-            span = vmax[:m] * float(con.dt)
-            vel_upper[:m] = np.minimum(vel_upper[:m], q[:m] + span)
-            vel_lower[:m] = np.maximum(vel_lower[:m], q[:m] - span)
-            has_vel = True
+        if term.A is not None and term.b is not None:
+            ineq_A.append(_fit_cols(np.atleast_2d(term.A), n))
+            ineq_b.append(_arr(term.b))
 
-        if con.workspace_bounds is not None and con.ee_pos is not None and con.J_linear is not None:
-            gamma = 1.0 if con.cbf_gamma is None else float(con.cbf_gamma)
-            J = np.asarray(con.J_linear, dtype=np.float64)
-            q_cbf = _arr(con.q) if con.q is not None else np.zeros(J.shape[1])
-            # cbf_gamma is already the discrete decay γ ∈ [0,1]; pass dt=1 so the
-            # solver helper uses it verbatim instead of re-multiplying by dt.
-            A, b = qp_solver.workspace_cbf_constraints(
-                q=q_cbf,
-                ee_pos=_arr(con.ee_pos),
-                J_linear=J,
-                bounds=np.asarray(con.workspace_bounds, dtype=np.float64),
-                cbf_alpha=gamma,
-                dt=1.0,
-            )
-            cbf_A.append(_fit_cols(A, n))
-            cbf_b.append(_arr(b))
-
-    extra_A = np.vstack(cbf_A) if cbf_A else None
-    extra_ub = np.concatenate(cbf_b) if cbf_b else None
+    extra_A = np.vstack(ineq_A) if ineq_A else None
+    extra_ub = np.concatenate(ineq_b) if ineq_b else None
     if slack_weight <= 0.0:
         slack_weight = 1e6
 
@@ -229,8 +220,6 @@ def motion_qp_aggregator(
         u_nom,
         upper=upper if has_box else None,
         lower=lower if has_box else None,
-        vel_upper=vel_upper if has_vel else None,
-        vel_lower=vel_lower if has_vel else None,
         slack_weight=slack_weight,
         extra_A=extra_A,
         extra_ub=extra_ub,
@@ -249,4 +238,16 @@ def motion_qp_aggregator(
     )
 
 
-__all__ = ["METADATA_KEY", "MotionQPConstraint", "motion_qp_aggregator"]
+# Backward compat for motion_qp_units (no longer needed with QPTerm,
+# but existing code may call it).
+def motion_qp_units(constraint: QPTerm) -> dict[str, str]:
+    """Return unit annotations for populated QPTerm fields."""
+    units: dict[str, str] = {}
+    if constraint.upper is not None:
+        units["motion_qp.upper"] = "rad"
+    if constraint.lower is not None:
+        units["motion_qp.lower"] = "rad"
+    return units
+
+
+__all__ = ["METADATA_KEY", "MotionQPConstraint", "QPTerm", "motion_qp_aggregator"]

@@ -23,7 +23,7 @@ from dam.boundary.callbacks._helpers import (
     _resolve_ee_translation,
 )
 from dam.boundary.callbacks._registry import boundary_callback
-from dam.guard.aggregators.motion_qp import MotionQPConstraint, motion_qp_units
+from dam.guard.aggregators.motion_qp import QPTerm, motion_qp_units
 from dam.guard.pipeline import CallbackResult
 from dam.kinematics.resolver import KinematicsResolver
 from dam.types.action import ActionProposal, ValidatedAction
@@ -204,10 +204,10 @@ def joint_velocity_limit(
         original_proposal=action,
         timestamp=action.timestamp,
     )
-    qp_meta = MotionQPConstraint(
-        max_velocity=v_max_1d.copy(),
-        q=cur_pos[:n].copy(),
-        dt=float(dt),
+    span = v_max_1d * dt_safe
+    qp_meta = QPTerm(
+        upper=cur_pos[:n] + span,
+        lower=cur_pos[:n] - span,
         slack_weight=float(slack_weight),
     )
     return CallbackResult.clamp(
@@ -294,9 +294,7 @@ def joint_position_limits(
     )
     # Advertise the joint-position box for an optional QP aggregator (limits in
     # radians, already unit-normalised above).
-    qp_meta = MotionQPConstraint(
-        upper=up[:n].copy(), lower=lo[:n].copy(), slack_weight=float(slack_weight)
-    )
+    qp_meta = QPTerm(upper=up[:n].copy(), lower=lo[:n].copy(), slack_weight=float(slack_weight))
     return CallbackResult.clamp(
         bname,
         clamped,

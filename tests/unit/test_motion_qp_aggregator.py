@@ -14,7 +14,7 @@ import pytest
 
 from dam.guard.aggregators.motion_qp import (
     METADATA_KEY,
-    MotionQPConstraint,
+    QPTerm,
     motion_qp_aggregator,
 )
 from dam.guard.pipeline import CallbackResult
@@ -53,7 +53,7 @@ def test_no_qp_metadata_uses_first_clamp() -> None:
 
 
 def test_position_box_clamped_via_qp(proxsuite) -> None:
-    meta = MotionQPConstraint(
+    meta = QPTerm(
         upper=np.array([1.0, 1.0, 1.0]),
         lower=np.array([-1.0, -1.0, -1.0]),
         slack_weight=1e8,
@@ -72,16 +72,15 @@ def test_position_box_clamped_via_qp(proxsuite) -> None:
 
 
 def test_velocity_limit_clamped_via_qp(proxsuite) -> None:
-    meta = MotionQPConstraint(
-        max_velocity=np.array([0.5, 0.5, 0.5]),
-        q=np.array([0.0, 0.0, 0.0]),
-        dt=1.0,
+    # Velocity limit pre-computed as box bounds: q ± v_max·dt = 0 ± 0.5
+    meta = QPTerm(
+        upper=np.array([0.5, 0.5, 0.5]),
+        lower=np.array([-0.5, -0.5, -0.5]),
         slack_weight=1e8,
     )
     c = _clamp([2.0, 2.0, 2.0], meta=meta)
     out = motion_qp_aggregator([c], None)
     assert out is not None
-    # q ± v_max·dt = ±0.5
     assert np.all(out.target_joint_positions <= 0.51)
     assert np.all(out.target_joint_positions >= -0.51)
 
@@ -93,7 +92,7 @@ def test_raises_when_proxsuite_unavailable(monkeypatch) -> None:
     from dam.runtime import qp_solver
 
     monkeypatch.setattr(qp_solver, "available", lambda: False)
-    meta = MotionQPConstraint(upper=np.array([1.0]), lower=np.array([-1.0]))
+    meta = QPTerm(upper=np.array([1.0]), lower=np.array([-1.0]))
     c = _clamp([2.0], meta=meta)
     with pytest.raises(RuntimeError, match="proxsuite"):
         motion_qp_aggregator([c], None)
