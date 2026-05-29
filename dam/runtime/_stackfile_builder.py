@@ -184,38 +184,22 @@ def _configure_stackfile_guard_instances(
     config: StackfileConfig,
     guards_by_kind: dict[str, Any],
 ) -> None:
-    """Apply stackfile-selected guard strategies after all boundaries are known."""
+    """Validate that required backends are available for configured guards."""
     motion_guard = guards_by_kind.get("motion")
     if motion_guard is None:
         return
 
-    qp_values: list[str] = []
-    for bcfg in config.boundaries.values():
-        if getattr(bcfg, "layer", None) != "L1":
-            continue
-        for ncfg in bcfg.nodes:
-            qp_solver = ncfg.params.get("qp_solver")
-            if qp_solver is not None:
-                qp_values.append(str(qp_solver).lower())
-
-    if not qp_values:
+    # QP is mandatory for L1 — check proxsuite at startup when L1 boundaries exist.
+    has_l1 = any(getattr(bcfg, "layer", None) == "L1" for bcfg in config.boundaries.values())
+    if not has_l1:
         return
-    unsupported = sorted({v for v in qp_values if v != "proxsuite"})
-    if unsupported:
-        raise ValueError(f"Unsupported L1 qp_solver value(s): {unsupported}")
 
     from dam.runtime import qp_solver as _qp_solver
 
     if not _qp_solver.available():
         raise RuntimeError(
-            "An L1 boundary requested qp_solver='proxsuite' but the proxsuite "
-            "backend is not importable. Install it (pip install proxsuite) or "
-            "remove the qp_solver param to use the default box-clamp fusion."
+            "L1 boundaries require the proxsuite QP solver. Install it: pip install proxsuite"
         )
-
-    from dam.guard.aggregators.motion_qp import motion_qp_aggregator
-
-    motion_guard._clamp_aggregator = motion_qp_aggregator
 
 
 def _resolve_cb_layer(ncfg: Any, layer_str: str, cb_reg: Any) -> str:

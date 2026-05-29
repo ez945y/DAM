@@ -36,7 +36,7 @@ Investigated whether the two injection systems are redundant. Conclusion: **they
 
 ## 當前已驗證
 
-- **`make test` ALL PASSED**: 686 unit + 28 integration + 47 safety + 2 property + 55 Rust + 109 frontend = 0 failures
+- **`make test` ALL PASSED**: 666 unit + 28 integration + 43 safety + 2 property + 55 Rust + 109 frontend = 0 failures
 - pre-commit hooks: all passed (ruff + mypy + format)
 
 ## Commits (本輪)
@@ -50,6 +50,8 @@ Investigated whether the two injection systems are redundant. Conclusion: **they
 - `107a7ed` feat: add percentile-based OOD threshold strategy
 - `38d243a` feat: add action_smooth L1 callback for EMA-based oscillation damping
 - `7bba34f` fix: update monkeypatch target after GuardRuntime telemetry extraction
+- `84745fa` refactor: consolidate L1 kinematics — acceleration limit + remove weak callbacks
+- `7f39640` docs: update L1 callback documentation after consolidation
 
 ## 待後續處理
 

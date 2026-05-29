@@ -13,8 +13,6 @@ import pytest
 from dam.boundary.callbacks import (
     joint_position_limits,
     joint_velocity_limit,
-    keep_out_zone,
-    orientation_limit,
 )
 from dam.guard.aggregator import aggregate_decisions
 from dam.guard.layer import GuardLayer
@@ -88,16 +86,6 @@ class TestNonFiniteInjection:
                 max_velocities=[1.0] * 6,
             )
         )
-
-    @pytest.mark.parametrize("bad", NON_FINITE)
-    def test_keep_out_zone(self, bad):
-        obs = _obs(ee=[bad, 0.0, 0.0, 0, 0, 0, 1])
-        assert not _is_pass(keep_out_zone(obs=obs, boxes=[[[-1, 1], [-1, 1], [-1, 1]]]))
-
-    @pytest.mark.parametrize("bad", NON_FINITE)
-    def test_orientation_limit(self, bad):
-        obs = _obs(ee=[0, 0, 0.3, bad, 0, 0, 1])
-        assert not _is_pass(orientation_limit(obs=obs, max_tilt_deg=30.0))
 
 
 # ── T2: boundary skimming (float-epsilon edges) ───────────────────────────────

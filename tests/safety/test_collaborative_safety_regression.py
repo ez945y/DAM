@@ -6,9 +6,7 @@ rejected. These tests NEVER allow an unsafe condition to pass through.
 
 Covers:
   1. The new callbacks are registered by register_all() and callable.
-  2. End-effector entering a configured keep-out volume is rejected.
-  3. End-effector tilt past the payload-spill limit is rejected.
-  4. Mobile base leaving geofence is rejected.
+  2. Workspace violation halts motion.
 """
 
 from __future__ import annotations
@@ -16,20 +14,19 @@ from __future__ import annotations
 import numpy as np
 
 from dam.boundary.builtin_callbacks import (
-    base_geofence,
-    keep_out_zone,
-    orientation_limit,
     register_all,
+    workspace,
 )
 from dam.registry.callback import CallbackRegistry
+from dam.types.action import ActionProposal
 from dam.types.observation import Observation
+from dam.types.result import GuardDecision
 
 
-def _obs(positions=None, velocities=None, ee_pose=None) -> Observation:
+def _obs(positions=None, ee_pose=None) -> Observation:
     return Observation(
         timestamp=0.0,
         joint_positions=np.array(positions) if positions is not None else np.zeros(6),
-        joint_velocities=np.array(velocities) if velocities is not None else None,
         end_effector_pose=np.array(ee_pose) if ee_pose is not None else None,
     )
 
@@ -46,9 +43,7 @@ class TestCollaborativeCallbacksRegistered:
         try:
             register_all()
             registered = rcmod._registry.list_all()
-            assert "keep_out_zone" in registered
-            assert "orientation_limit" in registered
-            assert "base_geofence" in registered
+            assert "workspace" in registered
         finally:
             rcmod._registry = orig
 
@@ -57,29 +52,13 @@ class TestCollaborativeCallbacksRegistered:
 
 
 class TestDangerousScenariosRejected:
-    def test_enters_keep_out_volume_rejected(self):
-        """EE inside an operator keep-out box must be rejected."""
-        obs = _obs(ee_pose=[0.0, 0.0, 0.2, 0, 0, 0, 1])
-        boxes = [[[-0.2, 0.2], [-0.2, 0.2], [0.0, 0.4]]]
-        result = keep_out_zone(obs=obs, boxes=boxes)
-        assert result is not True
-        assert result[0] is False
-
-    def test_payload_tipped_rejected(self):
-        """Carrying axis tilted 90° from vertical must be rejected."""
-        s = float(np.sin(np.pi / 4))
-        obs = _obs(ee_pose=[0, 0, 0.3, s, 0, 0, s])  # 90° about x
-        result = orientation_limit(obs=obs, max_tilt_deg=20.0)
-        assert result is not True
-        assert result[0] is False
-
-    def test_base_leaves_geofence_rejected(self):
-        """Mobile base driving outside its geofence must be rejected."""
-        obs = Observation(
-            timestamp=0.0,
-            joint_positions=np.zeros(6),
-            channels={"base_pose": np.array([3.0, 0.0, 0.0])},
+    def test_workspace_breach_halts(self):
+        """EE outside workspace must be clamped to halt."""
+        obs = _obs(ee_pose=[0.5, 0.1, 0.3, 0, 0, 0, 1])
+        action = ActionProposal(target_joint_positions=np.zeros(6))
+        bounds = [[-0.4, 0.4], [-0.4, 0.4], [0.02, 0.6]]
+        result = workspace(obs=obs, action=action, bounds=bounds)
+        assert result.decision == GuardDecision.CLAMP
+        np.testing.assert_array_equal(
+            result.clamped_action.target_joint_positions, obs.joint_positions
         )
-        result = base_geofence(obs=obs, bounds=[[-1.0, 1.0], [-1.0, 1.0]])
-        assert result is not True
-        assert result[0] is False

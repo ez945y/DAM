@@ -37,17 +37,16 @@ def _clamp(u_nom, *, meta=None, clamped=None, name="b") -> CallbackResult:
     return CallbackResult.clamp(name, action, metadata=metadata)
 
 
-# ── 1. no QP metadata → sequential fallback ───────────────────────────────────
+# ── 1. no QP metadata → returns None ─────────────────────────────────────────
 
 
-def test_no_qp_metadata_falls_back_to_sequential() -> None:
-    # Two plain clamps, no metadata. Sequential takes the most-restrictive per joint.
+def test_no_qp_metadata_uses_first_clamp() -> None:
+    """Without QP metadata, aggregator returns the first clamped action."""
     c1 = _clamp([2.0, 2.0], clamped=[1.0, 2.0], name="a")
     c2 = _clamp([2.0, 2.0], clamped=[2.0, 1.0], name="b")
     out = motion_qp_aggregator([c1, c2], None)
     assert out is not None
-    # merge_restrictive: joint0 from a (1.0), joint1 from b (1.0)
-    assert np.allclose(out.target_joint_positions, [1.0, 1.0])
+    np.testing.assert_allclose(out.target_joint_positions, [1.0, 2.0])
 
 
 # ── 2. position box via QP ────────────────────────────────────────────────────
@@ -100,12 +99,12 @@ def test_raises_when_proxsuite_unavailable(monkeypatch) -> None:
         motion_qp_aggregator([c], None)
 
 
-def test_no_metadata_does_not_raise_without_proxsuite(monkeypatch) -> None:
-    """No QP metadata → pure sequential, regardless of solver availability."""
+def test_no_metadata_uses_clamp_without_proxsuite(monkeypatch) -> None:
+    """No QP metadata → first clamped action, regardless of solver availability."""
     from dam.runtime import qp_solver
 
     monkeypatch.setattr(qp_solver, "available", lambda: False)
     c = _clamp([2.0, 2.0], clamped=[1.0, 1.0])
     out = motion_qp_aggregator([c], None)
     assert out is not None
-    assert np.allclose(out.target_joint_positions, [1.0, 1.0])
+    np.testing.assert_allclose(out.target_joint_positions, [1.0, 1.0])

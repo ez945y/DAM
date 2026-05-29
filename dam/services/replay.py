@@ -405,7 +405,7 @@ def _summary(
             if name in active:
                 add(name, "joint_velocities synthetic")
     if not saw_eep:
-        for name in ("workspace", "keep_out_zone", "orientation_limit"):
+        for name in ("workspace",):
             if name in active:
                 add(name, "end_effector_pose missing")
     for ft_name in ("force_limit", "force_torque_limit"):

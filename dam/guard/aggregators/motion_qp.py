@@ -1,26 +1,15 @@
 """QP-based clamp fusion for L1 motion constraints.
 
-Phase 1 of the guard-pipeline refactor stripped the inline QP / CBF dispatch
-out of ``MotionGuard``.  This module re-introduces it as an *opt-in* clamp
-aggregator the user wires in explicitly::
-
-    MotionGuard(clamp_aggregator=motion_qp_aggregator)
-
-Where ``sequential_clamp_aggregator`` folds each CLAMP element-wise (taking the
-most restrictive value per joint), ``motion_qp_aggregator`` collects the
-constraints the L1 callbacks attach to their CLAMP results and solves a single
-QP that finds the least-perturbing safe action subject to all of them jointly.
+The mandatory clamp aggregator for MotionGuard.  Each L1 callback attaches
+a :class:`MotionQPConstraint` under ``metadata["motion_qp"]``; the aggregator
+collects them all and solves a single QP that finds the least-perturbing safe
+action subject to all constraints jointly.  ``proxsuite`` is required.
 
 The contract between callback and aggregator is deliberately narrow: a callback
-that wants QP fusion stashes a :class:`MotionQPConstraint` under the
-``"motion_qp"`` key of its ``CallbackResult.metadata``.  The framework pipeline
-never inspects this — ``MotionQPConstraint`` is solver-specific vocabulary that
-belongs to *this* aggregator, not to the generic ``CallbackResult`` schema.
-
-If no callback supplied QP metadata, the aggregator transparently falls back to
-the sequential strategy.  If QP metadata *is* present but the ``proxsuite``
-backend is unavailable, it raises rather than silently degrading — a guard that
-was explicitly configured for QP should fail loudly when its solver is missing.
+stashes a :class:`MotionQPConstraint` (box bounds and/or linear inequalities).
+The framework pipeline never inspects this — ``MotionQPConstraint`` is
+solver-specific vocabulary that belongs to *this* aggregator, not to the
+generic ``CallbackResult`` schema.
 """
 
 from __future__ import annotations
@@ -31,7 +20,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from dam.guard.pipeline import CallbackResult, sequential_clamp_aggregator
+from dam.guard.pipeline import CallbackResult
 from dam.types.action import ActionProposal, ValidatedAction
 
 logger = logging.getLogger(__name__)
@@ -162,21 +151,24 @@ def motion_qp_aggregator(
         if c.metadata and METADATA_KEY in c.metadata
     ]
     if not constraints:
-        return sequential_clamp_aggregator(clamps, action_in)
+        # CLAMPs without QP metadata (e.g. workspace halt) — use the most
+        # conservative clamped action directly instead of dropping to PASS.
+        for c in clamps:
+            if c.clamped_action is not None:
+                return c.clamped_action
+        return None
 
     from dam.runtime import qp_solver
 
     if not qp_solver.available():
         raise RuntimeError(
-            "motion_qp_aggregator was given QP constraints but the 'proxsuite' "
-            "backend is not importable. Install proxsuite, or use the default "
-            "sequential_clamp_aggregator if QP fusion is not required."
+            "motion_qp_aggregator requires the 'proxsuite' backend. "
+            "Install proxsuite (pip install proxsuite)."
         )
 
     u_nom, orig = _resolve_u_nom(clamps, action_in)
     if u_nom is None:
-        # No proposal to optimise around; nothing the QP can do.
-        return sequential_clamp_aggregator(clamps, action_in)
+        return None
     n = u_nom.shape[0]
 
     upper = np.full(n, np.inf)
@@ -244,8 +236,8 @@ def motion_qp_aggregator(
         extra_ub=extra_ub,
     )
     if u is None:
-        logger.warning("motion_qp_aggregator: QP solve failed; falling back to sequential clamp")
-        return sequential_clamp_aggregator(clamps, action_in)
+        logger.error("motion_qp_aggregator: QP solve failed — no safe action found")
+        return None
 
     return ValidatedAction(
         target_joint_positions=u,

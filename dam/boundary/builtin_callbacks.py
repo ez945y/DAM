@@ -11,7 +11,6 @@ from __future__ import annotations
 from dam.boundary.callbacks import (
     _CALLBACKS,
     _CATALOG,
-    base_geofence,
     boundary_callback,
     check_force_torque_safe,
     current_limit,
@@ -22,9 +21,7 @@ from dam.boundary.callbacks import (
     host_health_limit,
     joint_position_limits,
     joint_velocity_limit,
-    keep_out_zone,
     ood_detector,
-    orientation_limit,
     register_all,
     task_gripper_command_guard,
     temperature_limit,
@@ -41,7 +38,6 @@ from dam.boundary.callbacks._helpers import (
 )
 
 __all__ = [
-    "base_geofence",
     "boundary_callback",
     "check_force_torque_safe",
     "current_limit",
@@ -52,9 +48,7 @@ __all__ = [
     "host_health_limit",
     "joint_position_limits",
     "joint_velocity_limit",
-    "keep_out_zone",
     "ood_detector",
-    "orientation_limit",
     "register_all",
     "task_gripper_command_guard",
     "temperature_limit",

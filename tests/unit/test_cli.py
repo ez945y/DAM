@@ -70,7 +70,7 @@ class TestCallbacks:
         data = json.loads(capsys.readouterr().out)
         assert isinstance(data, list)
         names = {c["name"] for c in data}
-        assert {"ood_detector", "workspace", "base_geofence"} <= names
+        assert {"ood_detector", "workspace"} <= names
         assert all({"name", "layer", "description"} <= set(c) for c in data)
 
     def test_force_torque_is_l3_not_l2(self, capsys):

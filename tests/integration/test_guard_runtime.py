@@ -152,7 +152,8 @@ def test_clamp_joint_position_limits():
     validated, results = runtime.validate(obs, action, "test-trace")
     assert validated is not None
     assert validated.was_clamped
-    assert validated.target_joint_positions[0] == pytest.approx(1.0)
+    # QP solver may add tiny perturbation (~1e-5)
+    assert validated.target_joint_positions[0] == pytest.approx(1.0, abs=1e-3)
 
 
 def test_reject_returns_none():

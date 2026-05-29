@@ -34,11 +34,8 @@ from dam.boundary.callbacks.hardware import (
     voltage_limit,
 )
 from dam.boundary.callbacks.kinematics import (
-    base_geofence,
     joint_position_limits,
     joint_velocity_limit,
-    keep_out_zone,
-    orientation_limit,
     workspace,
 )
 from dam.boundary.callbacks.ood import ood_detector
@@ -46,7 +43,6 @@ from dam.boundary.callbacks.ood import ood_detector
 __all__ = [
     "_CALLBACKS",
     "_CATALOG",
-    "base_geofence",
     "boundary_callback",
     "check_force_torque_safe",
     "current_limit",
@@ -57,9 +53,7 @@ __all__ = [
     "host_health_limit",
     "joint_position_limits",
     "joint_velocity_limit",
-    "keep_out_zone",
     "ood_detector",
-    "orientation_limit",
     "register_all",
     "task_gripper_command_guard",
     "temperature_limit",

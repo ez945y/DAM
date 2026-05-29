@@ -334,7 +334,7 @@ def _replay_through_guards(args: argparse.Namespace) -> int:
             if name in active:
                 add_degraded(name, "joint_velocities synthetic")
     if not saw_end_effector_pose:
-        for name in ("workspace", "keep_out_zone", "orientation_limit"):
+        for name in ("workspace",):
             if name in active:
                 add_degraded(name, "end_effector_pose missing")
     for ft_name in ("force_limit", "force_torque_limit"):

@@ -88,11 +88,11 @@ class TestSafetyGuard:
         obs = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         result = guard(action, obs)
         assert isinstance(result, np.ndarray)
-        # Joints 0,1 should be clamped to ±1.5
-        assert result[0] <= 1.5 + 1e-6
-        assert result[1] >= -1.5 - 1e-6
+        # Joints 0,1 should be clamped to ±1.5 (QP may add tiny perturbation)
+        assert result[0] <= 1.5 + 1e-3
+        assert result[1] >= -1.5 - 1e-3
         # Joints 2-5 should pass through (within limits)
-        np.testing.assert_allclose(result[2:], [0.5, 0.5, 0.5, 0.5], atol=1e-6)
+        np.testing.assert_allclose(result[2:], [0.5, 0.5, 0.5, 0.5], atol=1e-3)
 
     def test_safe_action_within_limits(self, stackfile: str) -> None:
         guard = SafetyGuard(stackfile, joint_names=_JOINT_NAMES, degrees_mode=False)

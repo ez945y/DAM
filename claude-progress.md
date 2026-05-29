@@ -6,12 +6,12 @@
 - **倉庫根目錄**: `/Users/chenyizhong/Documents/Claude/Projects/Security Guard.nosync`
 - **標準啟動路徑**: `make dev`
 - **標準驗證路徑**: `make test`
-- **基線狀態**: `make test` ALL PASSED（截至 2026-05-29, 686 unit + 28 integration + 47 safety + 2 property + 55 Rust + 109 frontend = 0 failures）
+- **基線狀態**: `make test` ALL PASSED（截至 2026-05-29, 666 unit + 28 integration + 43 safety + 2 property + 55 Rust + 109 frontend = 0 failures）
 
 ## 當前最高優先級未完成功能
 
 1. **Vision OOD 閾值校準**：✅ **已實作 percentile-based threshold**（`threshold_percentile` param）。需在實際 dataset 上重新 calibrate 以驗證 FPR 改善。
-2. **機器人微振盪**：✅ **已實作 `action_smooth` L1 callback**。EMA-based oscillation damping (alpha=0.5 default)。需在實機驗證效果。
+2. **機器人爆衝防護**：✅ **已實作 acceleration limit**（`max_acceleration` param on `joint_velocity_limit`）。兩段式 clamp 替代了之前的 EMA（`action_smooth` 已刪除）。
 3. **MCAP 回讀 Risk Log**：✅ **已實現**。Backend: `/api/risk-log/mcap/{filename}`，Frontend: MCAP viewer page with cycle detail expand。
 4. **`make record` 端到端硬體驗證**：需要實機環境。
 
@@ -53,6 +53,20 @@
   - `python -m pytest tests/unit/ -x -q` — 636 passed, 29 skipped
   - pre-commit hooks — all passed on each commit
 - **commits**: `ff77cad`, `107a7ed`, `38d243a`
+
+### Session 2026-05-29 #4 (L1 Kinematics Consolidation)
+
+- **本輪目標**: 解決 L1 爆衝問題 — 加速度限制 + 清除無效 callback
+- **已完成**:
+  - `joint_velocity_limit` 加入 `max_acceleration` 參數 — 兩段式 clamp（先限加速度再限速度），追蹤前一 cycle 速度
+  - 刪除 4 個無效 callback：`check_velocity_smooth`（REJECT on obs）、`action_smooth`（EMA 無硬保證）、`cartesian_velocity_limit`（REJECT on obs, 無 QP）、`check_joints_not_moving`（場景太窄）
+  - `workspace` 簡化：移除 CBF/QP metadata（與 L2 task stages 衝突），純位置框 + 急停
+  - 更新文檔（boundary-callbacks.md, concepts/boundaries.md, adversarial-testing.md）
+  - 6 個新加速度測試（sudden jump, smooth pass, deceleration, metadata）
+- **執行過的驗證**:
+  - `make test` — ALL PASSED (666 unit + 28 integration + 43 safety + 2 property + 55 Rust + 109 frontend)
+- **commits**: `84745fa`, `7f39640`
+- **淨效果**: -573 lines, +201 lines = 淨刪 372 行
 
 ### Session 2026-05-29 #3 (Test Fix + Full Review)
 

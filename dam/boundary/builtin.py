@@ -5,7 +5,6 @@ when you need to register the built-in callback set programmatically.
 """
 
 from dam.boundary.builtin_callbacks import (
-    base_geofence,
     boundary_callback,
     check_force_torque_safe,
     current_limit,
@@ -15,9 +14,7 @@ from dam.boundary.builtin_callbacks import (
     hardware_watchdog,
     joint_position_limits,
     joint_velocity_limit,
-    keep_out_zone,
     ood_detector,
-    orientation_limit,
     register_all,
     task_gripper_command_guard,
     temperature_limit,
@@ -26,7 +23,6 @@ from dam.boundary.builtin_callbacks import (
 )
 
 __all__ = [
-    "base_geofence",
     "boundary_callback",
     "check_force_torque_safe",
     "current_limit",
@@ -36,9 +32,7 @@ __all__ = [
     "hardware_watchdog",
     "joint_position_limits",
     "joint_velocity_limit",
-    "keep_out_zone",
     "ood_detector",
-    "orientation_limit",
     "register_all",
     "task_gripper_command_guard",
     "temperature_limit",

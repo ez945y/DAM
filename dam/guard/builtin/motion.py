@@ -1,4 +1,4 @@
-"""L1 — Physical kinematics guard.
+"""L1 — Joint-space kinematics guard.
 
 A thin shell over :mod:`dam.guard.pipeline`: ``check()`` runs every active
 L1 boundary's ``@boundary_callback`` and aggregates the results into a single
@@ -7,10 +7,10 @@ L1 boundary's ``@boundary_callback`` and aggregates the results into a single
 logic of its own — adding a new L1 limit means writing one callback, not
 editing this file.
 
-Custom solvers (QP, CBF, learned safety filters, …) plug in via the
-``clamp_aggregator`` argument: instead of the default element-wise restrictive
-merge, the aggregator can read per-callback ``metadata`` to assemble a joint
-QP and return the fused least-perturbing action.
+CLAMP fusion uses the QP aggregator by default: each callback contributes
+``MotionQPConstraint`` metadata, and the aggregator solves a single QP
+that satisfies all constraints with minimum perturbation to the policy
+proposal.  ``proxsuite`` is required at runtime.
 """
 
 from __future__ import annotations
@@ -19,8 +19,9 @@ import logging
 from typing import Any
 
 import dam
+from dam.guard.aggregators.motion_qp import motion_qp_aggregator
 from dam.guard.base import Guard
-from dam.guard.pipeline import ClampAggregator, run_and_aggregate, sequential_clamp_aggregator
+from dam.guard.pipeline import ClampAggregator, run_and_aggregate
 from dam.types.action import ActionProposal
 from dam.types.observation import Observation
 from dam.types.result import GuardDecision, GuardResult
@@ -41,9 +42,8 @@ class MotionGuard(Guard):
     )
 
     def __init__(self, clamp_aggregator: ClampAggregator | None = None) -> None:
-        # Default fusion uses ValidatedAction.merge_restrictive (per-joint most
-        # restrictive value).  Users with a QP / CBF stack inject their own.
-        self._clamp_aggregator: ClampAggregator = clamp_aggregator or sequential_clamp_aggregator
+        # QP aggregator is the default and only supported fusion strategy.
+        self._clamp_aggregator: ClampAggregator = clamp_aggregator or motion_qp_aggregator
 
     def check(
         self,
