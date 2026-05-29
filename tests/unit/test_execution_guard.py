@@ -394,3 +394,55 @@ def test_invalid_allowed_command_clamps(EG):
     )
     assert result.decision == GuardDecision.CLAMP
     assert "invalid allowed_command" in result.reason
+
+
+def test_runtime_pool_ee_pos_reaches_l2_callback(EG):
+    """When runtime_pool contains ee_pos, the L2 callback receives it."""
+    from dam.boundary.builtin_callbacks import register_all
+
+    register_all()
+    g = EG()
+    precompute_injection(g, {})
+    # ee_pos inside the zone → PASS
+    pool_ee = np.array([-0.1, 0.0, 0.15])
+    container = make_container(
+        callback="task_gripper_command_guard",
+        allowed_command="close",
+        zone=LEFT_PICK_ZONE,
+    )
+    obs = Observation(timestamp=0.0, joint_positions=np.zeros(6))
+    # obs has NO end_effector_pose, but runtime_pool has ee_pos
+    result = g.check(
+        obs=obs,
+        action=make_gripper_action(0.0),
+        active_containers=[container],
+        node_start_times={},
+        runtime_pool={"ee_pos": pool_ee},
+    )
+    assert result.decision == GuardDecision.PASS
+
+
+def test_runtime_pool_ee_pos_outside_zone_clamps(EG):
+    """ee_pos from pool outside zone should cause a clamp."""
+    from dam.boundary.builtin_callbacks import register_all
+
+    register_all()
+    g = EG()
+    precompute_injection(g, {})
+    # ee_pos outside the zone
+    pool_ee = np.array([0.5, 0.0, 0.15])
+    container = make_container(
+        callback="task_gripper_command_guard",
+        allowed_command="close",
+        zone=LEFT_PICK_ZONE,
+    )
+    obs = Observation(timestamp=0.0, joint_positions=np.zeros(6))
+    result = g.check(
+        obs=obs,
+        action=make_gripper_action(0.0),
+        active_containers=[container],
+        node_start_times={},
+        runtime_pool={"ee_pos": pool_ee},
+    )
+    assert result.decision == GuardDecision.CLAMP
+    assert "allowed zone" in result.reason

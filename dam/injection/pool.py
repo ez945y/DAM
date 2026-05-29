@@ -17,6 +17,10 @@ RUNTIME_POOL_KEYS: frozenset[str] = frozenset(
         # sensor adapter once per cycle.  Guards (workspace CBF, manipulability,
         # …) consume cached FK + Jacobian without recomputing.
         "dynamics",
+        # The full runtime pool dict — guards that run their own callbacks
+        # (ExecutionGuard) forward it so L2 callbacks can read pre-computed
+        # FK data (ee_pos, J_linear, etc.) from the same pool.
+        "runtime_pool",
     }
 )
 

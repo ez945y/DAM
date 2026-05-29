@@ -325,6 +325,9 @@ class ExecutionEngine:
         # without each computing it independently.
         if obs.joint_positions is not None:
             _compute_fk_into_pool(pool, obs.joint_positions, ctx.dynamics)
+        # Self-reference: guards that dispatch to their own callbacks
+        # (ExecutionGuard) can forward the full pool.
+        pool["runtime_pool"] = pool
         return pool
 
     def _handle_violation(

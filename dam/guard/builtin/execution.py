@@ -52,6 +52,7 @@ class ExecutionGuard(Guard):
         action: ActionProposal | None = None,
         active_containers: list[Any] | None = None,
         node_start_times: dict[str, float] | None = None,
+        runtime_pool: dict[str, Any] | None = None,
     ) -> GuardResult:
         layer = self.get_layer()
         name = self.get_name()
@@ -67,9 +68,11 @@ class ExecutionGuard(Guard):
 
             # 1. callback check
             if constraint.callback:
+                pool = dict(runtime_pool) if runtime_pool else {}
+                pool.update({"obs": obs, "action": action})
                 cb_results = run_callbacks(
                     containers=[container],
-                    runtime_pool={"obs": obs, "action": action},
+                    runtime_pool=pool,
                     expected_layer="L2",
                 )
                 if cb_results:
