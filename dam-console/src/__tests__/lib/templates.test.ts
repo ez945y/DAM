@@ -355,12 +355,12 @@ describe('generateYaml', () => {
     expect(yaml).toContain('bounds:')
   })
 
-  it('SO-101 template opts L1 motion callbacks into its built-in safety strategy', () => {
+  it('SO-101 template includes L1 motion callbacks (QP is mandatory)', () => {
     const cfg = defaultConfig('so101')
     const yaml = generateYaml(cfg)
     expect(yaml).toContain('workspace:')
-    expect(yaml).toContain('qp_solver: proxsuite')
-    expect(yaml).toContain('slack_weight: 100000000')
+    expect(yaml).toContain('joint_velocity_limit')
+    expect(yaml).toContain('joint_position_limits')
     expect(yaml).not.toContain('ood_detector')
   })
 

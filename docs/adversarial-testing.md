@@ -26,10 +26,9 @@ attacks per threat above and asserts the safe outcome. It runs in the
 `safety` CI job alongside the existing regression suites, so a regression
 that re-opens a bypass fails the build.
 
-T1 drove a real hardening change: `joint_position_limits`,
-`joint_velocity_limit`, `keep_out_zone`, and `orientation_limit`
-previously returned `PASS` on NaN-injected inputs. They now treat any
-non-finite safety input as a violation
+T1 drove a real hardening change: `joint_position_limits` and
+`joint_velocity_limit` previously returned `PASS` on NaN-injected
+inputs. They now treat any non-finite safety input as a violation
 (`dam/boundary/callbacks/_helpers.py::_all_finite`).
 
 **Deferred — randomized fuzz tier (nightly, non-blocking).**

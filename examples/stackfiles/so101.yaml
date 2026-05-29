@@ -107,7 +107,6 @@ boundaries:
         params:
           upper: [1.8243, 1.7500, 1.8326, 1.8067, 3.0741, 1.7453]
           lower: [-1.8243, -1.7500, -1.8326, -1.8067, -3.0741, 0]
-          qp_solver: proxsuite
           slack_weight: 100000000
   joint_velocity_limit:
     layer: L1
@@ -116,7 +115,7 @@ boundaries:
       - callback: joint_velocity_limit
         params:
           max_velocities: [1.5000, 1.5000, 1.5000, 1.5000, 1.5000, 1.5000]
-          qp_solver: proxsuite
+          max_acceleration: [10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
           slack_weight: 100000000
   workspace:
     layer: L1
@@ -125,9 +124,6 @@ boundaries:
       - callback: workspace
         params:
           bounds: [[-0.4000, 0.4000], [-0.4000, 0.4000], [0.0200, 0.6000]]
-          cbf_gamma: 1.0
-          qp_solver: proxsuite
-          slack_weight: 100000000
   task_gripper_sequence:
     layer: L2
     type: list

@@ -207,22 +207,8 @@ const DEFAULT_FALLBACKS: FallbackDef[] = [
   { name: 'wait_and_retry', type: 'wait_and_retry', severity: 20, requires_proposal: false, monitors_hardware: false, description: 'Pause and re-check the trigger after a delay.', params: { wait_seconds: 1.0 }, escalate_to: null },
 ]
 
-// Helper: opt L1 motion boundaries into the ProxSuite QP fusion strategy.
-// The runtime sees `qp_solver: proxsuite`, wires MotionGuard to the QP
-// aggregator, and the callbacks pass solver-specific details through
-// metadata. Each boundary stays decoupled in definition.
-function withQpSolver(boundaries: BoundaryDef[]): BoundaryDef[] {
-  const L1_MOTION = new Set(['joint_position_limits', 'joint_velocity_limit', 'workspace'])
-  return boundaries.map(b =>
-    !L1_MOTION.has(b.name) ? b : {
-      ...b,
-      nodes: b.nodes.map(n => ({
-        ...n,
-        params: { ...n.params, qp_solver: 'proxsuite', slack_weight: 1e8 },
-      })),
-    }
-  )
-}
+// QP fusion is now mandatory for all L1 boundaries — no opt-in needed.
+// slack_weight is set per-boundary in DEFAULT_BOUNDARIES.
 
 export const TEMPLATES: TemplatePreset[] = [
     {
@@ -284,7 +270,7 @@ export const TEMPLATES: TemplatePreset[] = [
       fallbacks: DEFAULT_FALLBACKS,
       tasks: [{ id: 'soarm101', name: 'soarm101', description: 'Safety-filtered motion',
         boundaries: DEFAULT_BOUNDARIES.map(b => b.name) }],
-      boundaries: withQpSolver(DEFAULT_BOUNDARIES),
+      boundaries: DEFAULT_BOUNDARIES,
       loopback: {
         backend: 'mcap', output_dir: './data/robot/sessions', window_sec: 10,
         rotate_mb: 500, rotate_minutes: 60, max_queue_depth: 64, capture_images_on_clamp: true,

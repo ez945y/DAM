@@ -59,9 +59,6 @@ from a function name.
 | `joint_velocity_limit` | kinematics | A commanded joint rate or acceleration would exceed its limit | clamp to the permitted rate/acceleration |
 | `joint_position_limits` | kinematics | A commanded joint target would exceed joint travel | clamp to the permitted position |
 | `workspace` | kinematics | End effector would leave its allowed work volume | halt motion at the current joint state |
-| `keep_out_zone` | kinematics | Tool enters a fixture or operator exclusion volume | `hold_position` |
-| `orientation_limit` | kinematics | Tool/payload tilts past its permitted angle | `hold_position` |
-| `base_geofence` | kinematics | Mobile base exits its permitted floor region | `hold_position` |
 | `task_joint_speed_limit` | execution | Optional task-local aggregate speed cap for custom workflows | `hold_position` after the configured warning streak |
 | `task_workspace_bounds` | execution | Current task phase leaves its local work area | `hold_position` after the configured warning streak |
 | `check_gripper_clear` | execution | Gripper is obstructed/closed when clearance is required | `hold_position` |
@@ -171,42 +168,6 @@ Check if end-effector is within workspace box bounds.
 | Param | Default | Description |
 |---|---|---|
 | `bounds` | `[[-0.4,0.4],[-0.4,0.4],[0.02,0.6]]` | [x,y,z] min/max (m) |
-
-### `keep_out_zone`
-
-Reject if the end-effector position is inside any keep-out region — the
-inverse of `workspace`, for fixtures and operator-occupied volumes. Uses the
-`dynamics` context or `kinematics_resolver`; passes when neither resolves a
-pose.
-
-| Param | Default | Description |
-|---|---|---|
-| `boxes` | `None` | List of `[[xmin,xmax],[ymin,ymax],[zmin,zmax]]` (m) |
-| `spheres` | `None` | List of `[cx,cy,cz,radius]` (m) |
-
-### `orientation_limit`
-
-Reject if the tool axis tilts past `max_tilt_deg` from a reference direction —
-keeps a carried payload upright.
-
-| Param | Default | Description |
-|---|---|---|
-| `max_tilt_deg` | `30.0` | Max tilt of `tool_axis` from `reference_axis` (deg) |
-| `reference_axis` | `[0,0,1]` | World direction to align with (default: up) |
-| `tool_axis` | `[0,0,1]` | EE-frame axis to keep aligned (default: local +Z) |
-
-### `base_geofence`
-
-Reject if the mobile base leaves an allowed area. Reads the planar `[x, y]`
-base pose from `obs.channels[channel]`; passes when the channel is absent
-(fixed arms). When both `bounds` and `polygon` are given, the base must
-satisfy both.
-
-| Param | Default | Description |
-|---|---|---|
-| `bounds` | `None` | Axis-aligned box `[[xmin,xmax],[ymin,ymax]]` (m) |
-| `polygon` | `None` | List of `[x,y]` vertices (≥3) defining the allowed region |
-| `channel` | `"base_pose"` | Observation channel holding the base pose |
 
 ---
 
