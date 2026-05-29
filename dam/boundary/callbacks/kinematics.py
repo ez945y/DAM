@@ -319,22 +319,23 @@ def workspace(
     obs: Observation,
     action: ActionProposal,
     bounds: list[list[float]] | None = None,
+    ee_pos: np.ndarray | None = None,
     kinematics_resolver: KinematicsResolver | None = None,
     dynamics: Any | None = None,
 ) -> CallbackResult:
     """When the current EE is outside ``bounds``, freeze the action.
 
-    Without IK the framework cannot rewrite a joint target so the EE re-enters
-    the box; the safe default is to clamp the proposal back to the current
-    joint state — a full brake.
+    ``ee_pos`` is pre-computed by the execution engine and injected via the
+    runtime pool.  Falls back to FK computation when not available.
     """
     bname = "workspace"
     if bounds is None:
         bounds = [[-0.4, 0.4], [-0.4, 0.4], [0.02, 0.6]]
 
-    ee_pos = _resolve_ee_translation(
-        obs, kinematics_resolver=kinematics_resolver, dynamics=dynamics
-    )
+    if ee_pos is None:
+        ee_pos = _resolve_ee_translation(
+            obs, kinematics_resolver=kinematics_resolver, dynamics=dynamics
+        )
     if ee_pos is None or obs.joint_positions is None:
         return CallbackResult.ok(
             bname,

@@ -17,6 +17,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from typing import TYPE_CHECKING, Any, cast
 
+import numpy as np
+
 from dam.guard.aggregator import aggregate_decisions
 from dam.guard.pipeline import PER_BOUNDARY_KEY
 from dam.types.action import ValidatedAction
@@ -32,6 +34,35 @@ if TYPE_CHECKING:
     from dam.types.observation import Observation
 
 logger = logging.getLogger(__name__)
+
+
+def _compute_fk_into_pool(
+    pool: dict[str, Any],
+    joint_positions: Any,
+    dynamics: Any | None,
+) -> None:
+    """Compute forward kinematics and write EE pose + Jacobian into the pool.
+
+    Called once before Phase 0 (pre-L1) and again between phases when L1
+    clamps the action (post-L1, pre-L2).  Callbacks read ``ee_pos``,
+    ``ee_rot``, ``J_linear`` from the pool instead of computing FK themselves.
+    """
+    if dynamics is None or not getattr(dynamics, "available", False):
+        return
+    fid = getattr(dynamics, "default_frame_id", None)
+    if fid is None:
+        return
+    try:
+        q = np.asarray(joint_positions, dtype=np.float64)
+        dynamics.update(q)
+        placement = dynamics.frame_placement(fid)
+        J_full = np.asarray(dynamics.frame_jacobian(fid), dtype=np.float64)
+        pool["ee_pos"] = np.asarray(placement.translation, dtype=np.float64).copy()
+        pool["ee_rot"] = np.asarray(placement.rotation, dtype=np.float64).copy()
+        pool["J_linear"] = J_full[:3, :].copy()
+    except Exception:  # noqa: BLE001
+        # FK failure is non-fatal; callbacks degrade gracefully without EE data.
+        pass
 
 
 def _fan_out_per_boundary(result: GuardResult, boundary_names: list[str]) -> list[GuardResult]:
@@ -269,7 +300,7 @@ class ExecutionEngine:
             for n in ctx.active_container_names
             if n in ctx.boundary_containers
         ]
-        return {
+        pool: dict[str, Any] = {
             "obs": obs,
             "action": action,
             "cycle_id": ctx.cycle_id,
@@ -289,6 +320,11 @@ class ExecutionEngine:
             "prev_validated_positions": ctx.prev_validated_positions,
             "now": now,
         }
+        # Pre-compute FK so L1/L2 callbacks can read EE pose from pool
+        # without each computing it independently.
+        if obs.joint_positions is not None:
+            _compute_fk_into_pool(pool, obs.joint_positions, ctx.dynamics)
+        return pool
 
     def _handle_violation(
         self,
@@ -410,6 +446,9 @@ class ExecutionEngine:
         — callbacks/guards downstream read ``.target_joint_positions`` etc.
         via duck typing, so swapping ActionProposal for ValidatedAction in the
         pool is transparent.
+
+        After merging, re-compute FK from the clamped joint positions so the
+        next phase sees the updated EE pose (e.g. L2 reads post-L1 EE).
         """
         clamps = [
             r
@@ -423,6 +462,12 @@ class ExecutionEngine:
             if r.clamped_action is not None:
                 merged = merged.merge_restrictive(r.clamped_action)
         runtime_pool["action"] = merged
+
+        # Re-compute FK with clamped joints so L2 sees the correct EE.
+        if merged.target_joint_positions is not None:
+            _compute_fk_into_pool(
+                runtime_pool, merged.target_joint_positions, runtime_pool.get("dynamics")
+            )
 
     def _run_staged(
         self,
