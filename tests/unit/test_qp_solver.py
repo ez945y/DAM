@@ -316,3 +316,34 @@ def test_workspace_cbf_keeps_action_inside_box(proxsuite):
     # CBF pulled u back so projected ee_x stays at-or-below 0.4
     projected_ee_x = ee[0] + (J_lin @ (u_qp - q))[0]
     assert projected_ee_x <= 0.41
+
+
+def test_sphere_keepout_cbf_deflects_action(proxsuite):
+    """CBF constraints from a sphere keep-out zone deflect the action away."""
+    from dam.runtime.qp_solver import solve_box_with_slack, sphere_keepout_constraints
+
+    n = 2
+    q = np.zeros(n)
+    ee = np.array([0.15, 0.0, 0.3])
+    J_lin = np.array([[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]])
+    spheres = [[0.2, 0.0, 0.3, 0.05]]  # center=(0.2,0,0.3), r=0.05
+
+    A_extra, b_extra = sphere_keepout_constraints(
+        q=q, ee_pos=ee, J_linear=J_lin, spheres=spheres, cbf_alpha=1.0, dt=0.02
+    )
+    assert A_extra.shape == (1, n)
+    assert b_extra.shape == (1,)
+
+    # Nominal command pushes ee toward sphere center (x=0.2)
+    u_nom = np.array([0.3, 0.0])
+    u_qp = solve_box_with_slack(
+        u_nom,
+        slack_weight=1e8,
+        extra_A=A_extra,
+        extra_ub=b_extra,
+    )
+    assert u_qp is not None
+    # CBF should pull the action back — x should not reach the sphere
+    projected_ee = ee + J_lin @ (u_qp - q)
+    dist = float(np.linalg.norm(projected_ee - np.array([0.2, 0.0, 0.3])))
+    assert dist >= 0.04  # should stay outside (r=0.05, some margin)
