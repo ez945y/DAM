@@ -56,12 +56,9 @@ from a function name.
 | Callback | Category | Scenario Detected | Recommended Response |
 |---|---|---|---|
 | `ood_detector` | anomaly | Observation no longer resembles calibrated normal operation | `hold_position` while the operator reviews context |
-| `joint_velocity_limit` | kinematics | A commanded joint rate would exceed its limit | clamp to the permitted rate |
+| `joint_velocity_limit` | kinematics | A commanded joint rate or acceleration would exceed its limit | clamp to the permitted rate/acceleration |
 | `joint_position_limits` | kinematics | A commanded joint target would exceed joint travel | clamp to the permitted position |
-| `workspace` | kinematics | End effector would leave its allowed work volume | halt/clamp motion at the safe state |
-| `check_velocity_smooth` | kinematics | Motion changes too abruptly for the smoothness bound | `hold_position` |
-| `check_joints_not_moving` | kinematics | A task requiring stillness observes joint motion | `hold_position` |
-| `cartesian_velocity_limit` | kinematics | Tool linear/angular speed exceeds its collaborative-speed limit | `hold_position` |
+| `workspace` | kinematics | End effector would leave its allowed work volume | halt motion at the current joint state |
 | `keep_out_zone` | kinematics | Tool enters a fixture or operator exclusion volume | `hold_position` |
 | `orientation_limit` | kinematics | Tool/payload tilts past its permitted angle | `hold_position` |
 | `base_geofence` | kinematics | Mobile base exits its permitted floor region | `hold_position` |
@@ -158,12 +155,14 @@ Return False if any joint position violates upper/lower limits.
 
 ### `joint_velocity_limit`
 
-Return False if any joint velocity exceeds limits.
+Two-stage clamp: first limits acceleration, then limits velocity. Prevents
+sudden speed jumps by tracking the previous cycle's velocity.
 
 | Param | Default | Description |
 |---|---|---|
 | `max_velocities` | `[1.5]*6` | Per-joint max velocity (rad/s) |
-| `use_degrees` | `False` | Interpret limits as degrees |
+| `max_acceleration` | `[10.0]*6` | Per-joint max acceleration (rad/s²) |
+| `use_degrees` | `False` | Interpret velocity limits as degrees |
 
 ### `workspace`
 
@@ -172,27 +171,6 @@ Check if end-effector is within workspace box bounds.
 | Param | Default | Description |
 |---|---|---|
 | `bounds` | `[[-0.4,0.4],[-0.4,0.4],[0.02,0.6]]` | [x,y,z] min/max (m) |
-
-### `check_velocity_smooth`
-
-Reject if joint velocity norm exceeds `max_jerk_norm` per cycle.
-
-### `check_joints_not_moving`
-
-Reject if any joint moves faster than `max_speed_rad_s`.
-
-### `cartesian_velocity_limit`
-
-Reject if the end-effector twist exceeds Cartesian speed limits. The 0.25 m/s
-default follows ISO/TS 15066 reduced-speed guidance for human-collaborative
-operation. Requires a `dynamics` (pinocchio) context for the frame Jacobian;
-passes when unavailable.
-
-| Param | Default | Description |
-|---|---|---|
-| `max_linear_speed` | `0.25` | Max EE linear speed (m/s) |
-| `max_angular_speed` | `1.0` | Max EE angular speed (rad/s) |
-| `frame` | `None` | Frame id/name (defaults to the primary EE frame) |
 
 ### `keep_out_zone`
 

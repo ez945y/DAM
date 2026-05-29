@@ -27,9 +27,9 @@ attacks per threat above and asserts the safe outcome. It runs in the
 that re-opens a bypass fails the build.
 
 T1 drove a real hardening change: `joint_position_limits`,
-`joint_velocity_limit`, `keep_out_zone`, `orientation_limit`, and
-`cartesian_velocity_limit` previously returned `PASS` on NaN-injected
-inputs. They now treat any non-finite safety input as a violation
+`joint_velocity_limit`, `keep_out_zone`, and `orientation_limit`
+previously returned `PASS` on NaN-injected inputs. They now treat any
+non-finite safety input as a violation
 (`dam/boundary/callbacks/_helpers.py::_all_finite`).
 
 **Deferred — randomized fuzz tier (nightly, non-blocking).**

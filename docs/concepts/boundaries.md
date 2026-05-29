@@ -52,14 +52,11 @@ Run `make callbacks` (or `.venv/bin/dam callbacks`) to see all of them. Grouped 
 | Callback | Behavior |
 |----------|----------|
 | `joint_position_limits` | **Clamps** joints to `[lower, upper]` |
-| `joint_velocity_limit` | **Clamps** velocities to `±max_velocities` (scales all joints proportionally) |
-| `workspace` | **Rejects** if end-effector leaves the workspace box |
-| `cartesian_velocity_limit` | **Rejects** if end-effector linear/angular speed exceeds limit |
+| `joint_velocity_limit` | **Clamps** velocities to `±max_velocities` and accelerations to `±max_acceleration` |
+| `workspace` | **Halts** motion if end-effector leaves the workspace box |
 | `keep_out_zone` | **Rejects** if end-effector enters a forbidden box or sphere |
 | `orientation_limit` | **Rejects** if end-effector tilt from reference axis exceeds limit |
 | `base_geofence` | **Rejects** if mobile base leaves a geofence polygon |
-| `check_joints_not_moving` | **Rejects** if any joint velocity exceeds a near-zero threshold |
-| `check_velocity_smooth` | **Rejects** if velocity jerk exceeds threshold |
 
 **L2 -- Task Execution**
 
