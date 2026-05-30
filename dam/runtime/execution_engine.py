@@ -316,6 +316,8 @@ class ExecutionEngine:
         pool: dict[str, Any] = {
             "dt": cp.get("dt", self._dt),
         }
+        if "joint_layout" in cp:
+            pool["joint_layout"] = cp["joint_layout"]
         pool.update(
             {
                 "obs": obs,

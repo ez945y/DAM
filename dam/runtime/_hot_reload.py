@@ -24,6 +24,20 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _resolve_joint_names(config: StackfileConfig) -> list[str]:
+    """Extract joint_names from the stackfile's hardware preset, if available."""
+    preset_name = getattr(config.hardware, "preset", None) if config.hardware else None
+    if not preset_name:
+        return []
+    try:
+        from dam.preset.registry import get_preset
+
+        preset = get_preset(preset_name)
+        return list(preset.joint_names) if preset else []
+    except Exception:  # noqa: BLE001
+        return []
+
+
 class HotReloadManager:
     """Thread-safe hot-reload double-buffer for stackfile config."""
 
@@ -74,6 +88,21 @@ class HotReloadManager:
 
         if new_config.safety and new_config.safety.control_frequency_hz > 0:
             pool["dt"] = 1.0 / new_config.safety.control_frequency_hz
+
+        # Joint layout: explicit from stackfile, or auto-derived from preset.
+        if new_config.safety and new_config.safety.joint_layout:
+            from dam.types.joint_layout import JointLayout
+
+            pool["joint_layout"] = JointLayout.from_dict(
+                new_config.safety.joint_layout,
+                names=_resolve_joint_names(new_config),
+            )
+        else:
+            names = _resolve_joint_names(new_config)
+            if names:
+                from dam.types.joint_layout import JointLayout
+
+                pool["joint_layout"] = JointLayout.from_names(names)
 
         _STRUCTURAL = {
             "layer",
