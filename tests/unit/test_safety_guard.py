@@ -282,3 +282,178 @@ class TestSafetyProcessorStep:
         step = SafetyProcessorStep(stackfile, joint_names=_JOINT_NAMES, degrees_mode=False)
         features = {"action": {"joint": {"shape": (6,)}}}
         assert step.transform_features(features) is features
+
+    def test_stats_track_clamps(self, stackfile: str) -> None:
+        from dam.processor import SafetyProcessorStep
+
+        step = SafetyProcessorStep(
+            stackfile, joint_names=_JOINT_NAMES, degrees_mode=False, quiet=True
+        )
+
+        obs = {f"{n}.pos": 0.0 for n in _JOINT_NAMES}
+        safe_action = {f"{n}.pos": 0.1 for n in _JOINT_NAMES}
+        dangerous_action = {f"{n}.pos": 3.0 for n in _JOINT_NAMES}
+
+        def _transition(action: dict) -> dict:
+            return {
+                "observation": obs,
+                "action": action,
+                "reward": None,
+                "done": None,
+                "truncated": None,
+                "info": None,
+                "complementary_data": None,
+            }
+
+        step(_transition(safe_action))
+        step(_transition(dangerous_action))
+        step(_transition(safe_action))
+
+        assert step._stats.total_cycles == 3
+        assert step._stats.clamps >= 1  # dangerous action should be clamped
+
+    def test_stats_summary_lines(self, stackfile: str) -> None:
+        from dam.processor import SafetyProcessorStep
+
+        step = SafetyProcessorStep(
+            stackfile, joint_names=_JOINT_NAMES, degrees_mode=False, quiet=True
+        )
+
+        obs = {f"{n}.pos": 0.0 for n in _JOINT_NAMES}
+        dangerous = {f"{n}.pos": 3.0 for n in _JOINT_NAMES}
+
+        transition = {
+            "observation": obs,
+            "action": dangerous,
+            "reward": None,
+            "done": None,
+            "truncated": None,
+            "info": None,
+            "complementary_data": None,
+        }
+        step(transition)
+
+        lines = step._stats.summary_lines()
+        assert any("1 cycles" in line or "clamp" in line.lower() for line in lines)
+
+
+# ---------------------------------------------------------------------------
+# TestRecordingStats — unit tests for stats tracker
+# ---------------------------------------------------------------------------
+
+
+class TestRecordingStats:
+    def test_empty_stats(self) -> None:
+        from dam.processor import _RecordingStats
+
+        stats = _RecordingStats()
+        lines = stats.summary_lines()
+        assert any("0 cycles" in line for line in lines)
+
+    def test_no_interventions_message(self) -> None:
+        from dam.processor import _RecordingStats
+
+        stats = _RecordingStats()
+        stats.total_cycles = 100
+        lines = stats.summary_lines()
+        assert any("No guard interventions" in line for line in lines)
+
+    def test_boundary_ranking(self) -> None:
+        from dam.processor import _RecordingStats
+        from dam.types.result import GuardDecision, GuardResult
+
+        stats = _RecordingStats()
+        for _ in range(5):
+            stats.record_cycle(
+                [
+                    GuardResult(
+                        decision=GuardDecision.CLAMP,
+                        guard_name="velocity",
+                        layer="L1",
+                        reason="too fast",
+                    ),
+                ]
+            )
+        for _ in range(2):
+            stats.record_cycle(
+                [
+                    GuardResult(
+                        decision=GuardDecision.CLAMP,
+                        guard_name="position",
+                        layer="L1",
+                        reason="out of bounds",
+                    ),
+                ]
+            )
+
+        assert stats.clamps == 7
+        assert stats.boundary_counts["velocity"] == 5
+        assert stats.boundary_counts["position"] == 2
+
+        lines = stats.summary_lines()
+        top_line = [line for line in lines if "Top boundaries" in line]
+        assert len(top_line) == 1
+        assert "velocity (5)" in top_line[0]
+
+
+# ---------------------------------------------------------------------------
+# TestGuardLogWriter — unit tests for JSONL log
+# ---------------------------------------------------------------------------
+
+
+class TestGuardLogWriter:
+    def test_writes_jsonl(self, tmp_path: Path) -> None:
+        import json
+
+        from dam.processor import _GuardLogWriter
+        from dam.types.result import GuardDecision, GuardResult
+
+        log_path = tmp_path / "test.guard_log.jsonl"
+        writer = _GuardLogWriter(log_path)
+
+        results = [
+            GuardResult(
+                decision=GuardDecision.CLAMP,
+                guard_name="joint_velocity_limit",
+                layer="L1",
+                reason="velocity exceeded",
+            ),
+        ]
+        writer.write(42, results)
+        writer.close()
+
+        lines = log_path.read_text().strip().split("\n")
+        assert len(lines) == 1
+        entry = json.loads(lines[0])
+        assert entry["cycle"] == 42
+        assert entry["boundary"] == "joint_velocity_limit"
+        assert entry["decision"] == "CLAMP"
+        assert "velocity" in entry["reason"]
+
+    def test_appends_multiple_cycles(self, tmp_path: Path) -> None:
+        import json
+
+        from dam.processor import _GuardLogWriter
+        from dam.types.result import GuardDecision, GuardResult
+
+        log_path = tmp_path / "test.guard_log.jsonl"
+        writer = _GuardLogWriter(log_path)
+
+        for cycle in range(3):
+            writer.write(
+                cycle,
+                [
+                    GuardResult(
+                        decision=GuardDecision.CLAMP,
+                        guard_name="pos",
+                        layer="L1",
+                        reason="limit",
+                    ),
+                ],
+            )
+        writer.close()
+
+        lines = log_path.read_text().strip().split("\n")
+        assert len(lines) == 3
+        for i, line in enumerate(lines):
+            assert json.loads(line)["cycle"] == i
