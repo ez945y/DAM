@@ -1,28 +1,31 @@
-"""Joint layout contract — maps joint indices to named groups.
+"""Joint layout contract — maps named chains to joint indices with optional grippers.
 
-Callbacks read ``pool["joint_layout"]`` to determine which joints are arm,
-gripper, base, etc.  The layout is defined once in the stackfile (or
-auto-derived from the preset + dynamics) and is immutable for a session.
+Callbacks read ``pool["joint_layout"]`` to discover which joints belong to
+which kinematic chain, and which joints are grippers.  The layout is resolved
+once at startup and is immutable for a session.
 
-No categories are predefined — groups are user-supplied labels.  The only
-convention is that the group marked ``ee_chain=True`` (or the first group
-whose indices match the Jacobian column count) is the one CBF constraints
-apply to.
+No chain names are predefined — they are user-supplied labels.
 
-Example stackfile::
+Example stackfile (single arm)::
 
     safety:
       joint_layout:
-        arm: [0, 1, 2, 3, 4]
-        gripper: [5]
+        arm:
+          joints: [0, 1, 2, 3, 4]
+          gripper: [5]
 
-Example for AMR + arm::
+Example stackfile (humanoid)::
 
     safety:
       joint_layout:
-        base: [0, 1]
-        arm: [2, 3, 4, 5, 6, 7]
-        gripper: [8]
+        torso:
+          joints: [0, 1, 2]
+        left_arm:
+          joints: [3, 4, 5, 6, 7, 8]
+          gripper: [15]
+        right_arm:
+          joints: [9, 10, 11, 12, 13, 14]
+          gripper: [16]
 """
 
 from __future__ import annotations
@@ -33,19 +36,36 @@ import numpy as np
 
 
 @dataclass(frozen=True)
+class JointChain:
+    """One kinematic chain — its actuated joints plus optional gripper joints."""
+
+    indices: list[int] = field(default_factory=list)
+    gripper: list[int] = field(default_factory=list)
+
+    @property
+    def all_indices(self) -> list[int]:
+        """All joint indices owned by this chain (actuated + gripper)."""
+        return sorted(set(self.indices) | set(self.gripper))
+
+    @property
+    def has_gripper(self) -> bool:
+        return len(self.gripper) > 0
+
+
+@dataclass(frozen=True)
 class JointLayout:
     """Immutable joint-index grouping for one robot configuration.
 
     Parameters
     ----------
-    groups
-        ``{group_name: sorted list of 0-based joint indices}``.
-        Every joint must appear in exactly one group.
+    chains
+        ``{chain_name: JointChain}``.  Every joint should appear in
+        exactly one chain.
     names
         Optional per-joint names (length = total joint count).
     """
 
-    groups: dict[str, list[int]] = field(default_factory=dict)
+    chains: dict[str, JointChain] = field(default_factory=dict)
     names: list[str] = field(default_factory=list)
 
     # ── Queries ───────────────────────────────────────────────────────────
@@ -54,49 +74,103 @@ class JointLayout:
     def n_joints(self) -> int:
         if self.names:
             return len(self.names)
-        if not self.groups:
-            return 0
-        return max(max(idx) for idx in self.groups.values()) + 1
+        all_idx: set[int] = set()
+        for chain in self.chains.values():
+            all_idx.update(chain.indices)
+            all_idx.update(chain.gripper)
+        return (max(all_idx) + 1) if all_idx else 0
 
-    def indices(self, *group_names: str) -> np.ndarray:
-        """Return sorted joint indices for one or more group names."""
-        out: list[int] = []
-        for g in group_names:
-            out.extend(self.groups.get(g, []))
-        return np.array(sorted(set(out)), dtype=np.intp)
+    @property
+    def chain_names(self) -> list[str]:
+        return list(self.chains.keys())
 
-    def mask(self, *group_names: str) -> np.ndarray:
-        """Boolean mask of shape ``(n_joints,)`` — True for joints in the named groups."""
+    def joint_indices(self, *chain_names: str) -> np.ndarray:
+        """Sorted actuated (non-gripper) joint indices for the named chains."""
+        out: set[int] = set()
+        for name in chain_names:
+            chain = self.chains.get(name)
+            if chain:
+                out.update(chain.indices)
+        return np.array(sorted(out), dtype=np.intp)
+
+    def gripper_indices(self, *chain_names: str) -> np.ndarray:
+        """Sorted gripper joint indices for the named chains."""
+        out: set[int] = set()
+        for name in chain_names:
+            chain = self.chains.get(name)
+            if chain:
+                out.update(chain.gripper)
+        return np.array(sorted(out), dtype=np.intp)
+
+    def all_indices(self, *chain_names: str) -> np.ndarray:
+        """All joint indices (actuated + gripper) for the named chains."""
+        out: set[int] = set()
+        for name in chain_names:
+            chain = self.chains.get(name)
+            if chain:
+                out.update(chain.all_indices)
+        return np.array(sorted(out), dtype=np.intp)
+
+    def mask(self, *chain_names: str, include_gripper: bool = True) -> np.ndarray:
+        """Boolean mask of shape ``(n_joints,)``."""
         m = np.zeros(self.n_joints, dtype=bool)
-        m[self.indices(*group_names)] = True
+        if include_gripper:
+            m[self.all_indices(*chain_names)] = True
+        else:
+            m[self.joint_indices(*chain_names)] = True
         return m
 
-    def slice_for(self, group_name: str) -> slice | None:
-        """Return a contiguous ``slice`` if the group's indices are sequential, else None."""
-        idx = self.groups.get(group_name)
-        if not idx:
-            return None
-        if idx == list(range(idx[0], idx[0] + len(idx))):
-            return slice(idx[0], idx[0] + len(idx))
-        return None
+    def has(self, chain_name: str) -> bool:
+        return chain_name in self.chains
 
-    def has(self, group_name: str) -> bool:
-        return group_name in self.groups
-
-    def group_of(self, joint_index: int) -> str | None:
-        """Return the group name containing ``joint_index``, or None."""
-        for name, indices in self.groups.items():
-            if joint_index in indices:
+    def chain_of(self, joint_index: int) -> str | None:
+        """Return the chain name that owns ``joint_index``, or None."""
+        for name, chain in self.chains.items():
+            if joint_index in chain.indices or joint_index in chain.gripper:
                 return name
         return None
+
+    def is_gripper(self, joint_index: int) -> bool:
+        """True if ``joint_index`` is a gripper joint in any chain."""
+        return any(joint_index in c.gripper for c in self.chains.values())
+
+    def chains_with_gripper(self) -> list[str]:
+        """Return names of all chains that have grippers."""
+        return [name for name, chain in self.chains.items() if chain.has_gripper]
 
     # ── Factory ───────────────────────────────────────────────────────────
 
     @classmethod
-    def from_dict(cls, raw: dict[str, list[int]], names: list[str] | None = None) -> JointLayout:
-        """Build from a stackfile-style ``{group_name: [indices]}`` dict."""
-        groups = {k: sorted(v) for k, v in raw.items()}
-        return cls(groups=groups, names=list(names or []))
+    def from_config(
+        cls,
+        raw: dict[str, dict[str, list[int]] | list[int]],
+        names: list[str] | None = None,
+    ) -> JointLayout:
+        """Build from a stackfile-style config dict.
+
+        Accepts two forms per chain::
+
+            # Full form
+            arm:
+              joints: [0, 1, 2, 3, 4]
+              gripper: [5]
+
+            # Short form (no gripper)
+            torso: [0, 1, 2]
+        """
+        chains: dict[str, JointChain] = {}
+        for chain_name, value in raw.items():
+            if isinstance(value, list):
+                chains[chain_name] = JointChain(indices=sorted(value))
+            elif isinstance(value, dict):
+                chains[chain_name] = JointChain(
+                    indices=sorted(value.get("joints", [])),
+                    gripper=sorted(value.get("gripper", [])),
+                )
+            else:
+                msg = f"Invalid chain config for '{chain_name}': expected list or dict"
+                raise ValueError(msg)
+        return cls(chains=chains, names=list(names or []))
 
     @classmethod
     def from_names(
@@ -105,10 +179,10 @@ class JointLayout:
         *,
         gripper_keywords: tuple[str, ...] = ("gripper", "grip", "finger", "jaw"),
     ) -> JointLayout:
-        """Auto-derive groups from joint names by keyword matching.
+        """Auto-derive a single-chain layout from joint names.
 
-        Joints whose name contains any of ``gripper_keywords`` (case-insensitive)
-        are placed in the ``"gripper"`` group; the rest go into ``"arm"``.
+        Joints whose name contains any gripper keyword become the gripper
+        of the ``"arm"`` chain; the rest are the arm's actuated joints.
         """
         arm: list[int] = []
         gripper: list[int] = []
@@ -117,12 +191,10 @@ class JointLayout:
                 gripper.append(i)
             else:
                 arm.append(i)
-        groups: dict[str, list[int]] = {"arm": arm}
-        if gripper:
-            groups["gripper"] = gripper
-        return cls(groups=groups, names=list(joint_names))
+        chain = JointChain(indices=arm, gripper=gripper)
+        return cls(chains={"arm": chain}, names=list(joint_names))
 
     @classmethod
     def trivial(cls, n_joints: int) -> JointLayout:
-        """All joints in a single ``"arm"`` group — no gripper."""
-        return cls(groups={"arm": list(range(n_joints))})
+        """All joints in a single ``"arm"`` chain with no gripper."""
+        return cls(chains={"arm": JointChain(indices=list(range(n_joints)))})

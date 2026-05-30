@@ -93,7 +93,7 @@ class HotReloadManager:
         if new_config.safety and new_config.safety.joint_layout:
             from dam.types.joint_layout import JointLayout
 
-            pool["joint_layout"] = JointLayout.from_dict(
+            pool["joint_layout"] = JointLayout.from_config(
                 new_config.safety.joint_layout,
                 names=_resolve_joint_names(new_config),
             )

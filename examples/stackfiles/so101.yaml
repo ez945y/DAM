@@ -43,8 +43,9 @@ safety:
   no_task_behavior: emergency_stop
   enforcement_mode: enforce
   joint_layout:
-    arm: [0, 1, 2, 3, 4]
-    gripper: [5]
+    arm:
+      joints: [0, 1, 2, 3, 4]
+      gripper: [5]
 
 fallbacks:
   emergency_stop:

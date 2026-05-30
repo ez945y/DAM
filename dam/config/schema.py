@@ -102,10 +102,10 @@ class SafetyConfig(BaseModel):
     max_obs_age_sec: float = 0.1
     cycle_budget_ms: float = 20.0
     enforcement_mode: EnforcementMode = EnforcementMode.ENFORCE
-    # Joint layout: maps group names to joint indices.
-    # Example: {arm: [0,1,2,3,4], gripper: [5]}
+    # Joint layout: maps chain names to {joints, gripper} or flat [indices].
+    # Example: {arm: {joints: [0,1,2,3,4], gripper: [5]}}
     # Auto-derived from preset joint_names when omitted.
-    joint_layout: dict[str, list[int]] | None = None
+    joint_layout: dict[str, dict[str, list[int]] | list[int]] | None = None
 
     @field_validator("control_frequency_hz")
     @classmethod
