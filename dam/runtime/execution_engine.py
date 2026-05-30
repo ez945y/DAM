@@ -307,13 +307,15 @@ class ExecutionEngine:
             for n in ctx.active_container_names
             if n in ctx.boundary_containers
         ]
-        # Start from config_pool (dt, per-boundary params) so callbacks
-        # see both static and runtime values in one dict.
-        pool: dict[str, Any] = dict(ctx.config_pool) if ctx.config_pool else {}
-        # Guarantee dt is always present — callbacks like joint_velocity_limit
-        # require it.  config_pool may carry a stackfile-overridden dt; only
-        # inject the engine default when it is absent.
-        pool.setdefault("dt", self._dt)
+        # Only extract well-known keys from config_pool — NOT all boundary
+        # params.  Dumping the full config_pool would leak one boundary's
+        # params (e.g. bounds, spheres) to other callbacks via the flat pool
+        # namespace.  Per-boundary params are injected per-node by
+        # run_callbacks (kwargs = {**runtime_pool, **node.constraint.params}).
+        cp = ctx.config_pool or {}
+        pool: dict[str, Any] = {
+            "dt": cp.get("dt", self._dt),
+        }
         pool.update(
             {
                 "obs": obs,
