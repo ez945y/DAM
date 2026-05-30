@@ -16,8 +16,8 @@ boundaries:
     nodes:
       - callback: joint_position_limits
         params:
-          upper: [1.57, 1.57, 1.57, 1.57, 1.57, 1.57]
-          lower: [-1.57, -1.57, -1.57, -1.57, -1.57, -1.57]
+          upper: [1.8243, 1.6, 1.5, 1.5, 3.0741, 1.7453]
+          lower: [-1.8243, -1.6, -1.6, -1.5, -3.0741, 0.0]
 
 # One task that activates the boundary
 tasks:

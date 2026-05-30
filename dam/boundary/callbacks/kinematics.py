@@ -148,10 +148,10 @@ def _check_dim(n_joints: int, n_param: int, *, callback: str, param: str) -> Non
     name="joint_velocity_limit",
     layer="L1",
     category="kinematics",
-    description="Clamps the action's joint velocities to ±max_velocities and joint accelerations to ±max_acceleration (radians/sec, radians/sec²).",
+    description="Clamps the action's joint velocities to ±max_velocities. Optional acceleration limit via max_acceleration.",
     params={
         "max_velocities": "Per-joint max velocity. Radians/sec by default unless use_degrees is true.",
-        "max_acceleration": "Per-joint max acceleration in rad/s². Prevents sudden speed jumps (爆衝). Default 10.0 rad/s².",
+        "max_acceleration": "Per-joint max acceleration in rad/s². Disabled by default. Set to prevent sudden speed jumps during policy inference.",
         "slack_weight": "QP soft-constraint penalty. Higher values make violating this limit more expensive.",
         "use_degrees": "UI/loader hint: interpret max_velocities as deg/s. Normalised to rad/s once at load — runtime never sees this flag.",
     },
@@ -199,14 +199,14 @@ def joint_velocity_limit(
         v_max = _to_array(max_velocities, name="max_velocities")
         _check_dim(n, v_max.shape[0], callback=bname, param="max_velocities")
 
-    if max_acceleration is None:
-        a_max = np.full(n, 10.0)
-    else:
+    if max_acceleration is not None:
         a_max = np.atleast_1d(_to_array(max_acceleration, name="max_acceleration"))
         if a_max.shape[0] == 1:
             a_max = np.full(n, a_max[0])
         _check_dim(n, a_max.shape[0], callback=bname, param="max_acceleration")
-    a_max = a_max[:n]
+        a_max = a_max[:n]
+    else:
+        a_max = None
 
     # ── Derive proposed velocity ──────────────────────────────────────────
     if action.target_joint_velocities is not None:
@@ -226,7 +226,7 @@ def joint_velocity_limit(
     # ── Stage 1: acceleration clamp ───────────────────────────────────────
     accel_clamped = False
     prev_v = _prev_vel.get(bname)
-    if prev_v is not None and prev_v.shape == velocities.shape:
+    if a_max is not None and prev_v is not None and prev_v.shape == velocities.shape:
         accel = (velocities - prev_v) / dt_safe
         accel_abs = np.abs(accel)
         over_accel = accel_abs > a_max
@@ -235,32 +235,32 @@ def joint_velocity_limit(
             clamped_accel = np.clip(accel, -a_max, a_max)
             velocities = prev_v + clamped_accel * dt_safe
 
-    # ── Stage 2: velocity clamp ───────────────────────────────────────────
+    # ── Stage 2: velocity clamp (per-joint) ─────────────────────────────
+    # Per-joint clipping: each joint is independently clamped to its own
+    # limit.  Previous uniform scaling (velocities / max_ratio) dragged
+    # ALL joints down when a single joint exceeded its limit, preventing
+    # the arm from reaching target positions during teleop.
     ratio = np.abs(velocities) / (np.abs(v_max_1d) + 1e-12)
     max_ratio = float(np.max(ratio)) if ratio.size else 0.0
     vel_clamped = max_ratio > 1.0
     if vel_clamped:
-        velocities = velocities / max_ratio
+        velocities = np.clip(velocities, -v_max_1d, v_max_1d)
 
     # Update tracking buffer with the (possibly clamped) velocity
     _prev_vel[bname] = velocities.copy()
 
     was_clamped = accel_clamped or vel_clamped
     if not was_clamped:
-        return CallbackResult.ok(
-            bname,
-            metadata={
-                "max_velocity": v_max_1d.tolist(),
-                "max_acceleration": a_max.tolist(),
-                "current_velocity": velocities.tolist(),
-                "scale_ratio": max_ratio,
-                "_units": {
-                    "max_velocity": "rad/s",
-                    "max_acceleration": "rad/s²",
-                    "current_velocity": "rad/s",
-                },
-            },
-        )
+        meta: dict[str, Any] = {
+            "max_velocity": v_max_1d.tolist(),
+            "current_velocity": velocities.tolist(),
+            "scale_ratio": max_ratio,
+            "_units": {"max_velocity": "rad/s", "current_velocity": "rad/s"},
+        }
+        if a_max is not None:
+            meta["max_acceleration"] = a_max.tolist()
+            meta["_units"]["max_acceleration"] = "rad/s²"
+        return CallbackResult.ok(bname, metadata=meta)
 
     # Rebuild positions from the limited velocities
     if derived:

@@ -86,8 +86,8 @@ boundaries:
     nodes:
       - callback: joint_position_limits
         params:
-          upper: [1.8243, 1.7691, 1.8326, 1.8067, 3.0741, 1.7453]
-          lower: [-1.8243, -1.7691, -1.8326, -1.8067, -3.0741, 0]
+          upper: [1.8243, 1.6, 1.5, 1.5, 3.0741, 1.7453]
+          lower: [-1.8243, -1.6, -1.6, -1.5, -3.0741, 0.0]
   joint_velocity_limit:
     layer: L1
     type: single

@@ -228,7 +228,6 @@ class SafetyGuard:
         self._prev_time = now
 
         if validated is None:
-            # Rejected → hold current position (safest IL fallback).
             return self._to_output(dam_obs.joint_positions, input_is_dict)
 
         return self._to_output(validated.target_joint_positions, input_is_dict)

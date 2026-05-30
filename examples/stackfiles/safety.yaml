@@ -69,7 +69,7 @@ recording:
     # vcodec: h264_videotoolbox           # default (CPU, slow); beta(h264_videotoolbox / hevc_videotoolbox for macOS GPU, cannot use)
     streaming_encoding: true
     encoder_threads: 4
-  display_data: true
+  display_data: false
   resume: true
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -105,18 +105,18 @@ boundaries:
       - callback: joint_position_limits
         params:
           # [shoulder_pan, shoulder_lift, elbow_flex, wrist_flex, wrist_roll, gripper]
-          upper: [1.8243, 1.7691, 1.8326, 1.8067, 3.0741, 1.7453]
-          lower: [-1.8243, -1.7691, -1.8326, -1.8067, -3.0741, 0.0]
+          upper: [1.8243, 1.6, 1.5, 1.5, 3.0741, 1.7453]
+          lower: [-1.8243, -1.6, -1.6, -1.5, -3.0741, 0.0]
 
-  # Joint velocity limit — 1.5 rad/s ≈ 86°/s
+  # Joint velocity limit — 1.5 rad/s ≈ 86°/s per joint
   joint_velocity_limit:
     layer: L1
     type: single
     nodes:
       - callback: joint_velocity_limit
-        fallback: slow_down
         params:
-          max_velocities: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5]
+          max_velocities: [4.0, 4.0, 4.0, 4.0, 4.0, 4.0]
+          max_acceleration: [10.0, 10.0, 10.0, 10.0, 10.0, 10.0]  # optional — for policy inference, not teleop
 
 tasks:
   record:

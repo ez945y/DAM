@@ -6,7 +6,7 @@
 - **倉庫根目錄**: `/Users/chenyizhong/Documents/Claude/Projects/Security Guard.nosync`
 - **標準啟動路徑**: `make dev`
 - **標準驗證路徑**: `make test`
-- **基線狀態**: `make test` ALL PASSED（截至 2026-05-29, 666 unit + 28 integration + 43 safety + 2 property + 55 Rust + 109 frontend = 0 failures）
+- **基線狀態**: `python -m pytest tests/unit/ tests/safety/ -x -q` — 690 passed, 29 skipped（截至 2026-05-30）
 
 ## 當前最高優先級未完成功能
 
@@ -20,6 +20,26 @@
 無
 
 ## 會話記錄
+
+### Session 2026-05-30 #1 (JointLayout Contract)
+
+- **本輪目標**: 建立 joint layout 合約，讓 callbacks 能區分 arm/gripper/base joints，支援多體機器人
+- **已完成**:
+  - `JointLayout` + `JointChain` data structures（chain-based model, gripper 是 chain 屬性）
+  - 整合到 `RobotPreset`（不在 SafetyConfig）— preset 擁有物理描述
+  - Name-based chains（用 joint 名字定義，不數 index）
+  - Typo 偵測（difflib close_matches）、重複 assignment 偵測
+  - Rich repr（顯示 joint names）、one-line summary
+  - Zero-config for simple robots（auto-derive from joint_names keyword matching）
+  - `pool["joint_layout"]` 在 runtime 啟動時解析，所有 callback 可讀
+  - 30 unit tests（JointChain 3 + FromNames 5 + FromConfig 4 + Validation 4 + Queries 11 + PresetIntegration 3）
+  - CBF analysis：SO-101 gripper 在 Jacobian 中接近零列，QP 自然 pass-through，不需強制切片
+- **執行過的驗證**:
+  - `python -m pytest tests/unit/ tests/safety/ -x -q` — 690 passed, 29 skipped
+  - `ruff check` + `mypy` — all passed
+  - `dam validate examples/stackfiles/*.yaml` — 6/6 valid
+  - End-to-end: preset → joint_layout property → pool["joint_layout"] → queries
+- **commits**: `e7b9625`, `df3d323`, `e985d4a`, `d509292`
 
 ### Session 2026-05-29 #6 (L1 CBF Unification — workspace, keep_out_zone, orientation_limit)
 
