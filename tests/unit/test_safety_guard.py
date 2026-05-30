@@ -397,69 +397,6 @@ class TestRecordingStats:
 
 
 # ---------------------------------------------------------------------------
-# TestGuardLogWriter — unit tests for JSONL log
-# ---------------------------------------------------------------------------
-
-
-class TestGuardLogWriter:
-    def test_writes_jsonl(self, tmp_path: Path) -> None:
-        import json
-
-        from dam.processor import _GuardLogWriter
-        from dam.types.result import GuardDecision, GuardResult
-
-        log_path = tmp_path / "test.guard_log.jsonl"
-        writer = _GuardLogWriter(log_path)
-
-        results = [
-            GuardResult(
-                decision=GuardDecision.CLAMP,
-                guard_name="joint_velocity_limit",
-                layer="L1",
-                reason="velocity exceeded",
-            ),
-        ]
-        writer.write(42, results)
-        writer.close()
-
-        lines = log_path.read_text().strip().split("\n")
-        assert len(lines) == 1
-        entry = json.loads(lines[0])
-        assert entry["cycle"] == 42
-        assert entry["boundary"] == "joint_velocity_limit"
-        assert entry["decision"] == "CLAMP"
-        assert "velocity" in entry["reason"]
-
-    def test_appends_multiple_cycles(self, tmp_path: Path) -> None:
-        import json
-
-        from dam.processor import _GuardLogWriter
-        from dam.types.result import GuardDecision, GuardResult
-
-        log_path = tmp_path / "test.guard_log.jsonl"
-        writer = _GuardLogWriter(log_path)
-
-        for cycle in range(3):
-            writer.write(
-                cycle,
-                [
-                    GuardResult(
-                        decision=GuardDecision.CLAMP,
-                        guard_name="pos",
-                        layer="L1",
-                        reason="limit",
-                    ),
-                ],
-            )
-        writer.close()
-
-        lines = log_path.read_text().strip().split("\n")
-        assert len(lines) == 3
-        for i, line in enumerate(lines):
-            assert json.loads(line)["cycle"] == i
-
-
-# ---------------------------------------------------------------------------
 # TestEdgePrinter — only prints transitions, not sustained events
 # ---------------------------------------------------------------------------
 

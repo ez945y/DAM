@@ -15,11 +15,9 @@ guard pipeline before it reaches the robot.
 
 from __future__ import annotations
 
-import json
 import logging
 import sys
 import time
-from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -111,55 +109,6 @@ class _RecordingStats:
         return lines
 
 
-# ── Guard log writer ─────────────────────────────────────────────────────
-
-
-class _GuardLogWriter:
-    """Writes notable guard events to a JSONL file next to the dataset."""
-
-    def __init__(self, log_path: Path) -> None:
-        self._path = log_path
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._file = self._path.open("a")
-
-    def write(self, cycle: int, results: list[Any]) -> None:
-        for r in results:
-            entry = {
-                "cycle": cycle,
-                "boundary": r.guard_name,
-                "decision": r.decision.name,
-                "reason": r.reason,
-            }
-            self._file.write(json.dumps(entry) + "\n")
-        self._file.flush()
-
-    def close(self) -> None:
-        self._file.close()
-
-
-def _resolve_log_path(stackfile: str) -> Path | None:
-    """Derive guard log path from the stackfile's recording.dataset.repo_id."""
-    import os
-
-    import yaml
-
-    path = Path(stackfile)
-    if not path.exists():
-        return None
-    try:
-        with path.open() as f:
-            data = yaml.safe_load(f) or {}
-        recording = data.get("recording", {})
-        dataset = recording.get("dataset", {}) if isinstance(recording, dict) else {}
-        repo_id = os.path.expandvars(str(dataset.get("repo_id", "")))
-        if not repo_id:
-            return None
-        cache_dir = Path.home() / ".cache" / "huggingface" / "lerobot" / repo_id
-        return cache_dir / ".guard_log.jsonl"
-    except Exception:  # noqa: BLE001
-        return None
-
-
 # ── Edge-triggered printer ────────────────────────────────────────────────
 
 
@@ -177,7 +126,6 @@ class _EdgePrinter:
         now = time.monotonic()
         current_names = {r.guard_name for r in notable}
 
-        # Boundaries that just cleared — print "resolved" with duration
         for name in list(self._active):
             if name not in current_names:
                 start, count = self._active.pop(name)
@@ -189,7 +137,6 @@ class _EdgePrinter:
                         file=sys.stderr,
                     )
 
-        # Boundaries that just started — print first occurrence
         for r in notable:
             if r.guard_name not in self._active:
                 self._active[r.guard_name] = (now, 0)
@@ -204,7 +151,6 @@ class _EdgePrinter:
                     file=sys.stderr,
                 )
 
-        # Increment counters for sustained events
         for r in notable:
             if r.guard_name in self._active:
                 start, count = self._active[r.guard_name]
@@ -222,7 +168,10 @@ class SafetyProcessorStep(_Base):  # type: ignore[valid-type,misc]
     - **Live feedback**: edge-triggered — prints when a clamp starts and
       when it resolves (with duration), not on every cycle
     - **Session summary**: prints guard statistics when recording ends
-    - **Guard log**: writes ``.guard_log.jsonl`` next to the dataset cache
+
+    For full guard event logging, add a ``loopback:`` section to your
+    stackfile — the existing MCAP pipeline records every cycle with guard
+    decisions, and ``mcap_triage.py`` can analyse them post-hoc.
     """
 
     def __init__(
@@ -241,7 +190,6 @@ class SafetyProcessorStep(_Base):  # type: ignore[valid-type,misc]
         self._quiet = quiet
         self._guard: Any | None = None
         self._stats: _RecordingStats = _RecordingStats()
-        self._log_writer: _GuardLogWriter | None = None
         self._printer: _EdgePrinter = _EdgePrinter()
         self._summary_printed = False
 
@@ -255,13 +203,6 @@ class SafetyProcessorStep(_Base):  # type: ignore[valid-type,misc]
                 joint_names=self._joint_names,
                 degrees_mode=self._degrees_mode,
             )
-
-            log_path = _resolve_log_path(self._stackfile)
-            if log_path is not None:
-                self._log_writer = _GuardLogWriter(log_path)
-                if not self._quiet:
-                    print(f"[DAM] Guard log: {log_path}", file=sys.stderr)
-
         return self._guard
 
     def action(self, action: dict[str, Any]) -> dict[str, Any]:
@@ -283,8 +224,6 @@ class SafetyProcessorStep(_Base):  # type: ignore[valid-type,misc]
         notable = self._stats.record_cycle(guard.last_results)
         if not self._quiet:
             self._printer.update(notable)
-        if notable and self._log_writer is not None:
-            self._log_writer.write(self._stats.total_cycles, notable)
 
         return result  # type: ignore[no-any-return]
 
@@ -293,18 +232,12 @@ class SafetyProcessorStep(_Base):  # type: ignore[valid-type,misc]
             return
         self._summary_printed = True
 
-        if self._log_writer is not None:
-            self._log_writer.close()
-
         if self._quiet:
             return
 
         print("\n[DAM] Recording session summary:", file=sys.stderr)
         for line in self._stats.summary_lines():
             print(line, file=sys.stderr)
-
-        if self._log_writer is not None:
-            print(f"  Guard log saved: {self._log_writer._path}", file=sys.stderr)
 
     def transform_features(self, features: Any) -> Any:
         """Safety clamping does not alter feature shapes — pass through."""
