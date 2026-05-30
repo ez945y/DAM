@@ -208,19 +208,24 @@ class SafetyGuard:
         format with ``{joint}.pos`` keys) or ``np.ndarray``.
         """
         input_is_dict = isinstance(action, dict)
+        now = time.monotonic()
+
+        # Use actual dt between calls so velocity limits stay accurate
+        # when the caller's loop runs slower than control_frequency_hz.
+        if self._prev_time is not None:
+            actual_dt = max(now - self._prev_time, 1e-6)
+            self._runtime._hot_reload.config_pool["dt"] = actual_dt
 
         dam_obs = self._to_observation(obs)
         dam_action = self._to_action_proposal(action)
         trace_id = str(uuid.uuid4())
 
-        validated, results = self._runtime.validate(
-            dam_obs, dam_action, trace_id, now=time.monotonic()
-        )
+        validated, results = self._runtime.validate(dam_obs, dam_action, trace_id, now=now)
         self._last_results = results
 
         # Update velocity-estimation state.
         self._prev_positions = dam_obs.joint_positions.copy()
-        self._prev_time = dam_obs.timestamp
+        self._prev_time = now
 
         if validated is None:
             # Rejected → hold current position (safest IL fallback).
