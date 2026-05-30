@@ -30,10 +30,12 @@
 - MotionGuard / ExecutionGuard 直接轉傳 engine 的 pool，不再自建
 - 結果：L1/L2 callbacks 都能讀到 `ee_pos`, `J_linear`, `J_angular`, `dt`
 
-### Review Fixes
+### Review Fixes (2 rounds)
 - sphere center zero-normal → 用 arbitrary escape direction [1,0,0]
 - dt hardcoded 0.02 → 三個 CBF callback 從 pool 接收 actual dt
 - pool forwarding → 統一為 engine builds once, guards forward
+- config_pool cross-contamination → 只取 dt，不 dump 全部 boundary params
+- CBF boilerplate → 抽出 `_halt_clamp`, `_cbf_clamp`, `_cbf_margin`, `_get_qp_solver` 共用 helper（-51 行重複）
 
 **下一步**:
 - 實機驗證 CBF 參數（cbf_alpha, slack_weight）在 SO-101 上的表現
