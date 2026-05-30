@@ -194,8 +194,6 @@ export interface FallbackDef {
 
 export interface JointDef {
   name: string
-  lower_rad: number
-  upper_rad: number
 }
 
 export interface UsbDeviceInfo {

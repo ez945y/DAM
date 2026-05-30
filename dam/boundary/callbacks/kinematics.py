@@ -6,11 +6,13 @@ constraint metadata; the QP aggregator fuses them into a single
 least-perturbing safe action.
 
 Callbacks:
-    ``joint_position_limits`` — box bounds on joint positions
-    ``joint_velocity_limit``  — velocity + acceleration limits
-    ``workspace``             — EE position box (CBF constraint via QP)
-    ``keep_out_zone``         — spherical keep-out zones (CBF constraint via QP)
-    ``orientation_limit``     — EE tilt limit (CBF constraint via QP)
+    ``joint_position_limits``    — box bounds on joint positions
+    ``joint_velocity_limit``     — per-joint velocity cap (motor safety)
+    ``joint_acceleration_limit`` — per-joint acceleration cap (smoothing)
+    ``ee_velocity_limit``        — EE linear speed cap (environment/human safety)
+    ``workspace``                — EE position box (CBF constraint via QP)
+    ``keep_out_zone``            — spherical keep-out zones (CBF constraint via QP)
+    ``orientation_limit``        — EE tilt limit (CBF constraint via QP)
 """
 
 from __future__ import annotations
@@ -148,10 +150,9 @@ def _check_dim(n_joints: int, n_param: int, *, callback: str, param: str) -> Non
     name="joint_velocity_limit",
     layer="L1",
     category="kinematics",
-    description="Clamps the action's joint velocities to ±max_velocities. Optional acceleration limit via max_acceleration.",
+    description="Clamps the action's joint velocities to ±max_velocities (motor safety ceiling).",
     params={
         "max_velocities": "Per-joint max velocity. Radians/sec by default unless use_degrees is true.",
-        "max_acceleration": "Per-joint max acceleration in rad/s². Disabled by default. Set to prevent sudden speed jumps during policy inference.",
         "slack_weight": "QP soft-constraint penalty. Higher values make violating this limit more expensive.",
         "use_degrees": "UI/loader hint: interpret max_velocities as deg/s. Normalised to rad/s once at load — runtime never sees this flag.",
     },
@@ -164,22 +165,15 @@ def joint_velocity_limit(
     action: ActionProposal,
     dt: float,
     max_velocities: list[float] | float | None = None,
-    max_acceleration: list[float] | float | None = None,
     slack_weight: float = 1e6,
 ) -> CallbackResult:
-    """Clamp proposed velocity and acceleration per joint.
+    """Clamp proposed velocity per joint.
 
-    Two-stage clamp applied to the *proposed* action:
+    Per-joint clipping: each joint is independently clamped to its own
+    velocity limit.  Target positions are rebuilt from the clamped velocity
+    so policy and adapter stay consistent.
 
-    1. **Acceleration limit** — derives the previous cycle's velocity from
-       the tracking buffer.  If ``|v_proposed - v_prev| / dt`` exceeds
-       ``max_acceleration``, the velocity is clamped so the acceleration
-       stays within the allowed band.
-    2. **Velocity limit** — the (possibly acceleration-clamped) velocity is
-       then scaled so ``|v_i| ≤ max_velocities_i``.
-
-    Target positions are rebuilt from the final velocity so policy and
-    adapter stay consistent.  ``dt`` is auto-injected by GuardRuntime.
+    ``dt`` is auto-injected by GuardRuntime.
     """
     bname = "joint_velocity_limit"
     if obs.joint_positions is None:
@@ -199,15 +193,6 @@ def joint_velocity_limit(
         v_max = _to_array(max_velocities, name="max_velocities")
         _check_dim(n, v_max.shape[0], callback=bname, param="max_velocities")
 
-    if max_acceleration is not None:
-        a_max = np.atleast_1d(_to_array(max_acceleration, name="max_acceleration"))
-        if a_max.shape[0] == 1:
-            a_max = np.full(n, a_max[0])
-        _check_dim(n, a_max.shape[0], callback=bname, param="max_acceleration")
-        a_max = a_max[:n]
-    else:
-        a_max = None
-
     # ── Derive proposed velocity ──────────────────────────────────────────
     if action.target_joint_velocities is not None:
         velocities = np.asarray(action.target_joint_velocities, dtype=np.float64)[:n]
@@ -223,44 +208,20 @@ def joint_velocity_limit(
         v_max_1d = np.full(n, v_max_1d[0])
     v_max_1d = v_max_1d[:n]
 
-    # ── Stage 1: acceleration clamp ───────────────────────────────────────
-    accel_clamped = False
-    prev_v = _prev_vel.get(bname)
-    if a_max is not None and prev_v is not None and prev_v.shape == velocities.shape:
-        accel = (velocities - prev_v) / dt_safe
-        accel_abs = np.abs(accel)
-        over_accel = accel_abs > a_max
-        if np.any(over_accel):
-            accel_clamped = True
-            clamped_accel = np.clip(accel, -a_max, a_max)
-            velocities = prev_v + clamped_accel * dt_safe
-
-    # ── Stage 2: velocity clamp (per-joint) ─────────────────────────────
-    # Per-joint clipping: each joint is independently clamped to its own
-    # limit.  Previous uniform scaling (velocities / max_ratio) dragged
-    # ALL joints down when a single joint exceeded its limit, preventing
-    # the arm from reaching target positions during teleop.
+    # ── Velocity clamp (per-joint) ────────────────────────────────────────
     ratio = np.abs(velocities) / (np.abs(v_max_1d) + 1e-12)
     max_ratio = float(np.max(ratio)) if ratio.size else 0.0
     vel_clamped = max_ratio > 1.0
-    if vel_clamped:
-        velocities = np.clip(velocities, -v_max_1d, v_max_1d)
-
-    # Update tracking buffer with the (possibly clamped) velocity
-    _prev_vel[bname] = velocities.copy()
-
-    was_clamped = accel_clamped or vel_clamped
-    if not was_clamped:
+    if not vel_clamped:
         meta: dict[str, Any] = {
             "max_velocity": v_max_1d.tolist(),
             "current_velocity": velocities.tolist(),
             "scale_ratio": max_ratio,
             "_units": {"max_velocity": "rad/s", "current_velocity": "rad/s"},
         }
-        if a_max is not None:
-            meta["max_acceleration"] = a_max.tolist()
-            meta["_units"]["max_acceleration"] = "rad/s²"
         return CallbackResult.ok(bname, metadata=meta)
+
+    velocities = np.clip(velocities, -v_max_1d, v_max_1d)
 
     # Rebuild positions from the limited velocities
     if derived:
@@ -269,16 +230,10 @@ def joint_velocity_limit(
     else:
         new_pos = target_pos.copy()
 
-    reasons = []
-    if accel_clamped:
-        reasons.append("acceleration clamped")
-    if vel_clamped:
-        worst = int(np.argmax(ratio))
-        reasons.append(
-            f"velocity ratio={max_ratio:.2f} "
-            f"(worst: J{worst + 1} > {float(v_max_1d[worst]):.3f} rad/s)"
-        )
-    reason = "; ".join(reasons)
+    worst = int(np.argmax(ratio))
+    reason = (
+        f"velocity ratio={max_ratio:.2f} (worst: J{worst + 1} > {float(v_max_1d[worst]):.3f} rad/s)"
+    )
 
     clamped_action = ValidatedAction(
         target_joint_positions=new_pos,
@@ -299,6 +254,115 @@ def joint_velocity_limit(
         reason=reason,
         metadata={"motion_qp": qp_meta, "_units": motion_qp_units(qp_meta)},
     )
+
+
+@boundary_callback(
+    name="joint_acceleration_limit",
+    layer="L1",
+    category="kinematics",
+    description="Clamps the action's joint accelerations to ±max_acceleration (smoothing / jitter suppression).",
+    params={
+        "max_acceleration": "Per-joint max acceleration in rad/s².",
+        "use_degrees": "UI/loader hint: interpret max_acceleration as deg/s². Normalised to rad/s² once at load.",
+    },
+    unit_params=("max_acceleration",),
+)
+def joint_acceleration_limit(
+    *,
+    obs: Observation,
+    action: ActionProposal,
+    dt: float,
+    max_acceleration: list[float] | float,
+) -> CallbackResult:
+    """Clamp proposed acceleration per joint.
+
+    Tracks the previous cycle's commanded velocity and limits how fast
+    velocity can change.  First cycle is always PASS (no history).
+
+    ``dt`` is auto-injected by GuardRuntime.
+    """
+    bname = "joint_acceleration_limit"
+    if obs.joint_positions is None:
+        return CallbackResult.ok(bname, "no joint state to act on")
+
+    target_pos = np.asarray(action.target_joint_positions, dtype=np.float64)
+    cur_pos = np.asarray(obs.joint_positions, dtype=np.float64)
+    if not _all_finite(target_pos) or not _all_finite(cur_pos):
+        return CallbackResult.violate(bname, "non-finite joint state or action")
+    n = min(target_pos.shape[0], cur_pos.shape[0])
+    dt_safe = max(float(dt), 1e-6)
+
+    a_max = np.atleast_1d(_to_array(max_acceleration, name="max_acceleration"))
+    if a_max.shape[0] == 1:
+        a_max = np.full(n, a_max[0])
+    _check_dim(n, a_max.shape[0], callback=bname, param="max_acceleration")
+    a_max = a_max[:n]
+
+    # ── Derive proposed velocity ──────────────────────────────────────────
+    if action.target_joint_velocities is not None:
+        velocities = np.asarray(action.target_joint_velocities, dtype=np.float64)[:n]
+        if not _all_finite(velocities):
+            return CallbackResult.violate(bname, "non-finite joint velocity action")
+        derived = False
+    else:
+        velocities = (target_pos[:n] - cur_pos[:n]) / dt_safe
+        derived = True
+
+    # ── Acceleration clamp ────────────────────────────────────────────────
+    prev_v = _prev_vel.get(bname)
+    if prev_v is None or prev_v.shape != velocities.shape:
+        _prev_vel[bname] = velocities.copy()
+        return CallbackResult.ok(
+            bname,
+            metadata={
+                "max_acceleration": a_max.tolist(),
+                "current_velocity": velocities.tolist(),
+                "_units": {"max_acceleration": "rad/s²", "current_velocity": "rad/s"},
+            },
+        )
+
+    accel = (velocities - prev_v) / dt_safe
+    over_accel = np.abs(accel) > a_max
+    if not np.any(over_accel):
+        _prev_vel[bname] = velocities.copy()
+        return CallbackResult.ok(
+            bname,
+            metadata={
+                "max_acceleration": a_max.tolist(),
+                "current_acceleration": accel.tolist(),
+                "current_velocity": velocities.tolist(),
+                "_units": {
+                    "max_acceleration": "rad/s²",
+                    "current_acceleration": "rad/s²",
+                    "current_velocity": "rad/s",
+                },
+            },
+        )
+
+    clamped_accel = np.clip(accel, -a_max, a_max)
+    velocities = prev_v + clamped_accel * dt_safe
+    _prev_vel[bname] = velocities.copy()
+
+    if derived:
+        new_pos = target_pos.copy()
+        new_pos[:n] = cur_pos[:n] + velocities * dt_safe
+    else:
+        new_pos = target_pos.copy()
+
+    worst = int(np.argmax(np.abs(accel) - a_max))
+    reason = (
+        f"acceleration clamped "
+        f"(worst: J{worst + 1} {float(accel[worst]):.1f} > ±{float(a_max[worst]):.1f} rad/s²)"
+    )
+
+    clamped_action = ValidatedAction(
+        target_joint_positions=new_pos,
+        target_joint_velocities=velocities if action.target_joint_velocities is not None else None,
+        was_clamped=True,
+        original_proposal=action,
+        timestamp=action.timestamp,
+    )
+    return CallbackResult.clamp(bname, clamped_action, reason=reason)
 
 
 @boundary_callback(
@@ -384,6 +448,98 @@ def joint_position_limits(
         reason=reason,
         metadata={"motion_qp": qp_meta, "_units": motion_qp_units(qp_meta)},
     )
+
+
+@boundary_callback(
+    name="ee_velocity_limit",
+    layer="L1",
+    category="kinematics",
+    description="Clamps the end-effector linear velocity magnitude to max_ee_velocity (m/s). Protects environment/humans.",
+    params={
+        "max_ee_velocity": "Maximum EE linear speed in m/s.",
+    },
+)
+def ee_velocity_limit(
+    *,
+    obs: Observation,
+    action: ActionProposal,
+    dt: float,
+    max_ee_velocity: float = 0.5,
+    J_linear: np.ndarray | None = None,
+    kinematics_resolver: KinematicsResolver | None = None,
+    dynamics: Any | None = None,
+) -> CallbackResult:
+    """Clamp EE linear speed to ``max_ee_velocity`` m/s.
+
+    Uses the linear Jacobian to map joint velocities to EE velocity:
+    ``v_ee = J_linear @ v_joint``.  If ``||v_ee|| > max``, the joint
+    velocity vector is uniformly scaled so the EE speed stays at the limit.
+    Uniform scaling preserves the EE direction — all joints slow down
+    together to produce the same coordinated Cartesian motion.
+
+    Without a Jacobian, the callback passes (no EE info to check).
+
+    ``dt``, ``J_linear``, ``kinematics_resolver``, ``dynamics`` are
+    auto-injected by the guard pipeline.
+    """
+    bname = "ee_velocity_limit"
+    if obs.joint_positions is None:
+        return CallbackResult.ok(bname, "no joint state")
+
+    cur_pos = np.asarray(obs.joint_positions, dtype=np.float64)
+    target_pos = np.asarray(action.target_joint_positions, dtype=np.float64)
+    if not _all_finite(target_pos) or not _all_finite(cur_pos):
+        return CallbackResult.violate(bname, "non-finite joint state or action")
+    n = min(target_pos.shape[0], cur_pos.shape[0])
+    dt_safe = max(float(dt), 1e-6)
+
+    if J_linear is None:
+        return CallbackResult.ok(bname, "no Jacobian; skip EE velocity check")
+
+    # ── Derive joint velocity ─────────────────────────────────────────────
+    if action.target_joint_velocities is not None:
+        v_joint = np.asarray(action.target_joint_velocities, dtype=np.float64)[:n]
+    else:
+        v_joint = (target_pos[:n] - cur_pos[:n]) / dt_safe
+
+    # ── Map to EE velocity via Jacobian ───────────────────────────────────
+    n_jac = J_linear.shape[1]
+    v_joint_padded = np.zeros(n_jac, dtype=np.float64)
+    v_joint_padded[: min(n, n_jac)] = v_joint[: min(n, n_jac)]
+    v_ee = J_linear @ v_joint_padded
+    ee_speed = float(np.linalg.norm(v_ee))
+    max_v = float(max_ee_velocity)
+
+    meta: dict[str, Any] = {
+        "ee_velocity": v_ee.tolist(),
+        "ee_speed": ee_speed,
+        "max_ee_velocity": max_v,
+        "_units": {"ee_velocity": "m/s", "ee_speed": "m/s", "max_ee_velocity": "m/s"},
+    }
+
+    if ee_speed <= max_v:
+        return CallbackResult.ok(bname, metadata=meta)
+
+    # ── Scale joint velocity uniformly to respect EE speed limit ──────────
+    scale = max_v / (ee_speed + 1e-12)
+    v_clamped = v_joint * scale
+    new_pos = cur_pos[:n] + v_clamped * dt_safe
+
+    # Pad to full action length
+    full_pos = target_pos.copy()
+    full_pos[:n] = new_pos
+
+    reason = f"EE speed {ee_speed:.3f} m/s > {max_v:.3f} m/s; scaled to {scale:.2%}"
+    meta["scale"] = scale
+
+    clamped_action = ValidatedAction(
+        target_joint_positions=full_pos,
+        target_joint_velocities=v_clamped if action.target_joint_velocities is not None else None,
+        was_clamped=True,
+        original_proposal=action,
+        timestamp=action.timestamp,
+    )
+    return CallbackResult.clamp(bname, clamped_action, reason=reason, metadata=meta)
 
 
 @boundary_callback(

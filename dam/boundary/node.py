@@ -9,6 +9,6 @@ from dam.boundary.constraint import BoundaryConstraint
 class BoundaryNode:
     node_id: str
     constraint: BoundaryConstraint
-    fallback: str = "emergency_stop"
+    fallback: str | None = None
     timeout_sec: float | None = None
     warn_frames: int = 1

@@ -176,12 +176,11 @@ boundaries:
     type: single
     nodes:
       - callback: joint_acceleration_limit
-        fallback: hold_position
         params:
-          max_accelerations: [3.0, 3.0, 3.0, 3.0, 3.0, 1.0]
+          max_acceleration: [3.0, 3.0, 3.0, 3.0, 3.0, 1.0]
 ```
 
-**Behavior:** If implied acceleration would exceed limit, scale target velocity down.
+**Behavior:** Tracks velocity from the previous cycle; clamps the velocity change so acceleration stays within limits.
 
 ```python
 # Example

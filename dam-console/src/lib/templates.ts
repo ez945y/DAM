@@ -113,12 +113,12 @@ type YamlSection = ScalarNode | BlockNode | ListNode | CustomNode | BlankNode
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SO101_JOINTS: JointDef[] = [
-  { name: 'shoulder_pan',  lower_rad: -1.8243, upper_rad:  1.8243 },
-  { name: 'shoulder_lift', lower_rad: -1.7500, upper_rad:  1.7500 },
-  { name: 'elbow_flex',    lower_rad: -1.8326, upper_rad:  1.8326 },
-  { name: 'wrist_flex',    lower_rad: -1.8067, upper_rad:  1.8067 },
-  { name: 'wrist_roll',    lower_rad: -3.0741, upper_rad:  3.0741 },
-  { name: 'gripper',       lower_rad:  0,    upper_rad:  1.7453 },
+  { name: 'shoulder_pan' },
+  { name: 'shoulder_lift' },
+  { name: 'elbow_flex' },
+  { name: 'wrist_flex' },
+  { name: 'wrist_roll' },
+  { name: 'gripper' },
 ]
 
 const SO101_CAMERAS: CameraConfig[] = [
@@ -127,10 +127,12 @@ const SO101_CAMERAS: CameraConfig[] = [
 ]
 
 const SO101_HEALTH_CHANNELS = ['current', 'temperature', 'voltage']
+// Boundary defaults — factory limits for SO-101, in degrees.
+// These are boundary config, NOT robot identity.  Robot identity is joint names only.
 const SO101_USE_DEGREES = true
-const SO101_UPPER = SO101_JOINTS.map(j => SO101_USE_DEGREES ? Number((j.upper_rad * 180 / Math.PI).toFixed(4)) : j.upper_rad)
-const SO101_LOWER = SO101_JOINTS.map(j => SO101_USE_DEGREES ? Number((j.lower_rad * 180 / Math.PI).toFixed(4)) : j.lower_rad)
-const SO101_MAX_VELOCITIES = Array(6).fill(SO101_USE_DEGREES ? Number((1.5 * 180 / Math.PI).toFixed(4)) : 1.5)
+const SO101_UPPER = [104.5247, 100.2676, 105.0002, 103.5163, 176.1330, 99.9983]  // deg
+const SO101_LOWER = [-104.5247, -100.2676, -105.0002, -103.5163, -176.1330, 0]   // deg
+const SO101_MAX_VELOCITIES = Array(6).fill(Number((1.5 * 180 / Math.PI).toFixed(4)))  // 1.5 rad/s → deg/s
 
 const LEFT_PICK_ZONE = [[-0.175, -0.025], [-0.075, 0.075], [0.075, 0.225]]
 const RIGHT_PLACE_ZONE = [[0.025, 0.175], [-0.075, 0.075], [0.075, 0.225]]
@@ -148,6 +150,10 @@ const BASE_BOUNDARIES: BoundaryDef[] = [
   {
     name: 'joint_velocity_limit', layer: 'L1', type: 'single',
     nodes: [{ node_id: 'default', params: { max_velocities: SO101_MAX_VELOCITIES, use_degrees: SO101_USE_DEGREES }, callback: 'joint_velocity_limit' }]
+  },
+  {
+    name: 'ee_velocity_limit', layer: 'L1', type: 'single',
+    nodes: [{ node_id: 'default', params: { max_ee_velocity: 0.5 }, callback: 'ee_velocity_limit' }]
   },
   {
     name: 'hardware_watchdog', layer: 'L3', type: 'single',

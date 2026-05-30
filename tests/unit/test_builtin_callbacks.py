@@ -9,8 +9,10 @@ from dam.boundary.builtin_callbacks import (
     _CALLBACKS,
     check_force_torque_safe,
     current_limit,
+    ee_velocity_limit,
     force_torque_limit,
     get_catalog,
+    joint_acceleration_limit,
     joint_position_limits,
     joint_velocity_limit,
     keep_out_zone,
@@ -158,9 +160,8 @@ class TestJointVelocityLimit:
             atol=1e-9,
         )
 
-    def test_first_cycle_no_accel_limit(self):
-        """First cycle has no previous velocity, so only velocity limit applies."""
-        # v = 1.5 rad/s (default max), should pass
+    def test_velocity_limit_no_acceleration_param(self):
+        """Velocity limit no longer accepts max_acceleration."""
         result = joint_velocity_limit(
             obs=_obs(positions=[0.0] * 6),
             action=_action([0.15] * 6),
@@ -168,26 +169,43 @@ class TestJointVelocityLimit:
         )
         assert result.decision == GuardDecision.PASS
 
+
+class TestJointAccelerationLimit:
+    """Tests for the standalone joint_acceleration_limit callback."""
+
+    def setup_method(self):
+        from dam.boundary.callbacks.kinematics import _prev_vel
+
+        _prev_vel.clear()
+
+    def test_first_cycle_always_passes(self):
+        """First cycle has no previous velocity → always PASS."""
+        result = joint_acceleration_limit(
+            obs=_obs(positions=[0.0] * 6),
+            action=_action([1.0] * 6),
+            dt=0.02,
+            max_acceleration=[5.0] * 6,
+        )
+        assert result.decision == GuardDecision.PASS
+
     def test_acceleration_clamped_on_sudden_jump(self):
         """From stationary to max velocity in one cycle should be accel-clamped."""
         # Cycle 1: establish zero velocity baseline
-        joint_velocity_limit(
+        joint_acceleration_limit(
             obs=_obs(positions=[0.0] * 6),
             action=_action([0.0] * 6),
             dt=0.02,
             max_acceleration=[5.0] * 6,
         )
         # Cycle 2: jump to v=50 rad/s (pos delta=1.0 in 0.02s)
-        # accel = 50/0.02 = 2500 rad/s², limit 5.0 → clamped to 5*0.02=0.1 rad/s
-        result = joint_velocity_limit(
+        result = joint_acceleration_limit(
             obs=_obs(positions=[0.0] * 6),
             action=_action([1.0] * 6),
             dt=0.02,
             max_acceleration=[5.0] * 6,
         )
         assert result.decision == GuardDecision.CLAMP
-        # Clamped velocity should be 0 + 5.0 * 0.02 = 0.1 rad/s
-        # → position = 0 + 0.1 * 0.02 = 0.002
+        # Clamped velocity = 0 + 5.0 * 0.02 = 0.1 rad/s → pos = 0 + 0.1 * 0.02 = 0.002
         np.testing.assert_allclose(
             result.clamped_action.target_joint_positions, [0.002] * 6, atol=1e-6
         )
@@ -195,14 +213,14 @@ class TestJointVelocityLimit:
     def test_smooth_acceleration_passes(self):
         """Gradual velocity increase within accel limit should pass."""
         # Cycle 1: v=1.0
-        joint_velocity_limit(
+        joint_acceleration_limit(
             obs=_obs(positions=[0.0] * 6),
             action=_action([0.1] * 6),
             dt=0.1,
             max_acceleration=[20.0] * 6,
         )
         # Cycle 2: v=1.1 (accel = 0.1/0.1 = 1.0 rad/s² < 20.0)
-        result = joint_velocity_limit(
+        result = joint_acceleration_limit(
             obs=_obs(positions=[0.1] * 6),
             action=_action([0.21] * 6),
             dt=0.1,
@@ -213,19 +231,17 @@ class TestJointVelocityLimit:
     def test_deceleration_also_clamped(self):
         """Sudden stop (deceleration) should also be clamped."""
         # Cycle 1: moving at v=10 (pos delta=1.0 in dt=0.1)
-        joint_velocity_limit(
+        joint_acceleration_limit(
             obs=_obs(positions=[0.0] * 6),
             action=_action([1.0] * 6),
             dt=0.1,
-            max_velocities=[20.0] * 6,
             max_acceleration=[5.0] * 6,
         )
         # Cycle 2: sudden stop → v=0 (accel = -10/0.1 = -100 rad/s², limit 5.0)
-        result = joint_velocity_limit(
+        result = joint_acceleration_limit(
             obs=_obs(positions=[1.0] * 6),
             action=_action([1.0] * 6),
             dt=0.1,
-            max_velocities=[20.0] * 6,
             max_acceleration=[5.0] * 6,
         )
         assert result.decision == GuardDecision.CLAMP
@@ -237,7 +253,7 @@ class TestJointVelocityLimit:
 
     def test_metadata_includes_acceleration(self):
         """PASS result should include max_acceleration in metadata."""
-        result = joint_velocity_limit(
+        result = joint_acceleration_limit(
             obs=_obs(positions=[0.0] * 6),
             action=_action([0.01] * 6),
             dt=0.1,
@@ -245,6 +261,90 @@ class TestJointVelocityLimit:
         )
         assert result.decision == GuardDecision.PASS
         assert "max_acceleration" in result.metadata
+
+
+# ── EE velocity limit ──────────────────────────────────────────────────────────
+
+
+class TestEEVelocityLimit:
+    """Tests for the ee_velocity_limit callback."""
+
+    def test_no_jacobian_passes(self):
+        """Without Jacobian, EE velocity cannot be checked → PASS."""
+        result = ee_velocity_limit(
+            obs=_obs(positions=[0.0] * 6),
+            action=_action([0.1] * 6),
+            dt=0.1,
+            max_ee_velocity=0.5,
+        )
+        assert result.decision == GuardDecision.PASS
+        assert "no Jacobian" in result.reason
+
+    def test_slow_ee_passes(self):
+        """EE moving within speed limit → PASS."""
+        # Jacobian: identity-like (1:1 joint-to-EE mapping for first 3 joints)
+        J = np.zeros((3, 6), dtype=np.float64)
+        J[0, 0] = 0.1  # small arm length
+        J[1, 1] = 0.1
+        J[2, 2] = 0.1
+        # v_joint = [0.5, 0.5, 0.5, 0, 0, 0] → v_ee = [0.05, 0.05, 0.05]
+        # ||v_ee|| ≈ 0.087 m/s < 0.5 m/s
+        result = ee_velocity_limit(
+            obs=_obs(positions=[0.0] * 6),
+            action=_action([0.05] * 3 + [0.0] * 3),
+            dt=0.1,
+            max_ee_velocity=0.5,
+            J_linear=J,
+        )
+        assert result.decision == GuardDecision.PASS
+        assert result.metadata["ee_speed"] < 0.5
+
+    def test_fast_ee_clamped(self):
+        """EE exceeding speed limit → CLAMP with uniform scaling."""
+        J = np.zeros((3, 6), dtype=np.float64)
+        J[0, 0] = 1.0
+        J[1, 1] = 1.0
+        J[2, 2] = 1.0
+        # v_joint = [5.0, 5.0, 5.0, 0, 0, 0] → v_ee = [5.0, 5.0, 5.0]
+        # ||v_ee|| ≈ 8.66 m/s >> 0.5 m/s
+        result = ee_velocity_limit(
+            obs=_obs(positions=[0.0] * 6),
+            action=_action([0.5] * 3 + [0.0] * 3),
+            dt=0.1,
+            max_ee_velocity=0.5,
+            J_linear=J,
+        )
+        assert result.decision == GuardDecision.CLAMP
+        assert "scaled" in result.reason
+        # Clamped EE speed should be ≈ 0.5 m/s
+        clamped_v = (
+            np.array(result.clamped_action.target_joint_positions) - np.array([0.0] * 6)
+        ) / 0.1
+        v_ee_after = J @ clamped_v
+        assert float(np.linalg.norm(v_ee_after)) == pytest.approx(0.5, abs=0.01)
+
+    def test_metadata_has_ee_speed(self):
+        """Metadata includes EE velocity info."""
+        J = np.eye(3, 6, dtype=np.float64) * 0.1
+        result = ee_velocity_limit(
+            obs=_obs(positions=[0.0] * 6),
+            action=_action([0.01] * 6),
+            dt=0.1,
+            max_ee_velocity=1.0,
+            J_linear=J,
+        )
+        assert "ee_speed" in result.metadata
+        assert "max_ee_velocity" in result.metadata
+
+    def test_non_finite_rejects(self):
+        """Non-finite joint state → REJECT."""
+        result = ee_velocity_limit(
+            obs=_obs(positions=[float("nan")] * 6),
+            action=_action([0.0] * 6),
+            dt=0.1,
+            max_ee_velocity=0.5,
+        )
+        assert result.decision == GuardDecision.REJECT
 
 
 # ── dynamic joint count ────────────────────────────────────────────────────────

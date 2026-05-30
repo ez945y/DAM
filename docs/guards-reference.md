@@ -80,8 +80,8 @@ Enforces joint limits, velocity limits, workspace bounds, and acceleration limit
 
 1. Workspace bounds → **REJECT** if end-effector outside bounds
 2. Joint limits → **CLAMP** positions to configured `lower` and `upper` values
-3. Velocity limits → **CLAMP** velocity vector to `max_velocities`
-4. Acceleration limits → **CLAMP** velocity to respect `max_acceleration`
+3. Velocity limits → **CLAMP** velocity vector to `max_velocities` (motor safety)
+4. Acceleration limits → **CLAMP** velocity change to `max_acceleration` (smoothing)
 
 **Common Stackfile callback params:**
 
@@ -90,7 +90,7 @@ Enforces joint limits, velocity limits, workspace bounds, and acceleration limit
 | `upper` | list[float] | Per-joint upper limits [rad] for `joint_position_limits` |
 | `lower` | list[float] | Per-joint lower limits [rad] for `joint_position_limits` |
 | `max_velocities` | list[float] | Per-joint max velocity [rad/s] for `joint_velocity_limit` |
-| `max_acceleration` | list[float] | Per-joint max acceleration [rad/s²] |
+| `max_acceleration` | list[float] | Per-joint max acceleration [rad/s²] for `joint_acceleration_limit` |
 | `bounds` | list[list[float]] | XYZ workspace bounds [[min,max], ...] for `workspace` |
 
 ---

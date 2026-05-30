@@ -115,8 +115,14 @@ boundaries:
       - callback: joint_velocity_limit
         params:
           max_velocities: [1.5000, 1.5000, 1.5000, 1.5000, 1.5000, 1.5000]
-          max_acceleration: [10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
           slack_weight: 100000000
+  joint_acceleration_limit:
+    layer: L1
+    type: single
+    nodes:
+      - callback: joint_acceleration_limit
+        params:
+          max_acceleration: [10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
   workspace:
     layer: L1
     type: single
@@ -201,6 +207,7 @@ tasks:
       - workspace
       - joint_position_limits
       - joint_velocity_limit
+      - joint_acceleration_limit
       - task_gripper_sequence
       - hardware_watchdog
       - temperature_limit

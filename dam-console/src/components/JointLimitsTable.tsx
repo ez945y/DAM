@@ -8,9 +8,9 @@ interface Props {
 }
 
 export function JointLimitsTable({ joints, onChange }: Props) {
-  const update = (i: number, field: keyof JointDef, value: string | number) => {
+  const update = (i: number, value: string) => {
     const next = joints.map((j, idx) =>
-      idx === i ? { ...j, [field]: value } : j
+      idx === i ? { ...j, name: value } : j
     )
     onChange(next)
   }
@@ -18,11 +18,7 @@ export function JointLimitsTable({ joints, onChange }: Props) {
   const addJoint = () => {
     onChange([
       ...joints,
-      {
-        name: `joint_${joints.length + 1}`,
-        lower_rad: -2,
-        upper_rad: 2,
-      },
+      { name: `joint_${joints.length + 1}` },
     ])
   }
 
@@ -40,8 +36,6 @@ export function JointLimitsTable({ joints, onChange }: Props) {
           <thead>
             <tr className="border-b border-dam-border">
               <th className="text-left px-2 py-1.5 text-dam-muted">Name</th>
-              <th className="text-left px-2 py-1.5 text-dam-muted">Lower [rad]</th>
-              <th className="text-left px-2 py-1.5 text-dam-muted">Upper [rad]</th>
               <th className="px-2 py-1.5" />
             </tr>
           </thead>
@@ -52,26 +46,8 @@ export function JointLimitsTable({ joints, onChange }: Props) {
                   <input
                     type="text"
                     value={j.name}
-                    onChange={e => update(i, 'name', e.target.value)}
+                    onChange={e => update(i, e.target.value)}
                     placeholder={`joint_${i + 1}`}
-                    className={inputCls}
-                  />
-                </td>
-                <td className="px-2 py-1">
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={j.lower_rad}
-                    onChange={e => update(i, 'lower_rad', Number(e.target.value))}
-                    className={inputCls}
-                  />
-                </td>
-                <td className="px-2 py-1">
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={j.upper_rad}
-                    onChange={e => update(i, 'upper_rad', Number(e.target.value))}
                     className={inputCls}
                   />
                 </td>

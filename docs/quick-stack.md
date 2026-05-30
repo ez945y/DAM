@@ -138,15 +138,15 @@ Enforces joint position limits, velocity limits, acceleration limits, and worksp
 | `enabled` | bool | `true` | Enable/disable this guard |
 | `upper` | list[float] | required | Joint upper limits [rad], one per joint |
 | `lower` | list[float] | required | Joint lower limits [rad], one per joint |
-| `max_velocities` | list[float] | `null` | Per-joint velocity limits [rad/s] |
-| `max_acceleration` | list[float] | `null` | Per-joint acceleration limits [rad/s²] |
+| `max_velocities` | list[float] | `null` | Per-joint velocity limits [rad/s] (`joint_velocity_limit`) |
+| `max_acceleration` | list[float] | required | Per-joint acceleration limits [rad/s²] (`joint_acceleration_limit`) |
 | `bounds` | list[list[float]] | `null` | `[[xmin, xmax], [ymin, ymax], [zmin, zmax]]` in metres |
 | `params.velocity_scale` | float | `1.0` | Scale factor applied on top of hardware preset limits (Phase 2) |
 
 **Clamping behaviour:**
 - Joint positions outside limits are clamped to the nearest limit.
-- Velocities exceeding `max_velocities` are scaled proportionally (all joints scaled by the same ratio).
-- Acceleration violations scale the target velocity back so the implied acceleration stays within limits.
+- Velocities exceeding `max_velocities` are clamped per-joint (`joint_velocity_limit`).
+- Acceleration violations clamp velocity change per-joint (`joint_acceleration_limit`, separate boundary).
 - Workspace violations always result in REJECT (cannot clamp the end-effector back into bounds).
 
 ### `guards.builtin.ood` (L0)

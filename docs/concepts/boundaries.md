@@ -52,7 +52,9 @@ Run `make callbacks` (or `.venv/bin/dam callbacks`) to see all of them. Grouped 
 | Callback | Behavior |
 |----------|----------|
 | `joint_position_limits` | **Clamps** joints to `[lower, upper]` via QP |
-| `joint_velocity_limit` | **Clamps** velocities to `±max_velocities` and accelerations to `±max_acceleration` via QP |
+| `joint_velocity_limit` | **Clamps** velocities to `±max_velocities` (motor safety ceiling) |
+| `joint_acceleration_limit` | **Clamps** acceleration to `±max_acceleration` (smoothing / jitter suppression) |
+| `ee_velocity_limit` | **Clamps** EE linear speed to `max_ee_velocity` (environment / human safety) |
 | `workspace` | **Clamps** via CBF constraint in the QP to keep end-effector inside the workspace box |
 | `keep_out_zone` | **Clamps** via CBF constraint in the QP to keep end-effector outside spherical no-go zones |
 | `orientation_limit` | **Clamps** via CBF constraint in the QP to limit end-effector tilt |

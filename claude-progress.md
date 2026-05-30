@@ -6,12 +6,12 @@
 - **倉庫根目錄**: `/Users/chenyizhong/Documents/Claude/Projects/Security Guard.nosync`
 - **標準啟動路徑**: `make dev`
 - **標準驗證路徑**: `make test`
-- **基線狀態**: `python -m pytest tests/unit/ tests/safety/ -x -q` — 690 passed, 29 skipped（截至 2026-05-30）
+- **基線狀態**: `python -m pytest tests/unit/ -x -q` — 668 passed, 31 skipped（截至 2026-05-30）
 
 ## 當前最高優先級未完成功能
 
 1. **Vision OOD 閾值校準**：✅ **已實作 percentile-based threshold**（`threshold_percentile` param）。需在實際 dataset 上重新 calibrate 以驗證 FPR 改善。
-2. **機器人爆衝防護**：✅ **已實作 acceleration limit**（`max_acceleration` param on `joint_velocity_limit`）。兩段式 clamp 替代了之前的 EMA（`action_smooth` 已刪除）。
+2. **機器人爆衝防護**：✅ **已拆分為獨立 boundary**。`joint_velocity_limit`（馬達安全）+ `joint_acceleration_limit`（smoothing）+ `ee_velocity_limit`（環境安全）。
 3. **MCAP 回讀 Risk Log**：✅ **已實現**。Backend: `/api/risk-log/mcap/{filename}`，Frontend: MCAP viewer page with cycle detail expand。
 4. **`make record` 端到端硬體驗證**：需要實機環境。
 
@@ -20,6 +20,23 @@
 無
 
 ## 會話記錄
+
+### Session 2026-05-30 #2 (Boundary 拆分 + 語意修正 + Preset 解耦)
+
+- **本輪目標**: 拆分 velocity/acceleration 為獨立 boundary，修正 fallback 語意，解耦前端 preset/boundary，新增 EE velocity limit
+- **已完成**:
+  - `joint_velocity_limit` 瘦身（移除 `max_acceleration`），新增 `joint_acceleration_limit` 獨立 callback
+  - `BoundaryNode.fallback` 預設改為 `None`（clamp-only boundary 不帶 fallback）
+  - `JointDef` 只保留 `name`，position limits 移到 boundary config
+  - 新增 `ee_velocity_limit`（Jacobian-based EE speed cap，uniform scaling）
+  - 5 個 docs 更新，stackfile 範本同步
+  - 調查 `max_velocities < 2.0` 卡住問題（數學上不應卡住，可能被舊 accel+vel 交互導致，已修復需實測）
+- **執行過的驗證**:
+  - `python -m pytest tests/unit/ -x -q` — 668 passed, 31 skipped
+  - `cd dam-console && npx jest --ci` — 109 passed
+  - `make lint` — all passed
+  - `make docs-check` — passed
+- **改動檔案**: 16 files（未提交）
 
 ### Session 2026-05-30 #1 (JointLayout Contract)
 

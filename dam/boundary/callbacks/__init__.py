@@ -36,6 +36,8 @@ from dam.boundary.callbacks.hardware import (
     voltage_limit,
 )
 from dam.boundary.callbacks.kinematics import (
+    ee_velocity_limit,
+    joint_acceleration_limit,
     joint_position_limits,
     joint_velocity_limit,
     keep_out_zone,
@@ -55,6 +57,8 @@ __all__ = [
     "get_catalog",
     "hardware_watchdog",
     "host_health_limit",
+    "ee_velocity_limit",
+    "joint_acceleration_limit",
     "joint_position_limits",
     "joint_velocity_limit",
     "keep_out_zone",

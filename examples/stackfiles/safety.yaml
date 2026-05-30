@@ -108,7 +108,7 @@ boundaries:
           upper: [1.8243, 1.6, 1.5, 1.5, 3.0741, 1.7453]
           lower: [-1.8243, -1.6, -1.6, -1.5, -3.0741, 0.0]
 
-  # Joint velocity limit — 1.5 rad/s ≈ 86°/s per joint
+  # Joint velocity limit — motor safety ceiling
   joint_velocity_limit:
     layer: L1
     type: single
@@ -116,7 +116,15 @@ boundaries:
       - callback: joint_velocity_limit
         params:
           max_velocities: [4.0, 4.0, 4.0, 4.0, 4.0, 4.0]
-          max_acceleration: [10.0, 10.0, 10.0, 10.0, 10.0, 10.0]  # optional — for policy inference, not teleop
+
+  # Joint acceleration limit — smoothing / jitter suppression
+  joint_acceleration_limit:
+    layer: L1
+    type: single
+    nodes:
+      - callback: joint_acceleration_limit
+        params:
+          max_acceleration: [10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
 
 tasks:
   record:
@@ -124,6 +132,7 @@ tasks:
     boundaries:
       - joint_position_limits
       - joint_velocity_limit
+      - joint_acceleration_limit
 
 # Optional: uncomment to record guard events to MCAP during make record.
 # Analyse with: .venv/bin/python scripts/mcap_triage.py --json

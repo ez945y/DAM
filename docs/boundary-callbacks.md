@@ -154,14 +154,33 @@ Return False if any joint position violates upper/lower limits.
 
 ### `joint_velocity_limit`
 
-Two-stage clamp: first limits acceleration, then limits velocity. Prevents
-sudden speed jumps by tracking the previous cycle's velocity.
+Per-joint velocity cap — motor safety ceiling.
 
 | Param | Default | Description |
 |---|---|---|
 | `max_velocities` | `[1.5]*6` | Per-joint max velocity (rad/s) |
-| `max_acceleration` | `[10.0]*6` | Per-joint max acceleration (rad/s²) |
 | `use_degrees` | `False` | Interpret velocity limits as degrees |
+
+### `joint_acceleration_limit`
+
+Per-joint acceleration cap — smoothing and jitter suppression.
+Tracks the previous cycle's velocity; first cycle always passes.
+
+| Param | Default | Description |
+|---|---|---|
+| `max_acceleration` | — | Per-joint max acceleration (rad/s²) |
+| `use_degrees` | `False` | Interpret acceleration limits as deg/s² |
+
+### `ee_velocity_limit`
+
+Clamps end-effector linear speed — environment and human safety.
+Uses the linear Jacobian to map joint velocities to EE velocity;
+uniformly scales joint velocities when EE speed exceeds the limit.
+Passes when no Jacobian is available (requires URDF or dynamics).
+
+| Param | Default | Description |
+|---|---|---|
+| `max_ee_velocity` | `0.5` | Maximum EE linear speed (m/s) |
 
 ### `workspace`
 

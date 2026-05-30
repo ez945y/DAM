@@ -73,16 +73,16 @@ describe('defaultConfig', () => {
     expect(names).toContain('gripper')
   })
 
-  it('SO-101 joints use calibrated limits', () => {
+  it('SO-101 joints carry only names (limits live on boundaries)', () => {
     const cfg = defaultConfig('so101')
-    const pan  = cfg.joints.find(j => j.name === 'shoulder_pan')!
+    const pan = cfg.joints.find(j => j.name === 'shoulder_pan')!
     const grip = cfg.joints.find(j => j.name === 'gripper')!
-    // shoulder_pan: ±1.8243
-    expect(pan.lower_rad).toBeCloseTo(-1.8243, 4)
-    expect(pan.upper_rad).toBeCloseTo( 1.8243, 4)
-    // gripper: 0 → 1.7453 (one-directional)
-    expect(grip.lower_rad).toBeCloseTo(0, 4)
-    expect(grip.upper_rad).toBeCloseTo(1.7453, 4)
+    expect(pan).toEqual({ name: 'shoulder_pan' })
+    expect(grip).toEqual({ name: 'gripper' })
+    // Position limits are on the joint_position_limits boundary, not on joints
+    const posLimits = cfg.boundaries.find(b => b.name === 'joint_position_limits')!
+    expect(posLimits.nodes[0].params.upper).toBeDefined()
+    expect(posLimits.nodes[0].params.lower).toBeDefined()
   })
 
   it('SO-101 robot_id matches lerobot-record default', () => {
