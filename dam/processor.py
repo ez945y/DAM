@@ -15,7 +15,6 @@ guard pipeline before it reaches the robot.
 
 from __future__ import annotations
 
-import atexit
 import json
 import logging
 import sys
@@ -56,10 +55,12 @@ class _RecordingStats:
         self.rejects: int = 0
         self.faults: int = 0
         self.boundary_counts: dict[str, int] = {}
-        self.start_time: float = time.monotonic()
+        self._first_cycle_time: float | None = None
 
     def record_cycle(self, results: list[Any]) -> list[Any]:
         """Process one cycle's guard results. Returns notable (non-PASS) results."""
+        if self._first_cycle_time is None:
+            self._first_cycle_time = time.monotonic()
         self.total_cycles += 1
         notable = []
         for r in results:
@@ -77,7 +78,10 @@ class _RecordingStats:
         return notable
 
     def summary_lines(self) -> list[str]:
-        elapsed = time.monotonic() - self.start_time
+        if self._first_cycle_time is not None:
+            elapsed = time.monotonic() - self._first_cycle_time
+        else:
+            elapsed = 0.0
         minutes = elapsed / 60
 
         lines = []
@@ -127,6 +131,7 @@ class _GuardLogWriter:
                 "reason": r.reason,
             }
             self._file.write(json.dumps(entry) + "\n")
+        self._file.flush()
 
     def close(self) -> None:
         self._file.close()
@@ -155,6 +160,57 @@ def _resolve_log_path(stackfile: str) -> Path | None:
         return None
 
 
+# ── Edge-triggered printer ────────────────────────────────────────────────
+
+
+class _EdgePrinter:
+    """Only prints when a boundary transitions PASS→CLAMP or CLAMP→PASS.
+
+    Prevents terminal flooding at 30Hz by tracking per-boundary state.
+    When a sustained clamp ends, prints the duration and count.
+    """
+
+    def __init__(self) -> None:
+        self._active: dict[str, tuple[float, int]] = {}
+
+    def update(self, notable: list[Any]) -> None:
+        now = time.monotonic()
+        current_names = {r.guard_name for r in notable}
+
+        # Boundaries that just cleared — print "resolved" with duration
+        for name in list(self._active):
+            if name not in current_names:
+                start, count = self._active.pop(name)
+                dur = now - start
+                if count > 1:
+                    print(
+                        f"[DAM] \033[32m  OK\033[0m {name}: "
+                        f"resolved after {count} cycles ({dur:.1f}s)",
+                        file=sys.stderr,
+                    )
+
+        # Boundaries that just started — print first occurrence
+        for r in notable:
+            if r.guard_name not in self._active:
+                self._active[r.guard_name] = (now, 0)
+                tag = (
+                    "\033[33mCLAMP\033[0m"
+                    if r.decision.name == "CLAMP"
+                    else f"\033[31m{r.decision.name}\033[0m"
+                )
+                reason = r.reason[:80] if r.reason else ""
+                print(
+                    f"[DAM] {tag} {r.guard_name}: {reason}",
+                    file=sys.stderr,
+                )
+
+        # Increment counters for sustained events
+        for r in notable:
+            if r.guard_name in self._active:
+                start, count = self._active[r.guard_name]
+                self._active[r.guard_name] = (start, count + 1)
+
+
 # ── Processor step ────────────────────────────────────────────────────────
 
 
@@ -163,7 +219,8 @@ class SafetyProcessorStep(_Base):  # type: ignore[valid-type,misc]
 
     Features beyond basic safety checking:
 
-    - **Live feedback**: prints a one-liner to stderr on clamp/reject events
+    - **Live feedback**: edge-triggered — prints when a clamp starts and
+      when it resolves (with duration), not on every cycle
     - **Session summary**: prints guard statistics when recording ends
     - **Guard log**: writes ``.guard_log.jsonl`` next to the dataset cache
     """
@@ -185,8 +242,8 @@ class SafetyProcessorStep(_Base):  # type: ignore[valid-type,misc]
         self._guard: Any | None = None
         self._stats: _RecordingStats = _RecordingStats()
         self._log_writer: _GuardLogWriter | None = None
+        self._printer: _EdgePrinter = _EdgePrinter()
         self._summary_printed = False
-        atexit.register(self._print_summary)
 
     def _ensure_guard(self) -> Any:
         if self._guard is None:
@@ -224,26 +281,12 @@ class SafetyProcessorStep(_Base):  # type: ignore[valid-type,misc]
         result = guard(action, obs)
 
         notable = self._stats.record_cycle(guard.last_results)
-        if notable:
-            if not self._quiet:
-                self._print_notable(notable)
-            if self._log_writer is not None:
-                self._log_writer.write(self._stats.total_cycles, notable)
+        if not self._quiet:
+            self._printer.update(notable)
+        if notable and self._log_writer is not None:
+            self._log_writer.write(self._stats.total_cycles, notable)
 
         return result  # type: ignore[no-any-return]
-
-    def _print_notable(self, results: list[Any]) -> None:
-        for r in results:
-            tag = (
-                "\033[33mCLAMP\033[0m"
-                if r.decision.name == "CLAMP"
-                else f"\033[31m{r.decision.name}\033[0m"
-            )
-            reason = r.reason[:80] if r.reason else ""
-            print(
-                f"[DAM] {tag} {r.guard_name}: {reason}",
-                file=sys.stderr,
-            )
 
     def _print_summary(self) -> None:
         if self._summary_printed or self._stats.total_cycles == 0:
@@ -280,6 +323,9 @@ class SafetyProcessorStep(_Base):  # type: ignore[valid-type,misc]
         self._guard = None
         self._stats = _RecordingStats()
         self._summary_printed = False
+
+    def __del__(self) -> None:
+        self._print_summary()
 
 
 def make_safe_processors(

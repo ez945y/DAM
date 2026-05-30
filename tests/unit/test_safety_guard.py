@@ -457,3 +457,85 @@ class TestGuardLogWriter:
         assert len(lines) == 3
         for i, line in enumerate(lines):
             assert json.loads(line)["cycle"] == i
+
+
+# ---------------------------------------------------------------------------
+# TestEdgePrinter — only prints transitions, not sustained events
+# ---------------------------------------------------------------------------
+
+
+class TestEdgePrinter:
+    def test_only_prints_on_start(self, capsys: pytest.CaptureFixture[str]) -> None:
+        from dam.processor import _EdgePrinter
+        from dam.types.result import GuardDecision, GuardResult
+
+        printer = _EdgePrinter()
+        clamp = [
+            GuardResult(
+                decision=GuardDecision.CLAMP,
+                guard_name="vel",
+                layer="L1",
+                reason="fast",
+            )
+        ]
+
+        printer.update(clamp)  # first call — should print
+        printer.update(clamp)  # sustained — should NOT print again
+        printer.update(clamp)
+
+        captured = capsys.readouterr()
+        assert captured.err.count("CLAMP") == 1
+
+    def test_prints_resolved_with_count(self, capsys: pytest.CaptureFixture[str]) -> None:
+        from dam.processor import _EdgePrinter
+        from dam.types.result import GuardDecision, GuardResult
+
+        printer = _EdgePrinter()
+        clamp = [
+            GuardResult(
+                decision=GuardDecision.CLAMP,
+                guard_name="vel",
+                layer="L1",
+                reason="fast",
+            )
+        ]
+
+        printer.update(clamp)
+        printer.update(clamp)
+        printer.update(clamp)
+        printer.update([])  # clamp ends
+
+        captured = capsys.readouterr()
+        assert "resolved" in captured.err
+        assert "3 cycles" in captured.err
+
+    def test_single_cycle_clamp_no_resolved(self, capsys: pytest.CaptureFixture[str]) -> None:
+        from dam.processor import _EdgePrinter
+        from dam.types.result import GuardDecision, GuardResult
+
+        printer = _EdgePrinter()
+        clamp = [
+            GuardResult(
+                decision=GuardDecision.CLAMP,
+                guard_name="vel",
+                layer="L1",
+                reason="fast",
+            )
+        ]
+
+        printer.update(clamp)
+        printer.update([])  # clamp ends after 1 cycle
+
+        captured = capsys.readouterr()
+        assert "CLAMP" in captured.err
+        assert "resolved" not in captured.err  # only 1 cycle, no "resolved" message
+
+
+class TestRecordingStatsStartTime:
+    def test_time_starts_at_first_cycle(self) -> None:
+        from dam.processor import _RecordingStats
+
+        stats = _RecordingStats()
+        assert stats._first_cycle_time is None
+        stats.record_cycle([])
+        assert stats._first_cycle_time is not None
