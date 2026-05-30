@@ -36,6 +36,7 @@
 - pool forwarding → 統一為 engine builds once, guards forward
 - config_pool cross-contamination → 只取 dt，不 dump 全部 boundary params
 - CBF boilerplate → 抽出 `_halt_clamp`, `_cbf_clamp`, `_cbf_margin`, `_get_qp_solver` 共用 helper（-51 行重複）
+- joint dimension mismatch → `_pad_to` helper 在 qp_solver，zero-pad q/target 到 Jacobian DOF
 
 **下一步**:
 - 實機驗證 CBF 參數（cbf_alpha, slack_weight）在 SO-101 上的表現
