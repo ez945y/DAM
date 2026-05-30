@@ -47,6 +47,13 @@ except ImportError:
     _PROXSUITE_AVAILABLE = False
 
 
+def _pad_to(v: np.ndarray, n: int) -> np.ndarray:
+    """Zero-pad or truncate a 1-D vector to exactly ``n`` elements."""
+    if v.shape[0] >= n:
+        return v[:n]
+    return np.pad(v, (0, n - v.shape[0]))
+
+
 def workspace_cbf_constraints(
     *,
     q: np.ndarray,
@@ -90,7 +97,7 @@ def workspace_cbf_constraints(
     b_min = bounds_arr[:, 0]
     b_max = bounds_arr[:, 1]
     n_dof = J_linear.shape[1]
-    q_arr = np.asarray(q, dtype=np.float64)[:n_dof]
+    q_arr = _pad_to(np.asarray(q, dtype=np.float64), n_dof)
     Jq = J_linear @ q_arr
     ee = np.asarray(ee_pos, dtype=np.float64)
 
@@ -122,7 +129,7 @@ def sphere_keepout_constraints(
     gamma = float(cbf_alpha) * float(dt)
     ee = np.asarray(ee_pos, dtype=np.float64)
     n_dof = J_linear.shape[1]
-    q_arr = np.asarray(q, dtype=np.float64)[:n_dof]
+    q_arr = _pad_to(np.asarray(q, dtype=np.float64), n_dof)
     A_rows: list[np.ndarray] = []
     b_vals: list[float] = []
 
@@ -180,7 +187,7 @@ def orientation_tilt_constraint(
     cross = np.cross(tool_world, ref)
     dh_dq = cross @ np.asarray(J_angular, dtype=np.float64)
     n_dof = J_angular.shape[1]
-    q_arr = np.asarray(q, dtype=np.float64)[:n_dof]
+    q_arr = _pad_to(np.asarray(q, dtype=np.float64), n_dof)
 
     # -dh_dq @ u ≤ -dh_dq @ q + γ h
     A = -dh_dq.reshape(1, -1)

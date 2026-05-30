@@ -387,6 +387,23 @@ class TestWorkspace:
             r.clamped_action.target_joint_positions, obs.joint_positions
         )
 
+    def test_cbf_fewer_action_joints_than_jacobian(self):
+        """Action with fewer joints than Jacobian DOF should not crash."""
+        # 4-joint action but 6-DOF Jacobian — CBF margin must pad, not crash
+        obs = _obs(positions=[0.0] * 4, ee_pose=[0.5, 0.1, 0.3, 0, 0, 0, 1])
+        action = _action([0.1] * 4)
+        J = np.eye(3, 6) * 0.1  # 6-DOF Jacobian
+        r = workspace(obs=obs, action=action, bounds=self.BOUNDS, J_linear=J)
+        assert r.decision == GuardDecision.CLAMP  # outside bounds → clamp
+
+    def test_cbf_more_action_joints_than_jacobian(self):
+        """Action with more joints than Jacobian DOF should work (extras ignored)."""
+        obs = _obs(positions=[0.0] * 8, ee_pose=[0.1, 0.1, 0.3, 0, 0, 0, 1])
+        action = _action([0.0] * 8)
+        J = np.eye(3, 6) * 0.1  # 6-DOF Jacobian
+        r = workspace(obs=obs, action=action, bounds=self.BOUNDS, J_linear=J)
+        assert r.decision == GuardDecision.PASS
+
 
 # ── keep_out_zone ─────────────────────────────────────────────────────────────
 

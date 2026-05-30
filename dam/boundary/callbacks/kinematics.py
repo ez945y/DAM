@@ -99,8 +99,17 @@ def _cbf_clamp(
 def _cbf_margin(
     cbf_A: np.ndarray, cbf_b: np.ndarray, target: np.ndarray, n_joints: int
 ) -> tuple[np.ndarray, bool]:
-    """Check whether the proposed target satisfies CBF constraints."""
-    margin = cbf_b - cbf_A @ target[:n_joints]
+    """Check whether the proposed target satisfies CBF constraints.
+
+    Handles dimension mismatch: if ``target`` has fewer elements than
+    ``n_joints`` (Jacobian DOF), the missing joints are zero-padded.
+    If ``target`` has more elements, the extras are ignored (only the
+    Jacobian-covered joints affect the EE).
+    """
+    u = target[:n_joints]
+    if u.shape[0] < n_joints:
+        u = np.pad(u, (0, n_joints - u.shape[0]))
+    margin = cbf_b - cbf_A @ u
     satisfied = bool(np.all(margin >= -1e-8))
     return margin, satisfied
 
