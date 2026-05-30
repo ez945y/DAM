@@ -20,22 +20,22 @@ from dam.injection.static import precompute_injection
 if TYPE_CHECKING:
     from dam.config.schema import StackfileConfig
     from dam.guard.base import Guard
+    from dam.preset.registry import RobotPreset
 
 logger = logging.getLogger(__name__)
 
 
-def _resolve_joint_names(config: StackfileConfig) -> list[str]:
-    """Extract joint_names from the stackfile's hardware preset, if available."""
+def _resolve_preset(config: StackfileConfig) -> RobotPreset | None:
+    """Look up the preset from the stackfile's hardware section, if available."""
     preset_name = getattr(config.hardware, "preset", None) if config.hardware else None
     if not preset_name:
-        return []
+        return None
     try:
         from dam.preset.registry import get_preset
 
-        preset = get_preset(preset_name)
-        return list(preset.joint_names) if preset else []
+        return get_preset(preset_name)
     except Exception:  # noqa: BLE001
-        return []
+        return None
 
 
 class HotReloadManager:
@@ -89,20 +89,10 @@ class HotReloadManager:
         if new_config.safety and new_config.safety.control_frequency_hz > 0:
             pool["dt"] = 1.0 / new_config.safety.control_frequency_hz
 
-        # Joint layout: explicit from stackfile, or auto-derived from preset.
-        if new_config.safety and new_config.safety.joint_layout:
-            from dam.types.joint_layout import JointLayout
-
-            pool["joint_layout"] = JointLayout.from_config(
-                new_config.safety.joint_layout,
-                names=_resolve_joint_names(new_config),
-            )
-        else:
-            names = _resolve_joint_names(new_config)
-            if names:
-                from dam.types.joint_layout import JointLayout
-
-                pool["joint_layout"] = JointLayout.from_names(names)
+        # Joint layout: resolved from preset (which owns the physical description).
+        preset = _resolve_preset(new_config)
+        if preset and preset.joint_names:
+            pool["joint_layout"] = preset.joint_layout
 
         _STRUCTURAL = {
             "layer",

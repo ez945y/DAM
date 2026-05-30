@@ -33,7 +33,10 @@ import os
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from dam.types.joint_layout import JointLayout
 
 import yaml
 
@@ -59,6 +62,18 @@ class RobotPreset:
     joint_names: list[str] = field(default_factory=list)
     degrees_mode: bool = True
     default_urdf_relpath: str | None = None
+    chains: dict[str, Any] | None = field(default=None, repr=False)
+
+    @property
+    def joint_layout(self) -> JointLayout:
+        """Resolved joint layout — explicit from chains config, or auto-derived from joint_names."""
+        from dam.types.joint_layout import JointLayout
+
+        if self.chains:
+            return JointLayout.from_config(self.chains, joint_names=self.joint_names)
+        if self.joint_names:
+            return JointLayout.from_names(self.joint_names)
+        return JointLayout.trivial(0)
 
 
 # ── Registry I/O ─────────────────────────────────────────────────────────────
@@ -109,6 +124,7 @@ def _to_preset(name: str, entry: dict[str, Any]) -> RobotPreset:
         joint_names=list(entry.get("joint_names", []) or []),
         degrees_mode=bool(entry.get("degrees_mode", True)),
         default_urdf_relpath=entry.get("urdf_path"),
+        chains=entry.get("chains"),
     )
 
 
@@ -141,6 +157,7 @@ def list_preset_entries() -> list[dict[str, Any]]:
             "joint_names": list(entry.get("joint_names", []) or []),
             "degrees_mode": bool(entry.get("degrees_mode", True)),
             "urdf_path": entry.get("urdf_path"),
+            "chains": entry.get("chains"),
         }
         for name, entry in sorted(merged.items())
     ]
@@ -152,6 +169,7 @@ def upsert_preset(
     joint_names: list[str],
     degrees_mode: bool,
     urdf_path: str | None,
+    chains: dict[str, Any] | None = None,
     rename_from: str | None = None,
 ) -> RobotPreset:
     """Create or update a preset (writes to the user file).
@@ -164,11 +182,13 @@ def upsert_preset(
         raise ValueError("Preset name must not be empty")
     if not joint_names:
         raise ValueError("Preset must have at least one joint name")
-    entry = {
+    entry: dict[str, Any] = {
         "joint_names": [str(j) for j in joint_names],
         "degrees_mode": bool(degrees_mode),
         "urdf_path": urdf_path or None,
     }
+    if chains:
+        entry["chains"] = chains
     with _lock:
         user = _load_one(_user_path())
         bundled = _load_one(BUNDLED_PATH)
