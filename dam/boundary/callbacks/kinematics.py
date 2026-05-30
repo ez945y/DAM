@@ -29,10 +29,81 @@ from dam.boundary.callbacks._registry import boundary_callback
 from dam.guard.aggregators.motion_qp import QPTerm, motion_qp_units
 from dam.guard.pipeline import CallbackResult
 from dam.kinematics.resolver import KinematicsResolver
+
+# Lazy import — resolved on first CBF path entry.  Module-level would create
+# a circular import (qp_solver → dam.types → …).
+_qp_solver: Any = None
+
+
+def _get_qp_solver() -> Any:
+    global _qp_solver  # noqa: PLW0603
+    if _qp_solver is None:
+        from dam.runtime import qp_solver as _qs
+
+        _qp_solver = _qs
+    return _qp_solver
+
+
 from dam.types.action import ActionProposal, ValidatedAction
 from dam.types.observation import Observation
 
 logger = logging.getLogger(__name__)
+
+
+# ── Shared CBF helpers ─────────────────────────────────────────────────────────
+
+
+def _halt_clamp(
+    bname: str,
+    q: np.ndarray,
+    action: ActionProposal,
+    reason: str,
+    metadata: dict[str, Any] | None = None,
+) -> CallbackResult:
+    """Freeze action to current joints — fallback when Jacobian is unavailable."""
+    halt = ValidatedAction(
+        target_joint_positions=q.copy(),
+        target_joint_velocities=None,
+        was_clamped=True,
+        original_proposal=action,
+        timestamp=action.timestamp,
+    )
+    return CallbackResult.clamp(bname, halt, reason=reason, metadata=metadata or {})
+
+
+def _cbf_clamp(
+    bname: str,
+    action: ActionProposal,
+    target: np.ndarray,
+    cbf_A: np.ndarray,
+    cbf_b: np.ndarray,
+    slack_weight: float,
+    reason: str,
+    extra_metadata: dict[str, Any] | None = None,
+) -> CallbackResult:
+    """Build QPTerm from CBF constraints and return a CLAMP with QP metadata."""
+    qp_meta = QPTerm(A=cbf_A, b=cbf_b, slack_weight=float(slack_weight))
+    clamped = ValidatedAction(
+        target_joint_positions=target.copy(),
+        target_joint_velocities=action.target_joint_velocities,
+        was_clamped=True,
+        original_proposal=action,
+        timestamp=action.timestamp,
+    )
+    metadata: dict[str, Any] = {"motion_qp": qp_meta}
+    if extra_metadata:
+        metadata.update(extra_metadata)
+    return CallbackResult.clamp(bname, clamped, reason=reason, metadata=metadata)
+
+
+def _cbf_margin(
+    cbf_A: np.ndarray, cbf_b: np.ndarray, target: np.ndarray, n_joints: int
+) -> tuple[np.ndarray, bool]:
+    """Check whether the proposed target satisfies CBF constraints."""
+    margin = cbf_b - cbf_A @ target[:n_joints]
+    satisfied = bool(np.all(margin >= -1e-8))
+    return margin, satisfied
+
 
 # ── Velocity-limit state (acceleration tracking) ─────────────────────────────
 _prev_vel: dict[str, np.ndarray] = {}
@@ -367,16 +438,10 @@ def workspace(
                 bname,
                 metadata={"bounds": b.tolist(), "ee_pos": ee_pos.tolist()},
             )
-        halt = ValidatedAction(
-            target_joint_positions=q.copy(),
-            target_joint_velocities=None,
-            was_clamped=True,
-            original_proposal=action,
-            timestamp=action.timestamp,
-        )
-        return CallbackResult.clamp(
+        return _halt_clamp(
             bname,
-            halt,
+            q,
+            action,
             reason=f"EE {ee_pos.tolist()} outside workspace (no Jacobian); halting",
             metadata={
                 "workspace_bounds": b.tolist(),
@@ -385,9 +450,7 @@ def workspace(
             },
         )
 
-    from dam.runtime import qp_solver
-
-    cbf_A, cbf_b = qp_solver.workspace_cbf_constraints(
+    cbf_A, cbf_b = _get_qp_solver().workspace_cbf_constraints(
         q=q,
         ee_pos=ee_pos,
         J_linear=J_linear,
@@ -395,10 +458,7 @@ def workspace(
         cbf_alpha=cbf_alpha,
         dt=dt,
     )
-
-    n = J_linear.shape[1]
-    margin = cbf_b - cbf_A @ target[:n]
-    satisfied = bool(np.all(margin >= -1e-8))
+    margin, satisfied = _cbf_margin(cbf_A, cbf_b, target, J_linear.shape[1])
 
     if inside and satisfied:
         return CallbackResult.ok(
@@ -410,26 +470,21 @@ def workspace(
             },
         )
 
-    qp_meta = QPTerm(A=cbf_A, b=cbf_b, slack_weight=float(slack_weight))
-    clamped = ValidatedAction(
-        target_joint_positions=target.copy(),
-        target_joint_velocities=action.target_joint_velocities,
-        was_clamped=True,
-        original_proposal=action,
-        timestamp=action.timestamp,
-    )
     if inside:
         reason = (
             f"EE action would leave workspace; CBF active (margin_min={float(np.min(margin)):.4f})"
         )
     else:
         reason = f"EE {ee_pos.tolist()} outside workspace {b.tolist()}; CBF pushing back"
-    return CallbackResult.clamp(
+    return _cbf_clamp(
         bname,
-        clamped,
-        reason=reason,
-        metadata={
-            "motion_qp": qp_meta,
+        action,
+        target,
+        cbf_A,
+        cbf_b,
+        slack_weight,
+        reason,
+        extra_metadata={
             "workspace_bounds": b.tolist(),
             "ee_pos": ee_pos.tolist(),
             "cbf_margin_min": float(np.min(margin)),
@@ -500,23 +555,15 @@ def keep_out_zone(
                 bname,
                 metadata={"ee_pos": ee_pos.tolist(), "n_spheres": len(spheres)},
             )
-        halt = ValidatedAction(
-            target_joint_positions=q.copy(),
-            target_joint_velocities=None,
-            was_clamped=True,
-            original_proposal=action,
-            timestamp=action.timestamp,
-        )
-        return CallbackResult.clamp(
+        return _halt_clamp(
             bname,
-            halt,
+            q,
+            action,
             reason=f"EE inside keep-out sphere {violated_sphere} (no Jacobian); halting",
             metadata={"ee_pos": ee_pos.tolist()},
         )
 
-    from dam.runtime import qp_solver
-
-    cbf_A, cbf_b = qp_solver.sphere_keepout_constraints(
+    cbf_A, cbf_b = _get_qp_solver().sphere_keepout_constraints(
         q=q,
         ee_pos=ee_pos,
         J_linear=J_linear,
@@ -524,10 +571,7 @@ def keep_out_zone(
         cbf_alpha=cbf_alpha,
         dt=dt,
     )
-
-    n = J_linear.shape[1]
-    margin = cbf_b - cbf_A @ target[:n]
-    satisfied = bool(np.all(margin >= -1e-8))
+    margin, satisfied = _cbf_margin(cbf_A, cbf_b, target, J_linear.shape[1])
 
     if violated_sphere is None and satisfied:
         return CallbackResult.ok(
@@ -539,24 +583,19 @@ def keep_out_zone(
             },
         )
 
-    qp_meta = QPTerm(A=cbf_A, b=cbf_b, slack_weight=float(slack_weight))
-    clamped = ValidatedAction(
-        target_joint_positions=target.copy(),
-        target_joint_velocities=action.target_joint_velocities,
-        was_clamped=True,
-        original_proposal=action,
-        timestamp=action.timestamp,
-    )
     if violated_sphere is not None:
         reason = f"EE inside keep-out sphere {violated_sphere}; CBF pushing out"
     else:
         reason = f"EE action would enter keep-out zone; CBF active (margin_min={float(np.min(margin)):.4f})"
-    return CallbackResult.clamp(
+    return _cbf_clamp(
         bname,
-        clamped,
-        reason=reason,
-        metadata={
-            "motion_qp": qp_meta,
+        action,
+        target,
+        cbf_A,
+        cbf_b,
+        slack_weight,
+        reason,
+        extra_metadata={
             "ee_pos": ee_pos.tolist(),
             "n_spheres": len(spheres),
             "cbf_margin_min": float(np.min(margin)),
@@ -639,23 +678,15 @@ def orientation_limit(
                 bname,
                 metadata={"tilt_deg": tilt_deg, "max_tilt_deg": max_tilt_deg},
             )
-        halt = ValidatedAction(
-            target_joint_positions=q.copy(),
-            target_joint_velocities=None,
-            was_clamped=True,
-            original_proposal=action,
-            timestamp=action.timestamp,
-        )
-        return CallbackResult.clamp(
+        return _halt_clamp(
             bname,
-            halt,
+            q,
+            action,
             reason=f"EE tilt {tilt_deg:.1f}° > {max_tilt_deg}° (no angular Jacobian); halting",
             metadata={"tilt_deg": tilt_deg, "max_tilt_deg": max_tilt_deg},
         )
 
-    from dam.runtime import qp_solver
-
-    cbf_A, cbf_b = qp_solver.orientation_tilt_constraint(
+    cbf_A, cbf_b = _get_qp_solver().orientation_tilt_constraint(
         q=q,
         ee_rot=R,
         J_angular=J_angular,
@@ -665,10 +696,7 @@ def orientation_limit(
         cbf_alpha=cbf_alpha,
         dt=dt,
     )
-
-    n = J_angular.shape[1]
-    margin = cbf_b - cbf_A @ target[:n]
-    satisfied = bool(np.all(margin >= -1e-8))
+    margin, satisfied = _cbf_margin(cbf_A, cbf_b, target, J_angular.shape[1])
 
     if not violated and satisfied:
         return CallbackResult.ok(
@@ -680,24 +708,19 @@ def orientation_limit(
             },
         )
 
-    qp_meta = QPTerm(A=cbf_A, b=cbf_b, slack_weight=float(slack_weight))
-    clamped = ValidatedAction(
-        target_joint_positions=target.copy(),
-        target_joint_velocities=action.target_joint_velocities,
-        was_clamped=True,
-        original_proposal=action,
-        timestamp=action.timestamp,
-    )
     if violated:
         reason = f"EE tilt {tilt_deg:.1f}° > {max_tilt_deg}°; CBF correcting"
     else:
         reason = f"EE action would exceed tilt limit; CBF active (margin_min={float(np.min(margin)):.4f})"
-    return CallbackResult.clamp(
+    return _cbf_clamp(
         bname,
-        clamped,
-        reason=reason,
-        metadata={
-            "motion_qp": qp_meta,
+        action,
+        target,
+        cbf_A,
+        cbf_b,
+        slack_weight,
+        reason,
+        extra_metadata={
             "tilt_deg": tilt_deg,
             "max_tilt_deg": max_tilt_deg,
             "cbf_margin_min": float(np.min(margin)),
