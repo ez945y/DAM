@@ -256,22 +256,6 @@ def main() -> None:
         for arg in lerobot_argv:
             print(f"       {arg}")
 
-    # Monkey-patch make_default_processors to inject safety step.
-    from dam.processor import SafetyProcessorStep
-
-    _original = None
-
-    def _patched_make_default_processors():  # type: ignore[no-untyped-def]
-        teleop, robot_action, obs_proc = _original()
-        step = SafetyProcessorStep(our_args.stackfile, task=our_args.task)
-        robot_action.steps.insert(0, step)
-        print("[DAM] SafetyProcessorStep injected into robot_action_processor ✓")
-        return teleop, robot_action, obs_proc
-
-    import lerobot.processor.factory as factory_mod
-
-    _original = factory_mod.make_default_processors
-
     # Ensure .venv/bin is on PATH so rerun viewer binary can be found
     venv_bin = str(Path(sys.executable).parent)
     if venv_bin not in os.environ.get("PATH", ""):
@@ -282,14 +266,12 @@ def main() -> None:
 
     if not our_args.verbose:
         logging.getLogger("lerobot").setLevel(logging.WARNING)
-        # lerobot's record() also logs via the root logger
         logging.getLogger().setLevel(logging.WARNING)
 
     # Fix VideoToolbox bitrate error: pyav calculates a default bit_rate that
     # VideoToolbox rejects with "Error setting bitrate property: -12900".
     # Workaround: patch _get_codec_options to skip quality params for VT codecs
-    # and add allow_sw=1 as a fallback. Also patch _CameraEncoderThread to set
-    # bit_rate=0 on the stream after creation (before first encode).
+    # and add allow_sw=1 as a fallback.
     import lerobot.datasets.video_utils as _vutils
 
     _VT_CODECS = {"h264_videotoolbox", "hevc_videotoolbox"}
@@ -298,8 +280,6 @@ def main() -> None:
     def _patched_get_codec_options(*args, **kwargs):  # type: ignore[no-untyped-def]
         vcodec = args[0] if args else kwargs.get("vcodec", "")
         if vcodec in _VT_CODECS:
-            # Skip lerobot's quality options — they cause the bitrate error.
-            # Let VideoToolbox use its own defaults + allow software fallback.
             opts = {}
             g = args[2] if len(args) > 2 else kwargs.get("g", 2)
             if g is not None:
@@ -311,13 +291,26 @@ def main() -> None:
 
     _vutils._get_codec_options = _patched_get_codec_options  # type: ignore[assignment]
 
+    # Monkey-patch make_default_processors to inject safety step.
+    # lerobot_record.py uses `from ... import make_default_processors`
+    # so we must patch on the *consumer* module, not the source.
+    import lerobot.scripts.lerobot_record as _record_mod
+    from lerobot.processor.factory import make_default_processors as _original
+
+    from dam.processor import SafetyProcessorStep
+
+    def _patched_make_default_processors():  # type: ignore[no-untyped-def]
+        teleop, robot_action, obs_proc = _original()
+        step = SafetyProcessorStep(our_args.stackfile, task=our_args.task)
+        robot_action.steps.insert(0, step)
+        print("[DAM] SafetyProcessorStep injected ✓", file=sys.stderr)
+        return teleop, robot_action, obs_proc
+
     with unittest.mock.patch.object(
-        factory_mod, "make_default_processors", _patched_make_default_processors
+        _record_mod, "make_default_processors", _patched_make_default_processors
     ):
         sys.argv = ["lerobot-record"] + lerobot_argv
-        from lerobot.scripts.lerobot_record import record
-
-        record()
+        _record_mod.record()
 
 
 if __name__ == "__main__":
