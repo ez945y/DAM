@@ -473,7 +473,12 @@ class GuardRuntime:
         action means the chassis rejected; the Runtime Context state machine
         in ``step()`` picks a fallback via the rejecting boundary's
         ``node.fallback``.
+
+        If loopback recording is active, the cycle is also submitted to
+        the MCAP writer — so ``validate()``-only callers (e.g.
+        ``SafetyGuard``) get guard event logging for free.
         """
+        self._cycle_id += 1
         ctx = ValidationContext(
             cycle_id=self._cycle_id,
             guards=self._guards,
@@ -491,7 +496,24 @@ class GuardRuntime:
             dynamics=self._select_dynamics(),
             config_pool=self._hot_reload.config_pool,
         )
-        return self._engine.validate(obs, action, trace_id, ctx, now=now)
+        validated, results = self._engine.validate(obs, action, trace_id, ctx, now=now)
+
+        if self._telemetry.loopback is not None:
+            self._telemetry.submit_loopback(
+                obs=obs,
+                action=action,
+                validated=validated,
+                guard_results=results,
+                fallback_triggered=None,
+                trace_id=trace_id,
+                latency_stages={},
+                cycle_id=self._cycle_id,
+                active_task=self._active_task,
+                active_container_names=self._active_container_names,
+                config_version=self._hot_reload.config_version,
+            )
+
+        return validated, results
 
     def _run_context_hardware_monitors(
         self,

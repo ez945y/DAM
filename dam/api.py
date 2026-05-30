@@ -187,6 +187,9 @@ class SafetyGuard:
             task = next(iter(config.tasks))
         self._runtime.start_task(task)
 
+        # If stackfile has loopback:, start MCAP recording.
+        self._runtime.start_recording()
+
         # State for velocity estimation between calls.
         self._prev_positions: np.ndarray | None = None
         self._prev_time: float | None = None
@@ -234,6 +237,13 @@ class SafetyGuard:
     def runtime(self) -> Any:
         """The underlying :class:`GuardRuntime` (advanced use)."""
         return self._runtime
+
+    def close(self) -> None:
+        """Stop MCAP recording if active."""
+        self._runtime.stop_recording()
+
+    def __del__(self) -> None:
+        self._runtime.stop_recording()
 
     # -- conversion helpers -------------------------------------------------
 
