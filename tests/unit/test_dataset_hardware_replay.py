@@ -105,6 +105,7 @@ def test_factory_routes_dataset_plus_motor_to_hardware_sink(monkeypatch):
         return source
 
     monkeypatch.setattr(RuntimeFactory, "_build_sim_source", staticmethod(build_source))
+    monkeypatch.setattr("dam.camera.frame_hub.CameraFrameHub", lambda **_kwargs: SimpleNamespace())
     monkeypatch.setattr(LeRobotBuilder, "build_robot", lambda _self: fake_robot)
     monkeypatch.setattr(LeRobotBuilder, "joint_names", ["a", "b"], raising=False)
     monkeypatch.setattr(LeRobotBuilder, "preset", fake_preset, raising=False)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from dam.types.enforcement import EnforcementMode
 
@@ -158,18 +158,36 @@ class HardwareSinkConfig(BaseModel):
 class HardwareConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
     preset: str | None = None
+    input_space: str = "joint"
     urdf_path: str | None = None
     joints: dict[str, HardwareJointConfig] | None = None
     sources: dict[str, HardwareSourceConfig] | None = None
     sinks: dict[str, HardwareSinkConfig] | None = None
 
+    @field_validator("input_space")
+    @classmethod
+    def validate_input_space(cls, v: str) -> str:
+        value = str(v).lower()
+        if value not in {"joint", "ee"}:
+            raise ValueError("input_space must be 'joint' or 'ee'")
+        return value
+
 
 class PolicyConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
     type: str
+    input_space: str = "joint"
     pretrained_path: str | None = None
     dataset_repo_id: str | None = None
     device: str = "cpu"
+
+    @field_validator("input_space")
+    @classmethod
+    def validate_input_space(cls, v: str) -> str:
+        value = str(v).lower()
+        if value not in {"joint", "ee"}:
+            raise ValueError("input_space must be 'joint' or 'ee'")
+        return value
 
 
 class SimulationConfig(BaseModel):
@@ -235,3 +253,15 @@ class StackfileConfig(BaseModel):
     runtime: RuntimeConfig | None = None
     loopback: LoopbackConfig | None = None
     risk_controller: RiskControllerConfig | None = None
+
+    @model_validator(mode="after")
+    def validate_input_space_alignment(self) -> StackfileConfig:
+        if self.hardware is not None and self.policy is not None:
+            hardware_space = self.hardware.input_space
+            policy_space = self.policy.input_space
+            if hardware_space != policy_space:
+                raise ValueError(
+                    "hardware.input_space and policy.input_space must match "
+                    f"(got hardware={hardware_space!r}, policy={policy_space!r})"
+                )
+        return self

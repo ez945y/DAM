@@ -299,6 +299,7 @@ The `hardware` section declares physical or virtual hardware interfaces.
 ```yaml
 hardware:
   preset: so101_follower    # auto-loads joint names and factory limits
+  input_space: joint         # joint (default) or ee; must match policy.input_space
 
   joints:                   # optional calibration overrides
     shoulder_pan:
@@ -329,6 +330,13 @@ OpenCV camera options are source-level fields. Put `index_or_path`, `width`, `he
 and `fps` directly under the camera source; `params:` is reserved for boundary and
 guard configuration.
 
+`hardware.input_space` declares the action space expected by the hardware or
+adapter layer. Valid values are `joint` and `ee`; the default is `joint`. When a
+Stackfile also declares `policy.input_space`, both values must match or
+validation fails. Current runners and sinks still dispatch validated joint
+targets; EE-space actions require an IK/FK resolver at the API or adapter
+boundary before they can be enforced.
+
 For a LeRobot motor source, `robot_type` selects the concrete LeRobot robot
 configuration and its default calibration namespace. For `so101_follower`,
 the default calibration directory is
@@ -355,6 +363,25 @@ hardware:
       topic: /joint_trajectory_controller/joint_trajectory
       msg_type: trajectory_msgs/JointTrajectory
 ```
+
+---
+
+## Policy Section
+
+The `policy` section declares the action producer used by managed runners.
+
+```yaml
+policy:
+  type: act
+  pretrained_path: MikeChenYZ/act-soarm-fmb-v2
+  device: cpu
+  input_space: joint         # joint (default) or ee; must match hardware.input_space
+```
+
+Use `input_space: joint` for policies that emit joint targets. `input_space: ee`
+is reserved for policies that emit end-effector poses
+`[x, y, z, qx, qy, qz, qw]`; DAM validates the declaration today, but EE action
+conversion must be provided by an IK/FK-capable integration before execution.
 
 ---
 

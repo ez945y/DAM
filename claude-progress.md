@@ -6,20 +6,58 @@
 - **倉庫根目錄**: `/Users/chenyizhong/Documents/Claude/Projects/Security Guard.nosync`
 - **標準啟動路徑**: `make dev`
 - **標準驗證路徑**: `make test`
-- **基線狀態**: `python -m pytest tests/unit/ -x -q` — 668 passed, 31 skipped（截至 2026-05-30）
+- **基線狀態**: `make test` — all checks passed（截至 2026-06-08）
 
 ## 當前最高優先級未完成功能
 
-1. **Vision OOD 閾值校準**：✅ **已實作 percentile-based threshold**（`threshold_percentile` param）。需在實際 dataset 上重新 calibrate 以驗證 FPR 改善。
-2. **機器人爆衝防護**：✅ **已拆分為獨立 boundary**。`joint_velocity_limit`（馬達安全）+ `joint_acceleration_limit`（smoothing）+ `ee_velocity_limit`（環境安全）。
-3. **MCAP 回讀 Risk Log**：✅ **已實現**。Backend: `/api/risk-log/mcap/{filename}`，Frontend: MCAP viewer page with cycle detail expand。
-4. **`make record` 端到端硬體驗證**：需要實機環境。
+1. **Guard input_space 雙空間支援**：🟡 **schema + SafetyGuard contract 已完成；EE resolver path 待實作**。見 session-handoff.md。
+2. **robot-dam pip 打包 + Isaac Sim 整合**：🟡 **Isaac joint-target demo 已收斂；EE snippet 等 resolver 完成後再補**。
+3. **Vision OOD 閾值校準**：✅ **已實作 percentile-based threshold**（`threshold_percentile` param）。需在實際 dataset 上重新 calibrate 以驗證 FPR 改善。
+4. **機器人爆衝防護**：✅ **已拆分為獨立 boundary**。`joint_velocity_limit`（馬達安全）+ `joint_acceleration_limit`（smoothing）+ `ee_velocity_limit`（環境安全）。
+5. **MCAP 回讀 Risk Log**：✅ **已實現**。Backend: `/api/risk-log/mcap/{filename}`，Frontend: MCAP viewer page with cycle detail expand。
+6. **`make record` 端到端硬體驗證**：需要實機環境。
 
 ## 當前 blocker
 
 無
 
 ## 會話記錄
+
+### Session 2026-06-08 #2 (input_space contract + Isaac joint cleanup)
+
+- **本輪目標**: 以最高標準收斂 input_space 第一交付單元，避免過度設計與設計轉移
+- **已完成**:
+  - `HardwareConfig.input_space` / `PolicyConfig.input_space` schema 欄位與 validation（`joint` / `ee`）
+  - `StackfileConfig` validation：有 `hardware` + `policy` 時兩邊 `input_space` 必須一致
+  - `SafetyGuard(..., input_space=...)` 讀 stackfile 預設並允許 override
+  - `SafetyGuard` joint path 保持既有行為；`ee` path 在缺 IK/FK resolver 時明確報錯，避免把 EE pose 靜默當 joint action
+  - `SafetyGuard.set_ee_pose()` 保留為 current EE observation injection，不作為 target EE action
+  - 修復 `make test` 基線問題：dataset hardware replay unit test mock Rust frame hub；vision model tests gated on optional torch/torchvision；`SafetyGuard.__del__` 初始化失敗不再噴 warning
+  - 更新 `docs/quick-stack.md`
+  - `/tmp/isaac_lab_study` demo 收斂為已落地的 joint-target DAM filter，移除 EE demo / `input_space` future key / OSC 假入口
+- **/review 結論**:
+  - 不新增 `EEActionProposal` / `ValidatedEEAction`；使用現有 `ActionProposal.target_ee_pose`
+  - 不在 runtime/callbacks 分散 FK/IK；下一步先做 API-level resolver protocol
+  - 不在 Isaac sidecar 提前寫未落地 EE snippet
+- **執行過的驗證**:
+  - `python -m pytest tests/unit/ -x -q` — 689 passed, 40 skipped（system Python）
+  - `make lint` — passed
+  - `make docs-check` — passed
+  - `make test` — all checks passed（unit 729, integration 28, safety 35, property 2, Rust, Jest 109）
+  - `/tmp/isaac_lab_study`: `python -m py_compile scripts/dam_safety_demo.py scripts/dam_teleoperate_demo.py tools/controll_scripts/safety/dam_wrapper.py tools/controll_scripts/safety/__init__.py` — passed
+- **下一步**:
+  - Commit this delivery unit
+  - 下一交付單元：resolver-backed SafetyGuard EE path（只做 API-level resolver，不碰 runtime/sinks）
+
+### Session 2026-06-08 #1 (input_space 設計 + pip 打包回顧)
+
+- **本輪目標**: 接手交接，設計 guard dual input space (joint/ee)，pip 打包 + Isaac Sim 整合收尾
+- **已完成（設計定案，未實作）**:
+  - `input_space` 欄位位置初步定案
+  - 行為規則初稿
+  - pip 打包與 Isaac 整合未記錄工作回顧
+- **後續修正**:
+  - 2026-06-08 #2 已將此設計收斂：第一步只交付 schema + SafetyGuard contract，不提前承諾完整 EE runtime 轉換或 Isaac EE snippet
 
 ### Session 2026-05-30 #2 (Boundary 拆分 + 語意修正 + Preset 解耦)
 

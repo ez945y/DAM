@@ -143,6 +143,72 @@ class TestSafetyGuard:
         # After second call, prev_positions should be obs2's converted positions
         assert guard._prev_positions is not None
 
+    def test_input_space_defaults_to_joint(self, stackfile: str) -> None:
+        guard = SafetyGuard(stackfile, joint_names=_JOINT_NAMES, degrees_mode=False)
+        assert guard.input_space == "joint"
+
+    def test_input_space_reads_hardware_config(self, tmp_path: Path) -> None:
+        path = tmp_path / "ee_safety.yaml"
+        path.write_text(
+            textwrap.dedent("""\
+            version: "1"
+            hardware:
+              preset: so101_follower
+              input_space: ee
+            guards:
+              - L1: motion
+            boundaries: {}
+            tasks:
+              default:
+                boundaries: []
+            """)
+        )
+        guard = SafetyGuard(str(path), joint_names=_JOINT_NAMES, degrees_mode=False)
+        assert guard.input_space == "ee"
+
+    def test_input_space_override_wins(self, tmp_path: Path) -> None:
+        path = tmp_path / "ee_safety.yaml"
+        path.write_text(
+            textwrap.dedent("""\
+            version: "1"
+            hardware:
+              preset: so101_follower
+              input_space: ee
+            guards:
+              - L1: motion
+            boundaries: {}
+            tasks:
+              default:
+                boundaries: []
+            """)
+        )
+        guard = SafetyGuard(
+            str(path),
+            joint_names=_JOINT_NAMES,
+            degrees_mode=False,
+            input_space="joint",
+        )
+        assert guard.input_space == "joint"
+
+    def test_invalid_input_space_override_raises(self, stackfile: str) -> None:
+        with pytest.raises(ValueError, match="input_space"):
+            SafetyGuard(
+                stackfile,
+                joint_names=_JOINT_NAMES,
+                degrees_mode=False,
+                input_space="task",
+            )
+
+    def test_ee_input_space_rejects_until_resolver_is_configured(self, stackfile: str) -> None:
+        guard = SafetyGuard(
+            stackfile,
+            joint_names=_JOINT_NAMES,
+            degrees_mode=False,
+            input_space="ee",
+        )
+        with pytest.raises(ValueError, match="requires a configured IK/FK resolver"):
+            guard(np.zeros(7), np.zeros(6))
+
 
 # ---------------------------------------------------------------------------
 # TestSafeFunction — Level 1 API

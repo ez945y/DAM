@@ -1,63 +1,125 @@
 # session-handoff.md — 會話交接摘要
 
-> 最後更新: 2026-05-30 (boundary 拆分 + 語意修正 + preset 解耦)
+> 最後更新: 2026-06-08 (input_space contract + Isaac joint integration cleanup)
 
-## 本輪工作
+## 本輪完成
 
-### 1. Velocity / Acceleration 拆成獨立 boundary
+### 1. `input_space` schema contract
 
-**動機**：`joint_velocity_limit` 同時做 velocity cap 和 acceleration smoothing，調一個影響另一個，acceleration 的 binding effect 被 velocity clamp 遮蓋。
+`hardware.input_space` 與 `policy.input_space` 已正式納入 Stackfile schema。
 
-**改動**：
-- `joint_velocity_limit` — 只做 per-joint velocity cap（馬達安全上界），移除 `max_acceleration` 參數
-- `joint_acceleration_limit` — 新獨立 callback，用自己的 `_prev_vel` key 追蹤，首 cycle 永遠 PASS
-- stackfile 拆成兩條獨立 boundary（safety.yaml + so101.yaml）
+```yaml
+hardware:
+  preset: so101_follower
+  input_space: joint          # "joint" | "ee"; default "joint"
 
-### 2. BoundaryNode.fallback 語意修正
+policy:
+  type: act
+  input_space: joint          # must match hardware.input_space when policy exists
+```
 
-**動機**：`BoundaryNode.fallback` 預設 `"emergency_stop"`，但 clamp-only 的 L1 boundary 不會 REJECT，帶這個屬性語意混淆。
+已落地行為：
+- `HardwareConfig.input_space` default = `"joint"`
+- `PolicyConfig.input_space` default = `"joint"`
+- 只允許 `"joint"` / `"ee"`，大小寫會 normalize
+- `hardware.input_space != policy.input_space` 時 schema validation 直接 fail
+- 沒有 `policy:` 的 SafetyGuard-only stackfile 不做一致性檢查
 
-**改動**：`BoundaryNode.fallback` 預設改為 `None`。只有能 REJECT 的 boundary（L2/L3）在 stackfile 裡顯式設 fallback。`pick_context_for` 在 `fallback is None` 時走 `_default_fallback`（原本就是這樣）。
+### 2. SafetyGuard input-space guardrail
 
-### 3. 前端 preset / boundary 解耦
+`dam.SafetyGuard(..., input_space=...)` 已支援讀取 / override action-space declaration。
 
-**動機**：`JointDef` 帶 `lower_rad`/`upper_rad`，混合了 robot identity（preset）和 safety limits（boundary）。
+已落地行為：
+- 預設讀 `hardware.input_space`
+- API override 會覆蓋 stackfile 設定
+- `"joint"` path 維持既有行為
+- `"ee"` path 目前明確 `ValueError`，要求 configured IK/FK resolver
 
-**改動**：
-- `JointDef` 只保留 `name`
-- `SO101_JOINTS` 只帶名字
-- `SO101_UPPER`/`SO101_LOWER` 直接定義在 boundary config（hardcoded 度數陣列）
-- `JointLimitsTable` UI 只編輯 joint names，limits 在 boundary params editor 編輯
+這是刻意設計，不是功能缺口偽裝：目前 DAM 的 validated output / sinks 仍是 joint target contract。沒有 resolver 時不能把 EE pose 靜默當 joint array，也不能假裝能回傳 safe EE pose。
 
-### 4. 新增 EE velocity limit boundary
+### 3. EE pose observation injection retained, but not action conversion
 
-**改動**：
-- `ee_velocity_limit` — 用 linear Jacobian 映射 joint velocity → EE velocity，magnitude check，uniform scaling
-- 無 Jacobian 時 PASS（graceful degradation，不要求 URDF）
-- Uniform scaling 保持 EE 方向
-- 加入前端 template `BASE_BOUNDARIES`（default 0.5 m/s）
-- 5 個測試全過
+`SafetyGuard.set_ee_pose()` 保留，作用是把目前 EE pose 放進 `Observation.end_effector_pose`，供 workspace / EE guard 使用。
 
-### 5. `max_velocities < 2.0` 卡住調查（未解）
+注意：`Observation.end_effector_pose` 是 current observation，不是 target EE action。下一步若做真正 EE policy，目標應走 `ActionProposal.target_ee_pose`，不要混用 observation 欄位。
 
-**結論**：純代碼分析無法確定根因。數學上 max_v=1.5 at 30Hz = 85°/s，不應卡住。
-最可能候選：舊 combined callback 的 accel+vel 交互（已被本輪拆分修復）。
-**建議**：拆分後用 max_velocities=1.5 跑 make record 實測，如果還在就啟用 MCAP trace。
+### 4. Baseline test fixes
 
-## 當前已驗證
+修了兩個 `make test` 會踩到的測試環境問題：
+- `tests/unit/test_dataset_hardware_replay.py`：unit test mock `CameraFrameHub`，避免 routing test 依賴本機 Rust `dam_rs.ImageHub`
+- `tests/unit/test_vision_feature_extractor.py`：真模型測試 gated on torch/torchvision；在 repo `.venv` 有 torch 時實際跑過，在缺 optional deps 的系統 Python 不會假失敗
+- `SafetyGuard.__del__`：初始化早期失敗時不再丟 unraisable warning
 
-- `python -m pytest tests/unit/ -x -q`（排除已知失敗）— **668 passed**, 31 skipped
-- `cd dam-console && npx jest --ci` — **109 passed**
-- `make lint` — **all passed**
-- `make docs-check` — **passed**
+### 5. Docs updated
 
-## 未提交的改動（16 files）
+`docs/quick-stack.md` 已更新 `hardware.input_space` / `policy.input_space` 欄位與目前 EE 限制。
 
-全部驗證通過，可以提交。
+### 6. Isaac Lab sidecar cleanup (`/tmp/isaac_lab_study`)
+
+已把 Isaac demo 收斂成真實可交付的 joint target filter：
+- `scripts/dam_safety_demo.py`
+- `scripts/dam_teleoperate_demo.py`
+- `tools/controll_scripts/safety/dam_wrapper.py`
+- `tools/controll_scripts/safety/__init__.py`
+- `tools/controll_scripts/safety/soarm_isaac_safety.yaml`
+
+設計取捨：
+- 不新增 EE-policy demo
+- 不加 `input_space` future key
+- 不在 Isaac wrapper 裡調 `set_ee_pose()`
+- 不保留 `--controller osc` 假支援
+- wrapper 會檢查匯入的 `dam` 是否真的提供 `SafetyGuard`
+
+## 驗證證據
+
+主 DAM repo：
+- `python -m pytest tests/unit/ -x -q` — 689 passed, 40 skipped（system Python）
+- `make lint` — passed
+- `make docs-check` — passed
+- `make test` — passed
+  - pre-commit passed
+  - unit: 729 passed
+  - integration: 28 passed
+  - safety: 35 passed
+  - property: 2 passed
+  - Rust: passed
+  - Jest: 109 passed
+
+Isaac sidecar:
+- `python -m py_compile scripts/dam_safety_demo.py scripts/dam_teleoperate_demo.py tools/controll_scripts/safety/dam_wrapper.py tools/controll_scripts/safety/__init__.py` — passed
+- Full Isaac launch not run; shell environment lacks `isaaclab`
+
+## `/review` 結論
+
+### Review 1 — avoid overdesign
+
+不要新增 `EEActionProposal` / `ValidatedEEAction` / 第二套 pipeline。既有合約已經有：
+- `ActionProposal.target_ee_pose`
+- `Observation.end_effector_pose`
+- runtime pool `ee_pos`, `ee_rot`, `J_linear`, `J_angular`
+
+真正 EE support 應薄薄落在 API / policy adapter / resolver boundary，safety chassis 仍維持 joint output 主線。
+
+### Review 2 — avoid design transfer
+
+不要在 Isaac repo 先寫未落地的 EE demo。這會把 DAM 主 repo 還沒完成的 API 偽裝成 integration example。
+
+### Review 3 — next implementation shape
+
+真正下一步不是「讓 SafetyGuard 收 7 維 array 然後猜 IK」。應先定義 resolver protocol：
+- FK: joint positions → EE pose / Jacobian
+- IK: current joints + target EE pose → joint proposal
+- configured resolver missing 時保持明確 error
+
+然後 EE path 才能做：
+1. parse EE action into `ActionProposal.target_ee_pose`
+2. resolver IK produces `target_joint_positions`
+3. existing guard pipeline validates joint action
+4. output policy depends on caller contract（目前 sinks 仍 joint；若 SafetyGuard API 要回 EE，需要 post-validation FK）
 
 ## 下一步建議
 
-1. **實測 velocity < 2.0 是否仍卡住** — 拆分後 acceleration 不再干擾 velocity
-2. **acceleration 參數調校** — 實機找 jitter vs responsiveness 平衡
-3. **ee_velocity_limit 實機驗證** — 確認 Jacobian 路徑掛好
-4. **commit 這 16 個檔案**
+1. Commit this delivery unit.
+2. 下一個交付單元：resolver-backed SafetyGuard EE path（只做 API-level resolver，不碰 runtime/sinks）。
+3. 再下一個交付單元：policy adapter / Isaac integration 使用 resolver path，補一個極小 EE snippet。
+4. 最後再考慮 runtime pool 是否需要 `target_ee_pos`，不要提前加。

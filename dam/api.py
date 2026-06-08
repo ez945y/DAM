@@ -143,6 +143,7 @@ class SafetyGuard:
         task: str | None = None,
         joint_names: list[str] | None = None,
         degrees_mode: bool | None = None,
+        input_space: str | None = None,
     ) -> None:
         _register_builtins()
 
@@ -168,9 +169,18 @@ class SafetyGuard:
             )
         if degrees_mode is None:
             degrees_mode = True
+        resolved_input_space = (
+            input_space
+            if input_space is not None
+            else (config.hardware.input_space if config.hardware else "joint")
+        )
+        resolved_input_space = str(resolved_input_space).lower()
+        if resolved_input_space not in {"joint", "ee"}:
+            raise ValueError("input_space must be 'joint' or 'ee'")
 
         self._joint_names: list[str] = joint_names
         self._degrees_mode: bool = degrees_mode
+        self._input_space: str = resolved_input_space
         self._n_joints: int = len(joint_names)
 
         # Conversion scales (vectorised, bound once).
@@ -194,6 +204,7 @@ class SafetyGuard:
         self._prev_positions: np.ndarray | None = None
         self._prev_time: float | None = None
         self._last_results: list[GuardResult] = []
+        self._last_ee_pose: np.ndarray | None = None
 
     # -- public interface ---------------------------------------------------
 
@@ -219,6 +230,13 @@ class SafetyGuard:
             action = action.detach().cpu().numpy()
         if not isinstance(obs, dict) and hasattr(obs, "detach"):
             obs = obs.detach().cpu().numpy()
+
+        if self._input_space == "ee":
+            raise ValueError(
+                "SafetyGuard input_space='ee' requires a configured IK/FK resolver. "
+                "Use input_space='joint' for joint targets, or provide a resolver once "
+                "EE-space conversion support is enabled."
+            )
 
         now = time.monotonic()
 
@@ -250,10 +268,34 @@ class SafetyGuard:
             return _torch.as_tensor(out, dtype=_tensor_dtype, device=_tensor_device)
         return out
 
+    def set_ee_pose(self, ee_pose: Any) -> None:
+        """Set end-effector pose for the next guard cycle.
+
+        Call this before ``__call__`` when EE pose is available (e.g. from
+        Isaac Sim, FK, or a motion capture system). The pose is included in
+        the Observation so EE-space guards (workspace_bounds, keep_out_zone,
+        ee_velocity_limit) can function.
+
+        Args:
+            ee_pose: [x, y, z, qx, qy, qz, qw] as ndarray, list, or torch.Tensor.
+                     Pass None to clear.
+        """
+        if ee_pose is None:
+            self._last_ee_pose = None
+        elif hasattr(ee_pose, "detach"):
+            self._last_ee_pose = ee_pose.detach().cpu().numpy().flatten()[:7]
+        else:
+            self._last_ee_pose = np.asarray(ee_pose, dtype=np.float64).flatten()[:7]
+
     @property
     def last_results(self) -> list[GuardResult]:
         """Guard results from the most recent :meth:`__call__`."""
         return self._last_results
+
+    @property
+    def input_space(self) -> str:
+        """Action space accepted by this guard: ``joint`` or ``ee``."""
+        return self._input_space
 
     @property
     def runtime(self) -> Any:
@@ -265,7 +307,9 @@ class SafetyGuard:
         self._runtime.stop_recording()
 
     def __del__(self) -> None:
-        self._runtime.stop_recording()
+        runtime = getattr(self, "_runtime", None)
+        if runtime is not None:
+            runtime.stop_recording()
 
     # -- conversion helpers -------------------------------------------------
 
@@ -291,6 +335,7 @@ class SafetyGuard:
             timestamp=now,
             joint_positions=positions,
             joint_velocities=velocities,
+            end_effector_pose=self._last_ee_pose,
         )
 
     def _to_action_proposal(self, raw: np.ndarray | dict[str, Any]) -> Any:
@@ -330,6 +375,7 @@ def safe(
     task: str | None = None,
     joint_names: list[str] | None = None,
     degrees_mode: bool | None = None,
+    input_space: str | None = None,
 ) -> Any:
     """Validate a single action against a safety stackfile.
 
@@ -342,5 +388,6 @@ def safe(
         task=task,
         joint_names=joint_names,
         degrees_mode=degrees_mode,
+        input_space=input_space,
     )
     return guard(action, obs)

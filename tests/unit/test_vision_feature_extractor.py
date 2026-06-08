@@ -11,6 +11,11 @@ from dam.guard.vision_feature_extractor import (
 from dam.types.observation import Observation
 
 
+def require_torch_vision():
+    pytest.importorskip("torch")
+    pytest.importorskip("torchvision")
+
+
 @pytest.fixture
 def dummy_obs_with_image():
     img = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
@@ -31,6 +36,7 @@ def dummy_obs_no_image():
 
 class TestVisionFeatureExtractor:
     def test_mobilenet_v3_large_output_shape(self):
+        require_torch_vision()
         cfg = VisionFeatureExtractorConfig(model_name="mobilenet_v3_large", device="cpu")
         ext = VisionFeatureExtractor(cfg)
         img = np.random.randint(0, 255, (2, 224, 224, 3), dtype=np.uint8)
@@ -39,6 +45,7 @@ class TestVisionFeatureExtractor:
         assert features.dtype == np.float32
 
     def test_mobilenet_v3_small_output_shape(self):
+        require_torch_vision()
         cfg = VisionFeatureExtractorConfig(model_name="mobilenet_v3_small", device="cpu")
         ext = VisionFeatureExtractor(cfg)
         img = np.random.randint(0, 255, (1, 320, 320, 3), dtype=np.uint8)
@@ -46,6 +53,7 @@ class TestVisionFeatureExtractor:
         assert features.shape == (1, 576)
 
     def test_extract_single(self):
+        require_torch_vision()
         cfg = VisionFeatureExtractorConfig(model_name="mobilenet_v3_small", device="cpu")
         ext = VisionFeatureExtractor(cfg)
         img = np.random.randint(0, 255, (240, 320, 3), dtype=np.uint8)
@@ -53,11 +61,13 @@ class TestVisionFeatureExtractor:
         assert features.shape == (576,)
 
     def test_embedding_dim_property(self):
+        require_torch_vision()
         cfg = VisionFeatureExtractorConfig(model_name="mobilenet_v3_large", device="cpu")
         ext = VisionFeatureExtractor(cfg)
         assert ext.embedding_dim == 960
 
     def test_different_images_different_features(self):
+        require_torch_vision()
         cfg = VisionFeatureExtractorConfig(model_name="mobilenet_v3_small", device="cpu")
         ext = VisionFeatureExtractor(cfg)
         white = np.ones((1, 224, 224, 3), dtype=np.uint8) * 255
@@ -79,6 +89,7 @@ class TestOODContextVision:
         assert z.shape == (128,)
 
     def test_configure_vision_changes_output(self, dummy_obs_with_image):
+        require_torch_vision()
         ctx = OODContext()
         z_no_vision = ctx.features(dummy_obs_with_image)
         ctx.configure_vision("mobilenet_v3_small", vision_weight=0.5, device="cpu")
@@ -89,6 +100,7 @@ class TestOODContextVision:
         assert not np.array_equal(z_no_vision, z_with_vision[:128])
 
     def test_no_image_pads_vision_zeros(self, dummy_obs_no_image):
+        require_torch_vision()
         ctx = OODContext()
         ctx.configure_vision("mobilenet_v3_small", vision_weight=0.5, device="cpu")
         z = ctx.features(dummy_obs_no_image)
@@ -96,6 +108,7 @@ class TestOODContextVision:
         assert z.shape[0] == 256
 
     def test_vision_weight_zero_gives_joint_dominated(self, dummy_obs_with_image):
+        require_torch_vision()
         ctx = OODContext()
         ctx.configure_vision("mobilenet_v3_small", vision_weight=0.0, device="cpu")
         z = ctx.features(dummy_obs_with_image)
@@ -103,6 +116,7 @@ class TestOODContextVision:
         assert z.shape[0] == 256
 
     def test_set_vision_pca(self, dummy_obs_with_image):
+        require_torch_vision()
         ctx = OODContext()
         ctx.configure_vision("mobilenet_v3_small", vision_weight=0.5, device="cpu")
         # Simulate PCA: project 576-dim to 64-dim
