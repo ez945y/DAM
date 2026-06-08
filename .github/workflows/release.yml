@@ -96,11 +96,11 @@ jobs:
           path: dist/*
 
   # ─── Stage 3: Publish dam-rs to PyPI ───────────────────────────────────────
-  # No `environment:` — PyPI trusted publisher for dam-rs is set to (Any)
   publish-rust:
     name: Publish dam-rs to PyPI
     needs: [build-rust-wheels, build-rust-sdist]
     runs-on: ubuntu-latest
+    environment: pypi
 
     steps:
       - uses: actions/download-artifact@v4
@@ -115,11 +115,13 @@ jobs:
           packages-dir: dist/
 
   # ─── Stage 4: Publish robot-dam to PyPI ────────────────────────────────────
+  # No `environment:` — PyPI bug prevents two pending publishers with same env.
+  # robot-dam trusted publisher is set to Environment=(Any).
+  # Once both projects exist on PyPI, switch this to environment: pypi.
   publish-python:
     name: Publish robot-dam to PyPI
     needs: [build-python, publish-rust]
     runs-on: ubuntu-latest
-    environment: pypi
 
     steps:
       - uses: actions/download-artifact@v4
