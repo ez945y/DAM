@@ -198,10 +198,8 @@ def joint_velocity_limit(
         velocities = np.asarray(action.target_joint_velocities, dtype=np.float64)[:n]
         if not _all_finite(velocities):
             return CallbackResult.violate(bname, "non-finite joint velocity action")
-        derived = False
     else:
         velocities = (target_pos[:n] - cur_pos[:n]) / dt_safe
-        derived = True
 
     v_max_1d = np.atleast_1d(v_max)
     if v_max_1d.shape[0] == 1:
@@ -224,11 +222,8 @@ def joint_velocity_limit(
     velocities = np.clip(velocities, -v_max_1d, v_max_1d)
 
     # Rebuild positions from the limited velocities
-    if derived:
-        new_pos = target_pos.copy()
-        new_pos[:n] = cur_pos[:n] + velocities * dt_safe
-    else:
-        new_pos = target_pos.copy()
+    new_pos = target_pos.copy()
+    new_pos[:n] = cur_pos[:n] + velocities * dt_safe
 
     worst = int(np.argmax(ratio))
     reason = (
@@ -303,10 +298,8 @@ def joint_acceleration_limit(
         velocities = np.asarray(action.target_joint_velocities, dtype=np.float64)[:n]
         if not _all_finite(velocities):
             return CallbackResult.violate(bname, "non-finite joint velocity action")
-        derived = False
     else:
         velocities = (target_pos[:n] - cur_pos[:n]) / dt_safe
-        derived = True
 
     # ── Acceleration clamp ────────────────────────────────────────────────
     prev_v = _prev_vel.get(bname)
@@ -343,11 +336,8 @@ def joint_acceleration_limit(
     velocities = prev_v + clamped_accel * dt_safe
     _prev_vel[bname] = velocities.copy()
 
-    if derived:
-        new_pos = target_pos.copy()
-        new_pos[:n] = cur_pos[:n] + velocities * dt_safe
-    else:
-        new_pos = target_pos.copy()
+    new_pos = target_pos.copy()
+    new_pos[:n] = cur_pos[:n] + velocities * dt_safe
 
     worst = int(np.argmax(np.abs(accel) - a_max))
     reason = (
