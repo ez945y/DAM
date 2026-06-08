@@ -385,16 +385,31 @@ class SafetyGuard:
                 "SafetyGuard input_space='ee' requires a configured IK/FK resolver. "
                 "Use input_space='joint' for joint targets, or pass kinematics_resolver."
             )
-        target_ee_pose = np.asarray(raw, dtype=np.float64).flatten()[:7]
+        target_ee_pose = np.asarray(raw, dtype=np.float64).flatten()
         if target_ee_pose.shape[0] != 7:
-            raise ValueError("EE action must contain 7 values [x,y,z,qx,qy,qz,qw]")
-        target_joints = np.asarray(
-            self._kinematics_resolver.inverse_kinematics(target_ee_pose, current_joints),
-            dtype=np.float64,
-        ).flatten()[: self._n_joints]
+            raise ValueError(
+                f"EE action must contain exactly 7 values [x,y,z,qx,qy,qz,qw], got {target_ee_pose.shape[0]}"
+            )
+        try:
+            ik_result = self._kinematics_resolver.inverse_kinematics(target_ee_pose, current_joints)
+        except Exception:
+            logger.warning("IK resolver failed; holding current joint positions", exc_info=True)
+            return ActionProposal(
+                target_joint_positions=current_joints[: self._n_joints].copy(),
+                target_ee_pose=target_ee_pose,
+            )
+        target_joints = np.asarray(ik_result, dtype=np.float64).flatten()
         if target_joints.shape[0] != self._n_joints:
             raise ValueError(
                 f"IK resolver returned {target_joints.shape[0]} joints, expected {self._n_joints}"
+            )
+        if not np.all(np.isfinite(target_joints)):
+            logger.warning(
+                "IK resolver returned non-finite values; holding current joint positions"
+            )
+            return ActionProposal(
+                target_joint_positions=current_joints[: self._n_joints].copy(),
+                target_ee_pose=target_ee_pose,
             )
         return ActionProposal(
             target_joint_positions=target_joints,
@@ -414,12 +429,22 @@ class SafetyGuard:
             raise ValueError("SafetyGuard input_space='ee' does not support dict output")
         if self._kinematics_resolver is None:
             raise ValueError("SafetyGuard input_space='ee' requires a configured IK/FK resolver")
-        ee_pose = np.asarray(
-            self._kinematics_resolver.forward_kinematics(positions_rad[: self._n_joints]),
-            dtype=np.float64,
-        ).flatten()[:7]
+        try:
+            fk_result = self._kinematics_resolver.forward_kinematics(
+                positions_rad[: self._n_joints]
+            )
+        except Exception:
+            logger.warning("FK resolver failed; returning last known EE pose", exc_info=True)
+            return self._last_ee_pose.copy() if self._last_ee_pose is not None else np.zeros(7)
+        ee_pose = np.asarray(fk_result, dtype=np.float64).flatten()
         if ee_pose.shape[0] != 7:
-            raise ValueError("FK resolver must return 7 values [x,y,z,qx,qy,qz,qw]")
+            raise ValueError(
+                f"FK resolver must return exactly 7 values [x,y,z,qx,qy,qz,qw], got {ee_pose.shape[0]}"
+            )
+        if not np.all(np.isfinite(ee_pose)):
+            logger.warning("FK resolver returned non-finite values; returning last known EE pose")
+            return self._last_ee_pose.copy() if self._last_ee_pose is not None else np.zeros(7)
+        self._last_ee_pose = ee_pose.copy()
         return ee_pose
 
     def _estimate_velocity(self, positions: np.ndarray, now: float) -> np.ndarray:

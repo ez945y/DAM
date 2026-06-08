@@ -284,6 +284,102 @@ class TestSafetyGuard:
         with pytest.raises(ValueError, match="expects an EE pose array"):
             guard({"x": 0.1}, np.zeros(6))
 
+    def test_ee_ik_exception_falls_back_to_hold(self, stackfile: str) -> None:
+        class FailingIKResolver:
+            def inverse_kinematics(self, target_ee_pose, current_joints):
+                raise RuntimeError("IK singularity")
+
+            def forward_kinematics(self, joint_positions):
+                return np.array([joint_positions[0], 0, 0, 0, 0, 0, 1.0])
+
+        guard = SafetyGuard(
+            stackfile,
+            joint_names=_JOINT_NAMES,
+            degrees_mode=False,
+            input_space="ee",
+            kinematics_resolver=FailingIKResolver(),
+        )
+        obs = np.array([0.3, -0.2, 0.1, 0.0, 0.0, 0.0])
+        result = guard(np.array([1.0, 0, 0, 0, 0, 0, 1.0]), obs)
+        assert isinstance(result, np.ndarray)
+        assert result.shape == (7,)
+
+    def test_ee_ik_nan_falls_back_to_hold(self, stackfile: str) -> None:
+        class NaNIKResolver:
+            def inverse_kinematics(self, target_ee_pose, current_joints):
+                return np.full(len(_JOINT_NAMES), np.nan)
+
+            def forward_kinematics(self, joint_positions):
+                return np.array([joint_positions[0], 0, 0, 0, 0, 0, 1.0])
+
+        guard = SafetyGuard(
+            stackfile,
+            joint_names=_JOINT_NAMES,
+            degrees_mode=False,
+            input_space="ee",
+            kinematics_resolver=NaNIKResolver(),
+        )
+        obs = np.array([0.3, -0.2, 0.1, 0.0, 0.0, 0.0])
+        result = guard(np.array([1.0, 0, 0, 0, 0, 0, 1.0]), obs)
+        assert isinstance(result, np.ndarray)
+        assert result.shape == (7,)
+
+    def test_ee_fk_exception_returns_last_known_pose(self, stackfile: str) -> None:
+        call_count = 0
+
+        class FailAfterFirstFKResolver:
+            def inverse_kinematics(self, target_ee_pose, current_joints):
+                return np.zeros(len(_JOINT_NAMES))
+
+            def forward_kinematics(self, joint_positions):
+                nonlocal call_count
+                call_count += 1
+                if call_count > 1:
+                    raise RuntimeError("FK explosion")
+                return np.array([0.1, 0.2, 0.3, 0, 0, 0, 1.0])
+
+        guard = SafetyGuard(
+            stackfile,
+            joint_names=_JOINT_NAMES,
+            degrees_mode=False,
+            input_space="ee",
+            kinematics_resolver=FailAfterFirstFKResolver(),
+        )
+        obs = np.zeros(6)
+        first = guard(np.array([0.1, 0, 0, 0, 0, 0, 1.0]), obs)
+        np.testing.assert_allclose(first[:3], [0.1, 0.2, 0.3], atol=1e-6)
+        second = guard(np.array([0.1, 0, 0, 0, 0, 0, 1.0]), obs)
+        np.testing.assert_allclose(second[:3], [0.1, 0.2, 0.3], atol=1e-6)
+
+    def test_ee_ik_wrong_dimension_raises(self, stackfile: str) -> None:
+        class WrongDimResolver:
+            def inverse_kinematics(self, target_ee_pose, current_joints):
+                return np.zeros(3)
+
+            def forward_kinematics(self, joint_positions):
+                return np.array([0, 0, 0, 0, 0, 0, 1.0])
+
+        guard = SafetyGuard(
+            stackfile,
+            joint_names=_JOINT_NAMES,
+            degrees_mode=False,
+            input_space="ee",
+            kinematics_resolver=WrongDimResolver(),
+        )
+        with pytest.raises(ValueError, match="3 joints.*expected 6"):
+            guard(np.array([0.1, 0, 0, 0, 0, 0, 1.0]), np.zeros(6))
+
+    def test_ee_action_wrong_dimension_raises(self, stackfile: str) -> None:
+        guard = SafetyGuard(
+            stackfile,
+            joint_names=_JOINT_NAMES,
+            degrees_mode=False,
+            input_space="ee",
+            kinematics_resolver=FakeKinematicsResolver(),
+        )
+        with pytest.raises(ValueError, match="exactly 7"):
+            guard(np.array([0.1, 0.2, 0.3]), np.zeros(6))
+
 
 # ---------------------------------------------------------------------------
 # TestSafeFunction — Level 1 API
