@@ -1,6 +1,6 @@
 # session-handoff.md — 會話交接摘要
 
-> 最後更新: 2026-06-08 (resolver-backed SafetyGuard EE path)
+> 最後更新: 2026-06-08 (Isaac resolver-backed EE wrapper)
 
 ## 本輪完成
 
@@ -83,6 +83,22 @@ class Resolver:
 - 不保留 `--controller osc` 假支援
 - wrapper 會檢查匯入的 `dam` 是否真的提供 `SafetyGuard`
 
+### 7. Isaac concrete resolver adapter (`/tmp/isaac_lab_study`)
+
+已新增 sidecar concrete adapter：
+- `tools/controll_scripts/safety/isaac_resolver.py`
+- `DAMSafetyWrapper.attach_isaac_controller(...)`
+- `DAMSafetyWrapper.filter_ee(...)`
+
+落地行為：
+- EE target pose 使用 DAM convention `[x,y,z,qx,qy,qz,qw]` 進入 `SafetyGuard(input_space="ee")`
+- wrapper 對外仍接受 Isaac pose `[x,y,z,qw,qx,qy,qz]`
+- resolver 用 live Isaac articulation + existing IK controller 做 target EE pose → joint proposal
+- resolver 用 bundled SO-ARM-101 URDF + Pinocchio 做 validated joint target → safe EE pose FK
+- `filter_ee()` 回傳 Isaac 要套用的 safe arm joint targets
+- `last_safe_gripper` 保存 DAM validated gripper target；demo 也改用它，不再套 raw gripper command
+- `scripts/dam_safety_demo.py` / `scripts/dam_teleoperate_demo.py` 已移除重複 IK 解算，改走 wrapper
+
 ## 驗證證據
 
 主 DAM repo：
@@ -100,6 +116,8 @@ class Resolver:
 
 Isaac sidecar:
 - `python -m py_compile scripts/dam_safety_demo.py scripts/dam_teleoperate_demo.py tools/controll_scripts/safety/dam_wrapper.py tools/controll_scripts/safety/__init__.py` — passed
+- `python -m py_compile scripts/dam_safety_demo.py scripts/dam_teleoperate_demo.py tools/controll_scripts/safety/dam_wrapper.py tools/controll_scripts/safety/isaac_resolver.py tools/controll_scripts/safety/__init__.py tests/test_dam_safety_wrapper.py` — passed
+- `PYTHONPATH=tools /Users/chenyizhong/Documents/Claude/Projects/Security\ Guard.nosync/.venv/bin/python -m pytest tests/test_dam_safety_wrapper.py -q` — 3 passed
 - Full Isaac launch not run; shell environment lacks `isaaclab`
 
 ## `/review` 結論
@@ -132,7 +150,7 @@ Isaac sidecar:
 
 ## 下一步建議
 
-1. Commit resolver-backed SafetyGuard EE path.
-2. 下一個交付單元：Isaac sidecar or `dam/adapter/isaac` 提供 concrete resolver adapter（不寫泛用 runtime IK）。
+1. Commit Isaac concrete resolver adapter sidecar unit.
+2. 下一個交付單元：在 IsaacLab runtime 中 launch `scripts/dam_safety_demo.py --controller ik`，確認 Pinocchio FK frame 與 Isaac body frame 對齊。
 3. 再下一個交付單元：極小 EE-policy snippet 使用 resolver path。
 4. 最後再考慮 runtime pool 是否需要 `target_ee_pos`，不要提前加。
