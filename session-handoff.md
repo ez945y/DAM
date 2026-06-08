@@ -1,6 +1,6 @@
 # session-handoff.md — 會話交接摘要
 
-> 最後更新: 2026-06-08 (Isaac sidecar lazy safety import)
+> 最後更新: 2026-06-08 (Code review + safety hardening)
 
 ## 本輪完成
 
@@ -157,10 +157,42 @@ Isaac sidecar:
 3. existing guard pipeline validates joint action
 4. resolver FK maps validated joint positions back to EE pose
 
+### 9. Code review + safety hardening
+
+本輪完成的 code review findings 和修復：
+
+**EE resolver path (api.py):**
+- IK/FK resolver exception 現在降級為 hold-position / last-known-pose（之前會 crash control loop）
+- IK/FK NaN/Inf 回傳現在被偵測並降級
+- Dimension check 移到 truncation 前（之前 oversized return 被 silent truncation 遮蔽）
+- 新增 5 項 resolver failure mode tests
+
+**Kinematics callbacks (kinematics.py):**
+- `joint_velocity_limit` + `joint_acceleration_limit` 在 explicit velocity mode (derived=False) 修正 position rebuild
+- 之前 velocity 被 clamp 但 position 保持原始值，造成 position/velocity 不一致
+
+**Deprecated code cleanup:**
+- 移除 `check_force_torque_safe` / `force_limit` deprecated shim + 整個 re-export chain
+- `-W error` 模式下 0 warnings
+
+**已記錄但未修的技術債（spawn_task）：**
+- `joint_acceleration_limit` 無 QPTerm（QP aggregator 無法 enforce 加速度約束）
+- `_prev_vel` module-level global 需 scoping 到 pipeline lifecycle
+
+## 驗證證據（本輪）
+
+- `make test` — all checks passed
+- pytest unit: 752 passed, 0 warnings
+- pytest integration: 28 passed
+- pytest safety: 35 passed
+- pytest property: 2 passed
+- Rust: passed
+- Jest: 109 passed
+
 ## 下一步建議
 
-1. Commit Isaac concrete resolver adapter sidecar unit.
-2. 下一個交付單元：在 IsaacLab runtime 中 launch `scripts/dam_safety_demo.py --controller ik`，確認 Pinocchio FK frame 與 Isaac body frame 對齊。
-3. 若仍無 IsaacLab runtime，做 Pinocchio FK / SO-ARM URDF frame sanity test，至少驗證 resolver FK convention。
-4. 再下一個交付單元：極小 EE-policy snippet 使用 resolver path。
+1. 在 IsaacLab runtime 中 launch `scripts/dam_safety_demo.py --controller ik`，確認 Pinocchio FK frame 與 Isaac body frame 對齊（需 Isaac runtime）。
+2. 極小 EE-policy snippet 使用 resolver path — 可在無 Isaac 環境下做。
+3. `joint_acceleration_limit` QPTerm（spawn_task 已記錄）。
+4. `_prev_vel` lifecycle scoping（spawn_task 已記錄）。
 5. 最後再考慮 runtime pool 是否需要 `target_ee_pos`，不要提前加。

@@ -6,7 +6,7 @@
 - **倉庫根目錄**: `/Users/chenyizhong/Documents/Claude/Projects/Security Guard.nosync`
 - **標準啟動路徑**: `make dev`
 - **標準驗證路徑**: `make test`
-- **基線狀態**: `make test` — all checks passed（截至 2026-06-08）；本輪續跑 `.venv/bin/python -m pytest tests/unit/ -x -q` — 732 passed
+- **基線狀態**: `make test` — all checks passed（截至 2026-06-08）；本輪續跑 `.venv/bin/python -m pytest tests/unit/ -x -q` — 752 passed
 
 ## 當前最高優先級未完成功能
 
@@ -22,6 +22,46 @@
 無
 
 ## 會話記錄
+
+### Session 2026-06-08 #7 (Code review + safety hardening)
+
+- **本輪目標**: 全面 code review 和 safety hardening
+- **已完成**:
+  - 移除 deprecated `check_force_torque_safe` / `force_limit` shims 和全 re-export chain
+  - 修復 EE resolver path：NaN/Inf propagation、resolver exception handling、dimension check 前置
+  - 修復 `joint_velocity_limit` / `joint_acceleration_limit` 在 `derived=False` 時不更新 position 的 bug
+  - 移除 stale back-compat comments（`fallback_triggered`、`guard_runtime.py`）
+  - 新增 24 項測試（18 FK sanity + 5 EE failure mode + 1 velocity position consistency）
+- **執行過的驗證**:
+  - `make test` — all checks passed（752 unit + 28 integration + 35 safety + 2 property + Rust + Jest）
+  - `pytest -W error` — 0 warnings
+- **未修的 review findings（已記錄為 spawn_task）**:
+  - `joint_acceleration_limit` 無 QPTerm（需 QP term 設計）
+  - `_prev_vel` 全域狀態需 scoping 到 pipeline lifecycle
+- **下一步**:
+  - 極小 EE-policy snippet（resolver path end-to-end）
+  - 或等 Isaac runtime 驗證 body frame 對齊
+
+### Session 2026-06-08 #6 (Pinocchio FK frame sanity test)
+
+- **本輪目標**: 驗證 Pinocchio FK 在 SO-ARM-101 URDF 上的 frame convention 正確性
+- **已完成**:
+  - 新增 `tests/unit/test_pinocchio_fk_sanity.py` — 18 項測試
+  - 驗證 reduced model 結構（5 DOF、gripper locked）
+  - 驗證 home pose workspace 合理（0.375m，Z > 0）
+  - 驗證 quaternion convention 為 DAM [qx,qy,qz,qw]
+  - 驗證 workspace 在物理臂展範圍內（多組 joint config）
+  - 驗證 wrist roll 只影響 orientation 不影響 position
+  - 交叉驗證 Isaac sidecar `_PinocchioForwardKinematics` 使用相同 URDF 產生相同結果
+- **執行過的驗證**:
+  - `pytest tests/unit/test_pinocchio_fk_sanity.py -x -v` — 18 passed
+  - `pytest tests/unit/ -x -q` — 750 passed（baseline 不破）
+- **結論**:
+  - FK convention 正確：meters、[qx,qy,qz,qw]、合理 workspace
+  - Isaac resolver adapter 的 FK path 可信任
+- **下一步**:
+  - 在有 IsaacLab runtime 的環境中驗證 Isaac body frame 與 Pinocchio FK frame 對齊
+  - 或做極小 EE-policy snippet 使用 resolver path
 
 ### Session 2026-06-08 #5 (Isaac sidecar lazy safety import)
 
