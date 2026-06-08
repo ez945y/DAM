@@ -199,15 +199,27 @@ class SafetyGuard:
 
     def __call__(
         self,
-        action: np.ndarray | dict[str, Any],
-        obs: np.ndarray | dict[str, Any],
-    ) -> np.ndarray | dict[str, Any]:
+        action: Any,
+        obs: Any,
+    ) -> Any:
         """Validate *action* given *obs*; return the safe version.
 
         Accepts and returns the same type — ``dict[str, Any]`` (lerobot
-        format with ``{joint}.pos`` keys) or ``np.ndarray``.
+        format with ``{joint}.pos`` keys), ``np.ndarray``, or
+        ``torch.Tensor`` (returned on same device/dtype).
         """
         input_is_dict = isinstance(action, dict)
+        input_is_tensor = not input_is_dict and hasattr(action, "detach")
+        _tensor_device: Any = None
+        _tensor_dtype: Any = None
+
+        if input_is_tensor:
+            _tensor_device = action.device
+            _tensor_dtype = action.dtype
+            action = action.detach().cpu().numpy()
+        if not isinstance(obs, dict) and hasattr(obs, "detach"):
+            obs = obs.detach().cpu().numpy()
+
         now = time.monotonic()
 
         # Use actual dt between calls so velocity limits stay accurate
@@ -228,9 +240,15 @@ class SafetyGuard:
         self._prev_time = now
 
         if validated is None:
-            return self._to_output(dam_obs.joint_positions, input_is_dict)
+            out = self._to_output(dam_obs.joint_positions, input_is_dict)
+        else:
+            out = self._to_output(validated.target_joint_positions, input_is_dict)
 
-        return self._to_output(validated.target_joint_positions, input_is_dict)
+        if input_is_tensor:
+            import torch as _torch
+
+            return _torch.as_tensor(out, dtype=_tensor_dtype, device=_tensor_device)
+        return out
 
     @property
     def last_results(self) -> list[GuardResult]:
@@ -305,18 +323,19 @@ class SafetyGuard:
 
 
 def safe(
-    action: np.ndarray | dict[str, Any],
-    obs: np.ndarray | dict[str, Any],
+    action: Any,
+    obs: Any,
     stackfile: str = "safety.yaml",
     *,
     task: str | None = None,
     joint_names: list[str] | None = None,
     degrees_mode: bool | None = None,
-) -> np.ndarray | dict[str, Any]:
+) -> Any:
     """Validate a single action against a safety stackfile.
 
     Convenience one-liner — creates a :class:`SafetyGuard` internally.
     For repeated calls use ``SafetyGuard`` directly to amortise setup.
+    Accepts ``np.ndarray``, ``dict``, or ``torch.Tensor`` (same device/dtype preserved).
     """
     guard = SafetyGuard(
         stackfile,

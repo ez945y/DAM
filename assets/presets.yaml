@@ -23,5 +23,30 @@ presets:
       - gripper
     degrees_mode: true
     urdf_path: assets/so101_new_calib.urdf
-    # chains is optional — auto-derived from joint_names:
-    #   arm: [shoulder_pan .. wrist_roll], arm.gripper: [gripper]
+
+  franka_emika_panda:
+    joint_names:
+      - panda_joint1
+      - panda_joint2
+      - panda_joint3
+      - panda_joint4
+      - panda_joint5
+      - panda_joint6
+      - panda_joint7
+      - panda_finger_joint1
+      - panda_finger_joint2
+    degrees_mode: false
+    chains:
+      arm:
+        joints:
+          - panda_joint1
+          - panda_joint2
+          - panda_joint3
+          - panda_joint4
+          - panda_joint5
+          - panda_joint6
+          - panda_joint7
+      gripper:
+        joints:
+          - panda_finger_joint1
+          - panda_finger_joint2

@@ -1,0 +1,114 @@
+# franka_safety.yaml — Safety stackfile for Franka Emika Panda.
+#
+# Use with Isaac Sim or real hardware. All values in radians.
+#
+# Usage:
+#   guard = dam.SafetyGuard("examples/stackfiles/franka_safety.yaml")
+#   safe_action = guard(action_tensor, obs_tensor)
+#
+#   from dam.adapter.isaac import IsaacSafetyFilter
+#   filt = IsaacSafetyFilter("examples/stackfiles/franka_safety.yaml", num_envs=4096)
+
+version: "1"
+
+hardware:
+  preset: franka_emika_panda
+
+safety:
+  control_frequency_hz: 1000
+  enforcement_mode: enforce
+  no_task_behavior: hold_position
+
+fallbacks:
+  hold_position:
+    type: hold_position
+    severity: 80
+  slow_down:
+    type: slow_down
+    severity: 40
+    requires_proposal: true
+    params:
+      scale: 0.3
+
+guards:
+  - L1: motion
+    phase: 0
+    timeout_ms: 5
+
+boundaries:
+  # Franka Panda joint position limits (radians) — from datasheet
+  joint_position_limits:
+    layer: L1
+    type: single
+    nodes:
+      - callback: joint_position_limits
+        params:
+          # [j1, j2, j3, j4, j5, j6, j7, finger1, finger2]
+          upper: [2.8973, 1.7628, 2.8973, -0.0698, 2.8973, 3.7525, 2.8973, 0.04, 0.04]
+          lower: [-2.8973, -1.7628, -2.8973, -3.0718, -2.8973, -0.0175, -2.8973, 0.0, 0.0]
+
+  # Joint velocity limits (rad/s) — conservative for safety
+  joint_velocity_limit:
+    layer: L1
+    type: single
+    nodes:
+      - callback: joint_velocity_limit
+        params:
+          # Franka datasheet max: [2.175, 2.175, 2.175, 2.175, 2.61, 2.61, 2.61, 0.3, 0.3]
+          # Using 80% of max for safety margin
+          max_velocities: [1.74, 1.74, 1.74, 1.74, 2.09, 2.09, 2.09, 0.2, 0.2]
+
+  # Joint acceleration limits (rad/s²)
+  joint_acceleration_limit:
+    layer: L1
+    type: single
+    nodes:
+      - callback: joint_acceleration_limit
+        params:
+          # Conservative acceleration limits
+          max_acceleration: [15.0, 7.5, 10.0, 12.5, 15.0, 20.0, 20.0, 5.0, 5.0]
+
+  # End-effector velocity limit (m/s) — workspace safety
+  ee_velocity_limit:
+    layer: L1
+    type: single
+    nodes:
+      - callback: ee_velocity_limit
+        params:
+          max_linear_velocity: 1.7
+          max_angular_velocity: 2.5
+
+  # Tighter velocity for public demos
+  joint_velocity_limit_slow:
+    layer: L1
+    type: single
+    nodes:
+      - callback: joint_velocity_limit
+        params:
+          max_velocities: [0.5, 0.5, 0.5, 0.5, 0.8, 0.8, 0.8, 0.1, 0.1]
+
+  ee_velocity_limit_slow:
+    layer: L1
+    type: single
+    nodes:
+      - callback: ee_velocity_limit
+        params:
+          max_linear_velocity: 0.5
+          max_angular_velocity: 1.0
+
+tasks:
+  manipulation:
+    description: "General manipulation — all safety guards active"
+    boundaries:
+      - joint_position_limits
+      - joint_velocity_limit
+      - joint_acceleration_limit
+      - ee_velocity_limit
+
+  slow_demo:
+    description: "Slow demo mode — tighter velocity for public demos"
+    boundaries:
+      - joint_position_limits
+      - joint_velocity_limit_slow
+      - joint_acceleration_limit
+      - ee_velocity_limit_slow

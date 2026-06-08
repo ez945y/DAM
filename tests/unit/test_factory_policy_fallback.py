@@ -53,10 +53,12 @@ def test_builder_falls_back_when_stackfile_preset_unknown(isolated_user_path, ca
     from dam.adapter.lerobot.builder import LeRobotBuilder
     from dam.config.schema import HardwareConfig
 
-    hw = HardwareConfig(preset="generic_6dof")  # registry only has so101_follower
+    hw = HardwareConfig(preset="generic_6dof")  # not in registry — falls back to first (sorted)
     with caplog.at_level("WARNING"):
         b = LeRobotBuilder(hw, policy=None)
-    assert b.preset.name == "so101_follower"
+    from dam.preset import list_presets
+
+    assert b.preset.name == list_presets()[0]
     assert any("not in the registry" in r.message for r in caplog.records)
 
 

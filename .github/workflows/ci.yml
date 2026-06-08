@@ -21,8 +21,17 @@ jobs:
           path: ~/.cargo/bin
           key: ${{ runner.os }}_cargo_rust_${{ hashFiles('dam-rust/**/Cargo.lock') }}
 
-      - name: Install dependencies
-        run: pip install uv && uv pip install --system -e '.[dev,lerobot]'
+      - name: Install uv + maturin
+        run: pip install uv maturin
+
+      - name: Build Rust Extension
+        run: |
+          cd dam-rust/dam-py
+          maturin build --release --out dist
+          uv pip install --system dist/*.whl
+
+      - name: Install Python package
+        run: uv pip install --system -e '.[dev]'
 
       - name: Check Format
         run: ruff format --check dam/ tests/
@@ -39,14 +48,8 @@ jobs:
           EOF
           python check.py
 
-      - name: Build Rust Extension
-        run: |
-          cd dam-rust/dam-py
-          maturin build --release --out dist
-          uv pip install --system dist/*.whl
-
       - name: Test Import
-        run: python -c 'import dam'
+        run: python -c 'import dam; import dam_rs; print(f"dam {dam.__version__}")'
 
       - name: Validate Stackfiles
         run: dam validate examples/stackfiles/*.yaml

@@ -1,20 +1,38 @@
 <div align="center">
 
-<h1>Detachable Action Monitor (DAM)</h1>
+<h1>DAM — Detachable Action Monitor</h1>
 
 See where your policy breaks — before your hardware does.
 
-[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue?logo=python)](https://www.python.org/downloads/)
+[![PyPI](https://img.shields.io/pypi/v/robot-dam?logo=pypi&logoColor=white)](https://pypi.org/project/robot-dam/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue?logo=python)](https://www.python.org/downloads/)
 [![Rust 1.80+](https://img.shields.io/badge/rust-1.80%2B-orange?logo=rust)](https://www.rust-lang.org/)
 [![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen)](LICENSE)
 [![Discussions](https://img.shields.io/badge/Chat-GitHub_Discussions-blue?logo=github)](https://github.com/ez945y/DAM/discussions)
 
-[Quick Start](#quick-start) · [Safe Recording](#safe-recording-for-imitation-learning) · [Architecture](#architecture) · [Docs](#documentation)
+[Install](#install) · [Quick Start](#quick-start) · [Isaac Sim](#isaac-sim-integration) · [Architecture](#architecture) · [Docs](#documentation)
 </div>
 
 
 https://github.com/user-attachments/assets/a10711ea-a419-4aee-ba06-de1e2d437d49
 
+
+## Install
+
+```bash
+pip install robot-dam            # includes torch, lerobot, mcap, dam-rs (Rust extension)
+pip install robot-dam[isaac]     # + Isaac Sim 6.0 adapter
+pip install robot-dam[full]      # + ROS2, REST API, QP solver, everything
+```
+
+Or from source:
+
+```bash
+git clone https://github.com/ez945y/DAM.git && cd DAM
+make setup
+```
+
+---
 
 ## What It Does
 
@@ -79,9 +97,9 @@ import dam
 # Level 1: one-liner (notebooks)
 safe_action = dam.safe(action, obs, stackfile="safety.yaml")
 
-# Level 2: stateful guard (recording loops)
+# Level 2: stateful guard (recording loops + Isaac Sim)
 guard = dam.SafetyGuard("safety.yaml", task="record")
-safe_action = guard(action, obs)          # dict in → dict out, ndarray in → ndarray out
+safe_action = guard(action, obs)  # dict → dict, ndarray → ndarray, Tensor → Tensor
 
 # Level 3: lerobot pipeline (one line addition)
 from dam import SafetyProcessorStep
@@ -91,6 +109,30 @@ robot_action_processor.steps.insert(0, SafetyProcessorStep("safety.yaml"))
 <img src="docs/diagrams/diagram2_runtime_workflow.png" alt="Runtime Workflow" width="600" />
 
 The recorded dataset contains **only safe actions** — your policy trains on data that already respects physical constraints. See [Safe Recording Guide](docs/getting-started/safe-recording.md) for full details.
+
+---
+
+## Isaac Sim Integration
+
+DAM works as a drop-in safety filter for Isaac Sim 6.0+ control loops. Accepts and returns `torch.Tensor` on any device — no CPU↔GPU copies needed.
+
+```python
+import dam
+from dam.adapter.isaac import IsaacSafetyFilter
+
+# Single env — SafetyGuard accepts torch.Tensor directly
+guard = dam.SafetyGuard("franka_safety.yaml", task="manipulation")
+safe_action = guard(action_tensor, obs_tensor)  # same device/dtype
+
+# Multi-env (Isaac Lab) — vectorized filter
+filt = IsaacSafetyFilter("franka_safety.yaml", task="manipulation", num_envs=4096)
+safe_actions = filt(actions_batch, obs_batch)    # (N, J) → (N, J)
+
+# Auto-detect from ArticulationView
+filt = IsaacSafetyFilter.from_articulation(franka_view, "franka_safety.yaml")
+```
+
+Bundled presets: `so101_follower`, `franka_emika_panda`. See [`examples/isaac_franka_demo.py`](examples/isaac_franka_demo.py) for the full demo.
 
 ---
 

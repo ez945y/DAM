@@ -6,9 +6,21 @@ build-backend = "hatchling.build"
 packages = ["dam"]
 
 [project]
-name = "dam"
+name = "robot-dam"
 version = "0.5.0"
+description = "Real-time safety guard pipeline for robot arms — clamp, reject, or fallback on unsafe actions."
 requires-python = ">=3.11"
+readme = "README.md"
+license = "Apache-2.0"
+keywords = ["robotics", "safety", "guard", "isaac-sim", "lerobot"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
 dependencies = [
     "numpy>=1.24",
     "pydantic>=2.0",
@@ -17,10 +29,20 @@ dependencies = [
     "opencv-python>=4.9",
     "pyserial>=3.5",
     "msgpack>=1.0",
+    # Core: torch + MCAP + lerobot always included
+    "torch>=2.0",
+    "mcap>=1.1",
+    "lerobot[feetech]",
+    "pin>=2.6",
+    "dam-rs>=0.5.0",
 ]
 
 [project.scripts]
 dam = "dam.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/MikeChenYZ/robot-dam"
+Documentation = "https://github.com/MikeChenYZ/robot-dam#readme"
 
 [project.optional-dependencies]
 # ── Development tools ─────────────────────────────────────────────────────
@@ -32,51 +54,38 @@ dev = [
     "hypothesis>=6.100",
     "maturin>=1.0,<2.0",
     "pre-commit>=3.6",
-    "matplotlib>=3.7",  # plot generation for experiment / benchmark scripts
+    "matplotlib>=3.7",
 ]
 
-# ── Optional adapters (install only what you need) ─────────────────────────
-# Policy inference + MCAP logging
-torch = [
-    "torch>=2.0",
-    "mcap>=1.1",
-    "msgpack>=1.0",
-]
+# ── Optional adapters ─────────────────────────────────────────────────────
 
-# SO-ARM101 / Koch hardware via lerobot
-# lerobot[feetech] includes the Feetech servo driver required by SO-ARM101.
-# pin provides pinocchio Python bindings used by LeRobotSourceAdapter for FK.
-lerobot = [
-    "lerobot[feetech]",
-    "pin>=2.6",
-]
-
-# ROS2 — rclpy is NOT on PyPI; it is installed by the ROS2 distro setup script.
-# Install ROS2 Humble/Iron first, then `source /opt/ros/<distro>/setup.bash`.
-# This extras group is intentionally empty; listing it here documents the intent
-# and allows `pip install dam[ros2]` to succeed without error in non-ROS envs.
-# Additional pure-Python ROS2 utilities that ARE on PyPI:
+# ROS2 — rclpy installed by distro, not PyPI.
 ros2 = [
-    "transforms3d>=0.4",   # quaternion / rotation math used by ROS2 adapter
+    "transforms3d>=0.4",
 ]
 
-# REST API + WebSocket console
+# REST API + WebSocket console (dam-console backend)
 services = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
-    "httpx>=0.27",   # async test client for FastAPI
-    "datasets>=2.16", # HuggingFace datasets for OOD
-    "msgspec>=0.18.6", # high-performance JSON serialization
+    "httpx>=0.27",
+    "datasets>=2.16",
+    "msgspec>=0.18.6",
 ]
 
-# Safety filters — optional QP-based clamping (CBF, slack, …)
+# Isaac Sim 6.0 adapter (isaacsim is installed separately via pip)
+isaac = [
+    "isaacsim>=4.5",
+]
+
+# Safety filters — QP-based clamping (CBF, slack)
 safety = [
-    "proxsuite>=0.6",  # real-time dense QP solver (~10–50 µs / solve at n=10)
+    "proxsuite>=0.6",
 ]
 
-# Everything (CI matrix / dev-full service)
+# Everything
 full = [
-    "dam[dev,torch,lerobot,services,safety]",
+    "robot-dam[dev,ros2,services,isaac,safety]",
 ]
 
 [tool.ruff]
