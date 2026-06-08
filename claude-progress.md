@@ -11,7 +11,7 @@
 ## 當前最高優先級未完成功能
 
 1. **Guard input_space 雙空間支援**：🟢 **schema + SafetyGuard resolver-backed EE path 已完成；runtime/sink 仍保持 joint contract**。見 session-handoff.md。
-2. **robot-dam pip 打包 + Isaac Sim 整合**：🟡 **Isaac joint + resolver-backed EE wrapper 已收斂；下一步是 IsaacLab runtime launch 驗證與極小 EE snippet**。
+2. **robot-dam pip 打包 + Isaac Sim 整合**：🟡 **Isaac joint + resolver-backed EE wrapper 已收斂，safety import 已從 IsaacLab eager imports 解耦；下一步是 IsaacLab runtime launch 驗證與極小 EE snippet**。
 3. **Vision OOD 閾值校準**：✅ **已實作 percentile-based threshold**（`threshold_percentile` param）。需在實際 dataset 上重新 calibrate 以驗證 FPR 改善。
 4. **機器人爆衝防護**：✅ **已拆分為獨立 boundary**。`joint_velocity_limit`（馬達安全）+ `joint_acceleration_limit`（smoothing）+ `ee_velocity_limit`（環境安全）。
 5. **MCAP 回讀 Risk Log**：✅ **已實現**。Backend: `/api/risk-log/mcap/{filename}`，Frontend: MCAP viewer page with cycle detail expand。
@@ -22,6 +22,24 @@
 無
 
 ## 會話記錄
+
+### Session 2026-06-08 #5 (Isaac sidecar lazy safety import)
+
+- **本輪目標**: 在無 IsaacLab shell 中繼續推進 Isaac 整合品質，修掉 safety wrapper 測試需要手動 module loader 的 import smell
+- **已完成**:
+  - `/tmp/isaac_lab_study/tools/controll_scripts/__init__.py` 改為 lazy top-level exports
+  - 保留 `from controll_scripts import ControllerFactory, SOArm101Config, ...` 的現有 API 形狀
+  - `from controll_scripts.safety import DAMSafetyWrapper` 不再因 parent package eager import Isaac controllers 而失敗
+  - `tests/test_dam_safety_wrapper.py` 移除手動 `sys.modules` / `importlib.util` loader，改回正常 package import
+- **執行過的驗證**:
+  - Isaac runtime discovery: `isaaclab` / `isaacsim` command not found；Python `isaaclab` / `isaacsim` missing；`torch` / `pinocchio` found
+  - `/tmp/isaac_lab_study`: `python -m py_compile tools/controll_scripts/__init__.py tests/test_dam_safety_wrapper.py` — passed
+  - `/tmp/isaac_lab_study`: `PYTHONPATH=tools /Users/chenyizhong/Documents/Claude/Projects/Security\ Guard.nosync/.venv/bin/python -m pytest tests/test_dam_safety_wrapper.py -q` — 3 passed
+- **未驗證**:
+  - IsaacLab full launch 仍未跑；目前 shell environment 沒有 `isaaclab` runtime
+- **下一步**:
+  - 在有 IsaacLab runtime 的 shell/環境中跑 `scripts/dam_safety_demo.py --controller ik`
+  - 若仍無 runtime，下一個可做的非 runtime 單元是 Pinocchio FK / SO-ARM URDF frame sanity test
 
 ### Session 2026-06-08 #4 (Isaac resolver-backed EE wrapper)
 

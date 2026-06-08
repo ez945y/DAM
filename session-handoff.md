@@ -1,6 +1,6 @@
 # session-handoff.md — 會話交接摘要
 
-> 最後更新: 2026-06-08 (Isaac resolver-backed EE wrapper)
+> 最後更新: 2026-06-08 (Isaac sidecar lazy safety import)
 
 ## 本輪完成
 
@@ -99,6 +99,14 @@ class Resolver:
 - `last_safe_gripper` 保存 DAM validated gripper target；demo 也改用它，不再套 raw gripper command
 - `scripts/dam_safety_demo.py` / `scripts/dam_teleoperate_demo.py` 已移除重複 IK 解算，改走 wrapper
 
+### 8. Isaac sidecar package import decoupling (`/tmp/isaac_lab_study`)
+
+已修掉 safety wrapper 測試需要手動 module loader 的 smell：
+- `tools/controll_scripts/__init__.py` 改成 lazy top-level exports
+- `from controll_scripts.safety import DAMSafetyWrapper` 不再觸發 Isaac controller eager imports
+- 既有 `from controll_scripts import ControllerFactory, SOArm101Config, ...` 仍透過 `__getattr__` 保留
+- `tests/test_dam_safety_wrapper.py` 改回正常 package import
+
 ## 驗證證據
 
 主 DAM repo：
@@ -117,6 +125,7 @@ class Resolver:
 Isaac sidecar:
 - `python -m py_compile scripts/dam_safety_demo.py scripts/dam_teleoperate_demo.py tools/controll_scripts/safety/dam_wrapper.py tools/controll_scripts/safety/__init__.py` — passed
 - `python -m py_compile scripts/dam_safety_demo.py scripts/dam_teleoperate_demo.py tools/controll_scripts/safety/dam_wrapper.py tools/controll_scripts/safety/isaac_resolver.py tools/controll_scripts/safety/__init__.py tests/test_dam_safety_wrapper.py` — passed
+- `python -m py_compile tools/controll_scripts/__init__.py tests/test_dam_safety_wrapper.py` — passed
 - `PYTHONPATH=tools /Users/chenyizhong/Documents/Claude/Projects/Security\ Guard.nosync/.venv/bin/python -m pytest tests/test_dam_safety_wrapper.py -q` — 3 passed
 - Full Isaac launch not run; shell environment lacks `isaaclab`
 
@@ -152,5 +161,6 @@ Isaac sidecar:
 
 1. Commit Isaac concrete resolver adapter sidecar unit.
 2. 下一個交付單元：在 IsaacLab runtime 中 launch `scripts/dam_safety_demo.py --controller ik`，確認 Pinocchio FK frame 與 Isaac body frame 對齊。
-3. 再下一個交付單元：極小 EE-policy snippet 使用 resolver path。
-4. 最後再考慮 runtime pool 是否需要 `target_ee_pos`，不要提前加。
+3. 若仍無 IsaacLab runtime，做 Pinocchio FK / SO-ARM URDF frame sanity test，至少驗證 resolver FK convention。
+4. 再下一個交付單元：極小 EE-policy snippet 使用 resolver path。
+5. 最後再考慮 runtime pool 是否需要 `target_ee_pos`，不要提前加。
