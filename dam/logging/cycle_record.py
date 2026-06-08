@@ -70,7 +70,7 @@ class CycleRecord:
     validated_positions: list[float] | None  # None when action was rejected
     validated_velocities: list[float] | None
     was_clamped: bool
-    fallback_triggered: str | None  # deprecated alias for active_context; one-release back-compat
+    fallback_triggered: str | None
 
     # ── Guard results (flat; writer groups by layer) ───────────────────────────
     guard_results: tuple[GuardResult, ...]

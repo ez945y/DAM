@@ -891,10 +891,8 @@ class GuardRuntime:
         self._metric_bus.commit_cycle()
         self._telemetry.log_source_latency_if_slow(_src_ms, source_latencies)
 
-        # Surface the active Context name in the legacy ``fallback_triggered``
-        # field — None when we're sitting in NormalContext, the Context's name
-        # otherwise. Will be renamed to ``active_context`` once all consumers
-        # migrate (one-release back-compat alias).
+        # Active Context name: None when in NormalContext, the Context's name
+        # otherwise.
         fallback_triggered = (
             self._ctx_sm.active_context.name
             if not isinstance(self._ctx_sm.active_context, NormalContext)

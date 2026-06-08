@@ -26,9 +26,7 @@ from dam.boundary.callbacks.execution import (
     task_workspace_bounds,
 )
 from dam.boundary.callbacks.hardware import (
-    check_force_torque_safe,
     current_limit,
-    force_limit,
     force_torque_limit,
     hardware_watchdog,
     host_health_limit,
@@ -50,9 +48,7 @@ __all__ = [
     "_CALLBACKS",
     "_CATALOG",
     "boundary_callback",
-    "check_force_torque_safe",
     "current_limit",
-    "force_limit",
     "force_torque_limit",
     "get_catalog",
     "hardware_watchdog",

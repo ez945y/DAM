@@ -7,7 +7,6 @@ import pytest
 
 from dam.boundary.builtin_callbacks import (
     _CALLBACKS,
-    check_force_torque_safe,
     current_limit,
     ee_velocity_limit,
     force_torque_limit,
@@ -159,6 +158,21 @@ class TestJointVelocityLimit:
             [np.pi / 20] * 6,
             atol=1e-9,
         )
+
+    def test_explicit_velocity_clamp_also_rebuilds_position(self):
+        """When target_joint_velocities is provided and clamped, positions must
+        be rebuilt from the clamped velocity to stay consistent."""
+        result = joint_velocity_limit(
+            obs=_obs(positions=[0.0] * 6),
+            action=_action([1.0] * 6, velocities=[10.0] * 6),
+            dt=0.1,
+            max_velocities=[2.0] * 6,
+        )
+        assert result.decision == GuardDecision.CLAMP
+        clamped_pos = result.clamped_action.target_joint_positions
+        clamped_vel = result.clamped_action.target_joint_velocities
+        np.testing.assert_allclose(clamped_vel, [2.0] * 6, atol=1e-9)
+        np.testing.assert_allclose(clamped_pos, [0.2] * 6, atol=1e-9)
 
     def test_velocity_limit_no_acceleration_param(self):
         """Velocity limit no longer accepts max_acceleration."""
@@ -642,32 +656,6 @@ class TestOrientationLimit:
         assert r.decision == GuardDecision.PASS
 
 
-# ── check_force_torque_safe ───────────────────────────────────────────────────
-
-
-class TestCheckForceTorqueSafe:
-    def test_safe_force_pass(self):
-        obs = _obs(force_torque=[1.0, 0, 0, 0, 0, 0])
-        r = check_force_torque_safe(obs=obs, max_force_n=50.0, max_torque_nm=10.0)
-        assert r.decision.name == "PASS"
-        assert "force_n" in r.metadata
-
-    def test_excessive_force_fail(self):
-        obs = _obs(force_torque=[100.0, 0, 0, 0, 0, 0])
-        r = check_force_torque_safe(obs=obs, max_force_n=50.0, max_torque_nm=10.0)
-        assert r.decision.name == "REJECT"
-
-    def test_excessive_torque_fail(self):
-        obs = _obs(force_torque=[0, 0, 0, 20.0, 0, 0])
-        r = check_force_torque_safe(obs=obs, max_force_n=50.0, max_torque_nm=10.0)
-        assert r.decision.name == "REJECT"
-
-    def test_no_force_torque_pass(self):
-        obs = _obs()
-        r = check_force_torque_safe(obs=obs)
-        assert r.decision.name == "PASS"
-
-
 # ── force_torque_limit ───────────────────────────────────────────────────────
 
 
@@ -782,7 +770,7 @@ class TestRegisterAll:
         try:
             register_all()
             reg = rcmod._registry
-            assert "check_force_torque_safe" in reg.list_all()
+            assert "force_torque_limit" in reg.list_all()
             assert "joint_position_limits" in reg.list_all()
         finally:
             rcmod._registry = orig

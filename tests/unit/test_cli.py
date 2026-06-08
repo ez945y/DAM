@@ -61,7 +61,7 @@ class TestCallbacks:
         rc = main(["callbacks", "--layer", "L3"])
         out = capsys.readouterr().out
         assert rc == 0
-        assert "check_force_torque_safe" in out  # reclassified to L3
+        assert "force_torque_limit" in out
         assert "joint_position_limits" not in out
 
     def test_json_output_is_parseable(self, capsys):
@@ -77,7 +77,7 @@ class TestCallbacks:
         """Regression: the reclassified callback must appear under L3."""
         main(["callbacks", "--json"])
         data = json.loads(capsys.readouterr().out)
-        entry = next(c for c in data if c["name"] == "check_force_torque_safe")
+        entry = next(c for c in data if c["name"] == "force_torque_limit")
         assert entry["layer"] == "L3"
 
 

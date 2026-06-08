@@ -185,7 +185,7 @@ def test_l3_force_callback_is_ignored_by_execution_guard(EG):
     register_all()
     g = EG()
     precompute_injection(g, {})
-    container = make_container(callback="check_force_torque_safe", max_force_n=5.0)
+    container = make_container(callback="force_torque_limit", max_force_n=5.0)
     obs = make_obs(force=[20.0, 0.0, 0.0, 0.0, 0.0, 0.0])  # 20N > 5N
     result = g.check(obs=obs, active_containers=[container], node_start_times={})
     assert result.decision == GuardDecision.PASS

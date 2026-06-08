@@ -6,9 +6,7 @@ when you need to register the built-in callback set programmatically.
 
 from dam.boundary.builtin_callbacks import (
     boundary_callback,
-    check_force_torque_safe,
     current_limit,
-    force_limit,
     force_torque_limit,
     get_catalog,
     hardware_watchdog,
@@ -28,9 +26,7 @@ from dam.boundary.builtin_callbacks import (
 
 __all__ = [
     "boundary_callback",
-    "check_force_torque_safe",
     "current_limit",
-    "force_limit",
     "force_torque_limit",
     "get_catalog",
     "hardware_watchdog",

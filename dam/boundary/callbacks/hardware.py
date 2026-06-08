@@ -11,7 +11,6 @@ import logging
 import os
 import subprocess
 import time
-import warnings
 from contextlib import suppress
 from typing import Any
 
@@ -390,77 +389,6 @@ def force_torque_limit(
         layer=GuardLayer.L3,
         reason="; ".join(parts),
         metadata=meta,
-    )
-
-
-# Keep force_limit as an alias for backward compatibility — it delegates to
-# force_torque_limit but only checks force (torque limit set to infinity).
-@boundary_callback(
-    name="force_limit",
-    layer="L3",
-    category="hardware",
-    description="Deprecated: use force_torque_limit. Rejects if force magnitude exceeds threshold (N).",
-    params={
-        "max_force_n": "Maximum allowed force magnitude in Newtons.",
-        "channel": "Observation channel name to read from obs.channels.",
-    },
-)
-def force_limit(
-    *,
-    obs: Observation,
-    max_force_n: float = 50.0,
-    channel: str = "force_torque",
-) -> GuardResult:
-    result = force_torque_limit(
-        obs=obs,
-        max_force_n=max_force_n,
-        max_torque_nm=float("inf"),
-        channel=channel,
-    )
-    # Re-label guard_name so existing consumers see the old name.
-    return GuardResult(
-        decision=result.decision,
-        guard_name="force_limit",
-        layer=result.layer,
-        reason=result.reason,
-        metadata=result.metadata,
-        clamped_action=result.clamped_action,
-    )
-
-
-_check_force_torque_safe_warned = False
-
-
-@boundary_callback(
-    name="check_force_torque_safe",
-    layer="L3",
-    category="hardware",
-    description="Deprecated: use force_torque_limit. Rejects if force or torque magnitude exceeds thresholds.",
-    params={
-        "max_force_n": "Maximum allowed force magnitude in Newtons.",
-        "max_torque_nm": "Maximum allowed torque magnitude in Newton-metres.",
-    },
-)
-def check_force_torque_safe(
-    *, obs: Observation, max_force_n: float = 50.0, max_torque_nm: float = 10.0
-) -> GuardResult:
-    global _check_force_torque_safe_warned
-    if not _check_force_torque_safe_warned:
-        warnings.warn(
-            "check_force_torque_safe is deprecated, use force_torque_limit instead",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        _check_force_torque_safe_warned = True
-    result = force_torque_limit(obs=obs, max_force_n=max_force_n, max_torque_nm=max_torque_nm)
-    # Re-label guard_name so existing consumers see the old name.
-    return GuardResult(
-        decision=result.decision,
-        guard_name="check_force_torque_safe",
-        layer=result.layer,
-        reason=result.reason,
-        metadata=result.metadata,
-        clamped_action=result.clamped_action,
     )
 
 
