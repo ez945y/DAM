@@ -96,11 +96,11 @@ jobs:
           path: dist/*
 
   # ─── Stage 3: Publish dam-rs to PyPI ───────────────────────────────────────
+  # No `environment:` — PyPI trusted publisher for dam-rs is set to (Any)
   publish-rust:
     name: Publish dam-rs to PyPI
     needs: [build-rust-wheels, build-rust-sdist]
     runs-on: ubuntu-latest
-    environment: pypi
 
     steps:
       - uses: actions/download-artifact@v4
