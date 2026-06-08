@@ -1,6 +1,6 @@
 # session-handoff.md — 會話交接摘要
 
-> 最後更新: 2026-06-08 (input_space contract + Isaac joint integration cleanup)
+> 最後更新: 2026-06-08 (resolver-backed SafetyGuard EE path)
 
 ## 本輪完成
 
@@ -25,7 +25,7 @@ policy:
 - `hardware.input_space != policy.input_space` 時 schema validation 直接 fail
 - 沒有 `policy:` 的 SafetyGuard-only stackfile 不做一致性檢查
 
-### 2. SafetyGuard input-space guardrail
+### 2. SafetyGuard input-space guardrail and resolver-backed EE path
 
 `dam.SafetyGuard(..., input_space=...)` 已支援讀取 / override action-space declaration。
 
@@ -33,9 +33,22 @@ policy:
 - 預設讀 `hardware.input_space`
 - API override 會覆蓋 stackfile 設定
 - `"joint"` path 維持既有行為
-- `"ee"` path 目前明確 `ValueError`，要求 configured IK/FK resolver
+- `"ee"` path 需要 `kinematics_resolver`
+- 有 resolver 時：EE pose → IK joint proposal → existing guard pipeline → FK safe EE pose
+- 無 resolver 時：明確 `ValueError`
 
-這是刻意設計，不是功能缺口偽裝：目前 DAM 的 validated output / sinks 仍是 joint target contract。沒有 resolver 時不能把 EE pose 靜默當 joint array，也不能假裝能回傳 safe EE pose。
+Resolver protocol：
+
+```python
+class Resolver:
+    def inverse_kinematics(self, target_ee_pose, current_joint_positions):
+        ...
+
+    def forward_kinematics(self, joint_positions):
+        ...
+```
+
+這仍是 API-level support，不是 runtime/sink-level EE dispatch。內部 guard pipeline 保持 joint target contract，避免新增第二套 `ValidatedEEAction`。
 
 ### 3. EE pose observation injection retained, but not action conversion
 
@@ -76,9 +89,9 @@ policy:
 - `python -m pytest tests/unit/ -x -q` — 689 passed, 40 skipped（system Python）
 - `make lint` — passed
 - `make docs-check` — passed
-- `make test` — passed
+- `make test` — passed（第二次 full run after resolver path）
   - pre-commit passed
-  - unit: 729 passed
+  - unit: 732 passed
   - integration: 28 passed
   - safety: 35 passed
   - property: 2 passed
@@ -104,22 +117,22 @@ Isaac sidecar:
 
 不要在 Isaac repo 先寫未落地的 EE demo。這會把 DAM 主 repo 還沒完成的 API 偽裝成 integration example。
 
-### Review 3 — next implementation shape
+### Review 3 — implementation shape used
 
-真正下一步不是「讓 SafetyGuard 收 7 維 array 然後猜 IK」。應先定義 resolver protocol：
+真正 EE path 不讓 SafetyGuard 猜 IK，而是要求 caller 注入 resolver：
 - FK: joint positions → EE pose / Jacobian
 - IK: current joints + target EE pose → joint proposal
 - configured resolver missing 時保持明確 error
 
-然後 EE path 才能做：
+已落地 EE path：
 1. parse EE action into `ActionProposal.target_ee_pose`
 2. resolver IK produces `target_joint_positions`
 3. existing guard pipeline validates joint action
-4. output policy depends on caller contract（目前 sinks 仍 joint；若 SafetyGuard API 要回 EE，需要 post-validation FK）
+4. resolver FK maps validated joint positions back to EE pose
 
 ## 下一步建議
 
-1. Commit this delivery unit.
-2. 下一個交付單元：resolver-backed SafetyGuard EE path（只做 API-level resolver，不碰 runtime/sinks）。
-3. 再下一個交付單元：policy adapter / Isaac integration 使用 resolver path，補一個極小 EE snippet。
+1. Commit resolver-backed SafetyGuard EE path.
+2. 下一個交付單元：Isaac sidecar or `dam/adapter/isaac` 提供 concrete resolver adapter（不寫泛用 runtime IK）。
+3. 再下一個交付單元：極小 EE-policy snippet 使用 resolver path。
 4. 最後再考慮 runtime pool 是否需要 `target_ee_pos`，不要提前加。

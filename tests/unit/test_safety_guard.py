@@ -25,6 +25,29 @@ _JOINT_NAMES = [
 ]
 
 
+class FakeKinematicsResolver:
+    def __init__(self) -> None:
+        self.last_target_ee_pose = None
+        self.last_current_joints = None
+
+    def inverse_kinematics(
+        self,
+        target_ee_pose: np.ndarray,
+        current_joint_positions: np.ndarray,
+    ) -> np.ndarray:
+        self.last_target_ee_pose = target_ee_pose.copy()
+        self.last_current_joints = current_joint_positions.copy()
+        joints = np.zeros(len(_JOINT_NAMES), dtype=np.float64)
+        joints[0] = target_ee_pose[0]
+        return joints
+
+    def forward_kinematics(self, joint_positions: np.ndarray) -> np.ndarray:
+        return np.array(
+            [joint_positions[0], 0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+            dtype=np.float64,
+        )
+
+
 @pytest.fixture()
 def stackfile(tmp_path: Path) -> str:
     """Minimal stackfile with known joint limits (±1.5 rad ≈ ±86°)."""
@@ -199,7 +222,7 @@ class TestSafetyGuard:
                 input_space="task",
             )
 
-    def test_ee_input_space_rejects_until_resolver_is_configured(self, stackfile: str) -> None:
+    def test_ee_input_space_rejects_without_resolver(self, stackfile: str) -> None:
         guard = SafetyGuard(
             stackfile,
             joint_names=_JOINT_NAMES,
@@ -208,6 +231,58 @@ class TestSafetyGuard:
         )
         with pytest.raises(ValueError, match="requires a configured IK/FK resolver"):
             guard(np.zeros(7), np.zeros(6))
+
+    def test_ee_input_space_uses_resolver_and_returns_safe_ee_pose(self, stackfile: str) -> None:
+        resolver = FakeKinematicsResolver()
+        guard = SafetyGuard(
+            stackfile,
+            joint_names=_JOINT_NAMES,
+            degrees_mode=False,
+            input_space="ee",
+            kinematics_resolver=resolver,
+        )
+        action_ee = np.array([2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
+        obs_joints = np.zeros(6)
+
+        result = guard(action_ee, obs_joints)
+
+        assert isinstance(result, np.ndarray)
+        assert result.shape == (7,)
+        assert result[0] <= 1.5 + 1e-3
+        np.testing.assert_allclose(result[3:], [0.0, 0.0, 0.0, 1.0])
+        np.testing.assert_allclose(resolver.last_target_ee_pose, action_ee)
+        np.testing.assert_allclose(resolver.last_current_joints, obs_joints)
+        assert guard.runtime is not None
+
+    def test_ee_input_space_preserves_tensor_dtype(self, stackfile: str) -> None:
+        torch = pytest.importorskip("torch")
+        resolver = FakeKinematicsResolver()
+        guard = SafetyGuard(
+            stackfile,
+            joint_names=_JOINT_NAMES,
+            degrees_mode=False,
+            input_space="ee",
+            kinematics_resolver=resolver,
+        )
+        action_ee = torch.tensor([0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0], dtype=torch.float32)
+        obs_joints = torch.zeros(6, dtype=torch.float32)
+
+        result = guard(action_ee, obs_joints)
+
+        assert result.dtype == torch.float32
+        assert result.device == action_ee.device
+        assert tuple(result.shape) == (7,)
+
+    def test_ee_input_space_rejects_dict_action(self, stackfile: str) -> None:
+        guard = SafetyGuard(
+            stackfile,
+            joint_names=_JOINT_NAMES,
+            degrees_mode=False,
+            input_space="ee",
+            kinematics_resolver=FakeKinematicsResolver(),
+        )
+        with pytest.raises(ValueError, match="expects an EE pose array"):
+            guard({"x": 0.1}, np.zeros(6))
 
 
 # ---------------------------------------------------------------------------

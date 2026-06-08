@@ -10,8 +10,8 @@
 
 ## 當前最高優先級未完成功能
 
-1. **Guard input_space 雙空間支援**：🟡 **schema + SafetyGuard contract 已完成；EE resolver path 待實作**。見 session-handoff.md。
-2. **robot-dam pip 打包 + Isaac Sim 整合**：🟡 **Isaac joint-target demo 已收斂；EE snippet 等 resolver 完成後再補**。
+1. **Guard input_space 雙空間支援**：🟢 **schema + SafetyGuard resolver-backed EE path 已完成；runtime/sink 仍保持 joint contract**。見 session-handoff.md。
+2. **robot-dam pip 打包 + Isaac Sim 整合**：🟡 **Isaac joint-target demo 已收斂；下一步接 concrete resolver adapter / EE snippet**。
 3. **Vision OOD 閾值校準**：✅ **已實作 percentile-based threshold**（`threshold_percentile` param）。需在實際 dataset 上重新 calibrate 以驗證 FPR 改善。
 4. **機器人爆衝防護**：✅ **已拆分為獨立 boundary**。`joint_velocity_limit`（馬達安全）+ `joint_acceleration_limit`（smoothing）+ `ee_velocity_limit`（環境安全）。
 5. **MCAP 回讀 Risk Log**：✅ **已實現**。Backend: `/api/risk-log/mcap/{filename}`，Frontend: MCAP viewer page with cycle detail expand。
@@ -48,6 +48,26 @@
 - **下一步**:
   - Commit this delivery unit
   - 下一交付單元：resolver-backed SafetyGuard EE path（只做 API-level resolver，不碰 runtime/sinks）
+
+### Session 2026-06-08 #3 (resolver-backed SafetyGuard EE path)
+
+- **本輪目標**: 讓 `SafetyGuard(input_space="ee")` 有真實可驗證的 resolver path，而不是只有 guardrail
+- **已完成**:
+  - 新增 `SafetyKinematicsResolver` Protocol（`inverse_kinematics`, `forward_kinematics`）
+  - `SafetyGuard(..., kinematics_resolver=...)` 支援 EE pose action
+  - EE path: target EE pose → resolver IK → `ActionProposal.target_joint_positions` + `target_ee_pose` → existing guard pipeline → resolver FK → safe EE pose
+  - 無 resolver、dict EE action、resolver shape 錯誤都有明確錯誤
+  - `dam.safe(..., input_space="ee", kinematics_resolver=...)` 也支援
+  - 更新 `docs/library-api.md`
+- **執行過的驗證**:
+  - `.venv/bin/python -m pytest tests/unit/test_safety_guard.py -q` — 37 passed
+  - `.venv/bin/python -m pytest tests/unit/test_config.py tests/unit/test_safety_guard.py -q` — 45 passed
+  - `make lint` — passed
+  - `make docs-check` — passed
+  - `.venv/bin/python -m pytest tests/unit/ -x -q` — 732 passed
+  - `make test` — all checks passed（unit 732, integration 28, safety 35, property 2, Rust, Jest 109）
+- **下一步**:
+  - Concrete Isaac resolver adapter（prefer sidecar first, then decide whether to upstream into `dam/adapter/isaac`）
 
 ### Session 2026-06-08 #1 (input_space 設計 + pip 打包回顧)
 

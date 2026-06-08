@@ -4,7 +4,7 @@ from importlib.metadata import version as _package_version
 from pathlib import Path
 
 from dam import testing
-from dam.api import RunSummary, SafetyGuard, build_runner, run, safe
+from dam.api import RunSummary, SafetyGuard, SafetyKinematicsResolver, build_runner, run, safe
 from dam.decorators import callback, fallback, guard
 from dam.guard.aggregator import aggregate_decisions
 from dam.guard.base import Guard
@@ -54,6 +54,7 @@ __all__ = [
     "safe",
     "RunSummary",
     "SafetyGuard",
+    "SafetyKinematicsResolver",
     "SafetyProcessorStep",
     "Runner",
     "RunnerStatus",

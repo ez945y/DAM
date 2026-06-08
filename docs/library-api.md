@@ -12,6 +12,7 @@ dam.build_runner(stack, *, ros2_node)       -> Runner
 # Safety guard (no hardware loop needed)
 dam.safe(action, obs, stackfile, *, ...)    -> ndarray | dict
 dam.SafetyGuard(stackfile, *, task, ...)    -> callable guard
+dam.SafetyKinematicsResolver               # Protocol for EE-space SafetyGuard actions
 dam.SafetyProcessorStep(stackfile, *, ...)  -> LeRobot processor step
 
 # Registration decorators
@@ -94,6 +95,31 @@ for action, obs in teleop_stream:
 - Auto-detects `joint_names` and `degrees_mode` from the stackfile's `hardware.preset`
 - Rejected actions return hold-position (current joint positions) so loops never break
 - Access the underlying runtime via `guard.runtime`
+
+`SafetyGuard` accepts joint-space actions by default. To validate an EE-space
+action, declare or override `input_space="ee"` and provide a kinematics resolver:
+
+```python
+class Resolver:
+    def inverse_kinematics(self, target_ee_pose, current_joint_positions):
+        ...
+
+    def forward_kinematics(self, joint_positions):
+        ...
+
+guard = dam.SafetyGuard(
+    "safety.yaml",
+    input_space="ee",
+    kinematics_resolver=Resolver(),
+)
+
+safe_ee_pose = guard(ee_pose, current_joint_positions)
+```
+
+The resolver converts EE pose `[x, y, z, qx, qy, qz, qw]` to a joint proposal;
+DAM then runs the existing joint-space guard pipeline and maps the validated
+joint target back to EE pose. Without a resolver, EE mode raises a clear error
+instead of treating the pose as joint data.
 
 ### `dam.SafetyProcessorStep` — LeRobot integration
 

@@ -19,7 +19,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
 
@@ -40,6 +40,22 @@ class RunSummary:
     status: str  # RunnerStatus name, e.g. "STOPPED", "EMERGENCY"
     cycles: int
     emergency: bool
+
+
+class SafetyKinematicsResolver(Protocol):
+    """Minimal FK/IK bridge for SafetyGuard EE-space actions."""
+
+    def inverse_kinematics(
+        self,
+        target_ee_pose: np.ndarray,
+        current_joint_positions: np.ndarray,
+    ) -> np.ndarray:
+        """Return a joint-space proposal for the requested EE pose."""
+        ...
+
+    def forward_kinematics(self, joint_positions: np.ndarray) -> np.ndarray:
+        """Return EE pose [x,y,z,qx,qy,qz,qw] for validated joint positions."""
+        ...
 
 
 def _register_builtins() -> None:
@@ -144,6 +160,7 @@ class SafetyGuard:
         joint_names: list[str] | None = None,
         degrees_mode: bool | None = None,
         input_space: str | None = None,
+        kinematics_resolver: SafetyKinematicsResolver | None = None,
     ) -> None:
         _register_builtins()
 
@@ -181,6 +198,7 @@ class SafetyGuard:
         self._joint_names: list[str] = joint_names
         self._degrees_mode: bool = degrees_mode
         self._input_space: str = resolved_input_space
+        self._kinematics_resolver = kinematics_resolver
         self._n_joints: int = len(joint_names)
 
         # Conversion scales (vectorised, bound once).
@@ -231,13 +249,6 @@ class SafetyGuard:
         if not isinstance(obs, dict) and hasattr(obs, "detach"):
             obs = obs.detach().cpu().numpy()
 
-        if self._input_space == "ee":
-            raise ValueError(
-                "SafetyGuard input_space='ee' requires a configured IK/FK resolver. "
-                "Use input_space='joint' for joint targets, or provide a resolver once "
-                "EE-space conversion support is enabled."
-            )
-
         now = time.monotonic()
 
         # Use actual dt between calls so velocity limits stay accurate
@@ -247,7 +258,10 @@ class SafetyGuard:
             self._runtime._hot_reload.config_pool["dt"] = actual_dt
 
         dam_obs = self._to_observation(obs)
-        dam_action = self._to_action_proposal(action)
+        if self._input_space == "ee":
+            dam_action = self._to_ee_action_proposal(action, dam_obs.joint_positions)
+        else:
+            dam_action = self._to_action_proposal(action)
         trace_id = str(uuid.uuid4())
 
         validated, results = self._runtime.validate(dam_obs, dam_action, trace_id, now=now)
@@ -257,7 +271,12 @@ class SafetyGuard:
         self._prev_positions = dam_obs.joint_positions.copy()
         self._prev_time = now
 
-        if validated is None:
+        if self._input_space == "ee":
+            safe_positions = (
+                dam_obs.joint_positions if validated is None else validated.target_joint_positions
+            )
+            out = self._to_ee_output(safe_positions, input_is_dict)
+        elif validated is None:
             out = self._to_output(dam_obs.joint_positions, input_is_dict)
         else:
             out = self._to_output(validated.target_joint_positions, input_is_dict)
@@ -354,11 +373,54 @@ class SafetyGuard:
 
         return ActionProposal(target_joint_positions=target)
 
+    def _to_ee_action_proposal(
+        self, raw: np.ndarray | dict[str, Any], current_joints: np.ndarray
+    ) -> Any:
+        from dam.types.action import ActionProposal
+
+        if isinstance(raw, dict):
+            raise ValueError("SafetyGuard input_space='ee' expects an EE pose array, not a dict")
+        if self._kinematics_resolver is None:
+            raise ValueError(
+                "SafetyGuard input_space='ee' requires a configured IK/FK resolver. "
+                "Use input_space='joint' for joint targets, or pass kinematics_resolver."
+            )
+        target_ee_pose = np.asarray(raw, dtype=np.float64).flatten()[:7]
+        if target_ee_pose.shape[0] != 7:
+            raise ValueError("EE action must contain 7 values [x,y,z,qx,qy,qz,qw]")
+        target_joints = np.asarray(
+            self._kinematics_resolver.inverse_kinematics(target_ee_pose, current_joints),
+            dtype=np.float64,
+        ).flatten()[: self._n_joints]
+        if target_joints.shape[0] != self._n_joints:
+            raise ValueError(
+                f"IK resolver returned {target_joints.shape[0]} joints, expected {self._n_joints}"
+            )
+        return ActionProposal(
+            target_joint_positions=target_joints,
+            target_ee_pose=target_ee_pose,
+        )
+
     def _to_output(self, positions_rad: np.ndarray, as_dict: bool) -> np.ndarray | dict[str, Any]:
         scaled = positions_rad[: self._n_joints] * self._scale_out
         if as_dict:
             return {f"{self._joint_names[i]}.pos": float(scaled[i]) for i in range(self._n_joints)}
         return scaled
+
+    def _to_ee_output(
+        self, positions_rad: np.ndarray, as_dict: bool
+    ) -> np.ndarray | dict[str, Any]:
+        if as_dict:
+            raise ValueError("SafetyGuard input_space='ee' does not support dict output")
+        if self._kinematics_resolver is None:
+            raise ValueError("SafetyGuard input_space='ee' requires a configured IK/FK resolver")
+        ee_pose = np.asarray(
+            self._kinematics_resolver.forward_kinematics(positions_rad[: self._n_joints]),
+            dtype=np.float64,
+        ).flatten()[:7]
+        if ee_pose.shape[0] != 7:
+            raise ValueError("FK resolver must return 7 values [x,y,z,qx,qy,qz,qw]")
+        return ee_pose
 
     def _estimate_velocity(self, positions: np.ndarray, now: float) -> np.ndarray:
         if self._prev_positions is not None and self._prev_time is not None:
@@ -376,6 +438,7 @@ def safe(
     joint_names: list[str] | None = None,
     degrees_mode: bool | None = None,
     input_space: str | None = None,
+    kinematics_resolver: SafetyKinematicsResolver | None = None,
 ) -> Any:
     """Validate a single action against a safety stackfile.
 
@@ -389,5 +452,6 @@ def safe(
         joint_names=joint_names,
         degrees_mode=degrees_mode,
         input_space=input_space,
+        kinematics_resolver=kinematics_resolver,
     )
     return guard(action, obs)

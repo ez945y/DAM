@@ -13,7 +13,14 @@ from dam.runner.base import BaseRunner, RunnerStatus
 
 class TestPublicSurface:
     def test_exported_symbols(self):
-        for name in ("build_runner", "run", "RunSummary", "Runner", "RunnerStatus"):
+        for name in (
+            "build_runner",
+            "run",
+            "RunSummary",
+            "SafetyKinematicsResolver",
+            "Runner",
+            "RunnerStatus",
+        ):
             assert name in dam.__all__
             assert hasattr(dam, name)
 
