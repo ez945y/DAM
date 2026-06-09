@@ -117,7 +117,11 @@ def _cbf_margin(
 
 
 # ── Velocity-limit state (acceleration tracking) ─────────────────────────────
-_prev_vel: dict[str, np.ndarray] = {}
+# Stores (velocity, monotonic_timestamp) per callback instance.
+# Staleness threshold: if dt since last update exceeds this, reset baseline
+# to avoid phantom acceleration spikes after pipeline restart or pause.
+_ACCEL_STALENESS_FACTOR = 5.0
+_prev_vel: dict[str, tuple[np.ndarray, float]] = {}
 
 
 _DIM_WARNED: set[str] = set()
@@ -258,9 +262,11 @@ def joint_velocity_limit(
     description="Clamps the action's joint accelerations to ±max_acceleration (smoothing / jitter suppression).",
     params={
         "max_acceleration": "Per-joint max acceleration in rad/s².",
+        "slack_weight": "QP soft-constraint penalty. Higher values make violating this limit more expensive.",
         "use_degrees": "UI/loader hint: interpret max_acceleration as deg/s². Normalised to rad/s² once at load.",
     },
     unit_params=("max_acceleration",),
+    internal_params=("slack_weight",),
 )
 def joint_acceleration_limit(
     *,
@@ -268,6 +274,8 @@ def joint_acceleration_limit(
     action: ActionProposal,
     dt: float,
     max_acceleration: list[float] | float,
+    slack_weight: float = 100.0,
+    boundary_name: str = "joint_acceleration_limit",
 ) -> CallbackResult:
     """Clamp proposed acceleration per joint.
 
@@ -276,7 +284,7 @@ def joint_acceleration_limit(
 
     ``dt`` is auto-injected by GuardRuntime.
     """
-    bname = "joint_acceleration_limit"
+    bname = boundary_name
     if obs.joint_positions is None:
         return CallbackResult.ok(bname, "no joint state to act on")
 
@@ -302,9 +310,19 @@ def joint_acceleration_limit(
         velocities = (target_pos[:n] - cur_pos[:n]) / dt_safe
 
     # ── Acceleration clamp ────────────────────────────────────────────────
-    prev_v = _prev_vel.get(bname)
-    if prev_v is None or prev_v.shape != velocities.shape:
-        _prev_vel[bname] = velocities.copy()
+    import time as _time
+
+    now_mono = _time.monotonic()
+    entry = _prev_vel.get(bname)
+    stale = entry is None or entry[0].shape != velocities.shape
+    if not stale:
+        prev_v, prev_t = entry
+        elapsed = now_mono - prev_t
+        if elapsed > dt_safe * _ACCEL_STALENESS_FACTOR:
+            stale = True
+
+    if stale:
+        _prev_vel[bname] = (velocities.copy(), now_mono)
         return CallbackResult.ok(
             bname,
             metadata={
@@ -314,10 +332,11 @@ def joint_acceleration_limit(
             },
         )
 
+    prev_v, _ = entry  # type: ignore[misc]
     accel = (velocities - prev_v) / dt_safe
     over_accel = np.abs(accel) > a_max
     if not np.any(over_accel):
-        _prev_vel[bname] = velocities.copy()
+        _prev_vel[bname] = (velocities.copy(), now_mono)
         return CallbackResult.ok(
             bname,
             metadata={
@@ -334,7 +353,7 @@ def joint_acceleration_limit(
 
     clamped_accel = np.clip(accel, -a_max, a_max)
     velocities = prev_v + clamped_accel * dt_safe
-    _prev_vel[bname] = velocities.copy()
+    _prev_vel[bname] = (velocities.copy(), now_mono)
 
     new_pos = target_pos.copy()
     new_pos[:n] = cur_pos[:n] + velocities * dt_safe
@@ -352,7 +371,23 @@ def joint_acceleration_limit(
         original_proposal=action,
         timestamp=action.timestamp,
     )
-    return CallbackResult.clamp(bname, clamped_action, reason=reason)
+    # QPTerm: the acceleration limit constrains velocity to [prev_v - a_max*dt, prev_v + a_max*dt],
+    # which translates to a position box of [cur_pos + v_lo*dt, cur_pos + v_hi*dt].
+    v_lo = prev_v - a_max * dt_safe
+    v_hi = prev_v + a_max * dt_safe
+    span_lo = v_lo * dt_safe
+    span_hi = v_hi * dt_safe
+    qp_meta = QPTerm(
+        upper=cur_pos[:n] + np.maximum(span_lo, span_hi),
+        lower=cur_pos[:n] + np.minimum(span_lo, span_hi),
+        slack_weight=float(slack_weight),
+    )
+    return CallbackResult.clamp(
+        bname,
+        clamped_action,
+        reason=reason,
+        metadata={"motion_qp": qp_meta, "_units": motion_qp_units(qp_meta)},
+    )
 
 
 @boundary_callback(

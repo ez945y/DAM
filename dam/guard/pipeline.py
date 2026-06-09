@@ -224,8 +224,8 @@ def run_callbacks(
             continue
 
         params = dict(constraint.params or {})
-        kwargs = {**runtime_pool, **params}
         bname = boundary_name or callback_name
+        kwargs = {**runtime_pool, "boundary_name": bname, **params}
 
         try:
             raw = callback(**_filter_kwargs(callback, kwargs))

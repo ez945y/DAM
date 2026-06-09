@@ -276,8 +276,111 @@ class TestJointAccelerationLimit:
         assert result.decision == GuardDecision.PASS
         assert "max_acceleration" in result.metadata
 
+    def test_staleness_resets_baseline(self, monkeypatch):
+        """After a time gap > dt * staleness_factor, treat as first cycle (PASS)."""
+        import time as _time
 
-# ── EE velocity limit ──────────────────────────────────────────────────────────
+        from dam.boundary.callbacks import kinematics as kin_mod
+
+        fake_time = [0.0]
+        monkeypatch.setattr(_time, "monotonic", lambda: fake_time[0])
+
+        # Cycle 1: establish baseline at t=0
+        joint_acceleration_limit(
+            obs=_obs(positions=[0.0] * 6),
+            action=_action([0.0] * 6),
+            dt=0.02,
+            max_acceleration=[5.0] * 6,
+        )
+        # Cycle 2: huge jump but within staleness window → should clamp
+        fake_time[0] = 0.02
+        result = joint_acceleration_limit(
+            obs=_obs(positions=[0.0] * 6),
+            action=_action([1.0] * 6),
+            dt=0.02,
+            max_acceleration=[5.0] * 6,
+        )
+        assert result.decision == GuardDecision.CLAMP
+
+        # Cycle 3: same jump but after staleness gap → should PASS (baseline reset)
+        fake_time[0] = 10.0  # way beyond 0.02 * 5.0 = 0.1s
+        result = joint_acceleration_limit(
+            obs=_obs(positions=[0.0] * 6),
+            action=_action([1.0] * 6),
+            dt=0.02,
+            max_acceleration=[5.0] * 6,
+        )
+        assert result.decision == GuardDecision.PASS
+
+    def test_clamp_includes_qp_term(self):
+        """CLAMP result should include QPTerm metadata for QP aggregator."""
+        from dam.guard.aggregators.motion_qp import QPTerm
+
+        # Cycle 1: establish baseline
+        joint_acceleration_limit(
+            obs=_obs(positions=[0.0] * 6),
+            action=_action([0.0] * 6),
+            dt=0.02,
+            max_acceleration=[5.0] * 6,
+        )
+        # Cycle 2: big jump → clamp
+        result = joint_acceleration_limit(
+            obs=_obs(positions=[0.0] * 6),
+            action=_action([1.0] * 6),
+            dt=0.02,
+            max_acceleration=[5.0] * 6,
+        )
+        assert result.decision == GuardDecision.CLAMP
+        assert "motion_qp" in result.metadata
+        qp = result.metadata["motion_qp"]
+        assert isinstance(qp, QPTerm)
+        assert qp.upper.shape == (6,)
+        assert qp.lower.shape == (6,)
+        # Bounds should be finite and lower <= upper
+        assert np.all(np.isfinite(qp.upper))
+        assert np.all(np.isfinite(qp.lower))
+        assert np.all(qp.lower <= qp.upper)
+
+    def test_boundary_name_scopes_state(self):
+        """Different boundary_name values get independent velocity histories."""
+        # Instance A: establish baseline at v=0
+        joint_acceleration_limit(
+            obs=_obs(positions=[0.0] * 6),
+            action=_action([0.0] * 6),
+            dt=0.02,
+            max_acceleration=[5.0] * 6,
+            boundary_name="arm_left",
+        )
+        # Instance B: also baseline at v=0
+        joint_acceleration_limit(
+            obs=_obs(positions=[0.0] * 6),
+            action=_action([0.0] * 6),
+            dt=0.02,
+            max_acceleration=[5.0] * 6,
+            boundary_name="arm_right",
+        )
+        # Instance A: big jump → should clamp (has baseline from A's first cycle)
+        result_a = joint_acceleration_limit(
+            obs=_obs(positions=[0.0] * 6),
+            action=_action([1.0] * 6),
+            dt=0.02,
+            max_acceleration=[5.0] * 6,
+            boundary_name="arm_left",
+        )
+        assert result_a.decision == GuardDecision.CLAMP
+
+        # Instance B: same jump → should also clamp (has its own baseline)
+        result_b = joint_acceleration_limit(
+            obs=_obs(positions=[0.0] * 6),
+            action=_action([1.0] * 6),
+            dt=0.02,
+            max_acceleration=[5.0] * 6,
+            boundary_name="arm_right",
+        )
+        assert result_b.decision == GuardDecision.CLAMP
+
+
+# ── EE velocity limit ──────────────────────────��───────────────────────────────
 
 
 class TestEEVelocityLimit:

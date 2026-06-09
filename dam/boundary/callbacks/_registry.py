@@ -43,6 +43,7 @@ _RUNTIME_ONLY_PARAMS = {
     "kinematics_resolver",
     "dynamics",
     "camera_shapes",
+    "boundary_name",
 }
 
 
