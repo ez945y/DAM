@@ -176,13 +176,27 @@ Isaac sidecar:
 - `-W error` 模式下 0 warnings
 
 **已記錄但未修的技術債（spawn_task）：**
-- `joint_acceleration_limit` 無 QPTerm（QP aggregator 無法 enforce 加速度約束）
-- `_prev_vel` module-level global 需 scoping 到 pipeline lifecycle
+- ~~`joint_acceleration_limit` 無 QPTerm~~ → ✅ Session #8 已修
+- ~~`_prev_vel` module-level global 需 scoping~~ → ✅ Session #8 已修
+
+### 10. Architecture debt: joint_acceleration_limit (Session #8)
+
+三項架構債修復：
+
+1. **QPTerm metadata**: acceleration clamp 結果帶 position box bounds，從 `[prev_v ± a_max*dt]` 推導 position range，QP aggregator 可 fuse
+2. **Timestamp-based staleness**: `_prev_vel` entry 帶 `time.monotonic()` 戳記，elapsed > `dt * 5` 自動 reset baseline（防 pipeline restart false alarm）
+3. **Instance-scoped state**: pipeline runner 新增 `boundary_name` injection 到 callback kwargs；`joint_acceleration_limit` 用 boundary_name 當 `_prev_vel` key，多 boundary container 用同一 callback 不汙染
+
+涉及檔案：
+- `dam/boundary/callbacks/kinematics.py` — staleness + QPTerm + boundary_name param
+- `dam/guard/pipeline.py` — inject `boundary_name` into kwargs
+- `dam/boundary/callbacks/_registry.py` — `boundary_name` 加入 `_RUNTIME_ONLY_PARAMS`
+- `tests/unit/test_builtin_callbacks.py` — 3 項新測試
 
 ## 驗證證據（本輪）
 
 - `make test` — all checks passed
-- pytest unit: 752 passed, 0 warnings
+- pytest unit: 755 passed, 0 warnings
 - pytest integration: 28 passed
 - pytest safety: 35 passed
 - pytest property: 2 passed
@@ -193,6 +207,5 @@ Isaac sidecar:
 
 1. 在 IsaacLab runtime 中 launch `scripts/dam_safety_demo.py --controller ik`，確認 Pinocchio FK frame 與 Isaac body frame 對齊（需 Isaac runtime）。
 2. 極小 EE-policy snippet 使用 resolver path — 可在無 Isaac 環境下做。
-3. `joint_acceleration_limit` QPTerm（spawn_task 已記錄）。
-4. `_prev_vel` lifecycle scoping（spawn_task 已記錄）。
-5. 最後再考慮 runtime pool 是否需要 `target_ee_pos`，不要提前加。
+3. 掃描剩餘架構債（TODO/FIXME、其他 module-level mutable state、missing QPTerm 的其他 callbacks）。
+4. 最後再考慮 runtime pool 是否需要 `target_ee_pos`，不要提前加。

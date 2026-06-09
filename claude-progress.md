@@ -6,7 +6,7 @@
 - **倉庫根目錄**: `/Users/chenyizhong/Documents/Claude/Projects/Security Guard.nosync`
 - **標準啟動路徑**: `make dev`
 - **標準驗證路徑**: `make test`
-- **基線狀態**: `make test` — all checks passed（截至 2026-06-08）；本輪續跑 `.venv/bin/python -m pytest tests/unit/ -x -q` — 752 passed
+- **基線狀態**: `make test` — all checks passed（截至 2026-06-09）；755 unit + 28 integration + 35 safety + 2 property + Rust + Jest 109
 
 ## 當前最高優先級未完成功能
 
@@ -36,11 +36,25 @@
   - `make test` — all checks passed（752 unit + 28 integration + 35 safety + 2 property + Rust + Jest）
   - `pytest -W error` — 0 warnings
 - **未修的 review findings（已記錄為 spawn_task）**:
-  - `joint_acceleration_limit` 無 QPTerm（需 QP term 設計）
-  - `_prev_vel` 全域狀態需 scoping 到 pipeline lifecycle
+  - ~~`joint_acceleration_limit` 無 QPTerm~~ → ✅ 已修
+  - ~~`_prev_vel` 全域狀態需 scoping 到 pipeline lifecycle~~ → ✅ 已修
 - **下一步**:
   - 極小 EE-policy snippet（resolver path end-to-end）
   - 或等 Isaac runtime 驗證 body frame 對齊
+
+### Session 2026-06-09 #8 (Architecture debt: accel callback)
+
+- **本輪目標**: 消除 `joint_acceleration_limit` 三項架構債
+- **已完成**:
+  1. **QPTerm metadata**: 加速度 clamp 結果現在帶 position box bounds（從 acceleration-limited velocity range 推導），QP aggregator 可以 enforce
+  2. **Timestamp-based staleness**: `_prev_vel` 帶 `time.monotonic()` 戳記，elapsed > `dt * 5` 時自動 reset baseline，防止 pipeline restart 時 stale velocity history 造成 false alarm
+  3. **Instance-scoped state**: pipeline runner 注入 `boundary_name` 到 callback kwargs，`joint_acceleration_limit` 用它當 `_prev_vel` key（取代 hardcoded string），多個 boundary container 用同一 callback 不會互相汙染
+- **新增測試**: 3 項（staleness reset、QPTerm 驗證、boundary_name scope 隔離）
+- **執行過的驗證**:
+  - `make test` — all checks passed（755 unit + 28 integration + 35 safety + 2 property + Rust + Jest 109）
+- **下一步**:
+  - 掃描剩餘架構債
+  - 或推進 EE-policy snippet / Isaac runtime 驗證
 
 ### Session 2026-06-08 #6 (Pinocchio FK frame sanity test)
 
