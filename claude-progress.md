@@ -52,9 +52,15 @@
 - **新增測試**: 3 項（staleness reset、QPTerm 驗證、boundary_name scope 隔離）
 - **執行過的驗證**:
   - `make test` — all checks passed（755 unit + 28 integration + 35 safety + 2 property + Rust + Jest 109）
+- **後續追加**:
+  4. **ee_velocity_limit QPTerm**: 線性化 `||J @ v|| <= max_v` 為 A-matrix QPTerm，QP aggregator 可 fuse
+  5. **unused imports cleanup**: ruff F401 清理 19 項未用 import
+  6. 所有 L1 kinematics callbacks 現在都產生 QP metadata
+- **執行過的驗證**:
+  - `make test` — all checks passed（756 unit + 28 integration + 35 safety + 2 property + Rust + Jest 109）
 - **下一步**:
-  - 掃描剩餘架構債
-  - 或推進 EE-policy snippet / Isaac runtime 驗證
+  - 推進 EE-policy snippet / Isaac runtime 驗證
+  - 或其他品質改進
 
 ### Session 2026-06-08 #6 (Pinocchio FK frame sanity test)
 

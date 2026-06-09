@@ -1,6 +1,6 @@
 # session-handoff.md — 會話交接摘要
 
-> 最後更新: 2026-06-08 (Code review + safety hardening)
+> 最後更新: 2026-06-09 (Architecture debt resolution — all L1 QPTerm complete)
 
 ## 本輪完成
 
@@ -193,10 +193,27 @@ Isaac sidecar:
 - `dam/boundary/callbacks/_registry.py` — `boundary_name` 加入 `_RUNTIME_ONLY_PARAMS`
 - `tests/unit/test_builtin_callbacks.py` — 3 項新測試
 
+### 11. ee_velocity_limit QPTerm (Session #8 cont.)
+
+- 線性化 `||J @ v|| <= max_v` 為 A-matrix QPTerm（`d^T @ J @ v <= max_v`，d 為當前 EE 速度方向）
+- 所有 L1 kinematics callbacks 現在都產生 QP metadata：
+  - `joint_position_limits` → box bounds
+  - `joint_velocity_limit` → box bounds
+  - `joint_acceleration_limit` → box bounds（本輪新增）
+  - `ee_velocity_limit` → A-matrix constraint（本輪新增）
+  - `workspace` → CBF A-matrix
+  - `keep_out_zone` → CBF A-matrix
+  - `orientation_limit` → CBF A-matrix
+
+### 12. Unused imports cleanup (Session #8 cont.)
+
+- 19 unused imports removed across codebase（ruff F401）
+- 0 ruff errors, 0 mypy errors
+
 ## 驗證證據（本輪）
 
 - `make test` — all checks passed
-- pytest unit: 755 passed, 0 warnings
+- pytest unit: 756 passed, 0 warnings
 - pytest integration: 28 passed
 - pytest safety: 35 passed
 - pytest property: 2 passed
@@ -207,5 +224,4 @@ Isaac sidecar:
 
 1. 在 IsaacLab runtime 中 launch `scripts/dam_safety_demo.py --controller ik`，確認 Pinocchio FK frame 與 Isaac body frame 對齊（需 Isaac runtime）。
 2. 極小 EE-policy snippet 使用 resolver path — 可在無 Isaac 環境下做。
-3. 掃描剩餘架構債（TODO/FIXME、其他 module-level mutable state、missing QPTerm 的其他 callbacks）。
-4. 最後再考慮 runtime pool 是否需要 `target_ee_pos`，不要提前加。
+3. 最後再考慮 runtime pool 是否需要 `target_ee_pos`，不要提前加。
