@@ -11,7 +11,6 @@ if TYPE_CHECKING:
 import logging
 
 from fastapi import APIRouter, Body, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import Response
 
 logger = logging.getLogger(__name__)
 

@@ -11,11 +11,6 @@ import dataclasses
 import logging
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
-
-from dam.injection.static import precompute_injection
-from dam.runtime.execution_engine import _filter_kwargs
-
 if TYPE_CHECKING:
     from dam.config.schema import StackfileConfig
     from dam.kinematics.resolver import KinematicsResolver

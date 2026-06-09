@@ -23,7 +23,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 try:
-    import mcap
+    import mcap  # noqa: F401
     from mcap.exceptions import EndOfFile, McapError
     from mcap.reader import NonSeekingReader as _NonSeekingReader
     from mcap.reader import make_reader as _make_reader

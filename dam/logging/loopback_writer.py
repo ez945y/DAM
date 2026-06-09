@@ -50,7 +50,6 @@ import contextlib
 import json
 import logging
 import queue
-import threading
 import time
 import uuid
 from pathlib import Path

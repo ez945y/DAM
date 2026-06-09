@@ -6,7 +6,6 @@ import numpy as np
 import pytest
 
 from dam.boundary.builtin_callbacks import (
-    _CALLBACKS,
     current_limit,
     ee_velocity_limit,
     force_torque_limit,
@@ -21,6 +20,7 @@ from dam.boundary.builtin_callbacks import (
     voltage_limit,
     workspace,
 )
+from dam.boundary.callbacks._registry import _CALLBACKS
 from dam.registry.callback import CallbackRegistry
 from dam.types.action import ActionProposal
 from dam.types.observation import Observation

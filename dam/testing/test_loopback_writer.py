@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import queue
 import threading
 import time
 from pathlib import Path
@@ -17,7 +16,7 @@ from dam.guard.layer import GuardLayer
 from dam.logging.cycle_record import CycleRecord
 from dam.types.action import ActionProposal, ValidatedAction
 from dam.types.observation import Observation
-from dam.types.result import GuardDecision, GuardResult
+from dam.types.result import GuardResult
 
 # ── Fixtures ───────────────────────────────────────────────────────────────────
 

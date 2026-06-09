@@ -80,7 +80,6 @@ class VisionFeatureExtractor:
 
     def _load_mobilenet_v3_large(self, device: Any) -> None:
         import torch
-        import torch.nn.functional as F
         from torchvision.models import MobileNet_V3_Large_Weights, mobilenet_v3_large
 
         weights = MobileNet_V3_Large_Weights.IMAGENET1K_V1

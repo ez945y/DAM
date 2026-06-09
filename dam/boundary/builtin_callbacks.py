@@ -9,8 +9,6 @@ import register_all``, …) keep working.
 from __future__ import annotations
 
 from dam.boundary.callbacks import (
-    _CALLBACKS,
-    _CATALOG,
     boundary_callback,
     current_limit,
     ee_velocity_limit,
@@ -31,14 +29,6 @@ from dam.boundary.callbacks import (
     temperature_limit,
     voltage_limit,
     workspace,
-)
-from dam.boundary.callbacks._helpers import (
-    _get_ee_pose,
-    _point_in_polygon,
-    _quat_to_rotmat,
-    _read_channel,
-    _resolve_ee_rotation,
-    _resolve_ee_translation,
 )
 
 __all__ = [

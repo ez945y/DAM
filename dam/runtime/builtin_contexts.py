@@ -31,7 +31,7 @@ from dam.runtime.context import (
     SEVERITY_WAIT_AND_RETRY,
     StepContext,
     StepResult,
-    make_context,
+    make_context,  # noqa: F401 — re-exported for tests
 )
 from dam.types.action import ActionProposal, ValidatedAction
 from dam.types.result import GuardDecision
