@@ -482,7 +482,9 @@ def joint_position_limits(
     description="Clamps the end-effector linear velocity magnitude to max_ee_velocity (m/s). Protects environment/humans.",
     params={
         "max_ee_velocity": "Maximum EE linear speed in m/s.",
+        "slack_weight": "QP soft-constraint penalty. Higher values make violating this limit more expensive.",
     },
+    internal_params=("slack_weight",),
 )
 def ee_velocity_limit(
     *,
@@ -490,6 +492,7 @@ def ee_velocity_limit(
     action: ActionProposal,
     dt: float,
     max_ee_velocity: float = 0.5,
+    slack_weight: float = 100.0,
     J_linear: np.ndarray | None = None,
     kinematics_resolver: KinematicsResolver | None = None,
     dynamics: Any | None = None,
@@ -564,6 +567,16 @@ def ee_velocity_limit(
         original_proposal=action,
         timestamp=action.timestamp,
     )
+    # QPTerm: linearize ||J @ v|| <= max_v at the current EE velocity direction.
+    # d = v_ee / ||v_ee||; constraint: d^T @ J @ v <= max_v
+    # In position-space: (d^T @ J / dt) @ pos <= max_v + (d^T @ J / dt) @ cur_pos
+    d = v_ee / (ee_speed + 1e-12)
+    dJ = (d @ J_linear[:, :n]) / dt_safe  # (n,) row
+    A_row = dJ.reshape(1, -1)
+    b_val = np.array([max_v / dt_safe + float(dJ @ cur_pos[:n])])
+    qp_meta = QPTerm(A=A_row, b=b_val, slack_weight=float(slack_weight))
+    meta["motion_qp"] = qp_meta
+    meta["_units"] = {**meta.get("_units", {}), **motion_qp_units(qp_meta)}
     return CallbackResult.clamp(bname, clamped_action, reason=reason, metadata=meta)
 
 

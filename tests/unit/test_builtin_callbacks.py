@@ -463,6 +463,29 @@ class TestEEVelocityLimit:
         )
         assert result.decision == GuardDecision.REJECT
 
+    def test_clamp_includes_qp_term(self):
+        """CLAMP result should include QPTerm with A-matrix constraint."""
+        from dam.guard.aggregators.motion_qp import QPTerm
+
+        J = np.eye(3, 6, dtype=np.float64)
+        result = ee_velocity_limit(
+            obs=_obs(positions=[0.0] * 6),
+            action=_action([0.5] * 3 + [0.0] * 3),
+            dt=0.1,
+            max_ee_velocity=0.5,
+            J_linear=J,
+        )
+        assert result.decision == GuardDecision.CLAMP
+        assert "motion_qp" in result.metadata
+        qp = result.metadata["motion_qp"]
+        assert isinstance(qp, QPTerm)
+        assert qp.A is not None
+        assert qp.b is not None
+        assert qp.A.shape == (1, 6)
+        assert qp.b.shape == (1,)
+        assert np.all(np.isfinite(qp.A))
+        assert np.all(np.isfinite(qp.b))
+
 
 # ── dynamic joint count ────────────────────────────────────────────────────────
 
