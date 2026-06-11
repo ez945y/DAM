@@ -486,6 +486,58 @@ class TestEEVelocityLimit:
         assert np.all(np.isfinite(qp.A))
         assert np.all(np.isfinite(qp.b))
 
+    def test_more_motors_than_jacobian_columns(self):
+        """Robot reports 6 motors but URDF Jacobian has 5 columns (SO-ARM:
+        5 arm joints + gripper). The QPTerm linearization must not crash
+        on the width mismatch; the unmodelled joint gets a zero coefficient."""
+        J = np.eye(3, 5, dtype=np.float64)
+        result = ee_velocity_limit(
+            obs=_obs(positions=[0.0] * 6),
+            action=_action([0.5] * 3 + [0.0] * 3),
+            dt=0.1,
+            max_ee_velocity=0.5,
+            J_linear=J,
+        )
+        assert result.decision == GuardDecision.CLAMP
+        qp = result.metadata["motion_qp"]
+        assert qp.A.shape == (1, 6)
+        assert qp.A[0, 5] == 0.0
+        assert np.all(np.isfinite(qp.A))
+        assert np.all(np.isfinite(qp.b))
+
+    def test_jacobian_joint_indices_gather(self):
+        """With a layout-derived column map, joint state is gathered by
+        index instead of positionally — here the modelled joints are the
+        *last* five entries (gripper first), which positional truncation
+        would get wrong."""
+        J = np.zeros((3, 5), dtype=np.float64)
+        J[0, 0] = 1.0  # EE x velocity = joint obs[1] velocity
+        idx = np.array([1, 2, 3, 4, 5])
+        # Only the gripper (obs[0]) moves fast: EE doesn't move at all.
+        result = ee_velocity_limit(
+            obs=_obs(positions=[0.0] * 6),
+            action=_action([5.0] + [0.0] * 5),
+            dt=0.1,
+            max_ee_velocity=0.5,
+            J_linear=J,
+            jacobian_joint_indices=idx,
+        )
+        assert result.decision == GuardDecision.PASS
+        # Now the mapped joint obs[1] moves fast → CLAMP.
+        result = ee_velocity_limit(
+            obs=_obs(positions=[0.0] * 6),
+            action=_action([0.0, 0.5] + [0.0] * 4),
+            dt=0.1,
+            max_ee_velocity=0.5,
+            J_linear=J,
+            jacobian_joint_indices=idx,
+        )
+        assert result.decision == GuardDecision.CLAMP
+        qp = result.metadata["motion_qp"]
+        assert qp.A.shape == (1, 6)
+        assert qp.A[0, 0] == 0.0  # gripper column untouched
+        assert qp.A[0, 1] != 0.0
+
 
 # ── dynamic joint count ────────────────────────────────────────────────────────
 

@@ -71,6 +71,7 @@ class DynamicsContext:
         self._joint_names = list(joint_names)
         self._frame_ids: dict[str, int] = dict(frame_ids or {})
         self._jac_cache: dict[int, np.ndarray] = {}
+        self._q_indices_cache: dict[tuple[str, ...], np.ndarray | None] = {}
         self._last_q: np.ndarray | None = None
         # The first registered frame is treated as the "primary" end-effector
         # frame for safety filters (workspace CBF, force projection) that
@@ -97,6 +98,26 @@ class DynamicsContext:
     @property
     def joint_names(self) -> list[str]:
         return list(self._joint_names)
+
+    def q_indices_for(self, observation_names: list[str]) -> np.ndarray | None:
+        """Map this model's q layout into an observation vector, by joint name.
+
+        Returns an index array ``idx`` such that ``obs[idx]`` is the model's
+        ``q`` (e.g. SO-ARM: observation lists 6 motors, the reduced model
+        covers the 5 arm joints — ``idx`` picks those 5 wherever they sit).
+        Returns None when any model joint is missing from the observation,
+        so callers can fall back to positional alignment.
+        """
+        key = tuple(observation_names)
+        if key in self._q_indices_cache:
+            return self._q_indices_cache[key]
+        name_to_obs = {n: i for i, n in enumerate(observation_names)}
+        try:
+            idx = np.array([name_to_obs[n] for n in self._joint_names], dtype=np.intp)
+        except KeyError:
+            idx = None
+        self._q_indices_cache[key] = idx
+        return idx
 
     @property
     def nq(self) -> int:

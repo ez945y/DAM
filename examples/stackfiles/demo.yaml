@@ -2,6 +2,7 @@ version: "1"
 
 hardware:
   preset: so101_follower
+  input_space: joint    # joint (default) or ee; must match policy.input_space
   sources:
     main:
       type: dataset
@@ -14,6 +15,7 @@ hardware:
 
 policy:
   type: act
+  input_space: joint    # joint (default) or ee; must match hardware.input_space
   pretrained_path: MikeChenYZ/act-soarm-fmb-v2
   device: cpu
 

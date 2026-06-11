@@ -53,6 +53,19 @@ def _compute_fk_into_pool(
         return
     try:
         q = np.asarray(joint_positions, dtype=np.float64)
+        # Align the observation vector with the model's q by joint name —
+        # the preset layout knows the observation order, the dynamics
+        # context knows which (sub)set of joints the URDF model covers.
+        # Falls back to dynamics.update()'s positional truncation when
+        # names don't line up (e.g. trivial layouts without names).
+        jac_idx = None
+        layout = pool.get("joint_layout")
+        obs_names = list(getattr(layout, "names", None) or [])
+        if obs_names and hasattr(dynamics, "q_indices_for"):
+            idx = dynamics.q_indices_for(obs_names)
+            if idx is not None and q.shape[0] > int(idx.max()):
+                jac_idx = idx
+                q = q[idx]
         dynamics.update(q)
         placement = dynamics.frame_placement(fid)
         J_full = np.asarray(dynamics.frame_jacobian(fid), dtype=np.float64)
@@ -60,6 +73,9 @@ def _compute_fk_into_pool(
         pool["ee_rot"] = np.asarray(placement.rotation, dtype=np.float64).copy()
         pool["J_linear"] = J_full[:3, :].copy()
         pool["J_angular"] = J_full[3:, :].copy()
+        # Which observation indices the Jacobian columns refer to; callbacks
+        # gather joint state with this instead of guessing positionally.
+        pool["jacobian_joint_indices"] = jac_idx
     except Exception:  # noqa: BLE001
         # FK failure is non-fatal; callbacks degrade gracefully without EE data.
         pass

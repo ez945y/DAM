@@ -85,21 +85,16 @@ need_cmd cargo "Install: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.
 # ── Python virtual environment ─────────────────────────────────────────────────
 if ! $RUST_ONLY; then
     info "Syncing Python environment (uv)…"
-    # Common base for BOTH the lerobot and ROS2 configurations.  torch is
-    # always required (policies / OOD feature extractor), and 'safety' pulls in
-    # proxsuite — the QP/CBF solver L1 boundaries use when a stackfile sets
-    # qp_solver: proxsuite.  Without proxsuite those configs fail at startup, so
-    # it belongs in the default setup, not as an opt-in.
-    EXTRAS="--extra dev --extra services --extra torch --extra safety"
+    # torch and lerobot are core dependencies of robot-dam now, so they are
+    # always installed by 'uv sync'.  'safety' pulls in proxsuite — the QP/CBF
+    # solver L1 boundaries use when a stackfile sets qp_solver: proxsuite.
+    # Without proxsuite those configs fail at startup, so it belongs in the
+    # default setup, not as an opt-in.
+    EXTRAS="--extra dev --extra services --extra safety"
     if $WITH_LEROBOT; then
-        EXTRAS="$EXTRAS --extra lerobot"
-        info "  including lerobot extras (hardware support + cv2)"
+        info "  lerobot hardware support is included by default"
     elif [[ -f .venv/bin/python ]] && .venv/bin/python -c "import lerobot" 2>/dev/null; then
-        # Preserve lerobot extras if they were previously installed.
-        # Running plain `make setup` won't silently remove hardware support.
         WITH_LEROBOT=true
-        EXTRAS="$EXTRAS --extra lerobot"
-        info "  lerobot detected in existing venv — preserving hardware extras"
     fi
     if $WITH_ROS; then
         EXTRAS="$EXTRAS --extra ros2"
@@ -115,14 +110,12 @@ if ! $RUST_ONLY; then
     uv sync --frozen --inexact $EXTRAS
 
     # Defensive check: Ensure torch isn't a broken namespace package
-    if [[ "$EXTRAS" == *"--extra torch"* ]]; then
-        info "Verifying PyTorch installation…"
-        if ! .venv/bin/python -c "import torch.nn as nn; nn.Module" 2>/dev/null; then
-            warn "PyTorch found but appears broken (namespace collision or missing __init__.py)."
-            info "  Attempting forced clean install of torch…"
-            # We use `uv pip` directly here to force the specific package to refresh
-            uv pip install --python .venv/bin/python --force-reinstall torch
-        fi
+    info "Verifying PyTorch installation…"
+    if ! .venv/bin/python -c "import torch.nn as nn; nn.Module" 2>/dev/null; then
+        warn "PyTorch found but appears broken (namespace collision or missing __init__.py)."
+        info "  Attempting forced clean install of torch…"
+        # We use `uv pip` directly here to force the specific package to refresh
+        uv pip install --python .venv/bin/python --force-reinstall torch
     fi
     ok "Python venv ready (.venv)"
 fi

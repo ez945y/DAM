@@ -19,6 +19,7 @@ version: "1"
 
 hardware:
   preset: so101_follower
+  input_space: joint    # joint (default) or ee; must match policy.input_space
   sources:
     replay:
       type: dataset

@@ -44,6 +44,9 @@ dam = "dam.cli:main"
 Homepage = "https://github.com/MikeChenYZ/robot-dam"
 Documentation = "https://github.com/MikeChenYZ/robot-dam#readme"
 
+[tool.uv.sources]
+dam-rs = { path = "dam-rust/dam-py" }
+
 [project.optional-dependencies]
 # ── Development tools ─────────────────────────────────────────────────────
 dev = [
@@ -73,10 +76,9 @@ services = [
     "msgspec>=0.18.6",
 ]
 
-# Isaac Sim 6.0 adapter (isaacsim is installed separately via pip)
-isaac = [
-    "isaacsim>=4.5",
-]
+# Isaac Sim 6.0 adapter (isaacsim is installed separately via pip — no
+# macOS or Python ≥3.11 wheels exist, so it cannot be locked here)
+isaac = []
 
 # Safety filters — QP-based clamping (CBF, slack)
 safety = [

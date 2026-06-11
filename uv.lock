@@ -752,106 +752,9 @@ wheels = [
 ]
 
 [[package]]
-name = "dam"
+name = "dam-rs"
 version = "0.5.0"
-source = { editable = "." }
-dependencies = [
-    { name = "msgpack" },
-    { name = "numpy" },
-    { name = "opencv-python" },
-    { name = "pydantic" },
-    { name = "pyserial" },
-    { name = "pyyaml" },
-    { name = "scipy" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "hypothesis" },
-    { name = "matplotlib" },
-    { name = "maturin" },
-    { name = "mypy" },
-    { name = "pre-commit" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "ruff" },
-]
-full = [
-    { name = "datasets" },
-    { name = "fastapi" },
-    { name = "httpx" },
-    { name = "hypothesis" },
-    { name = "lerobot", extra = ["feetech"] },
-    { name = "matplotlib" },
-    { name = "maturin" },
-    { name = "mcap" },
-    { name = "msgpack" },
-    { name = "msgspec" },
-    { name = "mypy" },
-    { name = "pin" },
-    { name = "pre-commit" },
-    { name = "proxsuite" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "ruff" },
-    { name = "torch" },
-    { name = "uvicorn", extra = ["standard"] },
-]
-lerobot = [
-    { name = "lerobot", extra = ["feetech"] },
-    { name = "pin" },
-]
-ros2 = [
-    { name = "transforms3d" },
-]
-safety = [
-    { name = "proxsuite" },
-]
-services = [
-    { name = "datasets" },
-    { name = "fastapi" },
-    { name = "httpx" },
-    { name = "msgspec" },
-    { name = "uvicorn", extra = ["standard"] },
-]
-torch = [
-    { name = "mcap" },
-    { name = "msgpack" },
-    { name = "torch" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "dam", extras = ["dev", "torch", "lerobot", "services", "safety"], marker = "extra == 'full'" },
-    { name = "datasets", marker = "extra == 'services'", specifier = ">=2.16" },
-    { name = "fastapi", marker = "extra == 'services'", specifier = ">=0.110" },
-    { name = "httpx", marker = "extra == 'services'", specifier = ">=0.27" },
-    { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.100" },
-    { name = "lerobot", extras = ["feetech"], marker = "extra == 'lerobot'" },
-    { name = "matplotlib", marker = "extra == 'dev'", specifier = ">=3.7" },
-    { name = "maturin", marker = "extra == 'dev'", specifier = ">=1.0,<2.0" },
-    { name = "mcap", marker = "extra == 'torch'", specifier = ">=1.1" },
-    { name = "msgpack", specifier = ">=1.0" },
-    { name = "msgpack", marker = "extra == 'torch'", specifier = ">=1.0" },
-    { name = "msgspec", marker = "extra == 'services'", specifier = ">=0.18.6" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.8" },
-    { name = "numpy", specifier = ">=1.24" },
-    { name = "opencv-python", specifier = ">=4.9" },
-    { name = "pin", marker = "extra == 'lerobot'", specifier = ">=2.6" },
-    { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.6" },
-    { name = "proxsuite", marker = "extra == 'safety'", specifier = ">=0.6" },
-    { name = "pydantic", specifier = ">=2.0" },
-    { name = "pyserial", specifier = ">=3.5" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
-    { name = "pyyaml", specifier = ">=6.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4" },
-    { name = "scipy", specifier = ">=1.12" },
-    { name = "torch", marker = "extra == 'torch'", specifier = ">=2.0" },
-    { name = "transforms3d", marker = "extra == 'ros2'", specifier = ">=0.4" },
-    { name = "uvicorn", extras = ["standard"], marker = "extra == 'services'", specifier = ">=0.29" },
-]
-provides-extras = ["dev", "torch", "lerobot", "ros2", "services", "safety", "full"]
+source = { directory = "dam-rust/dam-py" }
 
 [[package]]
 name = "datasets"
@@ -3598,6 +3501,100 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/f5/86/0b9c8f56398b4fc85f8e99279907c258413a297e5603f8f2537fe5806e51/rerun_sdk-0.26.2-cp39-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:a6f97b60aaa7d4e8c6124a3f6b97ce9dbd09520050955f0e0bdacb72b0eb106a", size = 98768129, upload-time = "2025-10-27T11:34:27.36Z" },
     { url = "https://files.pythonhosted.org/packages/be/e7/99fc91c0f99f69d7d43e1db0a6f6cb8273ffc02111539bfc1fee43749bad/rerun_sdk-0.26.2-cp39-abi3-win_amd64.whl", hash = "sha256:a493ad6c8357022cba2ca6f8954a81d0faf984b0b22154eb1d976bfc7649df63", size = 84267089, upload-time = "2025-10-27T11:34:32.023Z" },
 ]
+
+[[package]]
+name = "robot-dam"
+version = "0.5.0"
+source = { editable = "." }
+dependencies = [
+    { name = "dam-rs" },
+    { name = "lerobot", extra = ["feetech"] },
+    { name = "mcap" },
+    { name = "msgpack" },
+    { name = "numpy" },
+    { name = "opencv-python" },
+    { name = "pin" },
+    { name = "pydantic" },
+    { name = "pyserial" },
+    { name = "pyyaml" },
+    { name = "scipy" },
+    { name = "torch" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "hypothesis" },
+    { name = "matplotlib" },
+    { name = "maturin" },
+    { name = "mypy" },
+    { name = "pre-commit" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "ruff" },
+]
+full = [
+    { name = "datasets" },
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "hypothesis" },
+    { name = "matplotlib" },
+    { name = "maturin" },
+    { name = "msgspec" },
+    { name = "mypy" },
+    { name = "pre-commit" },
+    { name = "proxsuite" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "ruff" },
+    { name = "transforms3d" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+ros2 = [
+    { name = "transforms3d" },
+]
+safety = [
+    { name = "proxsuite" },
+]
+services = [
+    { name = "datasets" },
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "msgspec" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "dam-rs", directory = "dam-rust/dam-py" },
+    { name = "datasets", marker = "extra == 'services'", specifier = ">=2.16" },
+    { name = "fastapi", marker = "extra == 'services'", specifier = ">=0.110" },
+    { name = "httpx", marker = "extra == 'services'", specifier = ">=0.27" },
+    { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.100" },
+    { name = "lerobot", extras = ["feetech"] },
+    { name = "matplotlib", marker = "extra == 'dev'", specifier = ">=3.7" },
+    { name = "maturin", marker = "extra == 'dev'", specifier = ">=1.0,<2.0" },
+    { name = "mcap", specifier = ">=1.1" },
+    { name = "msgpack", specifier = ">=1.0" },
+    { name = "msgspec", marker = "extra == 'services'", specifier = ">=0.18.6" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.8" },
+    { name = "numpy", specifier = ">=1.24" },
+    { name = "opencv-python", specifier = ">=4.9" },
+    { name = "pin", specifier = ">=2.6" },
+    { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.6" },
+    { name = "proxsuite", marker = "extra == 'safety'", specifier = ">=0.6" },
+    { name = "pydantic", specifier = ">=2.0" },
+    { name = "pyserial", specifier = ">=3.5" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "robot-dam", extras = ["dev", "ros2", "services", "isaac", "safety"], marker = "extra == 'full'" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4" },
+    { name = "scipy", specifier = ">=1.12" },
+    { name = "torch", specifier = ">=2.0" },
+    { name = "transforms3d", marker = "extra == 'ros2'", specifier = ">=0.4" },
+    { name = "uvicorn", extras = ["standard"], marker = "extra == 'services'", specifier = ">=0.29" },
+]
+provides-extras = ["dev", "ros2", "services", "isaac", "safety", "full"]
 
 [[package]]
 name = "ruff"

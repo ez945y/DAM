@@ -494,6 +494,7 @@ def ee_velocity_limit(
     max_ee_velocity: float = 0.5,
     slack_weight: float = 100.0,
     J_linear: np.ndarray | None = None,
+    jacobian_joint_indices: np.ndarray | None = None,
     kinematics_resolver: KinematicsResolver | None = None,
     dynamics: Any | None = None,
 ) -> CallbackResult:
@@ -507,8 +508,11 @@ def ee_velocity_limit(
 
     Without a Jacobian, the callback passes (no EE info to check).
 
-    ``dt``, ``J_linear``, ``kinematics_resolver``, ``dynamics`` are
-    auto-injected by the guard pipeline.
+    ``dt``, ``J_linear``, ``jacobian_joint_indices``, ``kinematics_resolver``,
+    ``dynamics`` are auto-injected by the guard pipeline.
+    ``jacobian_joint_indices`` says which observation entries the Jacobian
+    columns refer to (from the preset joint layout); without it the leading
+    entries are assumed.
     """
     bname = "ee_velocity_limit"
     if obs.joint_positions is None:
@@ -532,9 +536,19 @@ def ee_velocity_limit(
 
     # ── Map to EE velocity via Jacobian ───────────────────────────────────
     n_jac = J_linear.shape[1]
-    v_joint_padded = np.zeros(n_jac, dtype=np.float64)
-    v_joint_padded[: min(n, n_jac)] = v_joint[: min(n, n_jac)]
-    v_ee = J_linear @ v_joint_padded
+    # Columns ↔ observation entries: use the layout-derived index map when
+    # available, otherwise assume the model joints lead the observation.
+    if (
+        jacobian_joint_indices is not None
+        and len(jacobian_joint_indices) == n_jac
+        and int(np.max(jacobian_joint_indices)) < n
+    ):
+        jac_cols = np.asarray(jacobian_joint_indices, dtype=np.intp)
+    else:
+        jac_cols = np.arange(min(n, n_jac), dtype=np.intp)
+    v_joint_model = np.zeros(n_jac, dtype=np.float64)
+    v_joint_model[: len(jac_cols)] = v_joint[jac_cols]
+    v_ee = J_linear @ v_joint_model
     ee_speed = float(np.linalg.norm(v_ee))
     max_v = float(max_ee_velocity)
 
@@ -570,10 +584,15 @@ def ee_velocity_limit(
     # QPTerm: linearize ||J @ v|| <= max_v at the current EE velocity direction.
     # d = v_ee / ||v_ee||; constraint: d^T @ J @ v <= max_v
     # In position-space: (d^T @ J / dt) @ pos <= max_v + (d^T @ J / dt) @ cur_pos
+    # The robot may report more motors than the URDF models (e.g. SO-ARM:
+    # 5 arm joints in the URDF + a gripper motor), so scatter the row into
+    # observation width via the column map — unmodelled joints (gripper)
+    # get a zero coefficient.
     d = v_ee / (ee_speed + 1e-12)
-    dJ = (d @ J_linear[:, :n]) / dt_safe  # (n,) row
-    A_row = dJ.reshape(1, -1)
-    b_val = np.array([max_v / dt_safe + float(dJ @ cur_pos[:n])])
+    dJ = (d @ J_linear) / dt_safe  # (n_jac,) row
+    A_row = np.zeros((1, n), dtype=np.float64)
+    A_row[0, jac_cols] = dJ[: len(jac_cols)]
+    b_val = np.array([max_v / dt_safe + float(A_row[0] @ cur_pos[:n])])
     qp_meta = QPTerm(A=A_row, b=b_val, slack_weight=float(slack_weight))
     meta["motion_qp"] = qp_meta
     meta["_units"] = {**meta.get("_units", {}), **motion_qp_units(qp_meta)}
