@@ -180,6 +180,7 @@ class RuntimeFactory:
                 else main_source_cfg.degrees_mode
             ),
             urdf_path=RuntimeFactory._resolve_urdf_path(config, builder.preset),
+            telemetry_hz=config.hardware.telemetry_hz if config.hardware else None,
         )
 
         supported = adapter.supported_channels()
@@ -282,6 +283,7 @@ class RuntimeFactory:
             joint_names=builder.joint_names,
             degrees_mode=degrees_mode,
             urdf_path=RuntimeFactory._resolve_urdf_path(config, builder.preset),
+            telemetry_hz=config.hardware.telemetry_hz if config.hardware else None,
         )
         supported = motor.supported_channels()
         obs_channels = RuntimeFactory._collect_channels(config, motor_name, supported)

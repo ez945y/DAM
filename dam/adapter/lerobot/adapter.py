@@ -86,11 +86,26 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
         degrees_mode: bool = True,
         obs_hz: float = 50.0,
         urdf_path: str | None = None,
+        telemetry_hz: float | None = None,
     ) -> None:
         self._robot = robot
         self._joint_names: list[str] = joint_names or list(_DEFAULT_JOINT_NAMES)
         self._degrees_mode = degrees_mode
         self._obs_hz = obs_hz
+        # Telemetry decimation: channel registers (temperature/current/…) are
+        # sync_read at most every 1/telemetry_hz seconds; between reads the
+        # cached snapshot is served, stamped with the time it was read.  The
+        # bus has a single owner (the control-loop read path) — telemetry is
+        # decimated here rather than read from another thread.
+        # None/0 → read every cycle (legacy behaviour).
+        self._telemetry_period_s: float = (
+            1.0 / float(telemetry_hz) if telemetry_hz and telemetry_hz > 0 else 0.0
+        )
+        self._telemetry_cache: tuple[dict[str, np.ndarray] | None, dict[str, Any] | None] = (
+            None,
+            None,
+        )
+        self._telemetry_read_at: float | None = None
 
         # Vectorised unit-conversion scale, bound once at init.  ALL joints
         # — including the gripper — share the same deg↔rad conversion: the
@@ -384,12 +399,17 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
         self._prev_ee_pose = ee_pose
 
         t_ch = time.perf_counter()
-        channels, hw_status = self._read_observation_data()
+        channels, hw_status, telemetry_ts = self.read_telemetry(now)
         self._lat["channels"] = (time.perf_counter() - t_ch) * 1000.0
 
         metadata: dict[str, Any] = {}
         if hw_status:
             metadata["hardware_status"] = hw_status
+        if telemetry_ts is not None and (channels or hw_status):
+            # ABI contract: telemetry may be older than this observation (up
+            # to 1/telemetry_hz).  Consumers (L3 HardwareGuard) must read this
+            # timestamp instead of assuming same-cycle freshness.
+            metadata["telemetry_timestamp"] = telemetry_ts
 
         return Observation(
             timestamp=now,
@@ -443,6 +463,27 @@ class LeRobotAdapter(SensorAdapter, ActionAdapter):
             end_effector_pose=ee_pose,
             images=images,
         )
+
+    def read_telemetry(
+        self, now: float
+    ) -> tuple[dict[str, np.ndarray] | None, dict[str, Any] | None, float | None]:
+        """Channel telemetry, decimated to ``telemetry_hz``.
+
+        Returns ``(channels, hardware_status, read_at)``.  Between bus reads
+        the cached snapshot is returned with the monotonic time it was
+        actually read, so consumers can apply their own staleness rules.
+        Called from the control-loop read path only — single bus owner.
+        """
+        due = (
+            self._telemetry_read_at is None
+            or self._telemetry_period_s <= 0.0
+            or (now - self._telemetry_read_at) >= self._telemetry_period_s
+        )
+        if due:
+            self._telemetry_cache = self._read_observation_data()
+            self._telemetry_read_at = now
+        channels, status = self._telemetry_cache
+        return channels, status, self._telemetry_read_at
 
     def _read_observation_data(
         self,

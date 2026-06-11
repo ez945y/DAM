@@ -159,6 +159,11 @@ class HardwareConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
     preset: str | None = None
     input_space: str = "joint"
+    # Cadence for telemetry register reads (temperature/current/voltage).
+    # None → read every control cycle (legacy).  The bus stays owned by the
+    # control loop; telemetry is decimated, cached, and timestamped — see
+    # docs/quick-stack.md "Telemetry cadence".
+    telemetry_hz: float | None = None
     urdf_path: str | None = None
     joints: dict[str, HardwareJointConfig] | None = None
     sources: dict[str, HardwareSourceConfig] | None = None
