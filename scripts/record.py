@@ -22,9 +22,11 @@ DAM-only arguments (not forwarded to lerobot):
 from __future__ import annotations
 
 import argparse
+import inspect
 import os
 import shutil
 import sys
+import textwrap
 import unittest.mock
 from pathlib import Path
 
@@ -299,12 +301,47 @@ def main() -> None:
 
     from dam.processor import SafetyProcessorStep
 
+    def _patch_record_loop_dataset_action() -> None:
+        """Make LeRobot record the same safety-processed action sent to hardware."""
+        wrapped_record_loop = _record_mod.record_loop
+        target_record_loop = wrapped_record_loop
+        closure = getattr(wrapped_record_loop, "__closure__", None)
+        if closure:
+            for cell in closure:
+                if getattr(cell.cell_contents, "__name__", None) == "record_loop":
+                    target_record_loop = cell.cell_contents
+                    break
+
+        source = textwrap.dedent(inspect.getsource(target_record_loop))
+        old = "        _sent_action = robot.send_action(robot_action_to_send)\n"
+        new = old + "        action_values = _sent_action\n"
+        if old not in source:
+            print(
+                "[DAM] Warning: could not patch lerobot record_loop; "
+                "dataset may contain unclamped raw actions",
+                file=sys.stderr,
+            )
+            return
+        namespace = _record_mod.__dict__
+        filename = inspect.getsourcefile(target_record_loop) or "<dam-record-loop>"
+        exec(compile(source.replace(old, new), filename, "exec"), namespace)
+        try:
+            from lerobot.datasets.image_writer import safe_stop_image_writer
+        except Exception:  # noqa: BLE001
+            return
+        namespace["record_loop"] = safe_stop_image_writer(namespace["record_loop"])
+        print(
+            "[DAM] record_loop patched: dataset records safety-processed actions", file=sys.stderr
+        )
+
     def _patched_make_default_processors():  # type: ignore[no-untyped-def]
         teleop, robot_action, obs_proc = _original()
         step = SafetyProcessorStep(our_args.stackfile, task=our_args.task)
         robot_action.steps.insert(0, step)
         print("[DAM] SafetyProcessorStep injected ✓", file=sys.stderr)
         return teleop, robot_action, obs_proc
+
+    _patch_record_loop_dataset_action()
 
     with unittest.mock.patch.object(
         _record_mod, "make_default_processors", _patched_make_default_processors

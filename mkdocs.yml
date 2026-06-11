@@ -72,6 +72,7 @@ nav:
     - Guard Stack: concepts/guards-explained.md
     - Boundaries: concepts/boundaries.md
     - Safety Model: concepts/safety.md
+    - Defense Q&A (中文): project-defense-qa-zh.md
   - Reference:
     - Library API: library-api.md
     - Guards: guards-reference.md

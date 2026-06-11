@@ -181,17 +181,20 @@ class SafetyProcessorStep(_Base):  # type: ignore[valid-type,misc]
         task: str | None = None,
         joint_names: list[str] | None = None,
         degrees_mode: bool | None = None,
+        hold_first_cycle: bool = True,
         quiet: bool = False,
     ) -> None:
         self._stackfile = stackfile
         self._task = task
         self._joint_names = joint_names
         self._degrees_mode = degrees_mode
+        self._hold_first_cycle = hold_first_cycle
         self._quiet = quiet
         self._guard: Any | None = None
         self._stats: _RecordingStats = _RecordingStats()
         self._printer: _EdgePrinter = _EdgePrinter()
         self._summary_printed = False
+        self._has_guarded_cycle = False
 
     def _ensure_guard(self) -> Any:
         if self._guard is None:
@@ -219,12 +222,18 @@ class SafetyProcessorStep(_Base):  # type: ignore[valid-type,misc]
             )
             return action
 
-        result = guard(action, obs)
+        if self._hold_first_cycle and not self._has_guarded_cycle:
+            result = guard(obs, obs)
+        else:
+            result = guard(action, obs)
+        self._has_guarded_cycle = True
 
         notable = self._stats.record_cycle(guard.last_results)
         if not self._quiet:
             self._printer.update(notable)
 
+        if isinstance(result, dict):
+            return {**action, **result}
         return result  # type: ignore[no-any-return]
 
     def _print_summary(self) -> None:
@@ -249,6 +258,7 @@ class SafetyProcessorStep(_Base):  # type: ignore[valid-type,misc]
             "task": self._task,
             "joint_names": self._joint_names,
             "degrees_mode": self._degrees_mode,
+            "hold_first_cycle": self._hold_first_cycle,
         }
 
     def reset(self) -> None:
@@ -256,6 +266,7 @@ class SafetyProcessorStep(_Base):  # type: ignore[valid-type,misc]
         self._guard = None
         self._stats = _RecordingStats()
         self._summary_printed = False
+        self._has_guarded_cycle = False
 
     def __del__(self) -> None:
         self._print_summary()
@@ -267,6 +278,7 @@ def make_safe_processors(
     task: str | None = None,
     joint_names: list[str] | None = None,
     degrees_mode: bool | None = None,
+    hold_first_cycle: bool = True,
 ) -> tuple[Any, Any, Any]:
     """Drop-in replacement for lerobot's ``make_default_processors()``.
 
@@ -278,7 +290,11 @@ def make_safe_processors(
 
     teleop, robot_action, obs_proc = make_default_processors()
     step = SafetyProcessorStep(
-        stackfile, task=task, joint_names=joint_names, degrees_mode=degrees_mode
+        stackfile,
+        task=task,
+        joint_names=joint_names,
+        degrees_mode=degrees_mode,
+        hold_first_cycle=hold_first_cycle,
     )
     robot_action.steps.insert(0, step)
     return teleop, robot_action, obs_proc

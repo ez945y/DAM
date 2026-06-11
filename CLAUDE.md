@@ -24,9 +24,53 @@
 cat claude-progress.md
 cat session-handoff.md
 python -m pytest tests/unit/ -x
-````
+```
+
+如果需要完整基線，跑：
+
+```bash
+make test
+```
 
 如果基線不綠，先修基線，不要在壞基礎上疊新功能。
+
+---
+
+## 專案結構
+
+```text
+dam/                    # Python 核心：guard pipeline, runtime, services
+dam-console/            # Next.js 前端 (TypeScript + React)
+dam-rust/               # Rust 擴展 (dam_rs, maturin build)
+scripts/                # 啟動、測試、benchmark、PM 工具 (log_writer, check_docs)
+tests/                  # unit / integration / safety / property
+docs/                   # MkDocs 文檔
+examples/stackfiles/    # 範例 Stackfile
+logs/                   # PM log (gitignored, 本地審查用)
+```
+
+---
+
+## 常用命令
+
+```bash
+make setup              # 首次安裝
+make build              # build frontend production
+make dev                # 開發模式 (backend + Next.js hot-reload)
+make run                # 開發模式 (backend + Next.js production)
+make test               # 完整測試 (Python + Rust + Frontend + lint)
+make test-py            # Python 測試 (unit + integration + safety + property)
+make test-rs            # Rust 測試 (cargo test --workspace)
+make test-ui            # 前端測試 (jest --ci)
+make test-one FILE=...  # 跑單個測試檔 (-x -v)
+make lint               # 只跑 linter，不修改檔案
+make typecheck          # 只跑 mypy，不跑 ruff / test
+make check              # pre-commit run --all-files，commit 前一鍵驗收
+make format             # 自動格式化 (ruff format + cargo fmt)
+make docs               # 本地預覽文檔
+make docs-check         # 文檔品質檢查
+python -m pytest tests/unit/ -x   # 快速跑 unit test
+```
 
 ---
 
@@ -41,6 +85,9 @@ python -m pytest tests/unit/ -x
 * 能用 grep/read 解決的事，不要浪費 agent
 * 不做推測性抽象，不過度設計
 * 不把「看起來完成」當成完成
+* 優先選擇小步驟、高信心、易 review 的改善
+* 以證據優先，而不是假設
+* 節省流量：能用 grep/read 解決的不 spawn agent
 
 每次完成後主動檢查：
 
@@ -48,6 +95,15 @@ python -m pytest tests/unit/ -x
 * reviewer 是否看得懂？
 * 是否有未說明風險？
 * 是否需要補文件、handoff 或 PM log？
+
+---
+
+## 持續運行
+
+* 持續工作直到使用者按 stop、任務完成，或遇到需要使用者決策的 blocker
+* 長任務拆成可交付的小步驟
+* 每完成一個交付單元：寫 log、更新進度、必要時 commit
+* 不留下未記錄的半成品；若無法完成，要留下清楚 handoff
 
 ---
 
@@ -201,7 +257,26 @@ python -m pytest tests/unit/ -x
 * `scripts/joint_diagnostics.py --run`
 * 未確認原因前調寬 limit、停用 guard、修改 calibration
 
-判讀後再決定下一步，不把 guard reject 說成馬達壞掉。
+判讀後的下一步：
+
+| Finding | 意義 | 下一步 |
+| --- | --- | --- |
+| `runtime_not_running` | 控制 loop 已停，不能用此狀態推論執行中故障 | 回報狀態；等待使用者決定是否重新執行 |
+| `all_cycles_clamped` | action 被安全層修改，不代表馬達失效 | 查看 guard outcomes/reasons 與 active boundaries |
+| `command_without_response` | validated 命令存在，但關節幾乎沒有跟隨 | 檢查 calibration、起始姿態、torque/硬體；不可直接放寬 guard |
+| `rejected_without_validated_command` | action 根本未送至硬體 | 排查拒絕原因；不得描述為致動失敗 |
+| `hardware_guard_event` | 硬體監測已告警 | 停在唯讀排查，優先呈報風險 |
+
+只有已確認 robot、task、calibration 完全相同時，才執行 baseline 比較：
+
+```bash
+.venv/bin/python scripts/mcap_triage.py \
+  --compare data/robot/sessions/session_known_good.mcap --json
+```
+
+`scripts/joint_diagnostics.py` 無參數為唯讀；其 `--run` 視為致動操作，必須由使用者明確要求。
+
+不要把 guard reject 說成馬達壞掉，也不要把 clamped action 說成硬體未跟隨。
 
 ---
 
@@ -260,6 +335,18 @@ session-handoff.md
 8. 剩餘風險已說明
 
 沒有證據的完成不算完成。
+
+---
+
+## 收尾流程
+
+每輪會話結束前：
+
+1. 驗證通過（`make test` 或相關子集）
+2. 更新 `claude-progress.md` 和 `session-handoff.md`
+3. 寫 PM log
+4. 確認沒有半成品未記錄
+5. 確認下一輪可直接開工
 
 ---
 
