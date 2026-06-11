@@ -241,7 +241,15 @@ class SlowDownContext(StepContext):
     ) -> StepResult:
         if proposal is None:
             raise ValueError("SlowDownContext requires an action proposal")
-        validated, results = runtime.validate(obs, proposal, trace_id, now=now)
+        validated, results = runtime.validate(
+            obs,
+            proposal,
+            trace_id,
+            now=now,
+            commit_state=False,
+            advance_cycle=False,
+            emit_side_effects=False,
+        )
         self._last_results = list(results)
 
         # Scale joint-position delta from prev → validated. If we have no prev
@@ -382,7 +390,15 @@ class RetreatContext(StepContext):
         plan_proposal = ActionProposal(
             target_joint_positions=np.asarray(next_pos, dtype=np.float64),
         )
-        validated, results = runtime.validate(obs, plan_proposal, trace_id, now=now)
+        validated, results = runtime.validate(
+            obs,
+            plan_proposal,
+            trace_id,
+            now=now,
+            commit_state=False,
+            advance_cycle=False,
+            emit_side_effects=False,
+        )
         # If the chassis rejects the plan step, surface action=None and pass
         # the guard_results upstream — runtime sees the reject and may
         # preempt to a more severe Context (e.g. e_stop).

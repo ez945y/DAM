@@ -274,6 +274,8 @@ def joint_acceleration_limit(
     action: ActionProposal,
     dt: float,
     max_acceleration: list[float] | float,
+    prev_validated_positions: list[float] | np.ndarray | None = None,
+    prev_validated_velocities: list[float] | np.ndarray | None = None,
     slack_weight: float = 100.0,
     boundary_name: str = "joint_acceleration_limit",
 ) -> CallbackResult:
@@ -310,50 +312,75 @@ def joint_acceleration_limit(
         velocities = (target_pos[:n] - cur_pos[:n]) / dt_safe
 
     # ── Acceleration clamp ────────────────────────────────────────────────
+    # Runtime/recording path: prefer the previous command velocity that
+    # actually left the guard pipeline.  The old module-global velocity cache
+    # can diverge from the real command whenever another clamp
+    # (position/velocity/QP) changes the final output, which creates phantom
+    # acceleration spikes.
+    basis = "callback_state"
+    prev_v: np.ndarray | None = None
+    if prev_validated_velocities is not None:
+        prev_vel = np.asarray(prev_validated_velocities, dtype=np.float64).flatten()
+        if _all_finite(prev_vel) and prev_vel.shape[0] >= n:
+            prev_v = prev_vel[:n]
+            basis = "prev_validated_velocities"
+    elif prev_validated_positions is not None:
+        prev_target = np.asarray(prev_validated_positions, dtype=np.float64).flatten()
+        if _all_finite(prev_target) and prev_target.shape[0] >= n:
+            prev_v = (prev_target[:n] - cur_pos[:n]) / dt_safe
+            basis = "prev_validated_positions"
+
     import time as _time
 
     now_mono = _time.monotonic()
-    entry = _prev_vel.get(bname)
-    stale = entry is None or entry[0].shape != velocities.shape
-    if not stale:
-        prev_v, prev_t = entry
-        elapsed = now_mono - prev_t
-        if elapsed > dt_safe * _ACCEL_STALENESS_FACTOR:
-            stale = True
+    if prev_v is None:
+        entry = _prev_vel.get(bname)
+        stale = entry is None or entry[0].shape != velocities.shape
+        if not stale:
+            cached_prev_v, prev_t = entry
+            elapsed = now_mono - prev_t
+            if elapsed > dt_safe * _ACCEL_STALENESS_FACTOR:
+                stale = True
 
-    if stale:
-        _prev_vel[bname] = (velocities.copy(), now_mono)
-        return CallbackResult.ok(
-            bname,
-            metadata={
-                "max_acceleration": a_max.tolist(),
-                "current_velocity": velocities.tolist(),
-                "_units": {"max_acceleration": "rad/s²", "current_velocity": "rad/s"},
-            },
-        )
+        if stale:
+            _prev_vel[bname] = (velocities.copy(), now_mono)
+            return CallbackResult.ok(
+                bname,
+                metadata={
+                    "max_acceleration": a_max.tolist(),
+                    "current_velocity": velocities.tolist(),
+                    "acceleration_basis": basis,
+                    "_units": {"max_acceleration": "rad/s²", "current_velocity": "rad/s"},
+                },
+            )
+        prev_v = cached_prev_v
 
-    prev_v, _ = entry  # type: ignore[misc]
     accel = (velocities - prev_v) / dt_safe
     over_accel = np.abs(accel) > a_max
     if not np.any(over_accel):
-        _prev_vel[bname] = (velocities.copy(), now_mono)
+        if basis == "callback_state":
+            _prev_vel[bname] = (velocities.copy(), now_mono)
         return CallbackResult.ok(
             bname,
             metadata={
                 "max_acceleration": a_max.tolist(),
                 "current_acceleration": accel.tolist(),
                 "current_velocity": velocities.tolist(),
+                "previous_velocity": prev_v.tolist(),
+                "acceleration_basis": basis,
                 "_units": {
                     "max_acceleration": "rad/s²",
                     "current_acceleration": "rad/s²",
                     "current_velocity": "rad/s",
+                    "previous_velocity": "rad/s",
                 },
             },
         )
 
     clamped_accel = np.clip(accel, -a_max, a_max)
     velocities = prev_v + clamped_accel * dt_safe
-    _prev_vel[bname] = (velocities.copy(), now_mono)
+    if basis == "callback_state":
+        _prev_vel[bname] = (velocities.copy(), now_mono)
 
     new_pos = target_pos.copy()
     new_pos[:n] = cur_pos[:n] + velocities * dt_safe
@@ -386,7 +413,19 @@ def joint_acceleration_limit(
         bname,
         clamped_action,
         reason=reason,
-        metadata={"motion_qp": qp_meta, "_units": motion_qp_units(qp_meta)},
+        metadata={
+            "motion_qp": qp_meta,
+            "current_acceleration": accel.tolist(),
+            "current_velocity": velocities.tolist(),
+            "previous_velocity": prev_v.tolist(),
+            "acceleration_basis": basis,
+            "_units": {
+                **motion_qp_units(qp_meta),
+                "current_acceleration": "rad/s²",
+                "current_velocity": "rad/s",
+                "previous_velocity": "rad/s",
+            },
+        },
     )
 
 

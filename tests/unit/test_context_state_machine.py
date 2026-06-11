@@ -29,6 +29,7 @@ from dam.runtime.context import (
     StepResult,
     get_context_class,
 )
+from dam.types.action import ActionProposal, ValidatedAction
 from dam.types.result import GuardResult
 
 
@@ -40,6 +41,31 @@ class _FakeRuntime:
         self._control_frequency_hz: float = 50.0
         self._sink = None
         self._policy = None
+
+
+class _FakeRuntimeWithValidate(_FakeRuntime):
+    def validate(
+        self,
+        obs,
+        proposal,
+        trace_id,
+        now=None,
+        *,
+        commit_state=True,
+        advance_cycle=True,
+        emit_side_effects=True,
+    ):
+        validated = ValidatedAction(
+            target_joint_positions=np.asarray(proposal.target_joint_positions, dtype=np.float64)
+        )
+        if commit_state:
+            self._prev_validated_positions = validated.target_joint_positions.tolist()
+        self.last_validate_flags = {
+            "commit_state": commit_state,
+            "advance_cycle": advance_cycle,
+            "emit_side_effects": emit_side_effects,
+        }
+        return validated, []
 
 
 def _fault(name: str, frames: int | None = None) -> GuardResult:
@@ -148,6 +174,26 @@ def test_slow_down_hysteresis_falls_back_to_one_when_no_metadata():
     sd = SlowDownContext()
     sd.on_enter(_FakeRuntime(), trigger=_fault("motor_temp"))
     assert sd._effective_hysteresis == 1
+
+
+def test_slow_down_validate_keeps_previous_state_until_final_commit():
+    rt = _FakeRuntimeWithValidate()
+    rt._prev_validated_positions = [0.0] * 6
+    sd = SlowDownContext(scale=0.5)
+    result = sd.step(
+        None,
+        rt,
+        proposal=ActionProposal(target_joint_positions=np.ones(6)),
+        trace_id="trace",
+        now=0.0,
+    )
+
+    assert rt.last_validate_flags == {
+        "commit_state": False,
+        "advance_cycle": False,
+        "emit_side_effects": False,
+    }
+    np.testing.assert_allclose(result.action.target_joint_positions, [0.5] * 6)
 
 
 # ── Auto-escalation ───────────────────────────────────────────────────────────

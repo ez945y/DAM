@@ -182,7 +182,15 @@ class NormalContext(StepContext):
     ) -> StepResult:
         if proposal is None:
             raise ValueError("NormalContext requires an action proposal")
-        validated, results = runtime.validate(obs, proposal, trace_id, now=now)
+        validated, results = runtime.validate(
+            obs,
+            proposal,
+            trace_id,
+            now=now,
+            commit_state=False,
+            advance_cycle=False,
+            emit_side_effects=False,
+        )
         return StepResult(action=validated, guard_results=list(results))
 
 

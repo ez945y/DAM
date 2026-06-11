@@ -73,6 +73,48 @@ def test_guard_runtime_param_injection(tmp_path):
     assert np.allclose(validated_bad.target_joint_positions, np.array([0.1] * 6), atol=1e-3)
 
 
+def test_validate_updates_previous_command_velocity(tmp_path):
+    from dam.boundary.builtin_callbacks import register_all as reg_callbacks
+    from dam.guard.builtin import register_all as reg_guards
+
+    reg_callbacks()
+    reg_guards()
+
+    stack_content = {
+        "version": "1",
+        "guards": [{"L1": "motion"}],
+        "boundaries": {
+            "accel": {
+                "layer": "L1",
+                "type": "single",
+                "nodes": [
+                    {
+                        "callback": "joint_acceleration_limit",
+                        "params": {"max_acceleration": [100.0] * 6},
+                    }
+                ],
+            }
+        },
+        "tasks": {"default": {"boundaries": ["accel"]}},
+        "safety": {"control_frequency_hz": 10.0, "enforcement_mode": "enforce"},
+    }
+
+    sf_path = tmp_path / "stack.yaml"
+    with open(sf_path, "w") as f:
+        yaml.dump(stack_content, f)
+
+    runtime = GuardRuntime.from_stackfile(str(sf_path))
+    runtime.start_task("default")
+
+    obs = Observation(timestamp=0.0, joint_positions=np.zeros(6), joint_velocities=np.zeros(6))
+    action = ActionProposal(target_joint_positions=np.ones(6))
+    validated, _results = runtime.validate(obs, action, "trace-command-velocity")
+
+    assert validated is not None
+    assert runtime._prev_validated_positions == [1.0] * 6
+    assert runtime._prev_validated_velocities == [10.0] * 6
+
+
 def test_hardware_callback_params_flow_from_stackfile(tmp_path):
     from dam.boundary.builtin_callbacks import register_all as reg_callbacks
     from dam.guard.builtin import register_all as reg_guards

@@ -170,6 +170,7 @@ class ValidationContext:
     sink: Any | None = None
     runtime: Any | None = None
     prev_validated_positions: list[float] | None = None
+    prev_validated_velocities: list[float] | None = None
     # DynamicsContext (FK + cached Jacobians) refreshed by the sensor adapter
     # in its read() path.  Guards consume it via the ``dynamics`` injection key.
     dynamics: Any | None = None
@@ -352,6 +353,7 @@ class ExecutionEngine:
                 "kinematics_resolver": ctx.kinematics_resolver,
                 "dynamics": ctx.dynamics,
                 "prev_validated_positions": ctx.prev_validated_positions,
+                "prev_validated_velocities": ctx.prev_validated_velocities,
                 "now": now,
             }
         )

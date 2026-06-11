@@ -84,6 +84,7 @@ class GuardRuntime:
         self._enforcement_mode = enforcement_mode
         self._cycle_id = 0
         self._prev_validated_positions: list[float] | None = None
+        self._prev_validated_velocities: list[float] | None = None
         # Context state machine — delegated to ContextStateMachine helper
         from dam.runtime._context_state_machine import ContextStateMachine
 
@@ -466,6 +467,10 @@ class GuardRuntime:
         action: ActionProposal,
         trace_id: str,
         now: float | None = None,
+        *,
+        commit_state: bool = True,
+        advance_cycle: bool = True,
+        emit_side_effects: bool = True,
     ) -> tuple[ValidatedAction | None, list[GuardResult]]:
         """Returns (validated_action, guard_results).
 
@@ -478,9 +483,11 @@ class GuardRuntime:
         the MCAP writer — so ``validate()``-only callers (e.g.
         ``SafetyGuard``) get guard event logging for free.
         """
-        self._cycle_id += 1
+        if advance_cycle:
+            self._cycle_id += 1
+        cycle_id = self._cycle_id
         ctx = ValidationContext(
-            cycle_id=self._cycle_id,
+            cycle_id=cycle_id,
             guards=self._guards,
             stages=self._stages,
             active_containers=self._active_containers,
@@ -493,12 +500,15 @@ class GuardRuntime:
             sink=self._sink,
             runtime=self,
             prev_validated_positions=self._prev_validated_positions,
+            prev_validated_velocities=self._prev_validated_velocities,
             dynamics=self._select_dynamics(),
             config_pool=self._hot_reload.config_pool,
         )
         validated, results = self._engine.validate(obs, action, trace_id, ctx, now=now)
+        if commit_state:
+            self._remember_validated_action(validated, obs)
 
-        if self._telemetry.loopback is not None:
+        if emit_side_effects and self._telemetry.loopback is not None:
             self._telemetry.submit_loopback(
                 obs=obs,
                 action=action,
@@ -514,6 +524,39 @@ class GuardRuntime:
             )
 
         return validated, results
+
+    def _remember_validated_action(
+        self,
+        validated: ValidatedAction | None,
+        obs: Observation | None = None,
+    ) -> None:
+        """Remember the last command produced by the shared validation path."""
+        if validated is None or validated.target_joint_positions is None:
+            return
+
+        target = np.asarray(validated.target_joint_positions, dtype=np.float64)
+        self._prev_validated_positions = target.tolist()
+
+        if validated.target_joint_velocities is not None:
+            self._prev_validated_velocities = np.asarray(
+                validated.target_joint_velocities, dtype=np.float64
+            ).tolist()
+            return
+
+        if obs is None or obs.joint_positions is None:
+            self._prev_validated_velocities = None
+            return
+
+        cur = np.asarray(obs.joint_positions, dtype=np.float64)
+        n = min(target.shape[0], cur.shape[0])
+        if n == 0:
+            self._prev_validated_velocities = None
+            return
+        dt = float(self._hot_reload.config_pool.get("dt", 1.0 / self._control_frequency_hz))
+        dt_safe = max(dt, 1e-6)
+        velocities = np.zeros_like(target, dtype=np.float64)
+        velocities[:n] = (target[:n] - cur[:n]) / dt_safe
+        self._prev_validated_velocities = velocities.tolist()
 
     def _run_context_hardware_monitors(
         self,
@@ -574,6 +617,7 @@ class GuardRuntime:
             sink=self._sink,
             runtime=self,
             prev_validated_positions=self._prev_validated_positions,
+            prev_validated_velocities=self._prev_validated_velocities,
             dynamics=self._select_dynamics(),
         )
         return self._engine.run_guard_checks(
@@ -842,9 +886,10 @@ class GuardRuntime:
         validated = step_result.action
         t_validate = time.monotonic()
 
-        # Track last sent positions for following-error detection in HardwareGuard.
-        if validated is not None and validated.target_joint_positions is not None:
-            self._prev_validated_positions = validated.target_joint_positions.tolist()
+        # Track the final action this cycle will send. NormalContext already
+        # passes through validate(); fallback contexts may post-process that
+        # output or generate their own waypoint, so commit the final action here.
+        self._remember_validated_action(validated, obs)
 
         if validated is not None and self._sink is not None:
             # Use apply() (ActionAdapter ABC). write() is a deprecated alias on legacy sinks.

@@ -224,6 +224,34 @@ class TestJointAccelerationLimit:
             result.clamped_action.target_joint_positions, [0.002] * 6, atol=1e-6
         )
 
+    def test_acceleration_uses_prev_validated_velocity_when_available(self):
+        """Runtime path uses the last safe command velocity, not callback-local history."""
+        result = joint_acceleration_limit(
+            obs=_obs(positions=[0.0] * 6),
+            action=_action([1.0] * 6),
+            dt=0.02,
+            max_acceleration=[5.0] * 6,
+            prev_validated_velocities=[0.0] * 6,
+        )
+        assert result.decision == GuardDecision.CLAMP
+        assert result.metadata["acceleration_basis"] == "prev_validated_velocities"
+        np.testing.assert_allclose(
+            result.clamped_action.target_joint_positions, [0.002] * 6, atol=1e-6
+        )
+
+    def test_prev_validated_velocity_avoids_position_following_false_spike(self):
+        """If the robot reached last target, use command velocity, not target-current."""
+        result = joint_acceleration_limit(
+            obs=_obs(positions=[1.0] * 6),
+            action=_action([2.0] * 6),
+            dt=0.1,
+            max_acceleration=[1.0] * 6,
+            prev_validated_positions=[1.0] * 6,
+            prev_validated_velocities=[10.0] * 6,
+        )
+        assert result.decision == GuardDecision.PASS
+        assert result.metadata["acceleration_basis"] == "prev_validated_velocities"
+
     def test_smooth_acceleration_passes(self):
         """Gradual velocity increase within accel limit should pass."""
         # Cycle 1: v=1.0
