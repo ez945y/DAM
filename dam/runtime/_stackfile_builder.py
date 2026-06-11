@@ -133,8 +133,27 @@ def _init_kinematics_resolver(config: StackfileConfig) -> KinematicsResolver | N
         return None
     from dam.kinematics.resolver import KinematicsResolver
 
+    # Observation joint order comes from the robot preset; with it the
+    # resolver gathers modelled joints by name instead of assuming they
+    # are the leading observation entries.
+    observation_joint_names: list[str] | None = None
+    if config.hardware.preset:
+        try:
+            from dam.preset.registry import get_preset
+
+            observation_joint_names = get_preset(config.hardware.preset).joint_names or None
+        except Exception:  # noqa: BLE001 — unknown preset: keep positional fallback
+            logger.warning(
+                "GuardRuntime: preset '%s' not found; KinematicsResolver will "
+                "align joints positionally.",
+                config.hardware.preset,
+            )
+
     try:
-        return KinematicsResolver(config.hardware.urdf_path)
+        return KinematicsResolver(
+            config.hardware.urdf_path,
+            observation_joint_names=observation_joint_names,
+        )
     except Exception as e:
         logger.warning(
             "GuardRuntime: failed to init KinematicsResolver from %s: %s",
