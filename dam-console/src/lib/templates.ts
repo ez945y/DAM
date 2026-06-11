@@ -37,6 +37,10 @@ export type CameraConfig = {
 export interface DamConfig {
   templateId: string
   hardware_preset: string
+  /** Action/observation space: per-joint targets or end-effector pose.
+   *  Backend requires hardware.input_space === policy.input_space, so the
+   *  console keeps a single value and emits it into both blocks. */
+  input_space: 'joint' | 'ee'
   adapter: 'lerobot' | 'ros2' | 'simulation'
   lerobot_port: string
   lerobot_robot_type: string
@@ -315,7 +319,7 @@ export function defaultConfig(templateId = ''): DamConfig {
   const preset = TEMPLATES.find(t => t.id === templateId)
   const base: DamConfig = {
     templateId: '', // Always empty for stateless behavior
-    hardware_preset: 'custom', adapter: 'simulation', lerobot_port: '', lerobot_robot_type: 'so101_follower', lerobot_robot_id: '',
+    hardware_preset: 'custom', input_space: 'joint', adapter: 'simulation', lerobot_port: '', lerobot_robot_type: 'so101_follower', lerobot_robot_id: '',
     lerobot_cameras: [], lerobot_calibration_path: '', lerobot_degrees_mode: true, observation_channels: [],
     ros2JointTopic: '/joint_states', ros2CmdTopic: '/joint_commands',
     policy: { type: 'noop', pretrained_path: '', device: 'cpu' },
@@ -461,6 +465,7 @@ const SCHEMA: YamlSection[] = [
   scalar('version', () => '"1"'), blank,
   block('hardware', [
     scalar('preset', cfg => cfg.hardware_preset),
+    scalar('input_space', cfg => cfg.input_space ?? 'joint'),
     block('sources', [
       block('main', [
         scalar('type', () => 'dataset'),
@@ -528,6 +533,7 @@ const SCHEMA: YamlSection[] = [
   blank,
   block('policy', [
     scalar('type', cfg => cfg.policy.type),
+    scalar('input_space', cfg => cfg.input_space ?? 'joint'),
     scalar('pretrained_path', cfg => cfg.policy.pretrained_path),
     scalar('device', cfg => cfg.policy.device),
   ], cfg => !!cfg.policy.pretrained_path),
@@ -621,6 +627,10 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
     result.adapter = 'simulation'; result.simulation_dataset_repo_id = getVal(/dataset_repo_id:\s*(.*)/) ?? undefined;
     const ep = getVal(/episode:\s*(\d+)/); if (ep != null) result.simulation_episode = Number(ep);
   }
+
+  // hardware/policy input_space must match server-side; first hit wins.
+  const inputSpace = getVal(/input_space:\s*(\w+)/)?.toLowerCase()
+  if (inputSpace === 'joint' || inputSpace === 'ee') result.input_space = inputSpace
 
   const pType = getVal(/policy:\s*\n\s*type:\s*(.*)/)
   if (pType) {

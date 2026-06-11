@@ -371,6 +371,32 @@ describe('generateYaml', () => {
     expect(yaml).not.toContain('index: 0')   // old key must not appear
   })
 
+  it('emits input_space into both hardware and policy blocks', () => {
+    const cfg = defaultConfig('so101')
+    const yaml = generateYaml(cfg)
+    expect(yaml).toContain('  input_space: joint')
+    const hw = yaml.slice(yaml.indexOf('hardware:'), yaml.indexOf('policy:'))
+    const pol = yaml.slice(yaml.indexOf('policy:'), yaml.indexOf('safety:'))
+    expect(hw).toContain('input_space: joint')
+    expect(pol).toContain('input_space: joint')
+  })
+
+  it('roundtrips input_space ee through generate → parse', () => {
+    const cfg = defaultConfig('so101')
+    cfg.input_space = 'ee'
+    const yaml = generateYaml(cfg)
+    const parsed = parseConfigFromYaml(yaml)
+    expect(parsed.input_space).toBe('ee')
+  })
+
+  it('input_space defaults to joint when absent from YAML', () => {
+    const cfg = defaultConfig('so101')
+    const yaml = generateYaml(cfg).split('\n').filter(l => !l.includes('input_space')).join('\n')
+    const parsed = parseConfigFromYaml(yaml)
+    expect(parsed.input_space).toBeUndefined()
+    expect(defaultConfig('so101').input_space).toBe('joint')
+  })
+
   it('ACT template does not include diffusion params', () => {
     const cfg = defaultConfig('so101')
     const yaml = generateYaml(cfg)
