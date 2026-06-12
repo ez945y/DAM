@@ -1125,7 +1125,7 @@ export default function GuardPage() {
 
   const [guardsEnabled, setGuardsEnabled] = useState<Record<string, boolean>>({})
   const [fallbacks, setFallbacks] = useState<FallbackDef[]>([])
-  const [guardRouting, setGuardRouting] = useState<Partial<Record<'ood' | 'motion' | 'execution' | 'hardware', { phase?: number; always?: boolean; timeout_ms?: number }>>>({})
+  const [guardRouting, setGuardRouting] = useState<Partial<Record<'ood' | 'motion' | 'execution' | 'hardware', { phase?: number; always?: boolean; timeout_ms?: number; lane?: 'fast' | 'slow' }>>>({})
 
 
   // Expand/collapse for Boundaries section (per layer)
@@ -1689,14 +1689,15 @@ export default function GuardPage() {
       <div className="glass-card p-6 space-y-4">
         <h2 className="text-dam-muted text-xs uppercase tracking-widest font-semibold relative z-10">Guard Routing</h2>
         <p className="text-dam-muted text-[11px] relative z-10">
-          Override when each guard runs during fallback contexts. <strong>always</strong>: run in every context. <strong>phase</strong>: only run in contexts at or above this phase. <strong>timeout</strong>: per-stage wall-clock budget in ms.
+          Override when each guard runs during fallback contexts. <strong>always</strong>: run in every context. <strong>phase</strong>: only run in contexts at or above this phase. <strong>timeout</strong>: per-stage wall-clock budget in ms. <strong>lane</strong>: with <code>safety.slow_lane</code> configured, run this guard in the control loop (fast) or the async evaluator (slow); default by layer — L0/L2 slow, L1/L3 fast.
         </p>
         <div className="space-y-1.5 relative z-10">
           {(['ood', 'motion', 'execution', 'hardware'] as const).map(gid => {
             const layer = { ood: 'L0', motion: 'L1', execution: 'L2', hardware: 'L3' }[gid]
-            const defaults: Record<string, { phase?: number; always?: boolean; timeout_ms?: number }> = {
+            const defaults: Record<string, { phase?: number; always?: boolean; timeout_ms?: number; lane?: 'fast' | 'slow' }> = {
               ood: { phase: 0, timeout_ms: 50 }, motion: { phase: 0, timeout_ms: 20 }, execution: { phase: 1, timeout_ms: 20 }, hardware: { always: true, timeout_ms: 30 },
             }
+            const defaultLane = gid === 'ood' || gid === 'execution' ? 'slow' : 'fast'
             const routing = guardRouting[gid] ?? defaults[gid] ?? {}
             return (
               <div key={gid} className="flex items-center gap-3 bg-dam-surface-2 border border-dam-border rounded-lg px-3 py-2">
@@ -1731,6 +1732,23 @@ export default function GuardPage() {
                     className="h-3.5 w-3.5 accent-dam-blue"
                   />
                   <span className="text-[10px] text-dam-muted">always</span>
+                </label>
+                <label className="flex items-center gap-1">
+                  <span className="text-[10px] text-dam-muted">lane</span>
+                  <select
+                    value={routing.lane ?? ''}
+                    onChange={e => {
+                      const val = (e.target.value || undefined) as 'fast' | 'slow' | undefined
+                      const next = { ...guardRouting, [gid]: { ...routing, lane: val } }
+                      if (val == null) delete next[gid]!.lane
+                      setGuardRouting(next)
+                    }}
+                    className="bg-dam-surface border border-dam-border rounded px-1.5 py-0.5 text-[10px] text-dam-text font-mono"
+                  >
+                    <option value="">{`auto (${defaultLane})`}</option>
+                    <option value="fast">fast</option>
+                    <option value="slow">slow</option>
+                  </select>
                 </label>
                 <label className="flex items-center gap-1 ml-auto">
                   <span className="text-[10px] text-dam-muted">timeout</span>

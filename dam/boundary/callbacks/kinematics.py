@@ -117,11 +117,12 @@ def _cbf_margin(
 
 
 # ── Velocity-limit state (acceleration tracking) ─────────────────────────────
-# Stores (velocity, monotonic_timestamp) per callback instance.
+# Stores (command_velocity, command_positions, monotonic_timestamp) per
+# callback instance — pure command-domain history for standalone use.
 # Staleness threshold: if dt since last update exceeds this, reset baseline
 # to avoid phantom acceleration spikes after pipeline restart or pause.
 _ACCEL_STALENESS_FACTOR = 5.0
-_prev_vel: dict[str, tuple[np.ndarray, float]] = {}
+_prev_vel: dict[str, tuple[np.ndarray, np.ndarray, float]] = {}
 
 
 _DIM_WARNED: set[str] = set()
@@ -303,63 +304,73 @@ def joint_acceleration_limit(
     _check_dim(n, a_max.shape[0], callback=bname, param="max_acceleration")
     a_max = a_max[:n]
 
-    # ── Derive proposed velocity ──────────────────────────────────────────
-    if action.target_joint_velocities is not None:
-        velocities = np.asarray(action.target_joint_velocities, dtype=np.float64)[:n]
-        if not _all_finite(velocities):
-            return CallbackResult.violate(bname, "non-finite joint velocity action")
-    else:
-        velocities = (target_pos[:n] - cur_pos[:n]) / dt_safe
-
-    # ── Acceleration clamp ────────────────────────────────────────────────
-    # Runtime/recording path: prefer the previous command velocity that
-    # actually left the guard pipeline.  The old module-global velocity cache
-    # can diverge from the real command whenever another clamp
-    # (position/velocity/QP) changes the final output, which creates phantom
-    # acceleration spikes.
+    # ── Command-domain basis ──────────────────────────────────────────────
+    # The acceleration limit smooths the *command trajectory*: proposed and
+    # previous velocities are command-to-command, and the clamped position is
+    # rebuilt from the previous command, not the measured position.  Deriving
+    # velocity as (target − measured)/dt folds the follower's tracking lag
+    # into "velocity": when the operator stops, the shrinking lag reads as a
+    # violent deceleration, and "smoothing" it throws the command past the
+    # operator's position (phantom momentum / inertia).
     basis = "callback_state"
     prev_v: np.ndarray | None = None
+    prev_cmd: np.ndarray | None = None
+    if prev_validated_positions is not None:
+        prev_target = np.asarray(prev_validated_positions, dtype=np.float64).flatten()
+        if _all_finite(prev_target) and prev_target.shape[0] >= n:
+            prev_cmd = prev_target[:n]
     if prev_validated_velocities is not None:
         prev_vel = np.asarray(prev_validated_velocities, dtype=np.float64).flatten()
         if _all_finite(prev_vel) and prev_vel.shape[0] >= n:
             prev_v = prev_vel[:n]
             basis = "prev_validated_velocities"
-    elif prev_validated_positions is not None:
-        prev_target = np.asarray(prev_validated_positions, dtype=np.float64).flatten()
-        if _all_finite(prev_target) and prev_target.shape[0] >= n:
-            prev_v = (prev_target[:n] - cur_pos[:n]) / dt_safe
-            basis = "prev_validated_positions"
 
     import time as _time
 
     now_mono = _time.monotonic()
     if prev_v is None:
         entry = _prev_vel.get(bname)
-        stale = entry is None or entry[0].shape != velocities.shape
-        if not stale:
-            cached_prev_v, prev_t = entry
-            elapsed = now_mono - prev_t
-            if elapsed > dt_safe * _ACCEL_STALENESS_FACTOR:
-                stale = True
-
-        if stale:
-            _prev_vel[bname] = (velocities.copy(), now_mono)
-            return CallbackResult.ok(
-                bname,
-                metadata={
-                    "max_acceleration": a_max.tolist(),
-                    "current_velocity": velocities.tolist(),
-                    "acceleration_basis": basis,
-                    "_units": {"max_acceleration": "rad/s²", "current_velocity": "rad/s"},
-                },
+        if entry is not None:
+            cached_prev_v, cached_cmd, prev_t = entry
+            stale = cached_prev_v.shape[0] != n or (
+                now_mono - prev_t > dt_safe * _ACCEL_STALENESS_FACTOR
             )
-        prev_v = cached_prev_v
+            if not stale:
+                prev_v = cached_prev_v
+                if prev_cmd is None:
+                    prev_cmd = cached_cmd
+
+    # Anchor for velocity derivation and position rebuild: the previous
+    # command when history exists, the measured position only on the very
+    # first cycle (no command history yet).
+    anchor = prev_cmd if prev_cmd is not None else cur_pos[:n]
+
+    # ── Derive proposed velocity (command domain) ─────────────────────────
+    if action.target_joint_velocities is not None:
+        velocities = np.asarray(action.target_joint_velocities, dtype=np.float64)[:n]
+        if not _all_finite(velocities):
+            return CallbackResult.violate(bname, "non-finite joint velocity action")
+    else:
+        velocities = (target_pos[:n] - anchor) / dt_safe
+
+    if prev_v is None:
+        # First cycle (or stale history): seed command history and pass.
+        _prev_vel[bname] = (velocities.copy(), target_pos[:n].copy(), now_mono)
+        return CallbackResult.ok(
+            bname,
+            metadata={
+                "max_acceleration": a_max.tolist(),
+                "current_velocity": velocities.tolist(),
+                "acceleration_basis": basis,
+                "_units": {"max_acceleration": "rad/s²", "current_velocity": "rad/s"},
+            },
+        )
 
     accel = (velocities - prev_v) / dt_safe
     over_accel = np.abs(accel) > a_max
     if not np.any(over_accel):
         if basis == "callback_state":
-            _prev_vel[bname] = (velocities.copy(), now_mono)
+            _prev_vel[bname] = (velocities.copy(), target_pos[:n].copy(), now_mono)
         return CallbackResult.ok(
             bname,
             metadata={
@@ -379,11 +390,11 @@ def joint_acceleration_limit(
 
     clamped_accel = np.clip(accel, -a_max, a_max)
     velocities = prev_v + clamped_accel * dt_safe
-    if basis == "callback_state":
-        _prev_vel[bname] = (velocities.copy(), now_mono)
 
     new_pos = target_pos.copy()
-    new_pos[:n] = cur_pos[:n] + velocities * dt_safe
+    new_pos[:n] = anchor + velocities * dt_safe
+    if basis == "callback_state":
+        _prev_vel[bname] = (velocities.copy(), new_pos[:n].copy(), now_mono)
 
     worst = int(np.argmax(np.abs(accel) - a_max))
     reason = (
@@ -399,14 +410,15 @@ def joint_acceleration_limit(
         timestamp=action.timestamp,
     )
     # QPTerm: the acceleration limit constrains velocity to [prev_v - a_max*dt, prev_v + a_max*dt],
-    # which translates to a position box of [cur_pos + v_lo*dt, cur_pos + v_hi*dt].
+    # which translates to a position box of [anchor + v_lo*dt, anchor + v_hi*dt]
+    # around the previous command (command domain).
     v_lo = prev_v - a_max * dt_safe
     v_hi = prev_v + a_max * dt_safe
     span_lo = v_lo * dt_safe
     span_hi = v_hi * dt_safe
     qp_meta = QPTerm(
-        upper=cur_pos[:n] + np.maximum(span_lo, span_hi),
-        lower=cur_pos[:n] + np.minimum(span_lo, span_hi),
+        upper=anchor + np.maximum(span_lo, span_hi),
+        lower=anchor + np.minimum(span_lo, span_hi),
         slack_weight=float(slack_weight),
     )
     return CallbackResult.clamp(

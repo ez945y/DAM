@@ -3,6 +3,8 @@ version: "1"
 hardware:
   preset: so101_follower
   input_space: joint    # joint (default) or ee; must match policy.input_space
+  telemetry_hz: 5       # decimate temperature/current/voltage bus reads;
+                        # cached snapshots carry metadata.telemetry_timestamp
   sources:
     arm:
       type: motor
@@ -44,6 +46,15 @@ safety:
   control_frequency_hz: 30
   no_task_behavior: emergency_stop
   enforcement_mode: enforce
+  # Fast/slow lane split: expensive guards (L0 vision OOD, L2 task logic)
+  # run on an async worker at frequency_hz; the control loop consumes their
+  # latest verdict and degrades per stale_action when it ages past
+  # max_staleness_ms. Lane assignment defaults by layer (L0/L2 slow,
+  # L1/L3 fast); override per guard with 'lane:' in the guards section.
+  slow_lane:
+    frequency_hz: 10
+    max_staleness_ms: 500
+    stale_action: reject   # reject (trigger fallback) | warn (log only)
 
 fallbacks:
   emergency_stop:
@@ -75,6 +86,7 @@ guards:
   - L0: ood
     phase: 0
     timeout_ms: 50
+    # lane: slow  (default for L0 — set 'fast' to force into the control loop)
   - L1: motion
     phase: 0
     timeout_ms: 20

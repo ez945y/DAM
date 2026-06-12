@@ -116,7 +116,7 @@ boundaries:
     nodes:
       - callback: joint_velocity_limit
         params:
-          max_velocities: [4.0, 4.0, 4.0, 4.0, 4.0, 4.0]
+          max_velocities: [7.0, 7.0, 7.0, 7.0, 7.0, 7.0]
 
   # Joint acceleration limit — smoothing / jitter suppression
   joint_acceleration_limit:
@@ -125,7 +125,7 @@ boundaries:
     nodes:
       - callback: joint_acceleration_limit
         params:
-          max_acceleration: [10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
+          max_acceleration: [15.0, 15.0, 15.0, 15.0, 15.0, 15.0]
 
 tasks:
   record:

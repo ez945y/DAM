@@ -110,9 +110,21 @@ def test_validate_updates_previous_command_velocity(tmp_path):
     action = ActionProposal(target_joint_positions=np.ones(6))
     validated, _results = runtime.validate(obs, action, "trace-command-velocity")
 
+    # First cycle: no command history yet — velocity must NOT be fabricated
+    # from (target - measured)/dt, which would bake tracking lag into it.
     assert validated is not None
     assert runtime._prev_validated_positions == [1.0] * 6
-    assert runtime._prev_validated_velocities == [10.0] * 6
+    assert runtime._prev_validated_velocities is None
+
+    # Second cycle: command-to-command velocity (1.5 - 1.0) / 0.1 = 5.0,
+    # regardless of where the (lagging) robot actually is.
+    obs2 = Observation(timestamp=0.1, joint_positions=np.full(6, 0.2), joint_velocities=np.zeros(6))
+    action2 = ActionProposal(target_joint_positions=np.full(6, 1.5))
+    validated2, _results2 = runtime.validate(obs2, action2, "trace-command-velocity-2")
+
+    assert validated2 is not None
+    assert runtime._prev_validated_positions == [1.5] * 6
+    assert runtime._prev_validated_velocities == [5.0] * 6
 
 
 def test_hardware_callback_params_flow_from_stackfile(tmp_path):

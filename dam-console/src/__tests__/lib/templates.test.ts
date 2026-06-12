@@ -568,3 +568,39 @@ describe('observation channel round-trip', () => {
     expect(parsed.observation_channels).toEqual(['effort', 'wrench'])
   })
 })
+
+describe('slow lane + telemetry round-trip', () => {
+  it('omits slow_lane and telemetry_hz by default', () => {
+    const yaml = generateYaml(defaultConfig('so101'))
+    expect(yaml).not.toMatch(/slow_lane:/)
+    expect(yaml).not.toMatch(/telemetry_hz:/)
+  })
+
+  it('emits and parses slow_lane block', () => {
+    const cfg = defaultConfig('so101')
+    cfg.slowLane = { frequency_hz: 10, max_staleness_ms: 500, stale_action: 'reject' }
+    const yaml = generateYaml(cfg)
+    expect(yaml).toMatch(/slow_lane:\s*\n\s*frequency_hz: 10\s*\n\s*max_staleness_ms: 500\s*\n\s*stale_action: reject/)
+
+    const parsed = parseConfigFromYaml(yaml)
+    expect(parsed.slowLane).toEqual({ frequency_hz: 10, max_staleness_ms: 500, stale_action: 'reject' })
+  })
+
+  it('emits and parses telemetry_hz', () => {
+    const cfg = defaultConfig('so101')
+    cfg.telemetryHz = 5
+    const yaml = generateYaml(cfg)
+    expect(yaml).toMatch(/telemetry_hz: 5/)
+    expect(parseConfigFromYaml(yaml).telemetryHz).toBe(5)
+  })
+
+  it('emits and parses per-guard lane override', () => {
+    const cfg = defaultConfig('so101')
+    cfg.guardRouting = { ...cfg.guardRouting, motion: { ...(cfg.guardRouting?.motion ?? {}), lane: 'slow' } }
+    const yaml = generateYaml(cfg)
+    expect(yaml).toMatch(/L1: motion[\s\S]*?lane: slow/)
+
+    const parsed = parseConfigFromYaml(yaml)
+    expect(parsed.guardRouting?.motion?.lane).toBe('slow')
+  })
+})

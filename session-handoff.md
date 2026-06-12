@@ -1,6 +1,17 @@
 # session-handoff.md — 會話交接摘要
 
-> 最後更新: 2026-06-09 (Architecture debt resolution — all L1 QPTerm complete)
+> 最後更新: 2026-06-12 (Teleop inertia root-cause fix — acceleration limiter in command domain)
+
+## 本輪重點：teleop 慣性根因修復
+
+`make record` 出現「甩過頭再慢慢回來」的慣性，根因是 commit 05ec93d 把前一輪命令速度推導為 (命令 − 實測)/dt，把 follower 的物理追蹤落差混進速度，加速度限制器將其保留為幽靈動量。修復後：
+
+- `GuardRuntime._remember_validated_action`：fallback 速度改為命令對命令 (target_t − target_{t−1})/dt，首輪為 None，觀測值完全退出此路徑
+- `joint_acceleration_limit`：proposed/prev velocity、clamp 重建、QP box 全部錨定前一輪命令（無歷史時才用實測 seed）
+- `_prev_vel` cache 變為 `(command_velocity, command_positions, timestamp)` 三元組
+- safety.yaml 治標性放寬（vel 7 / accel 15）已還原為 4 / 10
+- 驗證：800 unit + 37 safety/property 全過；閉環模擬 A/B 過衝 140.5 → 40.8 mrad
+- **未 commit**（guard_runtime.py 與 in-flight slow-lane 改動同檔）；待實機驗證
 
 ## 專案現況一句話
 
@@ -30,7 +41,7 @@ DAM 的 L1 kinematics safety pipeline 已完成全面 QP 約束覆蓋：所有 7
 
 ### _prev_vel 機制
 
-- `dict[str, tuple[np.ndarray, float]]` — key 為 `boundary_name`，value 為 `(velocity, monotonic_timestamp)`
+- `dict[str, tuple[np.ndarray, np.ndarray, float]]` — key 為 `boundary_name`，value 為 `(command_velocity, command_positions, monotonic_timestamp)`；純命令域歷史，standalone 路徑專用（runtime 路徑由 prev_validated_* 提供）
 - Staleness factor: `5.0 * dt` — 超過此時間自動 reset baseline
 - `boundary_name` 由 `dam/guard/pipeline.py:run_callbacks()` 注入到 callback kwargs
 

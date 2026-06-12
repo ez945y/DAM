@@ -254,8 +254,14 @@ class ExecutionEngine:
         trace_id: str,
         ctx: ValidationContext,
         now: float | None = None,
+        extra_results: list[GuardResult] | None = None,
     ) -> tuple[ValidatedAction | None, list[GuardResult]]:
         """Run the full guard pipeline.
+
+        ``extra_results`` are externally produced GuardResults (e.g. the
+        slow-lane verdict) merged into the aggregate alongside this cycle's
+        guard output — a slow-lane REJECT flows through the same
+        violation/fallback machinery as a synchronous one.
 
         Returns:
             (ValidatedAction, results) — action passed, was clamped, or
@@ -276,6 +282,9 @@ class ExecutionEngine:
             active_names = set(ctx.active_container_names)
             active_guards = [g for g in ctx.guards if g.get_name() in active_names]
             all_results = self._run_flat_filtered(active_guards, runtime_pool)
+
+        if extra_results:
+            all_results = all_results + list(extra_results)
 
         aggregated = aggregate_decisions(all_results)
 

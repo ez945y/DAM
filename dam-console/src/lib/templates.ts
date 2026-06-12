@@ -54,9 +54,17 @@ export interface DamConfig {
   joints: JointDef[]
   controlFrequencyHz: number
   enforcement_mode: EnforcementMode
+  /** Async slow-lane evaluator for expensive guards (L0 vision OOD, L2 task).
+   *  null → everything runs in the control loop (legacy). Lane assignment
+   *  binds to guards (guardRouting[gid].lane), defaulting by layer:
+   *  L0/L2 slow, L1/L3 fast. */
+  slowLane: { frequency_hz: number; max_staleness_ms: number; stale_action: 'reject' | 'warn' } | null
+  /** Telemetry register read cadence (temperature/current/voltage); null →
+   *  every control cycle. Cached snapshots carry telemetry_timestamp. */
+  telemetryHz: number | null
   fallbacks: FallbackDef[]
   guardsEnabled: Partial<Record<'ood' | 'motion' | 'execution' | 'hardware', boolean>>
-  guardRouting: Partial<Record<'ood' | 'motion' | 'execution' | 'hardware', { phase?: number; always?: boolean; timeout_ms?: number }>>
+  guardRouting: Partial<Record<'ood' | 'motion' | 'execution' | 'hardware', { phase?: number; always?: boolean; timeout_ms?: number; lane?: 'fast' | 'slow' }>>
   tasks: TaskDef[]
   boundaries: BoundaryDef[]
   loopback?: LoopbackConfig
@@ -324,6 +332,7 @@ export function defaultConfig(templateId = ''): DamConfig {
     ros2JointTopic: '/joint_states', ros2CmdTopic: '/joint_commands',
     policy: { type: 'noop', pretrained_path: '', device: 'cpu' },
     joints: SO101_JOINTS, controlFrequencyHz: 30, enforcement_mode: 'monitor',
+    slowLane: null, telemetryHz: null,
     fallbacks: DEFAULT_FALLBACKS, guardsEnabled: {}, guardRouting: {}, tasks: [], boundaries: [],
   }
   if (!preset) return base
@@ -434,7 +443,7 @@ const MAIN_SOURCE_NAME: Record<DamConfig['adapter'], string> = {
   simulation: 'main',
 }
 
-const GUARD_DEFAULT_ROUTING: Record<string, { phase?: number; always?: boolean; timeout_ms?: number }> = {
+const GUARD_DEFAULT_ROUTING: Record<string, { phase?: number; always?: boolean; timeout_ms?: number; lane?: 'fast' | 'slow' }> = {
   ood:       { phase: 0, timeout_ms: 50 },
   motion:    { phase: 0, timeout_ms: 20 },
   execution: { phase: 1, timeout_ms: 20 },
@@ -453,6 +462,7 @@ function guardLines(cfg: DamConfig): string[][] {
     if (routing.always) lines.push(`always: ${routing.always}`)
     else if (routing.phase != null) lines.push(`phase: ${routing.phase}`)
     if (routing.timeout_ms != null) lines.push(`timeout_ms: ${routing.timeout_ms}`)
+    if (routing.lane) lines.push(`lane: ${routing.lane}`)
     return lines
   })
 }
@@ -466,6 +476,7 @@ const SCHEMA: YamlSection[] = [
   block('hardware', [
     scalar('preset', cfg => cfg.hardware_preset),
     scalar('input_space', cfg => cfg.input_space ?? 'joint'),
+    scalar('telemetry_hz', cfg => cfg.telemetryHz ?? undefined),
     block('sources', [
       block('main', [
         scalar('type', () => 'dataset'),
@@ -542,6 +553,11 @@ const SCHEMA: YamlSection[] = [
     scalar('control_frequency_hz', cfg => cfg.controlFrequencyHz),
     scalar('no_task_behavior', () => 'emergency_stop'),
     scalar('enforcement_mode', cfg => cfg.enforcement_mode),
+    block('slow_lane', [
+      scalar('frequency_hz', cfg => cfg.slowLane?.frequency_hz),
+      scalar('max_staleness_ms', cfg => cfg.slowLane?.max_staleness_ms),
+      scalar('stale_action', cfg => cfg.slowLane?.stale_action),
+    ], cfg => !!cfg.slowLane),
   ]),
   blank,
   custom((cfg, indent) => {
@@ -646,6 +662,22 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
   const mode = getVal(/enforcement_mode:\s*(.*)/)
   if (mode) result.enforcement_mode = mode as EnforcementMode
 
+  const telemetryHz = getVal(/telemetry_hz:\s*(\d+\.?\d*)/)
+  if (telemetryHz) result.telemetryHz = Number(telemetryHz)
+
+  const slowLaneMatch = /slow_lane:\s*\n([\s\S]*?)(?=\n\S|$)/.exec(yaml)
+  if (slowLaneMatch) {
+    const blockText = slowLaneMatch[1]
+    const slFreq = /frequency_hz:\s*(\d+\.?\d*)/.exec(blockText)
+    const slStale = /max_staleness_ms:\s*(\d+\.?\d*)/.exec(blockText)
+    const slAction = /stale_action:\s*(\w+)/.exec(blockText)
+    result.slowLane = {
+      frequency_hz: slFreq ? Number(slFreq[1]) : 10,
+      max_staleness_ms: slStale ? Number(slStale[1]) : 500,
+      stale_action: slAction?.[1] === 'warn' ? 'warn' : 'reject',
+    }
+  }
+
   const guardsEnabled: any = {}
   const guardRouting: any = {}
   for (const id of ['ood', 'motion', 'execution', 'hardware']) {
@@ -654,11 +686,16 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
     const phaseMatch = new RegExp(`${id}:[\\s\\S]*?phase:\\s*(\\d+)`, 'i').exec(yaml)
     const alwaysMatch = new RegExp(`${id}:[\\s\\S]*?always:\\s*(true|false)`, 'i').exec(yaml)
     const timeoutMatch = new RegExp(`${id}:[\\s\\S]*?timeout_ms:\\s*(\\d+\\.?\\d*)`, 'i').exec(yaml)
-    if (phaseMatch || alwaysMatch || timeoutMatch) {
+    // Guards are emitted as list items ('- L0: ood'); scope the lane search
+    // to this guard's item body so it can't leak into the next entry.
+    const itemMatch = new RegExp(`-\\s*L\\d:\\s*${id}\\b([\\s\\S]*?)(?=\\n\\s*-\\s|\\n\\S|$)`, 'i').exec(yaml)
+    const laneMatch = itemMatch ? /lane:\s*(fast|slow)/i.exec(itemMatch[1]) : null
+    if (phaseMatch || alwaysMatch || timeoutMatch || laneMatch) {
       const entry: any = {}
       if (phaseMatch) entry.phase = Number(phaseMatch[1])
       if (alwaysMatch) entry.always = alwaysMatch[1].toLowerCase() === 'true'
       if (timeoutMatch) entry.timeout_ms = Number(timeoutMatch[1])
+      if (laneMatch) entry.lane = laneMatch[1].toLowerCase() as 'fast' | 'slow'
       guardRouting[id] = entry
     }
   }

@@ -753,7 +753,7 @@ wheels = [
 
 [[package]]
 name = "dam-rs"
-version = "0.5.0"
+version = "0.6.0"
 source = { directory = "dam-rust/dam-py" }
 
 [[package]]
@@ -3504,7 +3504,7 @@ wheels = [
 
 [[package]]
 name = "robot-dam"
-version = "0.5.0"
+version = "0.6.0"
 source = { editable = "." }
 dependencies = [
     { name = "dam-rs" },

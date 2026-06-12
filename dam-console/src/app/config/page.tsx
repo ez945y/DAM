@@ -668,6 +668,25 @@ export default function ConfigPage() {
               </p>
             )}
           </div>
+          <div className="pt-3 border-t border-dam-border/60 mt-3">
+            <div className="space-y-1">
+              <label htmlFor="telemetry-hz" className="text-dam-muted text-xs">Telemetry frequency (Hz)</label>
+              <input
+                id="telemetry-hz"
+                type="number"
+                min="0.5"
+                step="1"
+                placeholder="every cycle"
+                value={cfg.telemetryHz ?? ''}
+                onChange={e => set('telemetryHz', e.target.value === '' ? null : Number(e.target.value))}
+                className={`w-full ${inputCls}`}
+              />
+              <p className="text-dam-muted text-[10px]">
+                Decimates temperature/current/voltage bus reads; cached snapshots carry their own
+                timestamp. Empty reads every control cycle. Temperatures move in seconds — 1–5 Hz is plenty.
+              </p>
+            </div>
+          </div>
         </div>
       </Section>
 
@@ -704,6 +723,67 @@ export default function ConfigPage() {
               className={`w-full ${inputCls}`}
             />
           </div>
+        </div>
+
+        <div className="pt-3 border-t border-dam-border/60 mt-3">
+          <div className="flex items-center gap-3 mb-2">
+            <p className="text-dam-muted text-[10px] uppercase tracking-widest">Slow Lane</p>
+            <button
+              onClick={() => set('slowLane', cfg.slowLane ? null : { frequency_hz: 10, max_staleness_ms: 500, stale_action: 'reject' })}
+              className={`px-3 py-1 rounded text-xs border transition-all ${
+                cfg.slowLane
+                  ? 'bg-dam-blue-dim border-dam-blue text-dam-blue font-semibold'
+                  : 'bg-dam-surface-2 border-dam-border text-dam-muted hover:border-dam-blue/40'
+              }`}
+            >
+              {cfg.slowLane ? 'Enabled' : 'Disabled'}
+            </button>
+          </div>
+          <p className="text-dam-muted text-[10px] mb-2">
+            Runs expensive guards (L0 vision OOD, L2 task) on an async evaluator instead of the
+            control loop. The loop consumes their latest verdict and degrades when it goes stale.
+            Per-guard lane override lives in Guard Routing on the Guard page.
+          </p>
+          {cfg.slowLane && (
+            <div className="grid grid-cols-3 gap-2">
+              <div className="space-y-1">
+                <label htmlFor="slow-lane-hz" className="text-dam-muted text-xs">Frequency (Hz)</label>
+                <input
+                  id="slow-lane-hz"
+                  type="number"
+                  min="0.5"
+                  step="1"
+                  value={cfg.slowLane.frequency_hz}
+                  onChange={e => set('slowLane', { ...cfg.slowLane!, frequency_hz: Number(e.target.value) })}
+                  className={`w-full ${inputCls}`}
+                />
+              </div>
+              <div className="space-y-1">
+                <label htmlFor="slow-lane-staleness" className="text-dam-muted text-xs">Max staleness (ms)</label>
+                <input
+                  id="slow-lane-staleness"
+                  type="number"
+                  min="50"
+                  step="50"
+                  value={cfg.slowLane.max_staleness_ms}
+                  onChange={e => set('slowLane', { ...cfg.slowLane!, max_staleness_ms: Number(e.target.value) })}
+                  className={`w-full ${inputCls}`}
+                />
+              </div>
+              <div className="space-y-1">
+                <label htmlFor="slow-lane-stale-action" className="text-dam-muted text-xs">On stale verdict</label>
+                <select
+                  id="slow-lane-stale-action"
+                  value={cfg.slowLane.stale_action}
+                  onChange={e => set('slowLane', { ...cfg.slowLane!, stale_action: e.target.value as 'reject' | 'warn' })}
+                  className={`w-full ${inputCls}`}
+                >
+                  <option value="reject">Reject (trigger fallback)</option>
+                  <option value="warn">Warn (log only)</option>
+                </select>
+              </div>
+            </div>
+          )}
         </div>
 
       </Section>

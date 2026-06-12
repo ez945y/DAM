@@ -91,6 +91,58 @@ Top-level keys accepted by a Stackfile:
 | `control_frequency_hz` | float | `30.0` | Target control loop frequency |
 | `max_obs_age_sec` | float | `0.1` | Maximum observation age before stale warning |
 | `cycle_budget_ms` | float | `20.0` | Per-cycle time budget; excess triggers watchdog |
+| `slow_lane` | object | `null` | Fast/slow lane split — see below |
+
+### `safety.slow_lane` — fast/slow lane split
+
+High control rates (e.g. 60 Hz, 16.67 ms budget) cannot absorb expensive
+guards like vision OOD inference in the synchronous pipeline. `slow_lane`
+moves them to an async evaluator while the control loop stays the single
+writer to the sink and the single owner of the motor bus:
+
+```yaml
+safety:
+  control_frequency_hz: 60
+  slow_lane:
+    frequency_hz: 10        # slow-lane evaluation cadence
+    max_staleness_ms: 500   # verdict older than this triggers stale_action
+    stale_action: reject    # reject (trigger fallback) | warn (log only)
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `frequency_hz` | float | `10.0` | Slow-lane evaluation cadence |
+| `max_staleness_ms` | float | `500.0` | Verdict age limit before degradation |
+| `stale_action` | string | `"reject"` | `reject` or `warn` on stale verdict |
+
+Lane assignment binds to **guards** and defaults by layer: L0/L2 → slow,
+L1/L3 → fast. Override per guard in the `guards:` section:
+
+```yaml
+guards:
+  - L0: ood
+    lane: fast    # force vision OOD into the control loop
+```
+
+Semantics and ordering:
+
+- The fast lane runs L1 → L3 at `control_frequency_hz` and after each cycle
+  publishes the post-L1 (clamped) action to the slow lane — so L2 still
+  evaluates what was actually commanded, preserving the phase contract.
+- The slow lane runs L0 → L2 (stage order by layer) against the **latest**
+  snapshot only (latest-wins mailbox; it never queues or falls behind).
+- The latest slow verdict joins every fast cycle's aggregate: a slow-lane
+  REJECT latches until a newer verdict clears it, and flows through the same
+  fallback machinery as a synchronous reject. Slow-lane CLAMPs are escalated
+  to REJECT (a clamp computed against an old cycle cannot be applied).
+- Staleness is the synchronisation contract: if the verdict ages past
+  `max_staleness_ms` (worker overloaded, died, or never produced one), the
+  `slow_lane_watchdog` rejects (or warns, per `stale_action`).
+
+This is a documented trade-off: L0 OOD detection latency is bounded by
+`1/frequency_hz + max_staleness_ms` instead of one control cycle. L0 detects
+distribution shift — not a millisecond-scale phenomenon; millisecond-scale
+hazards stay in the fast lane (L1 kinematics, L3 hardware).
 
 ### `fallbacks` section
 
@@ -300,6 +352,7 @@ The `hardware` section declares physical or virtual hardware interfaces.
 hardware:
   preset: so101_follower    # auto-loads joint names and factory limits
   input_space: joint         # joint (default) or ee; must match policy.input_space
+  telemetry_hz: 5            # telemetry cadence — see "Telemetry cadence" below
 
   joints:                   # optional calibration overrides
     shoulder_pan:
@@ -365,6 +418,24 @@ hardware:
 ```
 
 ---
+
+### Telemetry cadence
+
+Channel registers (temperature / current / voltage) are read from the same
+serial bus as joint state. Each declared channel costs one `sync_read` per
+control cycle — several ms on a Feetech bus — so at high control rates they
+dominate the cycle budget.
+
+`hardware.telemetry_hz` decimates those reads: the adapter serves a cached
+snapshot between bus reads, stamped with `metadata["telemetry_timestamp"]`
+(monotonic time of the actual read). The contract for consumers (L3
+`HardwareGuard`): hardware status may be up to `1/telemetry_hz` old and
+carries its own timestamp — never assume same-cycle freshness. Temperatures
+move in seconds; 1–5 Hz is plenty. Unset (default) reads every cycle.
+
+The bus has exactly one owner — the control-loop read path. Telemetry is
+decimated there rather than read from another thread, so there is no lock
+around the serial port and no second reader.
 
 ## Policy Section
 

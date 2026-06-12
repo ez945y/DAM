@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "action-bus"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "parking_lot",
 ]
@@ -160,7 +160,7 @@ checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
 
 [[package]]
 name = "dam-py"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "action-bus",
  "image-writer",
@@ -212,7 +212,7 @@ dependencies = [
 
 [[package]]
 name = "decision-aggregator"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "parking_lot",
  "serde",
@@ -304,7 +304,7 @@ dependencies = [
 
 [[package]]
 name = "image-writer"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "image",
  "log",
@@ -358,7 +358,7 @@ checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
 name = "loopback"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "parking_lot",
  "serde",
@@ -406,7 +406,7 @@ dependencies = [
 
 [[package]]
 name = "mcap-writer"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "crossbeam",
  "image-writer",
@@ -435,7 +435,7 @@ dependencies = [
 
 [[package]]
 name = "metric-bus"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "parking_lot",
 ]
@@ -471,7 +471,7 @@ dependencies = [
 
 [[package]]
 name = "observation-bus"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "parking_lot",
 ]
@@ -633,7 +633,7 @@ dependencies = [
 
 [[package]]
 name = "risk-controller"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "parking_lot",
 ]
@@ -724,7 +724,7 @@ dependencies = [
 
 [[package]]
 name = "serializer-bus"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "log",
  "serde",
@@ -820,7 +820,7 @@ dependencies = [
 
 [[package]]
 name = "watchdog"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "parking_lot",
 ]

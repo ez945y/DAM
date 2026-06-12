@@ -71,6 +71,7 @@ def from_config(runtime_cls: type, config: StackfileConfig, frame_hub: Any | Non
         boundary_to_kind=boundary_to_kind,
         frame_hub=frame_hub,
         default_fallback=config.safety.no_task_behavior,
+        slow_lane_config=config.safety.slow_lane,
     )
 
     _apply_guard_overrides(config, guards_by_kind, runtime)
@@ -106,6 +107,15 @@ def _apply_guard_overrides(
         inst = guards_by_kind.get(kind_value)
         if inst is None:
             continue
+        lane_override = item.get("lane")
+        if lane_override is not None:
+            lane = str(lane_override).lower()
+            if lane not in ("fast", "slow"):
+                raise ValueError(
+                    f"guard '{kind_value}': lane must be 'fast' or 'slow', got '{lane_override}'"
+                )
+            inst._lane = lane
+            logger.info("Stackfile override: guard '%s' lane=%s", kind_value, lane)
         phase_override = item.get("phase")
         always_override = item.get("always")
         if phase_override is None and always_override is None:

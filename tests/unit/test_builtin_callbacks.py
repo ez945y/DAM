@@ -239,6 +239,46 @@ class TestJointAccelerationLimit:
             result.clamped_action.target_joint_positions, [0.002] * 6, atol=1e-6
         )
 
+    def test_tracking_lag_does_not_create_phantom_momentum(self):
+        """A lagging follower must not inflate velocity (teleop inertia bug).
+
+        Operator stationary at 1.0, previous command 1.0 with zero command
+        velocity, follower physically lagging at 0.8.  In command domain the
+        proposed velocity is 0 — the shrinking tracking gap must not read as
+        motion, so no clamp and no command thrown past the operator.
+        """
+        result = joint_acceleration_limit(
+            obs=_obs(positions=[0.8] * 6),
+            action=_action([1.0] * 6),
+            dt=1.0 / 30.0,
+            max_acceleration=[15.0] * 6,
+            prev_validated_positions=[1.0] * 6,
+            prev_validated_velocities=[0.0] * 6,
+        )
+        assert result.decision == GuardDecision.PASS
+
+    def test_clamp_rebuilds_from_previous_command_not_measured_position(self):
+        """Deceleration clamp anchors at the command trajectory.
+
+        Previous command 2.0 moving at 5 rad/s; operator stops (target stays
+        2.0) while the follower lags at 1.5.  Clamped velocity = 5 - 10*0.1
+        = 4 rad/s; the rebuilt position must extend the *command* (2.0 + 0.4
+        = 2.4), not the measured position (1.5 + 0.4 = 1.9), so observation
+        lag never bends the smoothed trajectory.
+        """
+        result = joint_acceleration_limit(
+            obs=_obs(positions=[1.5] * 6),
+            action=_action([2.0] * 6),
+            dt=0.1,
+            max_acceleration=[10.0] * 6,
+            prev_validated_positions=[2.0] * 6,
+            prev_validated_velocities=[5.0] * 6,
+        )
+        assert result.decision == GuardDecision.CLAMP
+        np.testing.assert_allclose(
+            result.clamped_action.target_joint_positions, [2.4] * 6, atol=1e-6
+        )
+
     def test_prev_validated_velocity_avoids_position_following_false_spike(self):
         """If the robot reached last target, use command velocity, not target-current."""
         result = joint_acceleration_limit(

@@ -21,7 +21,7 @@ from dam.runtime.execution_engine import ExecutionEngine, ValidationContext, _fi
 from dam.types.action import ActionProposal, ValidatedAction
 from dam.types.enforcement import EnforcementMode
 from dam.types.observation import Observation
-from dam.types.result import GuardResult
+from dam.types.result import GuardDecision, GuardResult
 from dam.types.risk import CycleResult, RiskLevel
 
 if TYPE_CHECKING:
@@ -49,6 +49,7 @@ class GuardRuntime:
         boundary_to_kind: dict[str, str] | None = None,
         frame_hub: Any | None = None,
         default_fallback: str = "emergency_stop",
+        slow_lane_config: Any | None = None,  # Optional["SlowLaneConfig"]
     ) -> None:
         if always_active is None:
             always_active = []
@@ -100,6 +101,12 @@ class GuardRuntime:
         self._sink: Any = None
         self._kinematics_resolver = kinematics_resolver
         self._stages: list[Any] | None = None
+        # ── Slow lane (optional) — async evaluator for L0/L2-lane guards ──
+        self._slow_lane_config = slow_lane_config
+        self._slow_lane: Any | None = None  # SlowLaneWorker when enabled
+        self._slow_stages: list[Any] | None = None
+        self._slow_active_names: list[str] = []
+        self._slow_stale_warned_at: float = 0.0
         self._frame_hub = frame_hub
         # Real camera shapes populated by the runner during verify(); reused
         # by start_task to warm up policy / guard PyTorch graphs at the actual
@@ -288,7 +295,17 @@ class GuardRuntime:
         # On the direct-construction path (tests, set_stages()), leave _stages untouched
         # so manually configured stages are respected.
         if self._boundary_to_kind:
-            self._stages = self._build_stages_for_task(active_bnames)
+            if self._slow_lane_config is not None:
+                fast_bnames = [b for b in active_bnames if self._lane_of(b) == "fast"]
+                slow_bnames = [b for b in active_bnames if self._lane_of(b) == "slow"]
+                self._stages = self._build_stages_for_task(fast_bnames)
+                self._slow_stages = (
+                    self._build_stages_for_task(slow_bnames) if slow_bnames else None
+                )
+                self._slow_active_names = slow_bnames
+                self._start_slow_lane()
+            else:
+                self._stages = self._build_stages_for_task(active_bnames)
 
         # Preflight: call each guard once per group
         stages_to_preflight = self._stages or []
@@ -389,11 +406,152 @@ class GuardRuntime:
             )
         return stages
 
+    # ── Slow lane ──────────────────────────────────────────────────────────
+
+    def _lane_of(self, bname: str) -> str:
+        """Resolve a boundary's execution lane via its owning guard.
+
+        The lane binds to the guard (stackfile ``guards:`` section, e.g.
+        ``- L0: ood`` + ``lane: fast``); all boundaries dispatched to that
+        guard share it.  Default by layer: L0/L2 → slow (expensive,
+        low-frequency phenomena), L1/L3 → fast (must run at control rate).
+        Unknown boundaries stay fast — conservative: never silently defer
+        a check.
+        """
+        kind = self._boundary_to_kind.get(bname)
+        guard = self._guards_by_kind.get(kind) if kind else None
+        if guard is None:
+            return "fast"
+        override: object = getattr(guard, "_lane", None)
+        if override in ("fast", "slow"):
+            return str(override)
+        return "slow" if guard.get_layer().value in (0, 2) else "fast"
+
+    def _start_slow_lane(self) -> None:
+        """(Re)start the slow-lane worker for the current task's slow stages."""
+        self._stop_slow_lane()
+        if not self._slow_stages or self._slow_lane_config is None:
+            return
+        from dam.runtime.slow_lane import SlowLaneWorker
+
+        self._slow_lane = SlowLaneWorker(
+            evaluate_fn=self._evaluate_slow_lane,
+            frequency_hz=float(self._slow_lane_config.frequency_hz),
+        )
+        self._slow_lane.start()
+        logger.info(
+            "slow lane: %d boundary(s) at %.1f Hz (max_staleness=%.0f ms, stale_action=%s): %s",
+            len(self._slow_active_names),
+            self._slow_lane_config.frequency_hz,
+            self._slow_lane_config.max_staleness_ms,
+            self._slow_lane_config.stale_action,
+            self._slow_active_names,
+        )
+
+    def _stop_slow_lane(self) -> None:
+        if self._slow_lane is not None:
+            self._slow_lane.stop()
+            self._slow_lane = None
+
+    def _evaluate_slow_lane(self, snapshot: Any) -> list[GuardResult]:
+        """Run the slow-lane stage list against a snapshot (worker thread).
+
+        Stage order preserves the layer contract (L0 before L2); the action
+        in the snapshot is post-fast-lane, so L2 sees post-L1 clamps.  No
+        enforcement side effects here — verdicts gate the *next* fast cycles.
+        """
+        slow_containers = [
+            self._boundary_containers[n]
+            for n in self._slow_active_names
+            if n in self._boundary_containers
+        ]
+        ctx = ValidationContext(
+            cycle_id=snapshot.cycle_id,
+            guards=self._guards,
+            stages=self._slow_stages,
+            active_containers=slow_containers,
+            active_container_names=list(self._slow_active_names),
+            boundary_containers=self._boundary_containers,
+            node_start_times=dict(self._node_start_times),
+            active_task=self._active_task,
+            kinematics_resolver=self._kinematics_resolver,
+            risk_controller=self._risk_controller,
+            sink=None,  # slow lane never touches actuation
+            runtime=self,
+            prev_validated_positions=self._prev_validated_positions,
+            prev_validated_velocities=self._prev_validated_velocities,
+            dynamics=self._select_dynamics(),
+            config_pool=self._hot_reload.config_pool,
+        )
+        return self._engine.run_guard_checks(
+            snapshot.obs,
+            snapshot.action,
+            snapshot.trace_id,
+            ctx,
+            stages=self._slow_stages,
+        )
+
+    def _slow_lane_extra_results(self, now: float | None) -> list[GuardResult] | None:
+        """Latest slow verdict as GuardResults for this fast cycle's aggregate.
+
+        - REJECT/FAULT/PASS results join as-is (REJECT latches until a newer
+          verdict clears it — that's the gate semantic).
+        - CLAMP is converted to REJECT: a clamped action computed against an
+          older cycle cannot be applied to the current one; refusing is the
+          conservative direction.
+        - A verdict older than ``max_staleness_ms`` (or no verdict at all
+          after that grace period) triggers ``stale_action``.
+        """
+        if self._slow_lane is None or not self._slow_stages:
+            return None
+        import dataclasses as _dc
+
+        cfg = self._slow_lane_config
+        if cfg is None:
+            return None
+        now_m = now if now is not None else time.monotonic()
+        extra: list[GuardResult] = []
+
+        verdict = self._slow_lane.latest_verdict()
+        if verdict is not None:
+            age_ms = (now_m - verdict.produced_at) * 1000.0
+            for r in verdict.results:
+                meta = {**r.metadata, "slow_lane": True, "verdict_age_ms": age_ms}
+                if r.decision == GuardDecision.CLAMP:
+                    extra.append(
+                        _dc.replace(
+                            r,
+                            decision=GuardDecision.REJECT,
+                            clamped_action=None,
+                            reason=f"slow-lane clamp escalated to reject (stale basis): {r.reason}",
+                            metadata=meta,
+                        )
+                    )
+                else:
+                    extra.append(_dc.replace(r, metadata=meta))
+
+        age_s = self._slow_lane.verdict_age_s(now_m)
+        if age_s is not None and age_s * 1000.0 > float(cfg.max_staleness_ms):
+            reason = (
+                f"slow-lane verdict stale: {age_s * 1000.0:.0f} ms "
+                f"> max_staleness_ms={cfg.max_staleness_ms:.0f}"
+            )
+            if cfg.stale_action == "reject":
+                extra.append(GuardResult.reject("slow_lane_watchdog", GuardLayer.L0, reason=reason))
+            elif now_m - self._slow_stale_warned_at > 5.0:
+                self._slow_stale_warned_at = now_m
+                logger.warning("%s (stale_action=warn)", reason)
+
+        return extra or None
+
     def stop_task(self) -> None:
         self._active_task = None
         self._active_containers = []
         self._active_container_names = []
         self._node_start_times = {}
+        self._slow_stages = None
+        self._slow_active_names = []
+        self._stop_slow_lane()
         self._ctx_sm.reset_stack()
         self.stop_recording()
 
@@ -504,9 +662,29 @@ class GuardRuntime:
             dynamics=self._select_dynamics(),
             config_pool=self._hot_reload.config_pool,
         )
-        validated, results = self._engine.validate(obs, action, trace_id, ctx, now=now)
+        # Slow-lane gating: the latest async verdict (L0/L2) joins this
+        # cycle's aggregate; staleness degrades per slow_lane.stale_action.
+        extra_results = self._slow_lane_extra_results(now) if emit_side_effects else None
+        validated, results = self._engine.validate(
+            obs, action, trace_id, ctx, now=now, extra_results=extra_results
+        )
         if commit_state:
-            self._remember_validated_action(validated, obs)
+            self._remember_validated_action(validated)
+
+        # Publish the post-fast-lane state for the slow lane: L2 evaluates
+        # what was actually commanded (post-L1 clamps), at its own cadence.
+        if emit_side_effects and self._slow_lane is not None and self._slow_stages:
+            from dam.runtime.slow_lane import SlowSnapshot
+
+            self._slow_lane.submit(
+                SlowSnapshot(
+                    obs=obs,
+                    action=validated if validated is not None else action,
+                    trace_id=trace_id,
+                    cycle_id=self._cycle_id,
+                    published_at=time.monotonic(),
+                )
+            )
 
         if emit_side_effects and self._telemetry.loopback is not None:
             self._telemetry.submit_loopback(
@@ -528,13 +706,20 @@ class GuardRuntime:
     def _remember_validated_action(
         self,
         validated: ValidatedAction | None,
-        obs: Observation | None = None,
     ) -> None:
-        """Remember the last command produced by the shared validation path."""
+        """Remember the last command produced by the shared validation path.
+
+        The fallback velocity is command-to-command: (target_t − target_{t−1})/dt.
+        Never derive it from the observation — (target − measured)/dt folds the
+        follower's physical tracking lag into "velocity", and the acceleration
+        limiter then preserves that phantom momentum: commands overshoot the
+        operator's actual position and only slowly converge back (inertia).
+        """
         if validated is None or validated.target_joint_positions is None:
             return
 
         target = np.asarray(validated.target_joint_positions, dtype=np.float64)
+        prev_target = self._prev_validated_positions
         self._prev_validated_positions = target.tolist()
 
         if validated.target_joint_velocities is not None:
@@ -543,19 +728,19 @@ class GuardRuntime:
             ).tolist()
             return
 
-        if obs is None or obs.joint_positions is None:
+        if prev_target is None:
             self._prev_validated_velocities = None
             return
 
-        cur = np.asarray(obs.joint_positions, dtype=np.float64)
-        n = min(target.shape[0], cur.shape[0])
+        prev = np.asarray(prev_target, dtype=np.float64)
+        n = min(target.shape[0], prev.shape[0])
         if n == 0:
             self._prev_validated_velocities = None
             return
         dt = float(self._hot_reload.config_pool.get("dt", 1.0 / self._control_frequency_hz))
         dt_safe = max(dt, 1e-6)
         velocities = np.zeros_like(target, dtype=np.float64)
-        velocities[:n] = (target[:n] - cur[:n]) / dt_safe
+        velocities[:n] = (target[:n] - prev[:n]) / dt_safe
         self._prev_validated_velocities = velocities.tolist()
 
     def _run_context_hardware_monitors(
@@ -889,7 +1074,7 @@ class GuardRuntime:
         # Track the final action this cycle will send. NormalContext already
         # passes through validate(); fallback contexts may post-process that
         # output or generate their own waypoint, so commit the final action here.
-        self._remember_validated_action(validated, obs)
+        self._remember_validated_action(validated)
 
         if validated is not None and self._sink is not None:
             # Use apply() (ActionAdapter ABC). write() is a deprecated alias on legacy sinks.
@@ -1016,6 +1201,7 @@ class GuardRuntime:
             return
         self._shutdown_complete = True
         self._running = False
+        self._stop_slow_lane()
         if hasattr(self, "_engine") and self._engine is not None:
             self._engine.shutdown()
         if hasattr(self, "_watchdog") and self._watchdog is not None:

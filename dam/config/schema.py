@@ -93,6 +93,36 @@ class TaskConfig(BaseModel):
 # ── Safety config ──────────────────────────────────────────────────────────
 
 
+class SlowLaneConfig(BaseModel):
+    """Async slow-lane evaluator for expensive guards (L0 vision OOD, L2 task).
+
+    The control loop stays the single writer to the sink; slow-lane guards run
+    on a worker thread at ``frequency_hz`` against the latest post-fast-lane
+    snapshot and publish a verdict the control loop consumes as a gate.  A
+    verdict older than ``max_staleness_ms`` triggers ``stale_action``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    frequency_hz: float = 10.0
+    max_staleness_ms: float = 500.0
+    stale_action: str = "reject"  # reject (trigger fallback) | warn (log only)
+
+    @field_validator("frequency_hz")
+    @classmethod
+    def freq_positive(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError("slow_lane.frequency_hz must be positive")
+        return v
+
+    @field_validator("stale_action")
+    @classmethod
+    def validate_stale_action(cls, v: str) -> str:
+        value = str(v).lower()
+        if value not in {"reject", "warn"}:
+            raise ValueError("slow_lane.stale_action must be 'reject' or 'warn'")
+        return value
+
+
 class SafetyConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     # Phase 2: single string name; Phase 1: list of names. Both accepted.
@@ -102,6 +132,8 @@ class SafetyConfig(BaseModel):
     max_obs_age_sec: float = 0.1
     cycle_budget_ms: float = 20.0
     enforcement_mode: EnforcementMode = EnforcementMode.ENFORCE
+    # Optional fast/slow lane split — None keeps everything in the control loop.
+    slow_lane: SlowLaneConfig | None = None
 
     @field_validator("control_frequency_hz")
     @classmethod

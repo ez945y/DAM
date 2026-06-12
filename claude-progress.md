@@ -586,3 +586,23 @@
   - MCAP 回讀 risk log 未實作
   - `make test` 完整套件本輪未跑
 - **下一步最佳動作**: 見 session-handoff.md
+
+### Session 2026-06-12 #1 (teleop inertia root-cause fix)
+
+- **本輪目標**: 修復 `make record` 動作慣性（follower 甩過頭再慢慢回來）
+- **根因**: `_remember_validated_action`（commit 05ec93d）把前一輪速度推導為 (命令 − 實測)/dt，把 follower 物理追蹤落差混進「命令速度」；加速度限制器保留這股幽靈動量，operator 停止時把命令甩過真實位置，再被 accel/vel limit 慢慢拉回
+- **已完成**:
+  - `_remember_validated_action` 改為純命令域：velocity = (target_t − target_{t−1})/dt，首輪無歷史則為 None
+  - `joint_acceleration_limit` 全面命令域化：proposed velocity、prev velocity、clamp 位置重建、QP box 全部錨定前一輪命令（`anchor`），實測位置只在首輪無歷史時當 seed
+  - `_prev_vel` cache 擴為 (velocity, command_positions, timestamp) 三元組，standalone 路徑同樣命令域
+  - 還原 safety.yaml 治標性放寬（max_velocities 7→4, max_acceleration 15→10）
+  - Regression tests ×2（tracking lag 不得產生幽靈動量；clamp 錨定命令而非實測）+ runtime injection test 更新為命令域語義
+- **執行過的驗證**:
+  - `pytest tests/unit/` — 800/800 passed
+  - `pytest tests/safety/ tests/property/` — 37/37 passed
+  - mypy + ruff 通過
+  - 閉環模擬 A/B（leader 3 rad/s 急停 + 100ms 一階滯後 follower）：舊語義命令過衝 140.5 mrad (8.1°) → 新語義 40.8 mrad (2.3°，純減速度物理必然量)，皆收斂
+- **已知風險或未解決問題**:
+  - 未 commit（guard_runtime.py 同檔還有 in-flight slow-lane 改動，需一起或分開 commit 由使用者決定）
+  - 無實機驗證；建議下次 `make record` 實測甩動是否消失
+- **下一步最佳動作**: 實機驗證後 commit；若 4 rad/s velocity limit 造成跟隨太慢，再針對性調參（這次是有根因依據的調整，非治標）
