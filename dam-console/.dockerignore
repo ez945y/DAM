@@ -1,0 +1,28 @@
+# Build context for dam-console/Dockerfile.
+# The repo-root .dockerignore does NOT apply when building from this directory,
+# so secrets and build artifacts must be excluded here as well.
+
+# Dependencies and build output
+node_modules/
+.next/
+.swc/
+out/
+build/
+dist/
+
+# Environment / secrets
+.env
+.env.*
+
+# Git and editor
+.git/
+.vscode/
+.idea/
+
+# Logs and OS files
+*.log
+.DS_Store
+
+# Tests and coverage (not needed in the image)
+coverage/
+__tests__/
