@@ -12,12 +12,13 @@ dam.build_runner(stack, *, ros2_node)       -> Runner
 # Safety guard (no hardware loop needed)
 dam.safe(action, obs, stackfile, *, ...)    -> ndarray | dict
 dam.SafetyGuard(stackfile, *, task, ...)    -> callable guard
-dam.SafetyKinematicsResolver               # Protocol for EE-space SafetyGuard actions
 dam.SafetyProcessorStep(stackfile, *, ...)  -> LeRobot processor step
 
 # Registration decorators
-dam.register_preset(name, *, joint_names, degrees_mode, urdf_path, chains)
+dam.register_preset(name, *, joint_names, degrees_mode, assets, solvers, chains)
 dam.register_callback(name, fn=None, *, layer, category, description, params)
+dam.register_solver(name, solver, *, capabilities)
+dam.register_solver_factory(type, factory, *, capabilities)
 @dam.callback(name)                         # register a boundary callback
 @dam.guard(layer, *, phase, always)         # register a Guard subclass
 @dam.fallback(name, *, monitors_hardware)   # register a fallback Context
@@ -98,11 +99,12 @@ for action, obs in teleop_stream:
 - Rejected actions return hold-position (current joint positions) so loops never break
 - Access the underlying runtime via `guard.runtime`
 
-`SafetyGuard` accepts joint-space actions by default. To validate an EE-space
-action, declare or override `input_space="ee"` and provide a kinematics resolver:
+`SafetyGuard` accepts joint-space actions by default. To validate another action
+space, provide first-class solvers. For an EE-space arm policy, register a
+solver with the `kinematics` capability:
 
 ```python
-class Resolver:
+class ArmSolver:
     def inverse_kinematics(self, target_ee_pose, current_joint_positions):
         ...
 
@@ -112,16 +114,30 @@ class Resolver:
 guard = dam.SafetyGuard(
     "safety.yaml",
     input_space="ee",
-    kinematics_resolver=Resolver(),
+    solvers={"kinematics": ArmSolver()},
 )
 
 safe_ee_pose = guard(ee_pose, current_joint_positions)
 ```
 
-The resolver converts EE pose `[x, y, z, qx, qy, qz, qw]` to a joint proposal;
-DAM then runs the existing joint-space guard pipeline and maps the validated
-joint target back to EE pose. Without a resolver, EE mode raises a clear error
-instead of treating the pose as joint data.
+For a mobile base, use a solver whose capability matches the embodiment:
+
+```python
+class AckermannSolver:
+    def rollout(self, state, command, dt):
+        ...
+
+guard = dam.SafetyGuard(
+    "rover_safety.yaml",
+    input_space="ackermann",
+    solvers={"base": AckermannSolver()},
+)
+```
+
+Solvers are the extension point. A preset can own multiple solver definitions:
+arm kinematics, base dynamics, collision checking, map constraints, and more.
+URDF/USD/map files are preset resources referenced by those solvers, not
+standalone global configuration.
 
 ### `dam.SafetyProcessorStep` — LeRobot integration
 
@@ -152,7 +168,14 @@ dam.register_preset(
     "my_arm",
     joint_names=["shoulder", "elbow", "wrist"],
     degrees_mode=False,
-    urdf_path="/opt/robots/my_arm.urdf",
+    assets={"urdf": "/opt/robots/my_arm.urdf"},
+    solvers={
+        "arm": {
+            "type": "pinocchio_kinematics",
+            "capabilities": ["kinematics"],
+            "params": {"asset_ref": "urdf"},
+        }
+    },
 )
 ```
 
@@ -189,6 +212,50 @@ dam.register_callback("my_check", my_check, layer="L1")
 ```
 
 Then reference `callback: my_workspace_rule` in your Stackfile.
+
+### `dam.register_solver(...)`
+
+Register a live solver object:
+
+```python
+dam.register_solver(
+    "isaac_arm",
+    IsaacUsdSolver(articulation),
+    capabilities=["kinematics", "collision"],
+)
+```
+
+Pass it into `SafetyGuard` by name or object map:
+
+```python
+guard = dam.SafetyGuard("safety.yaml", input_space="ee", solvers={"kinematics": isaac_solver})
+```
+
+### `dam.register_solver_factory(...)`
+
+Register a Stackfile-instantiable solver factory:
+
+```python
+def make_usd_solver(params):
+    return IsaacUsdSolver(params["prim_path"])
+
+dam.register_solver_factory(
+    "isaac_usd",
+    make_usd_solver,
+    capabilities=["kinematics"],
+)
+```
+
+Stackfile:
+
+```yaml
+solvers:
+  arm:
+    type: isaac_usd
+    capabilities: [kinematics]
+    params:
+      prim_path: /World/Robot
+```
 
 ### `@dam.callback(name)`
 

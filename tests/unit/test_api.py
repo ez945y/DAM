@@ -13,6 +13,7 @@ from dam.boundary.callbacks import get_catalog
 from dam.preset.registry import get_preset
 from dam.registry.callback import get_global_registry
 from dam.runner.base import BaseRunner, RunnerStatus
+from dam.solver.registry import get_global_solver_registry
 
 
 class TestPublicSurface:
@@ -21,11 +22,12 @@ class TestPublicSurface:
             "build_runner",
             "run",
             "RunSummary",
-            "SafetyKinematicsResolver",
             "Runner",
             "RunnerStatus",
             "register_preset",
             "register_callback",
+            "register_solver",
+            "register_solver_factory",
         ):
             assert name in dam.__all__
             assert hasattr(dam, name)
@@ -61,14 +63,16 @@ class TestRegistrationAPI:
             "pip_custom_arm",
             joint_names=["j0", "j1"],
             degrees_mode=False,
-            urdf_path="/tmp/custom.urdf",
+            assets={"urdf": "/tmp/custom.urdf"},
+            solvers={"arm": {"type": "pinocchio_kinematics", "params": {"asset_ref": "urdf"}}},
         )
 
         assert preset.name == "pip_custom_arm"
         loaded = get_preset("pip_custom_arm")
         assert loaded.joint_names == ["j0", "j1"]
         assert loaded.degrees_mode is False
-        assert loaded.default_urdf_relpath == "/tmp/custom.urdf"
+        assert loaded.asset_path("urdf") == "/tmp/custom.urdf"
+        assert "arm" in loaded.solvers
 
     def test_register_callback_direct_call_updates_registry_and_catalog(self):
         name = f"custom_direct_{uuid.uuid4().hex}"
@@ -105,3 +109,41 @@ class TestRegistrationAPI:
     def test_register_callback_rejects_unknown_layer(self):
         with pytest.raises(ValueError, match="Unknown callback layer"):
             dam.register_callback("bad_layer", lambda: True, layer="NOPE")
+
+    def test_register_solver_instance(self):
+        name = f"solver_{uuid.uuid4().hex}"
+        capability = f"base_dynamics_{uuid.uuid4().hex}"
+        solver = object()
+
+        returned = dam.register_solver(name, solver, capabilities=[capability])
+
+        assert returned is solver
+        registry = get_global_solver_registry()
+        assert registry.get(name) is solver
+        assert registry.select(capability) is solver
+
+    def test_register_solver_factory(self):
+        solver_type = f"solver_type_{uuid.uuid4().hex}"
+        solver_name = f"solver_name_{uuid.uuid4().hex}"
+
+        class Solver:
+            def __init__(self, gain: float):
+                self.gain = gain
+
+        def factory(params):
+            return Solver(params["gain"])
+
+        returned = dam.register_solver_factory(
+            solver_type,
+            factory,
+            capabilities=["kinematics"],
+        )
+
+        assert returned is factory
+        solver = get_global_solver_registry().build(
+            solver_name,
+            solver_type,
+            {"gain": 2.0},
+        )
+        assert solver.gain == 2.0
+        assert get_global_solver_registry().get(solver_name) is solver

@@ -261,7 +261,8 @@ export interface PresetEntry {
   name: string
   joint_names: string[]
   degrees_mode: boolean
-  urdf_path: string | null
+  assets: Record<string, string>
+  solvers: Record<string, unknown>
 }
 
 export async function listPresets(): Promise<PresetEntry[]> {
@@ -280,7 +281,8 @@ export async function upsertPreset(
       name: entry.name,
       joint_names: entry.joint_names,
       degrees_mode: entry.degrees_mode,
-      urdf_path: entry.urdf_path,
+      assets: entry.assets,
+      solvers: entry.solvers,
       rename_from: options?.renameFrom ?? null,
     }),
   })

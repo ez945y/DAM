@@ -7,13 +7,13 @@ const inputCls =
   'bg-dam-surface-2 border border-dam-border rounded px-2 py-1.5 text-xs font-mono text-dam-text focus:outline-none focus:border-dam-blue/60 transition-colors'
 
 function emptyDraft(): PresetEntry {
-  return { name: '', joint_names: [], degrees_mode: true, urdf_path: null }
+  return { name: '', joint_names: [], degrees_mode: true, assets: {}, solvers: {} }
 }
 
-async function uploadUrdf(file: File): Promise<string> {
+async function uploadAsset(file: File, target: string): Promise<string> {
   const fd = new FormData()
   fd.append('file', file)
-  fd.append('target', 'urdf')
+  fd.append('target', target)
   const res = await fetch('/api/system/upload-asset', { method: 'POST', body: fd })
   const body = await res.json() as { ok: boolean; path?: string; error?: string }
   if (!body.ok || !body.path) throw new Error(body.error ?? 'Upload failed')
@@ -33,6 +33,7 @@ export function PresetManager({
   const [editing, setEditing] = useState<PresetEntry | null>(null)
   const [editingOriginalName, setEditingOriginalName] = useState<string | null>(null)
   const [jointsCsv, setJointsCsv] = useState('')
+  const [solversJson, setSolversJson] = useState('{}')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
@@ -64,12 +65,14 @@ export function PresetManager({
     setEditing(emptyDraft())
     setEditingOriginalName(null)
     setJointsCsv('')
+    setSolversJson('{}')
   }
 
   const startEdit = (p: PresetEntry) => {
     setEditing({ ...p })
     setEditingOriginalName(p.name)
     setJointsCsv(p.joint_names.join(', '))
+    setSolversJson(JSON.stringify(p.solvers ?? {}, null, 2))
   }
 
   const handleSave = async () => {
@@ -78,11 +81,12 @@ export function PresetManager({
     setError(null)
     try {
       const joint_names = jointsCsv.split(',').map(s => s.trim()).filter(Boolean)
+      const solvers = JSON.parse(solversJson || '{}') as Record<string, unknown>
       const renameFrom =
         editingOriginalName && editingOriginalName !== editing.name
           ? editingOriginalName
           : undefined
-      await upsertPreset({ ...editing, joint_names }, { renameFrom })
+      await upsertPreset({ ...editing, joint_names, solvers }, { renameFrom })
       setEditing(null)
       setEditingOriginalName(null)
       await refresh()
@@ -109,7 +113,15 @@ export function PresetManager({
     }
   }
 
-  const handleUrdfFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const setAsset = (key: string, path: string) => {
+    if (!editing) return
+    const assets = { ...(editing.assets ?? {}) }
+    if (path.trim()) assets[key] = path.trim()
+    else delete assets[key]
+    setEditing({ ...editing, assets })
+  }
+
+  const handleAssetFile = async (key: string, e: React.ChangeEvent<HTMLInputElement>) => {
     if (!editing) return
     const file = e.target.files?.[0]
     if (!file) return
@@ -117,8 +129,8 @@ export function PresetManager({
     setBusy(true)
     setError(null)
     try {
-      const path = await uploadUrdf(file)
-      setEditing({ ...editing, urdf_path: path })
+      const path = await uploadAsset(file, key)
+      setAsset(key, path)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -157,11 +169,15 @@ export function PresetManager({
                   <p className="text-dam-muted text-[10px] mt-0.5">
                     {p.joint_names.length} joints · {p.degrees_mode ? 'degrees' : 'radians'} mode
                   </p>
-                  {p.urdf_path && (
-                    <p className="text-dam-muted text-[10px] font-mono mt-0.5 truncate">URDF: {p.urdf_path}</p>
-                  )}
-                  {!p.urdf_path && (
-                    <p className="text-dam-orange text-[10px] mt-0.5 italic">No URDF — workspace boundary FK unavailable</p>
+                  {Object.entries(p.assets ?? {}).map(([key, path]) => (
+                    <p key={key} className="text-dam-muted text-[10px] font-mono mt-0.5 truncate">
+                      {key}: {path}
+                    </p>
+                  ))}
+                  {Object.keys(p.solvers ?? {}).length > 0 && (
+                    <p className="text-dam-blue text-[10px] mt-0.5">
+                      {Object.keys(p.solvers).length} solver{Object.keys(p.solvers).length === 1 ? '' : 's'}
+                    </p>
                   )}
                 </div>
                 <div className="flex gap-1 shrink-0">
@@ -238,24 +254,41 @@ export function PresetManager({
                   Degrees mode
                 </label>
               </div>
+              <div className="space-y-2">
+                <label className="text-dam-muted text-[10px] uppercase tracking-wider">Robot assets</label>
+                {(['urdf', 'usd'] as const).map(key => (
+                  <div key={key} className="flex gap-2 items-center">
+                    <span className="w-10 text-dam-muted text-[10px] uppercase">{key}</span>
+                    <input
+                      value={editing.assets?.[key] ?? ''}
+                      onChange={e => setAsset(key, e.target.value)}
+                      className={`flex-1 ${inputCls}`}
+                      placeholder={key === 'urdf' ? 'assets/robot.urdf or /abs/path/robot.urdf' : 'assets/scene.usd or /abs/path/scene.usd'}
+                    />
+                    <label className="flex items-center gap-1 px-2 py-1.5 bg-dam-surface-3 border border-dam-border rounded text-xs text-dam-muted hover:text-dam-text cursor-pointer transition-colors">
+                      <Upload size={11} /> Upload
+                      <input
+                        type="file"
+                        accept={key === 'urdf' ? '.urdf,.xml' : '.usd,.usda,.usdc'}
+                        onChange={e => handleAssetFile(key, e)}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                ))}
+              </div>
               <div className="space-y-1">
-                <label className="text-dam-muted text-[10px] uppercase tracking-wider">URDF path</label>
-                <div className="flex gap-2 items-center">
-                  <input
-                    value={editing.urdf_path ?? ''}
-                    onChange={e => setEditing({ ...editing, urdf_path: e.target.value || null })}
-                    className={`flex-1 ${inputCls}`}
-                    placeholder="assets/foo.urdf or /abs/path/foo.urdf"
-                  />
-                  <label className="flex items-center gap-1 px-2 py-1.5 bg-dam-surface-3 border border-dam-border rounded text-xs text-dam-muted hover:text-dam-text cursor-pointer transition-colors">
-                    <Upload size={11} /> Upload
-                    <input type="file" accept=".urdf,.xml" onChange={handleUrdfFile} className="hidden" />
-                  </label>
-                </div>
+                <label className="text-dam-muted text-[10px] uppercase tracking-wider">Solver definitions (JSON)</label>
+                <textarea
+                  value={solversJson}
+                  onChange={e => setSolversJson(e.target.value)}
+                  className={`w-full min-h-28 ${inputCls}`}
+                  placeholder='{"arm": {"type": "pinocchio_kinematics", "capabilities": ["kinematics"], "params": {"asset_ref": "urdf"}}}'
+                />
               </div>
               <div className="flex gap-2 justify-end pt-1">
                 <button
-                  onClick={() => { setEditing(null); setEditingOriginalName(null) }}
+                  onClick={() => { setEditing(null); setEditingOriginalName(null); setSolversJson('{}') }}
                   disabled={busy}
                   className="px-3 py-1 text-xs text-dam-muted hover:text-dam-text"
                 >

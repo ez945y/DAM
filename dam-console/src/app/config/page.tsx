@@ -303,8 +303,12 @@ export default function ConfigPage() {
   ]
 
   const INPUT_SPACES: { id: DamConfig['input_space']; label: string; description: string }[] = [
-    { id: 'joint', label: 'Joint',        description: 'Policy outputs per-joint position targets.' },
-    { id: 'ee',    label: 'End-effector', description: 'Policy outputs an EE pose [x,y,z,quat]; DAM solves IK via the preset URDF.' },
+    { id: 'joint',     label: 'Joint',        description: 'Policy outputs per-joint position targets.' },
+    { id: 'ee',        label: 'End-effector', description: 'Policy outputs an EE pose [x,y,z,quat]; configure a kinematics solver in solvers:.' },
+    { id: 'base',      label: 'Base',         description: 'Policy outputs a mobile-base command interpreted by a base solver.' },
+    { id: 'twist',     label: 'Twist',        description: 'Policy outputs [vx, vy, wz] body velocity commands.' },
+    { id: 'ackermann', label: 'Ackermann',    description: 'Policy outputs vehicle speed and steering commands.' },
+    { id: 'pose2d',    label: 'Pose 2D',      description: 'Policy outputs planar [x, y, yaw] targets.' },
   ]
 
   return (
@@ -661,10 +665,9 @@ export default function ConfigPage() {
               {INPUT_SPACES.find(s => s.id === (cfg.input_space ?? 'joint'))?.description}
               {' '}Written to both hardware and policy — the backend requires them to match.
             </p>
-            {cfg.input_space === 'ee' && !presets.find(p => p.name === cfg.hardware_preset)?.urdf_path && (
+            {cfg.input_space === 'ee' && (
               <p className="text-amber-400 text-[10px] mt-1.5">
-                ⚠ Preset &lsquo;{cfg.hardware_preset}&rsquo; has no URDF — EE mode needs one for IK/FK.
-                Add a URDF via <button className="underline hover:text-amber-300" onClick={() => setPresetManagerOpen(true)}>Manage presets</button>, or switch back to joint.
+                EE mode needs a kinematics solver in the Stackfile <span className="font-mono">solvers:</span> section.
               </p>
             )}
           </div>

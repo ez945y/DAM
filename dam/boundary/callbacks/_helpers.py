@@ -6,7 +6,6 @@ from typing import Any
 
 import numpy as np
 
-from dam.kinematics.resolver import KinematicsResolver
 from dam.types.observation import Observation
 
 
@@ -36,14 +35,26 @@ def _read_channel(obs: Observation, channel: str) -> np.ndarray | None:
     return None
 
 
-def _get_ee_pose(
-    obs: Observation, kinematics_resolver: KinematicsResolver | None = None
-) -> np.ndarray | None:
+def _select_solver(solvers: dict[str, Any] | None, capability: str) -> Any | None:
+    capability = capability.lower()
+    for name, solver in (solvers or {}).items():
+        if name.lower() == capability:
+            return solver
+        caps = getattr(solver, "_dam_solver_capabilities", ())
+        if capability in caps:
+            return solver
+    return None
+
+
+def _get_ee_pose(obs: Observation, solvers: dict[str, Any] | None = None) -> np.ndarray | None:
     if obs.end_effector_pose is not None:
         return obs.end_effector_pose
-    if kinematics_resolver is not None:
+    kinematics = _select_solver(solvers, "kinematics")
+    if kinematics is not None:
         try:
-            return kinematics_resolver.compute_fk(obs.joint_positions)
+            if hasattr(kinematics, "compute_fk"):
+                return kinematics.compute_fk(obs.joint_positions)
+            return kinematics.forward_kinematics(obs.joint_positions)
         except Exception:  # noqa: BLE001 — FK failure is non-fatal; caller falls back to None
             pass
     return None
@@ -68,7 +79,7 @@ def _quat_to_rotmat(quat: np.ndarray) -> np.ndarray:
 
 def _resolve_ee_translation(
     obs: Observation,
-    kinematics_resolver: KinematicsResolver | None = None,
+    solvers: dict[str, Any] | None = None,
     dynamics: Any | None = None,
 ) -> np.ndarray | None:
     """End-effector position (3,), preferring the cached ``dynamics`` context."""
@@ -81,7 +92,7 @@ def _resolve_ee_translation(
         dynamics.update(np.asarray(obs.joint_positions, dtype=np.float64))
         placement = dynamics.frame_placement(dynamics.default_frame_id)
         return np.asarray(placement.translation, dtype=np.float64)
-    pose = _get_ee_pose(obs, kinematics_resolver=kinematics_resolver)
+    pose = _get_ee_pose(obs, solvers=solvers)
     if pose is None:
         return None
     return np.asarray(pose[:3], dtype=np.float64)
@@ -89,7 +100,7 @@ def _resolve_ee_translation(
 
 def _resolve_ee_rotation(
     obs: Observation,
-    kinematics_resolver: KinematicsResolver | None = None,
+    solvers: dict[str, Any] | None = None,
     dynamics: Any | None = None,
 ) -> np.ndarray | None:
     """End-effector rotation matrix (3, 3), or None if unobtainable."""
@@ -102,7 +113,7 @@ def _resolve_ee_rotation(
         dynamics.update(np.asarray(obs.joint_positions, dtype=np.float64))
         placement = dynamics.frame_placement(dynamics.default_frame_id)
         return np.asarray(placement.rotation, dtype=np.float64)
-    pose = _get_ee_pose(obs, kinematics_resolver=kinematics_resolver)
+    pose = _get_ee_pose(obs, solvers=solvers)
     if pose is None or len(pose) < 7:
         return None
     return _quat_to_rotmat(np.asarray(pose[3:7], dtype=np.float64))

@@ -44,7 +44,7 @@ class RuntimeFactory:
 
         if config.hardware is not None and config.hardware.urdf_path:
             return config.hardware.urdf_path
-        relpath = getattr(preset, "default_urdf_relpath", None)
+        relpath = preset.asset_path("urdf") if hasattr(preset, "asset_path") else None
         if not relpath:
             return None
         # factory.py lives at dam/runtime/factory.py; parents[2] is the repo

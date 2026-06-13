@@ -3,7 +3,7 @@
 # Each entry captures the *intrinsic identity* of a robot model:
 #   - joint_names: ordered list of joint identifiers (lerobot enumeration order)
 #   - degrees_mode: True if hardware speaks degrees natively (so we convert to/from rad)
-#   - urdf_path: path to URDF for forward kinematics (workspace boundary)
+#   - assets: robot-owned files such as URDF/USD; solvers reference these by key
 #   - chains: (optional) named kinematic chains using joint names, not indices.
 #             Auto-derived from joint_names when omitted (keyword matching).
 #
@@ -22,7 +22,14 @@ presets:
       - wrist_roll
       - gripper
     degrees_mode: true
-    urdf_path: assets/so101_new_calib.urdf
+    assets:
+      urdf: assets/so101_new_calib.urdf
+    solvers:
+      arm_kinematics:
+        type: pinocchio_kinematics
+        capabilities: [kinematics, fk, ik]
+        params:
+          asset_ref: urdf
 
   franka_emika_panda:
     joint_names:

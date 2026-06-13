@@ -40,7 +40,7 @@ export interface DamConfig {
   /** Action/observation space: per-joint targets or end-effector pose.
    *  Backend requires hardware.input_space === policy.input_space, so the
    *  console keeps a single value and emits it into both blocks. */
-  input_space: 'joint' | 'ee'
+  input_space: 'joint' | 'ee' | 'base' | 'twist' | 'ackermann' | 'pose2d'
   adapter: 'lerobot' | 'ros2' | 'simulation'
   lerobot_port: string
   lerobot_robot_type: string
@@ -646,7 +646,14 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
 
   // hardware/policy input_space must match server-side; first hit wins.
   const inputSpace = getVal(/input_space:\s*(\w+)/)?.toLowerCase()
-  if (inputSpace === 'joint' || inputSpace === 'ee') result.input_space = inputSpace
+  if (
+    inputSpace === 'joint' ||
+    inputSpace === 'ee' ||
+    inputSpace === 'base' ||
+    inputSpace === 'twist' ||
+    inputSpace === 'ackermann' ||
+    inputSpace === 'pose2d'
+  ) result.input_space = inputSpace
 
   const pType = getVal(/policy:\s*\n\s*type:\s*(.*)/)
   if (pType) {

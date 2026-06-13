@@ -20,7 +20,7 @@ import time
 import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -44,28 +44,13 @@ class RunSummary:
     emergency: bool
 
 
-class SafetyKinematicsResolver(Protocol):
-    """Minimal FK/IK bridge for SafetyGuard EE-space actions."""
-
-    def inverse_kinematics(
-        self,
-        target_ee_pose: np.ndarray,
-        current_joint_positions: np.ndarray,
-    ) -> np.ndarray:
-        """Return a joint-space proposal for the requested EE pose."""
-        ...
-
-    def forward_kinematics(self, joint_positions: np.ndarray) -> np.ndarray:
-        """Return EE pose [x,y,z,qx,qy,qz,qw] for validated joint positions."""
-        ...
-
-
 def register_preset(
     name: str,
     *,
     joint_names: list[str],
     degrees_mode: bool = True,
-    urdf_path: str | None = None,
+    assets: dict[str, str] | None = None,
+    solvers: dict[str, Any] | None = None,
     chains: dict[str, Any] | None = None,
 ) -> RobotPreset:
     """Register or update a robot preset from library code.
@@ -80,7 +65,8 @@ def register_preset(
         name,
         joint_names=joint_names,
         degrees_mode=degrees_mode,
-        urdf_path=urdf_path,
+        assets=assets,
+        solvers=solvers,
         chains=chains,
     )
 
@@ -137,6 +123,57 @@ def register_callback(
     if fn is None:
         return decorator
     return decorator(fn)
+
+
+def register_solver(
+    name: str,
+    solver: Any,
+    *,
+    capabilities: tuple[str, ...] | list[str],
+    replace: bool = False,
+) -> Any:
+    """Register a solver instance as a first-class runtime dependency.
+
+    Examples of capabilities: ``"kinematics"``, ``"dynamics"``,
+    ``"base_dynamics"``, ``"collision"``. DAM does not prescribe the solver
+    object's concrete methods; callbacks request the capability they need.
+    """
+    from dam.solver.registry import get_global_solver_registry
+
+    return get_global_solver_registry().register(
+        name,
+        solver,
+        capabilities=capabilities,
+        replace=replace,
+    )
+
+
+def register_solver_factory(
+    solver_type: str,
+    factory: Callable[[Mapping[str, Any]], Any],
+    *,
+    capabilities: tuple[str, ...] | list[str],
+    replace: bool = False,
+) -> Callable[[Mapping[str, Any]], Any]:
+    """Register a config-driven solver factory.
+
+    Stackfiles can instantiate it with:
+
+    .. code-block:: yaml
+
+        solvers:
+          arm:
+            type: my_solver_type
+            params: {...}
+    """
+    from dam.solver.registry import get_global_solver_registry
+
+    return get_global_solver_registry().register_factory(
+        solver_type,
+        factory,
+        capabilities=capabilities,
+        replace=replace,
+    )
 
 
 def _register_builtins() -> None:
@@ -241,7 +278,7 @@ class SafetyGuard:
         joint_names: list[str] | None = None,
         degrees_mode: bool | None = None,
         input_space: str | None = None,
-        kinematics_resolver: SafetyKinematicsResolver | None = None,
+        solvers: Mapping[str, Any] | None = None,
     ) -> None:
         _register_builtins()
 
@@ -273,13 +310,14 @@ class SafetyGuard:
             else (config.hardware.input_space if config.hardware else "joint")
         )
         resolved_input_space = str(resolved_input_space).lower()
-        if resolved_input_space not in {"joint", "ee"}:
-            raise ValueError("input_space must be 'joint' or 'ee'")
+        valid_input_spaces = {"joint", "ee", "base", "twist", "ackermann", "pose2d"}
+        if resolved_input_space not in valid_input_spaces:
+            raise ValueError(f"input_space must be one of {sorted(valid_input_spaces)}")
 
         self._joint_names: list[str] = joint_names
         self._degrees_mode: bool = degrees_mode
         self._input_space: str = resolved_input_space
-        self._kinematics_resolver = kinematics_resolver
+        self._solvers: dict[str, Any] = dict(solvers or {})
         self._n_joints: int = len(joint_names)
 
         # Conversion scales (vectorised, bound once).
@@ -290,6 +328,8 @@ class SafetyGuard:
 
         # Build runtime (no sources / policy / sink needed).
         self._runtime = GuardRuntime.from_stackfile(stackfile)
+        self._solvers = {**self._runtime._solvers, **self._solvers}
+        self._runtime._solvers.update(self._solvers)
 
         # Start the first task to activate guards and build the stage DAG.
         if task is None:
@@ -394,8 +434,13 @@ class SafetyGuard:
 
     @property
     def input_space(self) -> str:
-        """Action space accepted by this guard: ``joint`` or ``ee``."""
+        """Action space accepted by this guard."""
         return self._input_space
+
+    @property
+    def solvers(self) -> dict[str, Any]:
+        """Solver objects provided to this guard, keyed by solver name."""
+        return dict(self._solvers)
 
     @property
     def runtime(self) -> Any:
@@ -410,6 +455,16 @@ class SafetyGuard:
         runtime = getattr(self, "_runtime", None)
         if runtime is not None:
             runtime.stop_recording()
+
+    def _select_solver(self, capability: str) -> Any | None:
+        capability = capability.lower()
+        for name, solver in self._solvers.items():
+            if name.lower() == capability:
+                return solver
+            caps = getattr(solver, "_dam_solver_capabilities", ())
+            if capability in caps:
+                return solver
+        return None
 
     # -- conversion helpers -------------------------------------------------
 
@@ -461,10 +516,11 @@ class SafetyGuard:
 
         if isinstance(raw, dict):
             raise ValueError("SafetyGuard input_space='ee' expects an EE pose array, not a dict")
-        if self._kinematics_resolver is None:
+        kinematics = self._select_solver("kinematics")
+        if kinematics is None:
             raise ValueError(
-                "SafetyGuard input_space='ee' requires a configured IK/FK resolver. "
-                "Use input_space='joint' for joint targets, or pass kinematics_resolver."
+                "SafetyGuard input_space='ee' requires a configured kinematics solver. "
+                "Use input_space='joint' for joint targets, or pass solvers={'kinematics': solver}."
             )
         target_ee_pose = np.asarray(raw, dtype=np.float64).flatten()
         if target_ee_pose.shape[0] != 7:
@@ -472,9 +528,11 @@ class SafetyGuard:
                 f"EE action must contain exactly 7 values [x,y,z,qx,qy,qz,qw], got {target_ee_pose.shape[0]}"
             )
         try:
-            ik_result = self._kinematics_resolver.inverse_kinematics(target_ee_pose, current_joints)
+            ik_result = kinematics.inverse_kinematics(target_ee_pose, current_joints)
         except Exception:
-            logger.warning("IK resolver failed; holding current joint positions", exc_info=True)
+            logger.warning(
+                "Kinematics solver IK failed; holding current joint positions", exc_info=True
+            )
             return ActionProposal(
                 target_joint_positions=current_joints[: self._n_joints].copy(),
                 target_ee_pose=target_ee_pose,
@@ -482,11 +540,11 @@ class SafetyGuard:
         target_joints = np.asarray(ik_result, dtype=np.float64).flatten()
         if target_joints.shape[0] != self._n_joints:
             raise ValueError(
-                f"IK resolver returned {target_joints.shape[0]} joints, expected {self._n_joints}"
+                f"Kinematics solver IK returned {target_joints.shape[0]} joints, expected {self._n_joints}"
             )
         if not np.all(np.isfinite(target_joints)):
             logger.warning(
-                "IK resolver returned non-finite values; holding current joint positions"
+                "Kinematics solver IK returned non-finite values; holding current joint positions"
             )
             return ActionProposal(
                 target_joint_positions=current_joints[: self._n_joints].copy(),
@@ -508,22 +566,25 @@ class SafetyGuard:
     ) -> np.ndarray | dict[str, Any]:
         if as_dict:
             raise ValueError("SafetyGuard input_space='ee' does not support dict output")
-        if self._kinematics_resolver is None:
-            raise ValueError("SafetyGuard input_space='ee' requires a configured IK/FK resolver")
+        kinematics = self._select_solver("kinematics")
+        if kinematics is None:
+            raise ValueError("SafetyGuard input_space='ee' requires a configured kinematics solver")
         try:
-            fk_result = self._kinematics_resolver.forward_kinematics(
-                positions_rad[: self._n_joints]
-            )
+            fk_result = kinematics.forward_kinematics(positions_rad[: self._n_joints])
         except Exception:
-            logger.warning("FK resolver failed; returning last known EE pose", exc_info=True)
+            logger.warning(
+                "Kinematics solver FK failed; returning last known EE pose", exc_info=True
+            )
             return self._last_ee_pose.copy() if self._last_ee_pose is not None else np.zeros(7)
         ee_pose = np.asarray(fk_result, dtype=np.float64).flatten()
         if ee_pose.shape[0] != 7:
             raise ValueError(
-                f"FK resolver must return exactly 7 values [x,y,z,qx,qy,qz,qw], got {ee_pose.shape[0]}"
+                f"Kinematics solver FK must return exactly 7 values [x,y,z,qx,qy,qz,qw], got {ee_pose.shape[0]}"
             )
         if not np.all(np.isfinite(ee_pose)):
-            logger.warning("FK resolver returned non-finite values; returning last known EE pose")
+            logger.warning(
+                "Kinematics solver FK returned non-finite values; returning last known EE pose"
+            )
             return self._last_ee_pose.copy() if self._last_ee_pose is not None else np.zeros(7)
         self._last_ee_pose = ee_pose.copy()
         return ee_pose
@@ -544,7 +605,7 @@ def safe(
     joint_names: list[str] | None = None,
     degrees_mode: bool | None = None,
     input_space: str | None = None,
-    kinematics_resolver: SafetyKinematicsResolver | None = None,
+    solvers: Mapping[str, Any] | None = None,
 ) -> Any:
     """Validate a single action against a safety stackfile.
 
@@ -558,6 +619,6 @@ def safe(
         joint_names=joint_names,
         degrees_mode=degrees_mode,
         input_space=input_space,
-        kinematics_resolver=kinematics_resolver,
+        solvers=solvers,
     )
     return guard(action, obs)

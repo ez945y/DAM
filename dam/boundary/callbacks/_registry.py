@@ -40,7 +40,7 @@ _RUNTIME_ONLY_PARAMS = {
     "dt",
     "now",
     "host_health",
-    "kinematics_resolver",
+    "solvers",
     "dynamics",
     "camera_shapes",
     "boundary_name",

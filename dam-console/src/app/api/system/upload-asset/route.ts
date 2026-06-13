@@ -8,7 +8,7 @@
  * -----------
  * file      The binary file to save.
  * target    Destination sub-directory under DAM_DATA_ROOT.
- *           Allowed values: "calibration" | "ood_model" | "urdf"
+ *           Allowed values: "calibration" | "ood_model" | "urdf" | "usd"
  *
  * Response
  * --------
@@ -24,7 +24,7 @@ import { writeFileSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { NextRequest, NextResponse } from 'next/server'
 
-const ALLOWED_TARGETS = new Set(['calibration', 'ood_model', 'urdf'])
+const ALLOWED_TARGETS = new Set(['calibration', 'ood_model', 'urdf', 'usd'])
 
 const DAM_DATA_ROOT =
   process.env.DAM_DATA_ROOT ?? '/mnt/dam_data'

@@ -163,7 +163,8 @@ def create_system_router(control: RuntimeControlService | None) -> APIRouter:
                 name,
                 joint_names=list(joint_names),
                 degrees_mode=bool(body.get("degrees_mode", True)),
-                urdf_path=body.get("urdf_path") or None,
+                assets=dict(body.get("assets") or {}),
+                solvers=dict(body.get("solvers") or {}),
                 rename_from=body.get("rename_from") or None,
             )
         except (ValueError, OSError) as e:
@@ -172,7 +173,8 @@ def create_system_router(control: RuntimeControlService | None) -> APIRouter:
             "name": preset.name,
             "joint_names": preset.joint_names,
             "degrees_mode": preset.degrees_mode,
-            "urdf_path": preset.default_urdf_relpath,
+            "assets": preset.assets,
+            "solvers": preset.solvers,
         }
 
     @router.delete(

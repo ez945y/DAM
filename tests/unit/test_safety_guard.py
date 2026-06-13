@@ -25,7 +25,7 @@ _JOINT_NAMES = [
 ]
 
 
-class FakeKinematicsResolver:
+class FakeKinematicsSolver:
     def __init__(self) -> None:
         self.last_target_ee_pose = None
         self.last_current_joints = None
@@ -222,24 +222,24 @@ class TestSafetyGuard:
                 input_space="task",
             )
 
-    def test_ee_input_space_rejects_without_resolver(self, stackfile: str) -> None:
+    def test_ee_input_space_rejects_without_solver(self, stackfile: str) -> None:
         guard = SafetyGuard(
             stackfile,
             joint_names=_JOINT_NAMES,
             degrees_mode=False,
             input_space="ee",
         )
-        with pytest.raises(ValueError, match="requires a configured IK/FK resolver"):
+        with pytest.raises(ValueError, match="requires a configured kinematics solver"):
             guard(np.zeros(7), np.zeros(6))
 
-    def test_ee_input_space_uses_resolver_and_returns_safe_ee_pose(self, stackfile: str) -> None:
-        resolver = FakeKinematicsResolver()
+    def test_ee_input_space_uses_solver_and_returns_safe_ee_pose(self, stackfile: str) -> None:
+        solver = FakeKinematicsSolver()
         guard = SafetyGuard(
             stackfile,
             joint_names=_JOINT_NAMES,
             degrees_mode=False,
             input_space="ee",
-            kinematics_resolver=resolver,
+            solvers={"kinematics": solver},
         )
         action_ee = np.array([2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
         obs_joints = np.zeros(6)
@@ -250,19 +250,57 @@ class TestSafetyGuard:
         assert result.shape == (7,)
         assert result[0] <= 1.5 + 1e-3
         np.testing.assert_allclose(result[3:], [0.0, 0.0, 0.0, 1.0])
-        np.testing.assert_allclose(resolver.last_target_ee_pose, action_ee)
-        np.testing.assert_allclose(resolver.last_current_joints, obs_joints)
+        np.testing.assert_allclose(solver.last_target_ee_pose, action_ee)
+        np.testing.assert_allclose(solver.last_current_joints, obs_joints)
         assert guard.runtime is not None
+
+    def test_ee_input_space_uses_stackfile_solver_factory(self, tmp_path: Path) -> None:
+        solver_type = f"fake_kinematics_{id(self)}"
+
+        def factory(_params):
+            return FakeKinematicsSolver()
+
+        dam.register_solver_factory(
+            solver_type,
+            factory,
+            capabilities=["kinematics"],
+        )
+        path = tmp_path / "solver_safety.yaml"
+        path.write_text(
+            textwrap.dedent(f"""\
+            version: "1"
+            hardware:
+              input_space: ee
+            solvers:
+              arm:
+                type: {solver_type}
+            guards:
+              - L1: motion
+            boundaries: {{}}
+            tasks:
+              default:
+                boundaries: []
+            """)
+        )
+
+        guard = SafetyGuard(
+            str(path),
+            joint_names=_JOINT_NAMES,
+            degrees_mode=False,
+        )
+
+        result = guard(np.array([0.5, 0, 0, 0, 0, 0, 1.0]), np.zeros(6))
+        assert result.shape == (7,)
 
     def test_ee_input_space_preserves_tensor_dtype(self, stackfile: str) -> None:
         torch = pytest.importorskip("torch")
-        resolver = FakeKinematicsResolver()
+        solver = FakeKinematicsSolver()
         guard = SafetyGuard(
             stackfile,
             joint_names=_JOINT_NAMES,
             degrees_mode=False,
             input_space="ee",
-            kinematics_resolver=resolver,
+            solvers={"kinematics": solver},
         )
         action_ee = torch.tensor([0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0], dtype=torch.float32)
         obs_joints = torch.zeros(6, dtype=torch.float32)
@@ -279,13 +317,13 @@ class TestSafetyGuard:
             joint_names=_JOINT_NAMES,
             degrees_mode=False,
             input_space="ee",
-            kinematics_resolver=FakeKinematicsResolver(),
+            solvers={"kinematics": FakeKinematicsSolver()},
         )
         with pytest.raises(ValueError, match="expects an EE pose array"):
             guard({"x": 0.1}, np.zeros(6))
 
     def test_ee_ik_exception_falls_back_to_hold(self, stackfile: str) -> None:
-        class FailingIKResolver:
+        class FailingIKSolver:
             def inverse_kinematics(self, target_ee_pose, current_joints):
                 raise RuntimeError("IK singularity")
 
@@ -297,7 +335,7 @@ class TestSafetyGuard:
             joint_names=_JOINT_NAMES,
             degrees_mode=False,
             input_space="ee",
-            kinematics_resolver=FailingIKResolver(),
+            solvers={"kinematics": FailingIKSolver()},
         )
         obs = np.array([0.3, -0.2, 0.1, 0.0, 0.0, 0.0])
         result = guard(np.array([1.0, 0, 0, 0, 0, 0, 1.0]), obs)
@@ -305,7 +343,7 @@ class TestSafetyGuard:
         assert result.shape == (7,)
 
     def test_ee_ik_nan_falls_back_to_hold(self, stackfile: str) -> None:
-        class NaNIKResolver:
+        class NaNIKSolver:
             def inverse_kinematics(self, target_ee_pose, current_joints):
                 return np.full(len(_JOINT_NAMES), np.nan)
 
@@ -317,7 +355,7 @@ class TestSafetyGuard:
             joint_names=_JOINT_NAMES,
             degrees_mode=False,
             input_space="ee",
-            kinematics_resolver=NaNIKResolver(),
+            solvers={"kinematics": NaNIKSolver()},
         )
         obs = np.array([0.3, -0.2, 0.1, 0.0, 0.0, 0.0])
         result = guard(np.array([1.0, 0, 0, 0, 0, 0, 1.0]), obs)
@@ -327,7 +365,7 @@ class TestSafetyGuard:
     def test_ee_fk_exception_returns_last_known_pose(self, stackfile: str) -> None:
         call_count = 0
 
-        class FailAfterFirstFKResolver:
+        class FailAfterFirstFKSolver:
             def inverse_kinematics(self, target_ee_pose, current_joints):
                 return np.zeros(len(_JOINT_NAMES))
 
@@ -343,7 +381,7 @@ class TestSafetyGuard:
             joint_names=_JOINT_NAMES,
             degrees_mode=False,
             input_space="ee",
-            kinematics_resolver=FailAfterFirstFKResolver(),
+            solvers={"kinematics": FailAfterFirstFKSolver()},
         )
         obs = np.zeros(6)
         first = guard(np.array([0.1, 0, 0, 0, 0, 0, 1.0]), obs)
@@ -352,7 +390,7 @@ class TestSafetyGuard:
         np.testing.assert_allclose(second[:3], [0.1, 0.2, 0.3], atol=1e-6)
 
     def test_ee_ik_wrong_dimension_raises(self, stackfile: str) -> None:
-        class WrongDimResolver:
+        class WrongDimSolver:
             def inverse_kinematics(self, target_ee_pose, current_joints):
                 return np.zeros(3)
 
@@ -364,7 +402,7 @@ class TestSafetyGuard:
             joint_names=_JOINT_NAMES,
             degrees_mode=False,
             input_space="ee",
-            kinematics_resolver=WrongDimResolver(),
+            solvers={"kinematics": WrongDimSolver()},
         )
         with pytest.raises(ValueError, match="3 joints.*expected 6"):
             guard(np.array([0.1, 0, 0, 0, 0, 0, 1.0]), np.zeros(6))
@@ -375,7 +413,7 @@ class TestSafetyGuard:
             joint_names=_JOINT_NAMES,
             degrees_mode=False,
             input_space="ee",
-            kinematics_resolver=FakeKinematicsResolver(),
+            solvers={"kinematics": FakeKinematicsSolver()},
         )
         with pytest.raises(ValueError, match="exactly 7"):
             guard(np.array([0.1, 0.2, 0.3]), np.zeros(6))

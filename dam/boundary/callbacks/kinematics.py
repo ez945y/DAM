@@ -30,7 +30,6 @@ from dam.boundary.callbacks._helpers import (
 from dam.boundary.callbacks._registry import boundary_callback
 from dam.guard.aggregators.motion_qp import QPTerm, motion_qp_units
 from dam.guard.pipeline import CallbackResult
-from dam.kinematics.resolver import KinematicsResolver
 
 # Lazy import — resolved on first CBF path entry.  Module-level would create
 # a circular import (qp_solver → dam.types → …).
@@ -546,7 +545,7 @@ def ee_velocity_limit(
     slack_weight: float = 100.0,
     J_linear: np.ndarray | None = None,
     jacobian_joint_indices: np.ndarray | None = None,
-    kinematics_resolver: KinematicsResolver | None = None,
+    solvers: dict[str, Any] | None = None,
     dynamics: Any | None = None,
 ) -> CallbackResult:
     """Clamp EE linear speed to ``max_ee_velocity`` m/s.
@@ -559,7 +558,7 @@ def ee_velocity_limit(
 
     Without a Jacobian, the callback passes (no EE info to check).
 
-    ``dt``, ``J_linear``, ``jacobian_joint_indices``, ``kinematics_resolver``,
+    ``dt``, ``J_linear``, ``jacobian_joint_indices``, ``solvers``, and
     ``dynamics`` are auto-injected by the guard pipeline.
     ``jacobian_joint_indices`` says which observation entries the Jacobian
     columns refer to (from the preset joint layout); without it the leading
@@ -672,7 +671,7 @@ def workspace(
     dt: float = 0.02,
     ee_pos: np.ndarray | None = None,
     J_linear: np.ndarray | None = None,
-    kinematics_resolver: KinematicsResolver | None = None,
+    solvers: dict[str, Any] | None = None,
     dynamics: Any | None = None,
 ) -> CallbackResult:
     """CBF constraint that keeps the EE inside ``bounds``.
@@ -689,9 +688,7 @@ def workspace(
         bounds = [[-0.4, 0.4], [-0.4, 0.4], [0.02, 0.6]]
 
     if ee_pos is None:
-        ee_pos = _resolve_ee_translation(
-            obs, kinematics_resolver=kinematics_resolver, dynamics=dynamics
-        )
+        ee_pos = _resolve_ee_translation(obs, solvers=solvers, dynamics=dynamics)
     if ee_pos is None or obs.joint_positions is None:
         return CallbackResult.ok(
             bname,
@@ -788,7 +785,7 @@ def keep_out_zone(
     dt: float = 0.02,
     ee_pos: np.ndarray | None = None,
     J_linear: np.ndarray | None = None,
-    kinematics_resolver: KinematicsResolver | None = None,
+    solvers: dict[str, Any] | None = None,
     dynamics: Any | None = None,
 ) -> CallbackResult:
     """CBF constraint that keeps the EE outside spherical keep-out zones.
@@ -804,9 +801,7 @@ def keep_out_zone(
         return CallbackResult.ok(bname, "no keep-out zones configured")
 
     if ee_pos is None:
-        ee_pos = _resolve_ee_translation(
-            obs, kinematics_resolver=kinematics_resolver, dynamics=dynamics
-        )
+        ee_pos = _resolve_ee_translation(obs, solvers=solvers, dynamics=dynamics)
     if ee_pos is None or obs.joint_positions is None:
         return CallbackResult.ok(bname, "EE pose unavailable; skip keep-out check")
 
@@ -903,7 +898,7 @@ def orientation_limit(
     dt: float = 0.02,
     ee_rot: np.ndarray | None = None,
     J_angular: np.ndarray | None = None,
-    kinematics_resolver: KinematicsResolver | None = None,
+    solvers: dict[str, Any] | None = None,
     dynamics: Any | None = None,
 ) -> CallbackResult:
     """CBF constraint that limits the tool axis tilt from a reference direction.
@@ -930,9 +925,7 @@ def orientation_limit(
     tool = tool / tool_norm
 
     if ee_rot is None:
-        ee_rot = _resolve_ee_rotation(
-            obs, kinematics_resolver=kinematics_resolver, dynamics=dynamics
-        )
+        ee_rot = _resolve_ee_rotation(obs, solvers=solvers, dynamics=dynamics)
     if ee_rot is None or obs.joint_positions is None:
         return CallbackResult.ok(bname, "EE orientation unavailable; skip")
 

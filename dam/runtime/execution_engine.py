@@ -153,7 +153,7 @@ class ValidationContext:
     boundary_containers : full boundary → container mapping (read-only reference)
     node_start_times    : copy of per-boundary node start timestamps (value-copy)
     active_task         : name of the currently running task
-    kinematics_resolver : optional FK/IK resolver passed through to guards
+    solvers             : solver name → solver object map
     risk_controller     : shared RiskController; .record() is called by engine
     """
 
@@ -165,7 +165,7 @@ class ValidationContext:
     boundary_containers: dict[str, BoundaryContainer]
     node_start_times: dict[str, float]
     active_task: str | None
-    kinematics_resolver: Any | None
+    solvers: dict[str, Any] | None
     risk_controller: RiskController
     sink: Any | None = None
     runtime: Any | None = None
@@ -358,8 +358,8 @@ class ExecutionEngine:
                     for n in ctx.active_container_names
                     if n in ctx.boundary_containers
                 },
+                "solvers": dict(ctx.solvers or {}),
                 "node_start_times": ctx.node_start_times,
-                "kinematics_resolver": ctx.kinematics_resolver,
                 "dynamics": ctx.dynamics,
                 "prev_validated_positions": ctx.prev_validated_positions,
                 "prev_validated_velocities": ctx.prev_validated_velocities,

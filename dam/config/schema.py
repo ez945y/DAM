@@ -6,6 +6,8 @@ from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from dam.types.enforcement import EnforcementMode
 
+_INPUT_SPACES = {"joint", "ee", "base", "twist", "ackermann", "pose2d"}
+
 # ── Guard pipeline configs ─────────────────────────────────────────────────
 # All guard-specific parameters (model paths, thresholds, joint_position_limits, …)
 # live in boundary node ``params`` blocks and reach guards via the config pool.
@@ -205,8 +207,8 @@ class HardwareConfig(BaseModel):
     @classmethod
     def validate_input_space(cls, v: str) -> str:
         value = str(v).lower()
-        if value not in {"joint", "ee"}:
-            raise ValueError("input_space must be 'joint' or 'ee'")
+        if value not in _INPUT_SPACES:
+            raise ValueError(f"input_space must be one of {sorted(_INPUT_SPACES)}")
         return value
 
 
@@ -222,8 +224,8 @@ class PolicyConfig(BaseModel):
     @classmethod
     def validate_input_space(cls, v: str) -> str:
         value = str(v).lower()
-        if value not in {"joint", "ee"}:
-            raise ValueError("input_space must be 'joint' or 'ee'")
+        if value not in _INPUT_SPACES:
+            raise ValueError(f"input_space must be one of {sorted(_INPUT_SPACES)}")
         return value
 
 
@@ -267,6 +269,13 @@ class RiskControllerConfig(BaseModel):
     reject_threshold: int = 2
 
 
+class SolverConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    type: str
+    capabilities: list[str] | None = None
+    params: dict[str, Any] = {}
+
+
 # ── Top-level Stackfile ────────────────────────────────────────────────────
 
 
@@ -290,6 +299,7 @@ class StackfileConfig(BaseModel):
     runtime: RuntimeConfig | None = None
     loopback: LoopbackConfig | None = None
     risk_controller: RiskControllerConfig | None = None
+    solvers: dict[str, SolverConfig] = {}
 
     @model_validator(mode="after")
     def validate_input_space_alignment(self) -> StackfileConfig:

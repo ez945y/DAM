@@ -17,9 +17,9 @@ fcntl advisory lock so multi-worker Uvicorn doesn't race on the user file.
 A preset captures only what is intrinsic to a robot model:
   - ``joint_names`` (ordered list of joint identifiers)
   - ``degrees_mode`` (True if hardware speaks degrees natively)
-  - ``urdf_path`` (for FK; relative paths resolved against repo root,
-    absolute paths used as-is — user-uploaded URDFs typically land at
-    ``${DAM_DATA_ROOT}/urdf/<file>.urdf``)
+  - ``solvers`` (robot-owned solver definitions; a preset can expose multiple
+    capabilities such as arm kinematics, base dynamics, collision, etc.)
+  - ``assets`` (private file paths referenced by those solver definitions)
 
 Limits / max velocities / gripper handling live on boundary callbacks in
 the stackfile — never here.
@@ -61,8 +61,12 @@ class RobotPreset:
     name: str
     joint_names: list[str] = field(default_factory=list)
     degrees_mode: bool = True
-    default_urdf_relpath: str | None = None
+    assets: dict[str, str] = field(default_factory=dict)
+    solvers: dict[str, Any] = field(default_factory=dict)
     chains: dict[str, Any] | None = field(default=None, repr=False)
+
+    def asset_path(self, key: str) -> str | None:
+        return self.assets.get(key)
 
     @property
     def joint_layout(self) -> JointLayout:
@@ -119,11 +123,13 @@ def _save_user(presets: dict[str, dict[str, Any]]) -> None:
 
 
 def _to_preset(name: str, entry: dict[str, Any]) -> RobotPreset:
+    assets = dict(entry.get("assets") or {})
     return RobotPreset(
         name=name,
         joint_names=list(entry.get("joint_names", []) or []),
         degrees_mode=bool(entry.get("degrees_mode", True)),
-        default_urdf_relpath=entry.get("urdf_path"),
+        assets={str(k): str(v) for k, v in assets.items() if v},
+        solvers=dict(entry.get("solvers") or {}),
         chains=entry.get("chains"),
     )
 
@@ -156,7 +162,8 @@ def list_preset_entries() -> list[dict[str, Any]]:
             "name": name,
             "joint_names": list(entry.get("joint_names", []) or []),
             "degrees_mode": bool(entry.get("degrees_mode", True)),
-            "urdf_path": entry.get("urdf_path"),
+            "assets": dict(entry.get("assets") or {}),
+            "solvers": dict(entry.get("solvers") or {}),
             "chains": entry.get("chains"),
         }
         for name, entry in sorted(merged.items())
@@ -168,7 +175,8 @@ def upsert_preset(
     *,
     joint_names: list[str],
     degrees_mode: bool,
-    urdf_path: str | None,
+    assets: dict[str, str] | None = None,
+    solvers: dict[str, Any] | None = None,
     chains: dict[str, Any] | None = None,
     rename_from: str | None = None,
 ) -> RobotPreset:
@@ -185,8 +193,12 @@ def upsert_preset(
     entry: dict[str, Any] = {
         "joint_names": [str(j) for j in joint_names],
         "degrees_mode": bool(degrees_mode),
-        "urdf_path": urdf_path or None,
     }
+    clean_assets = {str(k): str(v) for k, v in dict(assets or {}).items() if str(v).strip()}
+    if clean_assets:
+        entry["assets"] = clean_assets
+    if solvers:
+        entry["solvers"] = dict(solvers)
     if chains:
         entry["chains"] = chains
     with _lock:

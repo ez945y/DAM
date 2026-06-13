@@ -7,13 +7,14 @@ build a GuardRuntime instance and return it, with zero runtime coupling.
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import logging
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from dam.config.schema import StackfileConfig
-    from dam.kinematics.resolver import KinematicsResolver
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ def from_config(runtime_cls: type, config: StackfileConfig, frame_hub: Any | Non
     from dam.registry.callback import get_global_registry as _get_cb_registry
     from dam.registry.guard import get_guard_registry
 
-    kinematics_resolver = _init_kinematics_resolver(config)
+    solvers = _init_solvers(config)
     guards_by_kind, boundary_to_kind, boundary_containers = _build_all_boundaries(
         config, _get_cb_registry(), get_guard_registry()
     )
@@ -67,7 +68,7 @@ def from_config(runtime_cls: type, config: StackfileConfig, frame_hub: Any | Non
         enforcement_mode=config.safety.enforcement_mode,
         risk_controller_config=config.risk_controller,
         loopback_config=config.loopback,
-        kinematics_resolver=kinematics_resolver,
+        solvers=solvers,
         boundary_to_kind=boundary_to_kind,
         frame_hub=frame_hub,
         default_fallback=config.safety.no_task_behavior,
@@ -138,39 +139,123 @@ def _apply_guard_overrides(
     runtime._layer_timeout_overrides = layer_timeout_overrides
 
 
-def _init_kinematics_resolver(config: StackfileConfig) -> KinematicsResolver | None:
-    if not (config.hardware and config.hardware.urdf_path):
-        return None
-    from dam.kinematics.resolver import KinematicsResolver
+def _register_builtin_solver_factories() -> None:
+    from dam.solver.registry import get_global_solver_registry
 
-    # Observation joint order comes from the robot preset; with it the
-    # resolver gathers modelled joints by name instead of assuming they
-    # are the leading observation entries.
-    observation_joint_names: list[str] | None = None
-    if config.hardware.preset:
-        try:
-            from dam.preset.registry import get_preset
+    registry = get_global_solver_registry()
 
-            observation_joint_names = get_preset(config.hardware.preset).joint_names or None
-        except Exception:  # noqa: BLE001 — unknown preset: keep positional fallback
-            logger.warning(
-                "GuardRuntime: preset '%s' not found; KinematicsResolver will "
-                "align joints positionally.",
-                config.hardware.preset,
-            )
+    def pinocchio_kinematics(params: Mapping[str, Any]) -> Any:
+        from dam.kinematics.resolver import KinematicsResolver
 
-    try:
+        urdf_path = params.get("asset_path")
+        if not urdf_path:
+            raise ValueError("pinocchio_kinematics solver requires params.asset_ref='urdf'")
         return KinematicsResolver(
-            config.hardware.urdf_path,
-            observation_joint_names=observation_joint_names,
+            str(urdf_path),
+            controlled_joints=params.get("controlled_joints"),
+            ee_link_name=str(params.get("ee_link_name", "gripper_link")),
+            observation_joint_names=params.get("observation_joint_names"),
         )
-    except Exception as e:
+
+    with contextlib.suppress(ValueError):
+        registry.register_factory(
+            "pinocchio_kinematics",
+            pinocchio_kinematics,
+            capabilities=("kinematics", "fk", "ik"),
+        )
+
+
+def _preset_joint_names(config: StackfileConfig) -> list[str] | None:
+    if not (config.hardware and config.hardware.preset):
+        return None
+    try:
+        from dam.preset.registry import get_preset
+
+        return get_preset(config.hardware.preset).joint_names or None
+    except Exception:  # noqa: BLE001 — unknown preset: keep positional fallback
         logger.warning(
-            "GuardRuntime: failed to init KinematicsResolver from %s: %s",
-            config.hardware.urdf_path,
-            e,
+            "GuardRuntime: preset '%s' not found; solver will align joints positionally.",
+            config.hardware.preset,
         )
         return None
+
+
+def _preset_asset(config: StackfileConfig, asset_key: str) -> str | None:
+    if not (config.hardware and config.hardware.preset):
+        return None
+    try:
+        from dam.preset.registry import get_preset
+
+        return get_preset(config.hardware.preset).asset_path(asset_key)
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "GuardRuntime: preset '%s' not found; cannot resolve solver asset '%s'.",
+            config.hardware.preset,
+            asset_key,
+        )
+        return None
+
+
+def _preset_solver_configs(config: StackfileConfig) -> dict[str, Any]:
+    if not (config.hardware and config.hardware.preset):
+        return {}
+    try:
+        from dam.preset.registry import get_preset
+
+        return dict(get_preset(config.hardware.preset).solvers or {})
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "GuardRuntime: preset '%s' not found; cannot load preset solvers.",
+            config.hardware.preset,
+        )
+        return {}
+
+
+def _init_solvers(config: StackfileConfig) -> dict[str, Any]:
+    _register_builtin_solver_factories()
+    from dam.solver.registry import get_global_solver_registry
+
+    registry = get_global_solver_registry()
+    solvers: dict[str, Any] = {}
+
+    solver_configs: dict[str, Any] = {**_preset_solver_configs(config), **config.solvers}
+
+    for name, scfg in solver_configs.items():
+        if isinstance(scfg, dict):
+            solver_type = str(scfg.get("type", ""))
+            capabilities = scfg.get("capabilities")
+            params = dict(scfg.get("params") or {})
+        else:
+            solver_type = scfg.type
+            capabilities = scfg.capabilities
+            params = dict(scfg.params or {})
+        asset_ref = params.get("asset_ref") or params.get("asset")
+        if asset_ref and "asset_path" not in params:
+            asset_path = _preset_asset(config, str(asset_ref))
+            if asset_path:
+                params["asset_path"] = asset_path
+        if "observation_joint_names" not in params:
+            preset_names = _preset_joint_names(config)
+            if preset_names:
+                params["observation_joint_names"] = preset_names
+        try:
+            solver = registry.build(
+                name,
+                solver_type,
+                params,
+                capabilities=capabilities,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "GuardRuntime: failed to init solver '%s' (%s): %s",
+                name,
+                solver_type,
+                e,
+            )
+            continue
+        solvers[name] = solver
+
+    return solvers
 
 
 def _build_all_boundaries(

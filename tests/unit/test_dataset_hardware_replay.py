@@ -97,7 +97,7 @@ def test_factory_routes_dataset_plus_motor_to_hardware_sink(monkeypatch):
 
     source = SimpleNamespace()
     fake_robot = object()
-    fake_preset = SimpleNamespace(degrees_mode=True, default_urdf_relpath=None)
+    fake_preset = SimpleNamespace(degrees_mode=True, asset_path=lambda _key: None)
     build_kwargs = {}
 
     def build_source(*_args, **kwargs):

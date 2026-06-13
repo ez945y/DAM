@@ -28,7 +28,6 @@ if TYPE_CHECKING:
     from dam.boundary.container import BoundaryContainer
     from dam.config.schema import StackfileConfig
     from dam.guard.base import Guard
-    from dam.kinematics.resolver import KinematicsResolver
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +44,7 @@ class GuardRuntime:
         enforcement_mode: EnforcementMode | str = EnforcementMode.ENFORCE,
         risk_controller_config: Any | None = None,  # Optional["RiskControllerConfig"]
         loopback_config: Any | None = None,  # Optional["LoopbackConfig"]
-        kinematics_resolver: KinematicsResolver | None = None,
+        solvers: dict[str, Any] | None = None,
         boundary_to_kind: dict[str, str] | None = None,
         frame_hub: Any | None = None,
         default_fallback: str = "emergency_stop",
@@ -99,7 +98,7 @@ class GuardRuntime:
         self._sources: dict[str, Any] = {}
         self._policy: Any = None
         self._sink: Any = None
-        self._kinematics_resolver = kinematics_resolver
+        self._solvers: dict[str, Any] = dict(solvers or {})
         self._stages: list[Any] | None = None
         # ── Slow lane (optional) — async evaluator for L0/L2-lane guards ──
         self._slow_lane_config = slow_lane_config
@@ -474,7 +473,7 @@ class GuardRuntime:
             boundary_containers=self._boundary_containers,
             node_start_times=dict(self._node_start_times),
             active_task=self._active_task,
-            kinematics_resolver=self._kinematics_resolver,
+            solvers=self._solvers,
             risk_controller=self._risk_controller,
             sink=None,  # slow lane never touches actuation
             runtime=self,
@@ -653,7 +652,7 @@ class GuardRuntime:
             boundary_containers=self._boundary_containers,
             node_start_times=dict(self._node_start_times),
             active_task=self._active_task,
-            kinematics_resolver=self._kinematics_resolver,
+            solvers=self._solvers,
             risk_controller=self._risk_controller,
             sink=self._sink,
             runtime=self,
@@ -797,7 +796,7 @@ class GuardRuntime:
             boundary_containers=self._boundary_containers,
             node_start_times=dict(self._node_start_times),
             active_task=self._active_task,
-            kinematics_resolver=self._kinematics_resolver,
+            solvers=self._solvers,
             risk_controller=self._risk_controller,
             sink=self._sink,
             runtime=self,
@@ -827,6 +826,19 @@ class GuardRuntime:
             d = getattr(src, "dynamics", None)
             if d is not None and getattr(d, "available", False):
                 return d
+        solver = self._select_solver("dynamics") or self._select_solver("base_dynamics")
+        if solver is not None and getattr(solver, "available", True):
+            return solver
+        return None
+
+    def _select_solver(self, capability: str) -> Any | None:
+        capability = capability.lower()
+        for name, solver in self._solvers.items():
+            if name.lower() == capability:
+                return solver
+            caps = getattr(solver, "_dam_solver_capabilities", ())
+            if capability in caps:
+                return solver
         return None
 
     @staticmethod
