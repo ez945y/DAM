@@ -66,7 +66,7 @@ _DEFAULT_SIM_STACK = textwrap.dedent("""\
       - L2: execution
       - L3: hardware
     safety:
-      control_frequency_hz: 30.0
+      control_hz: 30.0
       no_task_behavior: emergency_stop
       enforcement_mode: monitor
     fallbacks:

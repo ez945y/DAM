@@ -80,7 +80,7 @@ def stackfile(tmp_path: Path) -> str:
             description: "test"
             boundaries: [safe_joints]
         safety:
-          control_frequency_hz: 30
+          control_hz: 30
           enforcement_mode: enforce
         """)
     )

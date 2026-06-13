@@ -162,7 +162,6 @@ def create_system_router(control: RuntimeControlService | None) -> APIRouter:
             preset = upsert_preset(
                 name,
                 joint_names=list(joint_names),
-                degrees_mode=bool(body.get("degrees_mode", True)),
                 asset=dict(body.get("asset") or {}) or None,
                 solvers=dict(body.get("solvers") or {}),
                 action_layout=list(body.get("action_layout") or []),
@@ -173,7 +172,6 @@ def create_system_router(control: RuntimeControlService | None) -> APIRouter:
         return {
             "name": preset.name,
             "joint_names": preset.joint_names,
-            "degrees_mode": preset.degrees_mode,
             "asset": preset.asset,
             "solvers": preset.solvers,
             "action_layout": preset.action_layout,

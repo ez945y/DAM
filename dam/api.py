@@ -355,20 +355,17 @@ class SafetyGuard:
 
         config = StackfileLoader.load(stackfile)
 
-        # Resolve joint_names / degrees_mode from preset when not explicit.
+        # joint_names from preset; degrees_mode from the motor interface
+        # (source.degrees_mode / hardware.degrees_mode) — never the preset.
         if joint_names is None or degrees_mode is None:
             hardware = config.hardware
             if hardware and joint_names is None and hardware.joint_names:
                 joint_names = list(hardware.joint_names)
-            if hardware and degrees_mode is None and hardware.degrees_mode is not None:
-                degrees_mode = bool(hardware.degrees_mode)
+            if hardware and degrees_mode is None:
+                degrees_mode = hardware.motor_degrees_mode()
             preset_name = hardware.preset if hardware else None
-            if preset_name and (joint_names is None or degrees_mode is None):
-                preset = get_preset(preset_name)
-                if joint_names is None:
-                    joint_names = preset.joint_names
-                if degrees_mode is None:
-                    degrees_mode = preset.degrees_mode
+            if preset_name and joint_names is None:
+                joint_names = get_preset(preset_name).joint_names
         if joint_names is None:
             raise ValueError(
                 "Cannot resolve joint_names: stackfile has no hardware.preset "
@@ -561,6 +558,13 @@ class SafetyGuard:
         for index, segment in enumerate(self._action_layout):
             name = str(segment.get("name") or f"segment_{index}")
             declared_size = segment.get("size") or segment.get("dim") or segment.get("dimensions")
+            # Canonical: ``keys`` lists what each slot means (joint names,
+            # [x, y, z, yaw, pitch, roll], [v, omega], …) so the segment size
+            # is self-describing. ``size``/``type`` stay as legacy fallbacks.
+            if declared_size is None:
+                keys = segment.get("keys")
+                if isinstance(keys, (list, tuple)):
+                    declared_size = len(keys)
             if declared_size is None:
                 segment_type = str(segment.get("type", "")).lower()
                 declared_size = {"ee_pose": 7, "scalar": 1}.get(segment_type)

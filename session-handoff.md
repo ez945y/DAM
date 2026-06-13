@@ -1,6 +1,46 @@
 # session-handoff.md — 會話交接摘要
 
-> 最後更新: 2026-06-12 (Teleop inertia root-cause fix — acceleration limiter in command domain)
+> 最後更新: 2026-06-14 (Preset/interface semantics follow-up — 兩個交付單元)
+
+## 本輪追加（第二單元：hz 改名 + capabilities + degrees_mode 搬位置）
+
+接續第一單元，依使用者後續指示再做：
+
+- **三個 hz 統一改名並全收進 `safety`**（不留 back-compat alias，舊名直接拒收）：
+  - `safety.control_frequency_hz` → `safety.control_hz`（內部 Python 屬性也改名；runner 自己的 `control_frequency_hz` kwarg / `_control_frequency_hz` / runner-meta 不動）
+  - `safety.slow_lane.frequency_hz` → `safety.slow_lane.task_hz`（async task/OOD lane 評估率；SlowLaneWorker 的 `frequency_hz` 建構參數保留不動）
+  - `telemetry_hz` 從 `hardware` 搬到 `safety`（控制項）；`hardware.telemetry_hz` 欄位移除，factory 新增 `_resolve_telemetry_hz` 只讀 safety
+- **solver capabilities `[kinematics, fk, ik]` → `[fk, ik]`**：`kinematics` 與 solver 名字（arm_kinematics）語意重複。`_get_ee_pose` 的 solver 選擇從查 `"kinematics"` 改查 `"fk"`；builtin pinocchio factory capabilities 改 `("fk","ik")`。
+- **franka preset 移除 `chains`**：`JointLayout.from_names` 的 gripper 關鍵字含 `finger`，franka 的 `panda_finger_joint1/2` 自動歸 gripper、其餘 7 軸歸 arm，與舊 explicit chains 結果一致（已驗證 arm[0-6]+gripper[7,8]）。
+- **degrees_mode 不再是 robot identity**：從 `RobotPreset` / `presets.yaml` / preset router / 前端 PresetManager 全移除。改由 motor interface 宣告（`source.degrees_mode`），interface-less 配置用 `hardware.degrees_mode`。新增 `HardwareConfig.motor_degrees_mode(default=True)`：motor source → hardware.degrees_mode → 預設 True（lerobot 馬達度數原生）。factory/runner/api.SafetyGuard 全改用它，不再讀 `preset.degrees_mode`。
+  - SO-101 examples 的 motor interface 補 `degrees_mode: true`；franka_safety 補 `hardware.degrees_mode: false`（弧度原生，無 motor interface）。行為與舊 preset 完全一致（已 smoke 驗證 7 個 example）。
+
+驗證：801 unit + 65 integration/safety/property + 114 jest 全過；ruff/format/tsc clean。
+
+---
+
+## 第一單元：keys-based action_layout + telemetry type inference
+
+## 本輪重點：preset/interface 語意收尾（接續 commit 5241ffc）
+
+上一個 commit「Redesign preset and interface semantics」漏了 YAML 層的幾項對齊，本輪補齊：
+
+- **action_layout 改 keys 形**：每個 segment 用 `keys: [...]` 列出每個 slot 的語意，size 自描述（== len(keys)）。joint 段 keys=關節名；ee 段 keys=`[x,y,z,yaw,pitch,roll]` 或 quaternion；差速=`[v,omega]`。根除舊 `type` 靠 `{"ee_pose":7,"scalar":1}` 硬表查 size 的問題（`joint_position` 不在表裡，so101 段以前根本切不出來）。`dam/api.py:_split_raw_action` 改用 `len(keys)`，保留 size/type 為 legacy fallback。
+- **telemetry channel 免寫 type**：`temperature: {capabilities:[robot_telemetry], ref: arm}` 即可，key 名即 type。`HardwareConfig` 新增 `model_validator(mode="before")` `_default_interface_type`，把缺 type 的 interface 補成 key 名，所以 `type` 在下游仍是必填（factory 不用處理 None）。
+- **presets.yaml 對齊**：so101（pinocchio solver 保留，arm 5 關節 + gripper keys 形）、franka（關節空間 keys 形 arm 7 + gripper 2）。
+- **examples 清理**：拔掉每個檔殘留的斷尾註解 `# by the preset's action_layout.`、telemetry 段移除 `type:`。
+- **前端**：templates.ts channel renderer 不再輸出 `type:`；parser 改用 `capabilities:[robot_telemetry]` 偵測 channel；PresetManager placeholder 改 keys 形。
+- **docs**：library-api.md / quick-stack.md 的 action_layout 範例改 keys 形。
+
+**franka USD + isaac_kinematics 決策**：`isaac_kinematics` solver 尚未註冊、franka 無 bundled asset，硬塞會變成 solver 靜默 skip 的假可跑配置。因此出貨 preset 維持關節空間可跑；usd/isaac/ee_pose 示意留在 `test_hardware_accepts_action_layout_and_solver_overrides`（schema 接受測試）+ docs override 範例。若 isaac solver 即將實作，再把 franka preset 切到 ee_pose。
+
+**telemetry_hz vs slow_lane**：兩者非重複——`telemetry_hz` 是馬達匯流排暫存器讀取的 decimation（硬體 IO cadence）；`slow_lane.frequency_hz` 是昂貴 guard 在 async worker 的評估頻率。兩者保留，so101.yaml 補了釐清註解。
+
+驗證：801 unit + 114 jest 全過；ruff/format/tsc clean；7 個 example stackfile 全部 smoke-load 成功，telemetry type 正確推導；兩 preset 的 action_layout keys 加總 == 關節數。
+
+---
+
+> 前一輪: 2026-06-12 (Teleop inertia root-cause fix — acceleration limiter in command domain)
 
 ## 本輪重點：teleop 慣性根因修復
 

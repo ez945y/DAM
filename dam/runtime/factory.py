@@ -32,6 +32,13 @@ class RuntimeFactory:
         return StackfileConfig(**raw)
 
     @staticmethod
+    def _resolve_telemetry_hz(config: StackfileConfig) -> float | None:
+        """Telemetry register read cadence, from ``safety.telemetry_hz``."""
+        if config.safety is not None:
+            return config.safety.telemetry_hz
+        return None
+
+    @staticmethod
     def _resolve_urdf_path(config: StackfileConfig, preset: Any) -> str | None:
         """Resolve URDF for workspace FK.
 
@@ -149,7 +156,7 @@ class RuntimeFactory:
             runtime.register_policy(policy)
         runtime.register_sink(sink)
 
-        hz = config.safety.control_frequency_hz if config.safety else 10.0
+        hz = config.safety.control_hz if config.safety else 10.0
         return SimulationRunner(runtime, control_frequency_hz=hz, frame_hub=frame_hub)
 
     @staticmethod
@@ -161,7 +168,7 @@ class RuntimeFactory:
 
         assert config.hardware is not None
         registry = get_global_interface_registry()
-        hz = config.safety.control_frequency_hz if config.safety else 30.0
+        hz = config.safety.control_hz if config.safety else 30.0
         frame_hub = CameraFrameHub(
             window_sec=config.loopback.window_sec if config.loopback else 10.0
         )
@@ -220,7 +227,7 @@ class RuntimeFactory:
 
         from dam.camera.frame_hub import CameraFrameHub
 
-        hz = config.safety.control_frequency_hz if config.safety else 30.0
+        hz = config.safety.control_hz if config.safety else 30.0
         frame_hub = CameraFrameHub(
             window_sec=config.loopback.window_sec if config.loopback else 10.0
         )
@@ -233,9 +240,6 @@ class RuntimeFactory:
                 if str(s.type).lower() in ("motor", "lerobot"):
                     main_name = name
                     break
-        main_source_cfg = (
-            config.hardware.sources.get(main_name) if config.hardware.sources else None
-        )
 
         # Peer-level opencv sources are registered as separate DAM
         # OpenCVSourceAdapter instances (see DISCOVER OTHER SOURCES below).
@@ -248,16 +252,15 @@ class RuntimeFactory:
         # Build adapter
         from dam.adapter.lerobot.adapter import LeRobotAdapter
 
+        # deg<->rad mode comes from the motor interface (source.degrees_mode),
+        # not the preset — see HardwareConfig.motor_degrees_mode.
+        degrees_mode = config.hardware.motor_degrees_mode()
         adapter = LeRobotAdapter(
             robot,
             joint_names=builder.joint_names,
-            degrees_mode=(
-                builder.preset.degrees_mode
-                if main_source_cfg is None or main_source_cfg.degrees_mode is None
-                else main_source_cfg.degrees_mode
-            ),
+            degrees_mode=degrees_mode,
             urdf_path=RuntimeFactory._resolve_urdf_path(config, builder.preset),
-            telemetry_hz=config.hardware.telemetry_hz if config.hardware else None,
+            telemetry_hz=RuntimeFactory._resolve_telemetry_hz(config),
         )
 
         supported = adapter.supported_channels()
@@ -265,13 +268,7 @@ class RuntimeFactory:
         if obs_channels:
             adapter.set_observation_channels(obs_channels)
 
-        # Resolve degrees_mode the same way the source adapter does so policy /
-        # source / sink agree on units by construction — not by lucky default.
-        degrees_mode = (
-            builder.preset.degrees_mode
-            if main_source_cfg is None or main_source_cfg.degrees_mode is None
-            else main_source_cfg.degrees_mode
-        )
+        # policy / source / sink agree on units by construction — not luck.
         policy_res = builder.build_policy()
         policy = None
         if policy_res:
@@ -319,7 +316,7 @@ class RuntimeFactory:
 
         assert config.hardware is not None
         RuntimeFactory._validate_opencv_source_fields(config)
-        hz = config.safety.control_frequency_hz if config.safety else 30.0
+        hz = config.safety.control_hz if config.safety else 30.0
         frame_hub = CameraFrameHub(
             window_sec=config.loopback.window_sec if config.loopback else 10.0
         )
@@ -329,7 +326,7 @@ class RuntimeFactory:
         dataset_name, dataset_cfg = next(
             item for item in sources.items() if str(item[1].type).lower() == "dataset"
         )
-        motor_name, motor_cfg = next(
+        motor_name, _motor_cfg = next(
             item for item in sources.items() if str(item[1].type).lower() in ("motor", "lerobot")
         )
 
@@ -350,17 +347,14 @@ class RuntimeFactory:
         )
 
         builder = LeRobotBuilder(config.hardware, None, control_frequency_hz=hz)
-        degrees_mode = (
-            builder.preset.degrees_mode
-            if motor_cfg.degrees_mode is None
-            else motor_cfg.degrees_mode
-        )
+        # deg<->rad from the motor interface, not the preset.
+        degrees_mode = config.hardware.motor_degrees_mode()
         motor = LeRobotAdapter(
             builder.build_robot(),
             joint_names=builder.joint_names,
             degrees_mode=degrees_mode,
             urdf_path=RuntimeFactory._resolve_urdf_path(config, builder.preset),
-            telemetry_hz=config.hardware.telemetry_hz if config.hardware else None,
+            telemetry_hz=RuntimeFactory._resolve_telemetry_hz(config),
         )
         supported = motor.supported_channels()
         obs_channels = RuntimeFactory._collect_channels(config, motor_name, supported)
@@ -460,7 +454,7 @@ class RuntimeFactory:
 
         assert config.hardware is not None
         runtime = GuardRuntime._from_config(config)
-        hz = config.safety.control_frequency_hz if config.safety else 30.0
+        hz = config.safety.control_hz if config.safety else 30.0
 
         # Identify the main ROS2 source (type=ros2).
         main_name, main_cfg = "ros2", None
@@ -636,7 +630,7 @@ class RuntimeFactory:
     def _build_simulation(config: StackfileConfig) -> tuple[Any, Any, Any]:
         from dam.testing.sim_adapters import SimSink
 
-        hz = float(config.safety.control_frequency_hz) if config.safety else 10.0
+        hz = float(config.safety.control_hz) if config.safety else 10.0
         sim_cfg = config.simulation
         source_cfg = RuntimeFactory._find_sim_source_cfg(config)
         dataset_repo = RuntimeFactory._resolve_dataset_repo(source_cfg, sim_cfg)

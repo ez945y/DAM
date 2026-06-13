@@ -199,7 +199,7 @@ def test_dataset_velocity_exceeds_guard_limit(monkeypatch):
                 },
             },
             "tasks": {"default": {"boundaries": ["joint_velocity_limit"]}},
-            "safety": {"control_frequency_hz": 30.0, "enforcement_mode": "enforce"},
+            "safety": {"control_hz": 30.0, "enforcement_mode": "enforce"},
         }
     )
 
@@ -310,7 +310,7 @@ def test_velocity_clamping_causes_trajectory_lag(monkeypatch):
                 },
             },
             "tasks": {"default": {"boundaries": ["joint_velocity_limit"]}},
-            "safety": {"control_frequency_hz": 30.0, "enforcement_mode": "enforce"},
+            "safety": {"control_hz": 30.0, "enforcement_mode": "enforce"},
         }
     )
 

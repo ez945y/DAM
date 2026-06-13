@@ -236,7 +236,7 @@ def test_qp_solver_param_inlined_in_any_l1_boundary(proxsuite):
             "sources": {"arm": {"type": "lerobot", "port": "/dev/null"}},
             "sinks": {"cmd": {"ref": "sources.arm"}},
         },
-        "safety": {"control_frequency_hz": 30, "no_task_behavior": "emergency_stop"},
+        "safety": {"control_hz": 30, "no_task_behavior": "emergency_stop"},
         "guards": [{"L1": "motion"}],
         "boundaries": {
             "joint_position_limits": {
@@ -267,7 +267,7 @@ def test_qp_solver_param_inlined_in_any_l1_boundary(proxsuite):
     assert pool["qp_solver"] == "proxsuite"
     assert pool["slack_weight"] == 1.0e8
     assert pool["upper"] == [1.0] * 6
-    # dt auto-injected from safety.control_frequency_hz
+    # dt auto-injected from safety.control_hz
     assert pool["dt"] == pytest.approx(1.0 / 30.0)
 
     from dam.boundary.callbacks import register_all as register_callbacks

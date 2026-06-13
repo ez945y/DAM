@@ -15,14 +15,14 @@ fcntl advisory lock so multi-worker Uvicorn doesn't race on the user file.
 
 A preset captures only what is intrinsic to a robot model:
   - ``joint_names`` (ordered list of joint identifiers)
-  - ``degrees_mode`` (True if hardware speaks degrees natively)
   - ``asset`` (the single robot description resource, e.g. URDF or USD)
   - ``solvers`` (robot-owned solver definitions; a preset can expose multiple
     capabilities such as arm kinematics, base dynamics, collision, etc.)
   - ``action_layout`` (named segments in the policy action vector)
 
 Limits / max velocities / gripper handling live on boundary callbacks in
-the stackfile — never here.
+the stackfile — never here. deg<->rad mode (``degrees_mode``) is an interface
+concern declared on the motor interface, not robot identity — never here.
 """
 
 from __future__ import annotations
@@ -62,7 +62,6 @@ class RobotPreset:
 
     name: str
     joint_names: list[str] = field(default_factory=list)
-    degrees_mode: bool = True
     asset: dict[str, str] | None = None
     solvers: dict[str, Any] = field(default_factory=dict)
     action_layout: list[dict[str, Any]] = field(default_factory=list)
@@ -138,7 +137,6 @@ def _to_preset(name: str, entry: dict[str, Any]) -> RobotPreset:
     return RobotPreset(
         name=name,
         joint_names=list(entry.get("joint_names", []) or []),
-        degrees_mode=bool(entry.get("degrees_mode", True)),
         asset=dict(asset) if isinstance(asset, dict) else None,
         solvers=dict(entry.get("solvers") or {}),
         action_layout=list(entry.get("action_layout") or []),
@@ -176,7 +174,6 @@ def list_preset_entries() -> list[dict[str, Any]]:
             {
                 "name": name,
                 "joint_names": list(entry.get("joint_names", []) or []),
-                "degrees_mode": bool(entry.get("degrees_mode", True)),
                 "asset": dict(asset) if isinstance(asset, dict) else None,
                 "solvers": dict(entry.get("solvers") or {}),
                 "action_layout": list(entry.get("action_layout") or []),
@@ -190,7 +187,6 @@ def upsert_preset(
     name: str,
     *,
     joint_names: list[str],
-    degrees_mode: bool,
     asset: dict[str, str] | None = None,
     solvers: dict[str, Any] | None = None,
     action_layout: list[dict[str, Any]] | None = None,
@@ -209,7 +205,6 @@ def upsert_preset(
         raise ValueError("Preset must have at least one joint name")
     entry: dict[str, Any] = {
         "joint_names": [str(j) for j in joint_names],
-        "degrees_mode": bool(degrees_mode),
     }
     clean_asset = _clean_asset(asset)
     if clean_asset:

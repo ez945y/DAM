@@ -435,13 +435,13 @@ class GuardRuntime:
 
         self._slow_lane = SlowLaneWorker(
             evaluate_fn=self._evaluate_slow_lane,
-            frequency_hz=float(self._slow_lane_config.frequency_hz),
+            frequency_hz=float(self._slow_lane_config.task_hz),
         )
         self._slow_lane.start()
         logger.info(
             "slow lane: %d boundary(s) at %.1f Hz (max_staleness=%.0f ms, stale_action=%s): %s",
             len(self._slow_active_names),
-            self._slow_lane_config.frequency_hz,
+            self._slow_lane_config.task_hz,
             self._slow_lane_config.max_staleness_ms,
             self._slow_lane_config.stale_action,
             self._slow_active_names,

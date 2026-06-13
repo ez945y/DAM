@@ -36,7 +36,7 @@ def test_guard_runtime_param_injection(tmp_path):
             }
         },
         "tasks": {"default": {"boundaries": ["test_kin"]}},
-        "safety": {"control_frequency_hz": 30.0, "enforcement_mode": "enforce"},
+        "safety": {"control_hz": 30.0, "enforcement_mode": "enforce"},
     }
 
     sf_path = tmp_path / "stack.yaml"
@@ -96,7 +96,7 @@ def test_validate_updates_previous_command_velocity(tmp_path):
             }
         },
         "tasks": {"default": {"boundaries": ["accel"]}},
-        "safety": {"control_frequency_hz": 10.0, "enforcement_mode": "enforce"},
+        "safety": {"control_hz": 10.0, "enforcement_mode": "enforce"},
     }
 
     sf_path = tmp_path / "stack.yaml"
@@ -152,7 +152,7 @@ def test_hardware_callback_params_flow_from_stackfile(tmp_path):
             }
         },
         "tasks": {"default": {"boundaries": ["hardware_watchdog"]}},
-        "safety": {"control_frequency_hz": 30.0, "enforcement_mode": "enforce"},
+        "safety": {"control_hz": 30.0, "enforcement_mode": "enforce"},
     }
 
     sf_path = tmp_path / "stack.yaml"
@@ -214,7 +214,7 @@ def test_l3_boundaries_receive_separate_metadata(tmp_path, monkeypatch):
             },
         },
         "tasks": {"default": {"boundaries": ["hardware_watchdog", "host_health"]}},
-        "safety": {"control_frequency_hz": 30.0, "enforcement_mode": "enforce"},
+        "safety": {"control_hz": 30.0, "enforcement_mode": "enforce"},
     }
 
     sf_path = tmp_path / "stack.yaml"
@@ -286,7 +286,7 @@ def test_l3_watchdog_timeout_is_not_reported_as_l2_task_timeout(tmp_path):
             },
         },
         "tasks": {"default": {"boundaries": ["task_gripper_sequence", "hardware_watchdog"]}},
-        "safety": {"control_frequency_hz": 30.0, "enforcement_mode": "enforce"},
+        "safety": {"control_hz": 30.0, "enforcement_mode": "enforce"},
     }
 
     sf_path = tmp_path / "stack.yaml"

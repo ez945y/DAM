@@ -2,7 +2,6 @@ version: "1"
 
 hardware:
   preset: so101_follower
-  # the preset or hardware.action_layout.
   interfaces:
     main:
       type: dataset
@@ -17,7 +16,7 @@ policy:
   device: cpu
 
 safety:
-  control_frequency_hz: 30
+  control_hz: 30
   no_task_behavior: emergency_stop
   enforcement_mode: enforce
 

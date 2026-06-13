@@ -469,7 +469,6 @@ const SCHEMA: YamlSection[] = [
   scalar('version', () => '"1"'), blank,
   block('hardware', [
     scalar('preset', cfg => cfg.hardware_preset),
-    scalar('telemetry_hz', cfg => cfg.telemetryHz ?? undefined),
     block('interfaces', [
       block('main', [
         scalar('type', () => 'dataset'),
@@ -524,6 +523,9 @@ const SCHEMA: YamlSection[] = [
       // for ROS2). Parent ref points at whichever main interface exists.
       // Optional `topic:` overrides the adapter's default topic per channel.
       // Skip blank / duplicate names — UI can hold transient empty rows.
+      // Telemetry channels omit `type:` — the key name is the channel type,
+      // resolved by the adapter's telemetry registry. capabilities + ref are
+      // what route the channel, so those stay.
       custom((cfg, indent) => {
         const parent = MAIN_INTERFACE_NAME[cfg.adapter]
         const overrides = cfg.channel_topic_overrides ?? {}
@@ -531,7 +533,7 @@ const SCHEMA: YamlSection[] = [
         return cfg.observation_channels.flatMap(ch => {
           if (!ch || seen.has(ch)) return []
           seen.add(ch)
-          const lines = [`${indent}${ch}:`, `${indent}  type: ${ch}`, `${indent}  capabilities: [robot_telemetry]`, `${indent}  ref: ${parent}`]
+          const lines = [`${indent}${ch}:`, `${indent}  capabilities: [robot_telemetry]`, `${indent}  ref: ${parent}`]
           if (overrides[ch]) lines.push(`${indent}  topic: ${overrides[ch]}`)
           return lines
         })
@@ -546,11 +548,12 @@ const SCHEMA: YamlSection[] = [
   ], cfg => !!cfg.policy.pretrained_path),
   blank,
   block('safety', [
-    scalar('control_frequency_hz', cfg => cfg.controlFrequencyHz),
+    scalar('control_hz', cfg => cfg.controlFrequencyHz),
+    scalar('telemetry_hz', cfg => cfg.telemetryHz ?? undefined),
     scalar('no_task_behavior', () => 'emergency_stop'),
     scalar('enforcement_mode', cfg => cfg.enforcement_mode),
     block('slow_lane', [
-      scalar('frequency_hz', cfg => cfg.slowLane?.frequency_hz),
+      scalar('task_hz', cfg => cfg.slowLane?.frequency_hz),
       scalar('max_staleness_ms', cfg => cfg.slowLane?.max_staleness_ms),
       scalar('stale_action', cfg => cfg.slowLane?.stale_action),
     ], cfg => !!cfg.slowLane),
@@ -649,7 +652,7 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
     }
   }
 
-  const freq = getVal(/control_frequency_hz:\s*(\d+\.?\d*)/)
+  const freq = getVal(/control_hz:\s*(\d+\.?\d*)/)
   if (freq) result.controlFrequencyHz = Number(freq)
   const mode = getVal(/enforcement_mode:\s*(.*)/)
   if (mode) result.enforcement_mode = mode as EnforcementMode
@@ -660,7 +663,7 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
   const slowLaneMatch = /slow_lane:\s*\n([\s\S]*?)(?=\n\S|$)/.exec(yaml)
   if (slowLaneMatch) {
     const blockText = slowLaneMatch[1]
-    const slFreq = /frequency_hz:\s*(\d+\.?\d*)/.exec(blockText)
+    const slFreq = /task_hz:\s*(\d+\.?\d*)/.exec(blockText)
     const slStale = /max_staleness_ms:\s*(\d+\.?\d*)/.exec(blockText)
     const slAction = /stale_action:\s*(\w+)/.exec(blockText)
     result.slowLane = {
@@ -822,6 +825,9 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
   // Channels are telemetry interfaces whose name == type and that carry `ref: <parent>`.
   // We don't hardcode the channel allowlist — that's the adapter's responsibility
   // server-side (validated against supported_channels()).
+  // Telemetry channels are interfaces carrying `capabilities: [robot_telemetry]`
+  // and a `ref:` to their parent. The key name is the channel type — there is
+  // no `type:` line to match on (it's inferred server-side).
   const adapterTypes = new Set(['motor', 'lerobot', 'ros2', 'opencv', 'camera', 'usb', 'dataset', 'simulation', 'mock'])
   const obsChannels: string[] = []
   const channelTopics: Record<string, string> = {}
@@ -829,16 +835,16 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
     const m = lines[i].match(/^\s{4}(\w+):\s*$/)
     if (!m) continue
     const name = m[1]
-    const next1 = lines[i + 1]?.trim() ?? ''
-    const next2 = lines[i + 2]?.trim() ?? ''
-    const next3 = lines[i + 3]?.trim() ?? ''
-    const next4 = lines[i + 4]?.trim() ?? ''
-    const typeMatch = next1.match(/^type:\s+(\w+)/)
-    const refLine = [next2, next3, next4].find(line => line.startsWith('ref:')) ?? ''
-    const topicLine = [next2, next3, next4].find(line => line.startsWith('topic:')) ?? ''
-    if (typeMatch && typeMatch[1] === name && refLine && !adapterTypes.has(name)) {
+    if (adapterTypes.has(name)) continue
+    // Gather the 6-space-indented body of this interface block.
+    const body: string[] = []
+    for (let j = i + 1; j < lines.length && /^\s{6}\S/.test(lines[j]); j++) body.push(lines[j].trim())
+    const isTelemetry = body.some(l => /^capabilities:\s*\[robot_telemetry\]/.test(l))
+    const refLine = body.find(l => l.startsWith('ref:'))
+    if (isTelemetry && refLine) {
       obsChannels.push(name)
-      const topicMatch = topicLine.match(/^topic:\s+(\S+)/)
+      const topicLine = body.find(l => l.startsWith('topic:'))
+      const topicMatch = topicLine?.match(/^topic:\s+(\S+)/)
       if (topicMatch) channelTopics[name] = topicMatch[1]
     }
   }

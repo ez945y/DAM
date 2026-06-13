@@ -306,7 +306,7 @@ def _lane_config(slow_lane: dict | None, guards: list | None = None):
 
     register_all()
 
-    safety: dict = {"control_frequency_hz": 60}
+    safety: dict = {"control_hz": 60}
     if slow_lane is not None:
         safety["slow_lane"] = slow_lane
     return StackfileConfig(
@@ -335,7 +335,7 @@ def _lane_config(slow_lane: dict | None, guards: list | None = None):
 
 class TestLaneSplitIntegration:
     def test_start_task_splits_lanes_and_starts_worker(self):
-        rt = GuardRuntime._from_config(_lane_config({"frequency_hz": 20}))
+        rt = GuardRuntime._from_config(_lane_config({"task_hz": 20}))
         try:
             rt.start_task("default")
             assert rt._slow_active_names == ["speed_task"]
@@ -363,7 +363,7 @@ class TestLaneSplitIntegration:
 
     def test_guard_lane_override_moves_l2_to_fast(self):
         rt = GuardRuntime._from_config(
-            _lane_config({"frequency_hz": 20}, guards=[{"L2": "execution", "lane": "fast"}])
+            _lane_config({"task_hz": 20}, guards=[{"L2": "execution", "lane": "fast"}])
         )
         try:
             rt.start_task("default")
@@ -381,7 +381,7 @@ class TestLaneSplitIntegration:
 class TestSlowLaneConfigSchema:
     def test_defaults(self):
         cfg = SlowLaneConfig()
-        assert cfg.frequency_hz == 10.0
+        assert cfg.task_hz == 10.0
         assert cfg.stale_action == "reject"
 
     def test_invalid_stale_action(self):
@@ -390,7 +390,7 @@ class TestSlowLaneConfigSchema:
 
     def test_invalid_frequency(self):
         with pytest.raises(ValueError):
-            SlowLaneConfig(frequency_hz=0)
+            SlowLaneConfig(task_hz=0)
 
 
 # ── Telemetry decimation (read_telemetry ABI) ────────────────────────────────

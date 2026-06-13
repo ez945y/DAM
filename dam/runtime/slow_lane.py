@@ -166,7 +166,7 @@ class SlowLaneWorker:
             if elapsed_ms > self._period_s * 1000.0:
                 logger.warning(
                     "slow lane: evaluation took %.1f ms > period %.1f ms; "
-                    "verdicts will lag (consider lowering slow_lane.frequency_hz)",
+                    "verdicts will lag (consider lowering slow_lane.task_hz)",
                     elapsed_ms,
                     self._period_s * 1000.0,
                 )

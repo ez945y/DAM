@@ -260,7 +260,6 @@ export const api = {
 export interface PresetEntry {
   name: string
   joint_names: string[]
-  degrees_mode: boolean
   asset: { type: string; path: string } | null
   solvers: Record<string, unknown>
   action_layout: Record<string, unknown>[]
@@ -281,7 +280,6 @@ export async function upsertPreset(
     body: JSON.stringify({
       name: entry.name,
       joint_names: entry.joint_names,
-      degrees_mode: entry.degrees_mode,
       asset: entry.asset,
       solvers: entry.solvers,
       action_layout: entry.action_layout,

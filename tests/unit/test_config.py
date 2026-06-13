@@ -21,7 +21,7 @@ VALID_YAML = textwrap.dedent("""\
       test_task:
         boundaries: [motion_guard]
     safety:
-      control_frequency_hz: 50.0
+      control_hz: 50.0
 """)
 
 INVALID_YAML_MISSING_TYPE = textwrap.dedent("""\
@@ -94,10 +94,10 @@ def test_hardware_accepts_action_layout_and_solver_overrides():
               type: isaac_kinematics
           action_layout:
             - name: arm
-              type: ee_pose
+              keys: [x, y, z, yaw, pitch, roll]
               solver: arm_kinematics
             - name: gripper
-              type: scalar
+              keys: [gripper]
         tasks:
           default:
             boundaries: []
@@ -107,6 +107,35 @@ def test_hardware_accepts_action_layout_and_solver_overrides():
     assert cfg.hardware.asset == {"type": "usd", "path": "/robots/franka.usd"}
     assert cfg.hardware.solvers["arm_kinematics"]["type"] == "isaac_kinematics"
     assert cfg.hardware.action_layout[0]["solver"] == "arm_kinematics"
+    # Segment size is self-describing via keys (6-DoF EE pose + 1 gripper).
+    assert cfg.hardware.action_layout[0]["keys"] == ["x", "y", "z", "yaw", "pitch", "roll"]
+    assert cfg.hardware.action_layout[1]["keys"] == ["gripper"]
+
+
+def test_telemetry_interface_defaults_type_to_key_name():
+    """Telemetry channels may omit `type:` — the key name becomes the type."""
+    path = write_temp_yaml(
+        textwrap.dedent("""\
+        version: "1"
+        hardware:
+          preset: so101_follower
+          interfaces:
+            arm:
+              type: motor
+              capabilities: [observe_joints, command_joints]
+              port: /dev/demo
+            temperature:
+              capabilities: [robot_telemetry]
+              ref: arm
+        tasks:
+          default:
+            boundaries: []
+        """)
+    )
+    cfg = StackfileLoader.load(path)
+    assert cfg.hardware.sources is not None
+    # Type inferred from the interface key name.
+    assert cfg.hardware.sources["temperature"].type == "temperature"
 
 
 def test_interfaces_lower_to_runtime_sources_and_sinks():

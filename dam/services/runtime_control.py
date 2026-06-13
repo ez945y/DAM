@@ -485,7 +485,7 @@ class RuntimeControlService:
 
             # 2. Otherwise, use the structured config object (SSOT)
             elif self._config:
-                hz = self._config.safety.control_frequency_hz
+                hz = self._config.safety.control_hz
                 # config.tasks is a dict[str, TaskConfig]
                 task_dict = {tid: tcfg.boundaries for tid, tcfg in self._config.tasks.items()}
                 available_tasks = list(self._config.tasks.keys())

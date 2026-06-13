@@ -98,14 +98,15 @@ for action, obs in teleop_stream:
         print(r.decision, r.guard_name, r.reason)
 ```
 
-- Auto-detects `joint_names` and `degrees_mode` from `hardware` or `hardware.preset`
+- Auto-detects `joint_names` from `hardware` or `hardware.preset`, and `degrees_mode` from the motor interface (`source.degrees_mode` / `hardware.degrees_mode`)
 - Rejected actions return hold-position (current joint positions) so loops never break
 - Access the underlying runtime via `guard.runtime`
 
 `SafetyGuard` exposes action semantics from `hardware.action_layout` or the
-selected preset to callbacks. It does not automatically run IK/FK based on
-`type`; callbacks choose a solver and the solver decides whether it supports
-that action segment.
+selected preset to callbacks. Each segment lists its `keys` — what each slot
+means, in order — so the segment size is self-describing. It does not
+automatically run IK/FK; callbacks choose a solver and the solver decides
+whether it supports that action segment.
 
 ```python
 @dam.register_callback("my_ee_rule", layer="L1")
@@ -136,8 +137,10 @@ Stackfile:
 hardware:
   action_layout:
     - name: arm
-      type: ee_pose
+      keys: [x, y, z, yaw, pitch, roll]   # 6-DoF EE pose; size == len(keys)
       solver: arm_kinematics
+    - name: gripper
+      keys: [gripper]
 ```
 
 Solvers are the extension point. A preset or stackfile `hardware` block can own
@@ -166,17 +169,16 @@ read/write interfaces. Presets are YAML-managed in `assets/presets.yaml`:
 presets:
   my_arm:
     joint_names: [shoulder, elbow, wrist]
-    degrees_mode: false
     asset:
       type: urdf
       path: /opt/robots/my_arm.urdf
     solvers:
       arm_kinematics:
         type: pinocchio_kinematics
-        capabilities: [kinematics, fk, ik]
+        capabilities: [fk, ik]
     action_layout:
       - name: arm
-        type: ee_pose
+        keys: [x, y, z, yaw, pitch, roll]
         solver: arm_kinematics
 ```
 

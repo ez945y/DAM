@@ -12,7 +12,6 @@ version: "1"
 
 hardware:
   preset: so101_follower
-  # by the preset's action_layout.
   interfaces:
     ros2_joint_state:
       type: ros2
@@ -23,18 +22,17 @@ hardware:
       capabilities: [command_joints]
       ref: ros2_joint_state
       topic: /my_robot/cmd
+    # Telemetry channels omit `type:` — the key name is the channel type.
     effort:
-      type: effort
       capabilities: [robot_telemetry]
       ref: ros2_joint_state
     wrench:
-      type: wrench
       capabilities: [robot_telemetry]
       ref: ros2_joint_state
       topic: /my_robot/ft_sensor/wrench  # override default /wrench
 
 safety:
-  control_frequency_hz: 30
+  control_hz: 30
   no_task_behavior: emergency_stop
   enforcement_mode: monitor
 

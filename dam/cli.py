@@ -525,10 +525,7 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
 
     safety = config.safety
     print(f"stack   : {args.stack}  (version {config.version})")
-    print(
-        f"safety  : control_frequency_hz={safety.control_frequency_hz} "
-        f"no_task_behavior={safety.no_task_behavior}"
-    )
+    print(f"safety  : control_hz={safety.control_hz} no_task_behavior={safety.no_task_behavior}")
     print(f"guards  : {_format_guards(config.guards) or '—'}")
 
     print(f"\nboundaries ({len(config.boundaries)}):")

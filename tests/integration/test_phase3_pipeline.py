@@ -31,7 +31,7 @@ tasks:
   default:
     boundaries: [motion_guard]
 safety:
-  control_frequency_hz: 50.0
+  control_hz: 50.0
 """
 
 

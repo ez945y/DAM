@@ -64,13 +64,13 @@ def test_register_idempotent():
 
 
 def test_pool_build_auto_injects_dt():
-    """_build_config_pool reads control_frequency_hz and exposes dt to guards."""
+    """_build_config_pool reads control_hz and exposes dt to guards."""
     from dam.config.schema import SafetyConfig, StackfileConfig
     from dam.runtime.guard_runtime import GuardRuntime
 
     cfg = StackfileConfig(
         version="1",
-        safety=SafetyConfig(control_frequency_hz=100.0, no_task_behavior="emergency_stop"),
+        safety=SafetyConfig(control_hz=100.0, no_task_behavior="emergency_stop"),
         boundaries={},
         tasks={},
         guards=[],

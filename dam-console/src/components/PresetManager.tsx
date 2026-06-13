@@ -7,7 +7,7 @@ const inputCls =
   'bg-dam-surface-2 border border-dam-border rounded px-2 py-1.5 text-xs font-mono text-dam-text focus:outline-none focus:border-dam-blue/60 transition-colors'
 
 function emptyDraft(): PresetEntry {
-  return { name: '', joint_names: [], degrees_mode: true, asset: null, solvers: {}, action_layout: [] }
+  return { name: '', joint_names: [], asset: null, solvers: {}, action_layout: [] }
 }
 
 async function uploadAsset(file: File, target: string): Promise<string> {
@@ -176,7 +176,7 @@ export function PresetManager({
                 <div className="flex-1 min-w-0">
                   <p className="text-dam-text text-xs font-semibold font-mono">{p.name}</p>
                   <p className="text-dam-muted text-[10px] mt-0.5">
-                    {p.joint_names.length} joints · {p.degrees_mode ? 'degrees' : 'radians'} mode
+                    {p.joint_names.length} joints
                   </p>
                   {p.asset && (
                     <p className="text-dam-muted text-[10px] font-mono mt-0.5 truncate">
@@ -257,17 +257,6 @@ export function PresetManager({
                   placeholder="shoulder_pan, shoulder_lift, ..."
                 />
               </div>
-              <div className="flex items-center">
-                <label className="flex items-center gap-2 text-xs text-dam-text">
-                  <input
-                    type="checkbox"
-                    checked={editing.degrees_mode}
-                    onChange={e => setEditing({ ...editing, degrees_mode: e.target.checked })}
-                    className="accent-dam-blue"
-                  />
-                  Degrees mode
-                </label>
-              </div>
               <div className="space-y-2">
                 <label className="text-dam-muted text-[10px] uppercase tracking-wider">Robot asset</label>
                 <div className="flex gap-2 items-center">
@@ -311,7 +300,7 @@ export function PresetManager({
                   value={actionLayoutJson}
                   onChange={e => setActionLayoutJson(e.target.value)}
                   className={`w-full min-h-20 ${inputCls}`}
-                  placeholder='[{"name": "arm", "type": "ee_pose", "solver": "arm_kinematics"}, {"name": "gripper", "type": "scalar"}]'
+                  placeholder='[{"name": "arm", "keys": ["x", "y", "z", "yaw", "pitch", "roll"], "solver": "arm_kinematics"}, {"name": "gripper", "keys": ["gripper"]}]'
                 />
               </div>
               <div className="flex gap-2 justify-end pt-1">

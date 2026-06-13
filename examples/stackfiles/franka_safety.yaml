@@ -13,10 +13,10 @@ version: "1"
 
 hardware:
   preset: franka_emika_panda
-  # by the preset or hardware.action_layout.
+  degrees_mode: false   # Franka is radian-native (no motor interface here)
 
 safety:
-  control_frequency_hz: 1000
+  control_hz: 1000
   enforcement_mode: enforce
   no_task_behavior: hold_position
 

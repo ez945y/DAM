@@ -191,7 +191,7 @@ def build_runtime(
         "boundaries": boundaries,
         "tasks": {"default": {"description": "bench", "boundaries": bnames}},
         "safety": {
-            "control_frequency_hz": control_frequency_hz,
+            "control_hz": control_frequency_hz,
             "enforcement_mode": enforcement_mode,
             "no_task_behavior": "emergency_stop",
         },

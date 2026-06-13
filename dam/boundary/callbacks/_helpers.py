@@ -49,7 +49,7 @@ def _select_solver(solvers: dict[str, Any] | None, capability: str) -> Any | Non
 def _get_ee_pose(obs: Observation, solvers: dict[str, Any] | None = None) -> np.ndarray | None:
     if obs.end_effector_pose is not None:
         return obs.end_effector_pose
-    kinematics = _select_solver(solvers, "kinematics")
+    kinematics = _select_solver(solvers, "fk")
     if kinematics is not None:
         try:
             if hasattr(kinematics, "compute_fk"):

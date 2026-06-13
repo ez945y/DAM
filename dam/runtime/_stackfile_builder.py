@@ -64,7 +64,7 @@ def from_config(runtime_cls: type, config: StackfileConfig, frame_hub: Any | Non
         task_config=task_config,
         always_active=always_active,
         config_pool=initial_pool,
-        control_frequency_hz=config.safety.control_frequency_hz,
+        control_frequency_hz=config.safety.control_hz,
         enforcement_mode=config.safety.enforcement_mode,
         risk_controller_config=config.risk_controller,
         loopback_config=config.loopback,
@@ -163,7 +163,7 @@ def _register_builtin_solver_factories() -> None:
         registry.register_factory(
             "pinocchio_kinematics",
             pinocchio_kinematics,
-            capabilities=("kinematics", "fk", "ik"),
+            capabilities=("fk", "ik"),
         )
 
 

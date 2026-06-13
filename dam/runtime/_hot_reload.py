@@ -86,8 +86,8 @@ class HotReloadManager:
 
         pool: dict[str, Any] = {}
 
-        if new_config.safety and new_config.safety.control_frequency_hz > 0:
-            pool["dt"] = 1.0 / new_config.safety.control_frequency_hz
+        if new_config.safety and new_config.safety.control_hz > 0:
+            pool["dt"] = 1.0 / new_config.safety.control_hz
 
         # Joint layout: resolved from preset (which owns the physical description).
         preset = _resolve_preset(new_config)

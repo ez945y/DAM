@@ -34,7 +34,7 @@ tasks:
   default:
     boundaries: [b1]
 safety:
-  control_frequency_hz: 50.0
+  control_hz: 50.0
 """
 
 _STACKFILE_V2 = """\
@@ -58,7 +58,7 @@ tasks:
   default:
     boundaries: [b1]
 safety:
-  control_frequency_hz: 50.0
+  control_hz: 50.0
 """
 
 

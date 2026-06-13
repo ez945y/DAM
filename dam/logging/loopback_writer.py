@@ -579,7 +579,7 @@ class LoopbackWriter:
         writer = LoopbackWriter(
             output_dir="/data/sessions",
             obs_bus=runtime._obs_bus,
-            control_frequency_hz=config.safety.control_frequency_hz,
+            control_frequency_hz=config.safety.control_hz,
             window_sec=loopback_cfg.window_sec,
             rotate_mb=loopback_cfg.rotate_mb,
             rotate_minutes=loopback_cfg.rotate_minutes,

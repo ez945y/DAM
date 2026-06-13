@@ -34,7 +34,6 @@ def test_create_user_preset(client):
     body = {
         "name": "my_arm",
         "joint_names": ["j0", "j1"],
-        "degrees_mode": False,
         "asset": {"type": "urdf", "path": "/abs/path/foo.urdf"},
         "solvers": {"arm": {"type": "pinocchio_kinematics"}},
         "action_layout": [{"name": "arm", "type": "joint_position"}],
@@ -44,7 +43,6 @@ def test_create_user_preset(client):
     data = resp.json()
     assert data["name"] == "my_arm"
     assert data["joint_names"] == ["j0", "j1"]
-    assert data["degrees_mode"] is False
     assert data["asset"]["type"] == "urdf"
     assert data["asset"]["path"] == "/abs/path/foo.urdf"
     assert "arm" in data["solvers"]
@@ -59,7 +57,6 @@ def test_update_overrides_bundled(client):
     body = {
         "name": "so101_follower",
         "joint_names": ["only_one"],
-        "degrees_mode": False,
         "asset": None,
         "solvers": {},
     }
@@ -71,7 +68,6 @@ def test_update_overrides_bundled(client):
         if p["name"] == "so101_follower"
     )
     assert so101["joint_names"] == ["only_one"]
-    assert so101["degrees_mode"] is False
 
 
 def test_rename_via_rename_from(client):
@@ -81,7 +77,6 @@ def test_rename_via_rename_from(client):
         json={
             "name": "old_name",
             "joint_names": ["j0"],
-            "degrees_mode": True,
             "asset": None,
             "solvers": {},
         },
@@ -91,7 +86,6 @@ def test_rename_via_rename_from(client):
         json={
             "name": "new_name",
             "joint_names": ["j0"],
-            "degrees_mode": True,
             "asset": None,
             "solvers": {},
             "rename_from": "old_name",
@@ -109,7 +103,7 @@ def test_rename_via_rename_from(client):
 def test_create_rejects_empty_name(client):
     resp = client.post(
         "/api/system/presets",
-        json={"name": "", "joint_names": ["j"], "degrees_mode": True, "asset": None},
+        json={"name": "", "joint_names": ["j"], "asset": None},
     )
     assert resp.status_code == 400
     assert "name" in resp.json()["detail"].lower()
@@ -118,7 +112,7 @@ def test_create_rejects_empty_name(client):
 def test_create_rejects_empty_joints(client):
     resp = client.post(
         "/api/system/presets",
-        json={"name": "foo", "joint_names": [], "degrees_mode": True, "asset": None},
+        json={"name": "foo", "joint_names": [], "asset": None},
     )
     assert resp.status_code == 400
 
@@ -126,7 +120,7 @@ def test_create_rejects_empty_joints(client):
 def test_create_rejects_non_list_joints(client):
     resp = client.post(
         "/api/system/presets",
-        json={"name": "foo", "joint_names": "not_a_list", "degrees_mode": True, "asset": None},
+        json={"name": "foo", "joint_names": "not_a_list", "asset": None},
     )
     assert resp.status_code == 400
 
@@ -140,7 +134,6 @@ def test_delete_user_preset(client):
         json={
             "name": "to_delete",
             "joint_names": ["j0"],
-            "degrees_mode": True,
             "asset": None,
             "solvers": {},
         },
@@ -178,7 +171,6 @@ def test_delete_then_recreate(client):
         json={
             "name": "so101_follower",
             "joint_names": ["a", "b"],
-            "degrees_mode": True,
             "asset": None,
             "solvers": {},
         },

@@ -79,6 +79,8 @@ class LeRobotRunner(RuntimeLoopRunner):
 
         builder = LeRobotBuilder(cfg.hardware, cfg.policy)
         preset = builder.preset
+        # deg<->rad from the motor interface, not the preset.
+        degrees_mode = cfg.hardware.motor_degrees_mode()
 
         robot = builder.build_robot()
         # robot.connect() is now deferred to runner.connect()
@@ -100,7 +102,7 @@ class LeRobotRunner(RuntimeLoopRunner):
                 policy_name=policy_name,
                 device=device,
                 joint_names=preset.joint_names,
-                degrees_mode=preset.degrees_mode,
+                degrees_mode=degrees_mode,
             )
 
         runtime = GuardRuntime.from_stackfile(path)
@@ -108,7 +110,7 @@ class LeRobotRunner(RuntimeLoopRunner):
         adapter = LeRobotAdapter(
             robot,
             joint_names=preset.joint_names,
-            degrees_mode=preset.degrees_mode,
+            degrees_mode=degrees_mode,
         )
 
         runtime.register_source("arm", adapter)
@@ -117,7 +119,7 @@ class LeRobotRunner(RuntimeLoopRunner):
             runtime.register_policy(policy_adapter)
 
         hz_cfg = cfg.runtime.control_frequency_hz if cfg.runtime else None
-        hz = hz_cfg or cfg.safety.control_frequency_hz
+        hz = hz_cfg or cfg.safety.control_hz
 
         return cls(
             runtime=runtime,

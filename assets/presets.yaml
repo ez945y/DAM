@@ -2,15 +2,21 @@
 #
 # Each entry captures the *intrinsic identity* of a robot model:
 #   - joint_names: ordered list of joint identifiers (lerobot enumeration order)
-#   - degrees_mode: True if hardware speaks degrees natively (so we convert to/from rad)
 #   - asset: the robot description resource, e.g. URDF or USD
 #   - solvers: robot-owned solver definitions built from that asset
-#   - action_layout: optional named segments in the policy action vector
+#   - action_layout: named segments of the policy action vector. Each segment
+#       lists its ``keys`` — exactly what each slot means, in order — so the
+#       segment size is self-describing (size == len(keys)). A joint segment's
+#       keys are joint names; an end-effector segment's keys are pose
+#       components, e.g. [x, y, z, yaw, pitch, roll] or [x, y, z, qx, qy, qz, qw];
+#       a differential base's are [v, omega]. An optional ``solver`` links the
+#       segment to a solvers entry that converts it into joint space.
 #   - chains: (optional) named kinematic chains using joint names, not indices.
 #             Auto-derived from joint_names when omitted (keyword matching).
 #
 # Limits, max velocities, and guard policy live on boundary callbacks in the
-# stackfile — never here.
+# stackfile — never here. deg<->rad mode (degrees_mode) is an interface concern
+# declared on the motor interface (or hardware.degrees_mode) — never here.
 #
 # Edit through the Config UI (preset manager) or this file directly.
 
@@ -23,17 +29,20 @@ presets:
       - wrist_flex
       - wrist_roll
       - gripper
-    degrees_mode: true
     asset:
       type: urdf
       path: assets/so101_new_calib.urdf
     solvers:
       arm_kinematics:
         type: pinocchio_kinematics
-        capabilities: [kinematics, fk, ik]
+        capabilities: [fk, ik]
+    # Policy emits 6 joint positions: 5 arm joints + 1 gripper.
     action_layout:
       - name: arm
-        type: joint_position
+        keys: [shoulder_pan, shoulder_lift, elbow_flex, wrist_flex, wrist_roll]
+        solver: arm_kinematics
+      - name: gripper
+        keys: [gripper]
 
   franka_emika_panda:
     joint_names:
@@ -46,18 +55,12 @@ presets:
       - panda_joint7
       - panda_finger_joint1
       - panda_finger_joint2
-    degrees_mode: false
-    chains:
-      arm:
-        joints:
-          - panda_joint1
-          - panda_joint2
-          - panda_joint3
-          - panda_joint4
-          - panda_joint5
-          - panda_joint6
-          - panda_joint7
-      gripper:
-        joints:
-          - panda_finger_joint1
-          - panda_finger_joint2
+    # Joint-space control: 7 arm joints + 2 finger joints. To drive Franka in
+    # end-effector space instead, add an `asset` (URDF/USD), a kinematics
+    # solver, and set the arm segment's keys to pose components — see
+    # docs/quick-stack.md and test_hardware_accepts_action_layout_and_solver_overrides.
+    action_layout:
+      - name: arm
+        keys: [panda_joint1, panda_joint2, panda_joint3, panda_joint4, panda_joint5, panda_joint6, panda_joint7]
+      - name: gripper
+        keys: [panda_finger_joint1, panda_finger_joint2]

@@ -156,7 +156,7 @@ tasks:
   default:
     boundaries: [workspace]
 safety:
-  control_frequency_hz: 50
+  control_hz: 50
   always_active: []
 """
     )
@@ -193,7 +193,7 @@ tasks:
   default:
     boundaries: [workspace]
 safety:
-  control_frequency_hz: 50
+  control_hz: 50
   always_active: []
 """
     )

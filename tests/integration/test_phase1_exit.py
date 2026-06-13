@@ -33,7 +33,7 @@ PHASE1_STACKFILE = textwrap.dedent("""\
         boundaries: [main_boundary]
     safety:
       always_active: []
-      control_frequency_hz: 50.0
+      control_hz: 50.0
 """)
 
 

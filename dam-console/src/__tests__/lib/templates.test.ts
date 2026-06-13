@@ -409,16 +409,18 @@ describe('generateYaml', () => {
     const cfg = defaultConfig('so101')
     const yaml = generateYaml(cfg)
     expect(yaml).toContain('current:')
-    expect(yaml).toMatch(/current:\s*\n\s*type: current\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: arm/)
-    expect(yaml).toMatch(/temperature:\s*\n\s*type: temperature\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: arm/)
-    expect(yaml).toMatch(/voltage:\s*\n\s*type: voltage\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: arm/)
+    // Telemetry channels omit `type:` — the key name is the channel type.
+    expect(yaml).toMatch(/current:\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: arm/)
+    expect(yaml).toMatch(/temperature:\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: arm/)
+    expect(yaml).toMatch(/voltage:\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: arm/)
+    expect(yaml).not.toMatch(/type: temperature/)
   })
 
   it('emits observation channels as telemetry interfaces for ros2', () => {
     const cfg = defaultConfig('ros2_minimal')
     const yaml = generateYaml(cfg)
-    expect(yaml).toMatch(/effort:\s*\n\s*type: effort\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: ros2_joint_state/)
-    expect(yaml).toMatch(/wrench:\s*\n\s*type: wrench\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: ros2_joint_state/)
+    expect(yaml).toMatch(/effort:\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: ros2_joint_state/)
+    expect(yaml).toMatch(/wrench:\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: ros2_joint_state/)
   })
 
   it('includes adapter section for lerobot', () => {
@@ -431,7 +433,7 @@ describe('generateYaml', () => {
   it('uses correct control frequency', () => {
     const cfg = defaultConfig('ros2_minimal')
     const yaml = generateYaml(cfg)
-    expect(yaml).toContain('control_frequency_hz: 30')
+    expect(yaml).toContain('control_hz: 30')
   })
 
   it('includes enforcement_mode in safety section', () => {
@@ -494,8 +496,8 @@ describe('observation channel round-trip', () => {
     const yaml = generateYaml(cfg)
 
     // effort is JointState-derived → no topic line; wrench has its own topic
-    expect(yaml).toMatch(/effort:\s*\n\s*type: effort\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: ros2_joint_state\s*(?!\s*topic:)/)
-    expect(yaml).toMatch(/wrench:\s*\n\s*type: wrench\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: ros2_joint_state\s*\n\s*topic: \/my_robot\/ft_sensor\/wrench/)
+    expect(yaml).toMatch(/effort:\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: ros2_joint_state\s*(?!\s*topic:)/)
+    expect(yaml).toMatch(/wrench:\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: ros2_joint_state\s*\n\s*topic: \/my_robot\/ft_sensor\/wrench/)
 
     const parsed = parseConfigFromYaml(yaml)
     expect(parsed.observation_channels).toEqual(['effort', 'wrench'])
@@ -512,7 +514,7 @@ describe('observation channel round-trip', () => {
     expect(yaml).toContain('effort:')
     expect(yaml).toContain('wrench:')
     // No `topic:` line under either channel block
-    expect(yaml).not.toMatch(/wrench:\s*\n\s*type: wrench\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: ros2_joint_state\s*\n\s*topic:/)
+    expect(yaml).not.toMatch(/wrench:\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: ros2_joint_state\s*\n\s*topic:/)
 
     const parsed = parseConfigFromYaml(yaml)
     expect(parsed.observation_channels).toEqual(['effort', 'wrench'])
@@ -522,9 +524,9 @@ describe('observation channel round-trip', () => {
   it('lerobot health channels round-trip without overrides', () => {
     const cfg = defaultConfig('so101')
     const yaml = generateYaml(cfg)
-    expect(yaml).toMatch(/current:\s*\n\s*type: current\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: arm/)
-    expect(yaml).toMatch(/temperature:\s*\n\s*type: temperature\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: arm/)
-    expect(yaml).toMatch(/voltage:\s*\n\s*type: voltage\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: arm/)
+    expect(yaml).toMatch(/current:\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: arm/)
+    expect(yaml).toMatch(/temperature:\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: arm/)
+    expect(yaml).toMatch(/voltage:\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: arm/)
 
     const parsed = parseConfigFromYaml(yaml)
     expect(parsed.observation_channels).toEqual(['current', 'temperature', 'voltage'])
@@ -559,7 +561,7 @@ describe('slow lane + telemetry round-trip', () => {
     const cfg = defaultConfig('so101')
     cfg.slowLane = { frequency_hz: 10, max_staleness_ms: 500, stale_action: 'reject' }
     const yaml = generateYaml(cfg)
-    expect(yaml).toMatch(/slow_lane:\s*\n\s*frequency_hz: 10\s*\n\s*max_staleness_ms: 500\s*\n\s*stale_action: reject/)
+    expect(yaml).toMatch(/slow_lane:\s*\n\s*task_hz: 10\s*\n\s*max_staleness_ms: 500\s*\n\s*stale_action: reject/)
 
     const parsed = parseConfigFromYaml(yaml)
     expect(parsed.slowLane).toEqual({ frequency_hz: 10, max_staleness_ms: 500, stale_action: 'reject' })

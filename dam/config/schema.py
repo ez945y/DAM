@@ -97,21 +97,21 @@ class SlowLaneConfig(BaseModel):
     """Async slow-lane evaluator for expensive guards (L0 vision OOD, L2 task).
 
     The control loop stays the single writer to the sink; slow-lane guards run
-    on a worker thread at ``frequency_hz`` against the latest post-fast-lane
+    on a worker thread at ``task_hz`` against the latest post-fast-lane
     snapshot and publish a verdict the control loop consumes as a gate.  A
     verdict older than ``max_staleness_ms`` triggers ``stale_action``.
     """
 
     model_config = ConfigDict(extra="forbid")
-    frequency_hz: float = 10.0
+    task_hz: float = 10.0  # async task/OOD lane evaluation rate
     max_staleness_ms: float = 500.0
     stale_action: str = "reject"  # reject (trigger fallback) | warn (log only)
 
-    @field_validator("frequency_hz")
+    @field_validator("task_hz")
     @classmethod
     def freq_positive(cls, v: float) -> float:
         if v <= 0:
-            raise ValueError("slow_lane.frequency_hz must be positive")
+            raise ValueError("slow_lane.task_hz must be positive")
         return v
 
     @field_validator("stale_action")
@@ -128,18 +128,23 @@ class SafetyConfig(BaseModel):
     # Phase 2: single string name; Phase 1: list of names. Both accepted.
     always_active: str | list[str] = []
     no_task_behavior: str = "emergency_stop"
-    control_frequency_hz: float = 30.0
+    # All three rates live under ``safety``: control_hz (control loop),
+    # telemetry_hz (hardware register reads), and slow_lane.task_hz (async lane).
+    control_hz: float = 30.0
+    # Cadence for telemetry register reads (temperature/current/voltage). None →
+    # read every control cycle. A control concern, so it lives here.
+    telemetry_hz: float | None = None
     max_obs_age_sec: float = 0.1
     cycle_budget_ms: float = 20.0
     enforcement_mode: EnforcementMode = EnforcementMode.ENFORCE
     # Optional fast/slow lane split — None keeps everything in the control loop.
     slow_lane: SlowLaneConfig | None = None
 
-    @field_validator("control_frequency_hz")
+    @field_validator("control_hz")
     @classmethod
     def must_be_positive(cls, v: float) -> float:
         if v <= 0:
-            raise ValueError("control_frequency_hz must be positive")
+            raise ValueError("control_hz must be positive")
         return v
 
     def always_active_list(self) -> list[str]:
@@ -202,20 +207,52 @@ class HardwareConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
     preset: str | None = None
     joint_names: list[str] | None = None
+    # deg<->rad mode is an interface concern, not robot identity — presets no
+    # longer carry it. The motor interface declares ``source.degrees_mode``;
+    # this hardware-level field is the declaration point for interface-less
+    # configs (e.g. a tensor-only SafetyGuard). See ``motor_degrees_mode``.
     degrees_mode: bool | None = None
     asset: dict[str, str] | None = None
     solvers: dict[str, Any] = Field(default_factory=dict)
     action_layout: list[dict[str, Any]] = Field(default_factory=list)
-    # Cadence for telemetry register reads (temperature/current/voltage).
-    # None → read every control cycle (legacy).  The bus stays owned by the
-    # control loop; telemetry is decimated, cached, and timestamped — see
-    # docs/quick-stack.md "Telemetry cadence".
-    telemetry_hz: float | None = None
     urdf_path: str | None = None
     joints: dict[str, HardwareJointConfig] | None = None
     interfaces: dict[str, HardwareInterfaceConfig] | None = None
     sources: dict[str, HardwareSourceConfig] | None = None
     sinks: dict[str, HardwareSinkConfig] | None = None
+
+    def motor_degrees_mode(self, default: bool = True) -> bool:
+        """Resolve deg<->rad mode: motor interface (``source.degrees_mode``)
+        first, then the hardware-level ``degrees_mode``, then *default*.
+
+        lerobot motors are degree-native, so the default is True; radian-native
+        robots (e.g. Franka) declare ``degrees_mode: false`` explicitly.
+        """
+        if self.sources:
+            for s in self.sources.values():
+                if str(s.type or "").lower() in ("motor", "lerobot") and s.degrees_mode is not None:
+                    return bool(s.degrees_mode)
+        if self.degrees_mode is not None:
+            return bool(self.degrees_mode)
+        return default
+
+    @model_validator(mode="before")
+    @classmethod
+    def _default_interface_type(cls, data: Any) -> Any:
+        """Let telemetry interfaces omit ``type`` — the key name *is* the type.
+
+        ``temperature: {capabilities: [robot_telemetry], ref: arm}`` is enough;
+        the runtime resolves the adapter channel by its name. Any interface
+        without an explicit ``type`` inherits its map key, so ``type`` stays
+        required downstream (no None to special-case in the factory).
+        """
+        if isinstance(data, dict):
+            interfaces = data.get("interfaces")
+            if isinstance(interfaces, dict):
+                for name, spec in interfaces.items():
+                    if isinstance(spec, dict) and not spec.get("type"):
+                        spec["type"] = name
+        return data
 
     @model_validator(mode="after")
     def lower_interfaces(self) -> HardwareConfig:

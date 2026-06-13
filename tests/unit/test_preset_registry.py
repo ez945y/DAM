@@ -37,7 +37,6 @@ def test_list_presets_is_sorted(isolated_user_path):
 def test_get_preset_so101_by_name(isolated_user_path):
     p = get_preset("so101_follower")
     assert p.name == "so101_follower"
-    assert p.degrees_mode is True
     assert p.asset_type() == "urdf"
     assert p.asset_path() is not None
     assert "arm_kinematics" in p.solvers
@@ -61,7 +60,6 @@ def test_get_preset_unknown_raises_key_error(isolated_user_path):
 def test_list_preset_entries_returns_dicts(isolated_user_path):
     entries = list_preset_entries()
     so101 = next(e for e in entries if e["name"] == "so101_follower")
-    assert so101["degrees_mode"] is True
     assert len(so101["joint_names"]) == 6
     assert so101["asset"]["type"] == "urdf"
     assert so101["asset"]["path"]
@@ -76,7 +74,6 @@ def test_upsert_then_delete_user_preset(isolated_user_path):
     p = upsert_preset(
         "custom_test_arm",
         joint_names=["j0", "j1", "j2"],
-        degrees_mode=False,
         asset={"type": "urdf", "path": "/abs/path/custom.urdf"},
     )
     assert p.name == "custom_test_arm"
@@ -104,12 +101,10 @@ def test_upsert_overrides_bundled(isolated_user_path):
     upsert_preset(
         "so101_follower",
         joint_names=["a", "b"],
-        degrees_mode=False,
         asset=None,
     )
     p = get_preset("so101_follower")
     assert p.joint_names == ["a", "b"]
-    assert p.degrees_mode is False
 
 
 def test_upsert_after_tombstone_resurrects(isolated_user_path):
@@ -119,7 +114,6 @@ def test_upsert_after_tombstone_resurrects(isolated_user_path):
     upsert_preset(
         "so101_follower",
         joint_names=["x"],
-        degrees_mode=True,
         asset=None,
     )
     assert "so101_follower" in list_presets()
@@ -129,13 +123,11 @@ def test_rename_via_upsert_removes_old_key(isolated_user_path):
     upsert_preset(
         "first_name",
         joint_names=["j0"],
-        degrees_mode=True,
         asset=None,
     )
     upsert_preset(
         "second_name",
         joint_names=["j0"],
-        degrees_mode=True,
         asset=None,
         rename_from="first_name",
     )
@@ -146,12 +138,12 @@ def test_rename_via_upsert_removes_old_key(isolated_user_path):
 
 def test_upsert_rejects_empty_joint_names(isolated_user_path):
     with pytest.raises(ValueError, match="at least one joint name"):
-        upsert_preset("x", joint_names=[], degrees_mode=True, asset=None)
+        upsert_preset("x", joint_names=[], asset=None)
 
 
 def test_upsert_rejects_empty_name(isolated_user_path):
     with pytest.raises(ValueError, match="must not be empty"):
-        upsert_preset("", joint_names=["j"], degrees_mode=True, asset=None)
+        upsert_preset("", joint_names=["j"], asset=None)
 
 
 def test_atomic_write_does_not_leave_tmp(isolated_user_path):
@@ -159,7 +151,6 @@ def test_atomic_write_does_not_leave_tmp(isolated_user_path):
     upsert_preset(
         "atomic_test",
         joint_names=["j0"],
-        degrees_mode=True,
         asset=None,
     )
     assert not isolated_user_path.with_suffix(isolated_user_path.suffix + ".tmp").exists()

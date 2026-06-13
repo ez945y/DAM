@@ -2,9 +2,6 @@ version: "1"
 
 hardware:
   preset: so101_follower
-  # by the preset's action_layout.
-  telemetry_hz: 5       # decimate temperature/current/voltage bus reads;
-                        # cached snapshots carry metadata.telemetry_timestamp
   interfaces:
     arm:
       type: motor
@@ -12,6 +9,7 @@ hardware:
       port: /dev/tty.usbmodem5AA90244141
       robot_type: so101_follower
       id: my_awesome_follower_arm
+      degrees_mode: true   # SO-101 motors speak degrees; convert to/from rad
     top:
       type: opencv
       capabilities: [image]
@@ -26,16 +24,15 @@ hardware:
       width: 640
       height: 480
       fps: 30
+    # Telemetry channels omit `type:` — the key name is the channel type;
+    # the adapter resolves it from its telemetry registry.
     current:
-      type: current
       capabilities: [robot_telemetry]
       ref: arm
     temperature:
-      type: temperature
       capabilities: [robot_telemetry]
       ref: arm
     voltage:
-      type: voltage
       capabilities: [robot_telemetry]
       ref: arm
 
@@ -45,16 +42,20 @@ policy:
   device: mps
 
 safety:
-  control_frequency_hz: 30
+  control_hz: 30
   no_task_behavior: emergency_stop
   enforcement_mode: enforce
+  # telemetry_hz decimates temperature/current/voltage register reads off the
+  # motor bus (hardware IO cadence). Distinct from slow_lane.task_hz, which
+  # paces async guard evaluation. Cached snapshots carry telemetry_timestamp.
+  telemetry_hz: 5
   # Fast/slow lane split: expensive guards (L0 vision OOD, L2 task logic)
-  # run on an async worker at frequency_hz; the control loop consumes their
+  # run on an async worker at task_hz; the control loop consumes their
   # latest verdict and degrades per stale_action when it ages past
   # max_staleness_ms. Lane assignment defaults by layer (L0/L2 slow,
   # L1/L3 fast); override per guard with 'lane:' in the guards section.
   slow_lane:
-    frequency_hz: 10
+    task_hz: 10
     max_staleness_ms: 500
     stale_action: reject   # reject (trigger fallback) | warn (log only)
 

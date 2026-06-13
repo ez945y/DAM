@@ -19,7 +19,6 @@ version: "1"
 
 hardware:
   preset: so101_follower
-  # by the preset's action_layout.
   interfaces:
     replay:
       type: dataset
@@ -35,6 +34,7 @@ hardware:
       port: /dev/tty.usbmodem5AA90244141
       robot_type: so101_follower
       id: my_awesome_follower_arm
+      degrees_mode: true   # SO-101 motors speak degrees; convert to/from rad
     top:
       type: opencv
       capabilities: [image]
@@ -49,21 +49,19 @@ hardware:
       width: 640
       height: 480
       fps: 30
+    # Telemetry channels omit `type:` — the key name is the channel type.
     current:
-      type: current
       capabilities: [robot_telemetry]
       ref: arm
     temperature:
-      type: temperature
       capabilities: [robot_telemetry]
       ref: arm
     voltage:
-      type: voltage
       capabilities: [robot_telemetry]
       ref: arm
 
 safety:
-  control_frequency_hz: 30
+  control_hz: 30
   no_task_behavior: emergency_stop
   enforcement_mode: enforce
 

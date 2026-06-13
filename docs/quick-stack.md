@@ -377,9 +377,11 @@ and `fps` directly under the camera interface; `params:` is reserved for boundar
 guard configuration.
 
 Policy output semantics are declared by the preset or by
-`hardware.action_layout`, where each segment names its `type` and optional
-`solver`. For example, an EE-pose arm segment can point at an arm kinematics
-solver while a gripper segment remains scalar.
+`hardware.action_layout`, where each segment lists its `keys` — what each slot
+means, in order — and an optional `solver`. The segment size is just
+`len(keys)`. A joint segment's keys are joint names; an EE-pose arm segment's
+keys are pose components (e.g. `[x, y, z, yaw, pitch, roll]`) pointing at an arm
+kinematics solver, while a gripper segment is `keys: [gripper]`.
 
 For a LeRobot motor interface, `robot_type` selects the concrete LeRobot robot
 configuration and its default calibration namespace. For `so101_follower`,
