@@ -37,10 +37,6 @@ export type CameraConfig = {
 export interface DamConfig {
   templateId: string
   hardware_preset: string
-  /** Action/observation space: per-joint targets or end-effector pose.
-   *  Backend requires hardware.input_space === policy.input_space, so the
-   *  console keeps a single value and emits it into both blocks. */
-  input_space: 'joint' | 'ee' | 'base' | 'twist' | 'ackermann' | 'pose2d'
   adapter: 'lerobot' | 'ros2' | 'simulation'
   lerobot_port: string
   lerobot_robot_type: string
@@ -298,7 +294,7 @@ export const TEMPLATES: TemplatePreset[] = [
   {
     id: 'ros2_minimal',
     label: 'ROS2',
-    description: 'ROS2 source and command adapter.',
+    description: 'ROS2 state and command interfaces.',
     badge: 'ROS2',
     config: {
       hardware_preset: 'so101_follower', adapter: 'ros2',
@@ -327,7 +323,7 @@ export function defaultConfig(templateId = ''): DamConfig {
   const preset = TEMPLATES.find(t => t.id === templateId)
   const base: DamConfig = {
     templateId: '', // Always empty for stateless behavior
-    hardware_preset: 'custom', input_space: 'joint', adapter: 'simulation', lerobot_port: '', lerobot_robot_type: 'so101_follower', lerobot_robot_id: '',
+    hardware_preset: 'custom', adapter: 'simulation', lerobot_port: '', lerobot_robot_type: 'so101_follower', lerobot_robot_id: '',
     lerobot_cameras: [], lerobot_calibration_path: '', lerobot_degrees_mode: true, observation_channels: [],
     ros2JointTopic: '/joint_states', ros2CmdTopic: '/joint_commands',
     policy: { type: 'noop', pretrained_path: '', device: 'cpu' },
@@ -435,11 +431,9 @@ function taskLines(t: TaskDef, boundaryOrder?: string[]): string[] {
 
 const GUARD_LAYER: Record<string, string> = { ood: 'L0', motion: 'L1', execution: 'L2', hardware: 'L3' }
 
-// Stackfile source-block name per adapter.  Used in three places (sources
-// block key, channel ref, sink ref) — keep them in sync via this single map.
-const MAIN_SOURCE_NAME: Record<DamConfig['adapter'], string> = {
+const MAIN_INTERFACE_NAME: Record<DamConfig['adapter'], string> = {
   lerobot: 'arm',  // adapter value is still 'lerobot' in UI; emits `type: motor`
-  ros2: 'ros2_source',
+  ros2: 'ros2_joint_state',
   simulation: 'main',
 }
 
@@ -475,35 +469,39 @@ const SCHEMA: YamlSection[] = [
   scalar('version', () => '"1"'), blank,
   block('hardware', [
     scalar('preset', cfg => cfg.hardware_preset),
-    scalar('input_space', cfg => cfg.input_space ?? 'joint'),
     scalar('telemetry_hz', cfg => cfg.telemetryHz ?? undefined),
-    block('sources', [
+    block('interfaces', [
       block('main', [
         scalar('type', () => 'dataset'),
+        scalar('capabilities', () => '[observe_joints]'),
         scalar('dataset_repo_id', cfg => cfg.simulation_dataset_repo_id ?? null),
         scalar('episode', cfg => cfg.simulation_episode ?? 0),
         scalar('degrees_mode', () => 'true'),
       ], cfg => cfg.adapter === 'simulation' && !!cfg.simulation_dataset_repo_id),
       block('replay', [
         scalar('type', () => 'dataset'),
+        scalar('capabilities', () => '[observe_joints]'),
         scalar('dataset_repo_id', cfg => cfg.simulation_dataset_repo_id ?? null),
         scalar('episode', cfg => cfg.simulation_episode ?? 0),
         scalar('degrees_mode', () => 'true'),
         scalar('image_namespace', cfg => cfg.dataset_image_namespace ?? 'replay'),
       ], cfg => cfg.adapter === 'lerobot' && !!cfg.dataset_replay_to_hardware && !!cfg.simulation_dataset_repo_id),
-      block(MAIN_SOURCE_NAME.lerobot, [
-        scalar('type', () => 'motor'), scalar('port', cfg => cfg.lerobot_port),
+      block(MAIN_INTERFACE_NAME.lerobot, [
+        scalar('type', () => 'motor'),
+        scalar('capabilities', () => '[observe_joints, command_joints]'),
+        scalar('port', cfg => cfg.lerobot_port),
         scalar('robot_type', cfg => cfg.lerobot_robot_type || 'so101_follower'),
         scalar('id', cfg => cfg.lerobot_robot_id), scalar('calibration_path', cfg => cfg.lerobot_calibration_path || null),
         scalar('degrees_mode', cfg => cfg.lerobot_degrees_mode),
       ], cfg => cfg.adapter === 'lerobot'),
-      // Cameras as peer-level opencv sources (flat, uniform with motor/ros2)
+      // Cameras as peer-level image interfaces.
       custom((cfg, indent) => {
         return cfg.lerobot_cameras.flatMap(cam => {
           const idx = cam.source_type === 'udp' ? `"${cam.udp_url ?? ''}"` : String(cam.index ?? 0)
           return [
             `${indent}${cam.name}:`,
             `${indent}  type: opencv`,
+            `${indent}  capabilities: [image]`,
             `${indent}  index_or_path: ${idx}`,
             `${indent}  width: ${cam.width}`,
             `${indent}  height: ${cam.height}`,
@@ -511,40 +509,38 @@ const SCHEMA: YamlSection[] = [
           ]
         })
       }, cfg => cfg.adapter === 'lerobot' && cfg.lerobot_cameras.length > 0),
-      block(MAIN_SOURCE_NAME.ros2, [
+      block(MAIN_INTERFACE_NAME.ros2, [
         scalar('type', () => 'ros2'),
+        scalar('capabilities', () => '[observe_joints]'),
         scalar('topic', cfg => cfg.ros2JointTopic),
       ], cfg => cfg.adapter === 'ros2'),
-      // Peer-source observation channels (servo registers for lerobot, extra
-      // topics for ROS2).  Parent ref points at whichever main source exists.
+      block('ros2_command', [
+        scalar('type', () => 'ros2'),
+        scalar('capabilities', () => '[command_joints]'),
+        scalar('ref', () => MAIN_INTERFACE_NAME.ros2),
+        scalar('topic', cfg => cfg.ros2CmdTopic),
+      ], cfg => cfg.adapter === 'ros2'),
+      // Peer observation channels (servo registers for lerobot, extra topics
+      // for ROS2). Parent ref points at whichever main interface exists.
       // Optional `topic:` overrides the adapter's default topic per channel.
       // Skip blank / duplicate names — UI can hold transient empty rows.
       custom((cfg, indent) => {
-        const parent = MAIN_SOURCE_NAME[cfg.adapter]
+        const parent = MAIN_INTERFACE_NAME[cfg.adapter]
         const overrides = cfg.channel_topic_overrides ?? {}
         const seen = new Set<string>()
         return cfg.observation_channels.flatMap(ch => {
           if (!ch || seen.has(ch)) return []
           seen.add(ch)
-          const lines = [`${indent}${ch}:`, `${indent}  type: ${ch}`, `${indent}  ref: ${parent}`]
+          const lines = [`${indent}${ch}:`, `${indent}  type: ${ch}`, `${indent}  capabilities: [robot_telemetry]`, `${indent}  ref: ${parent}`]
           if (overrides[ch]) lines.push(`${indent}  topic: ${overrides[ch]}`)
           return lines
         })
       }, cfg => (cfg.adapter === 'lerobot' || cfg.adapter === 'ros2') && cfg.observation_channels.length > 0),
     ]),
-    block('sinks', [
-      block('main', [scalar('ref', () => `sources.${MAIN_SOURCE_NAME.simulation}`)], cfg => cfg.adapter === 'simulation' && !!cfg.simulation_dataset_repo_id),
-      block('command', [scalar('ref', () => `sources.${MAIN_SOURCE_NAME.lerobot}`)], cfg => cfg.adapter === 'lerobot'),
-      block('ros2_sink', [
-        scalar('ref', () => `sources.${MAIN_SOURCE_NAME.ros2}`),
-        scalar('topic', cfg => cfg.ros2CmdTopic),
-      ], cfg => cfg.adapter === 'ros2'),
-    ]),
   ]),
   blank,
   block('policy', [
     scalar('type', cfg => cfg.policy.type),
-    scalar('input_space', cfg => cfg.input_space ?? 'joint'),
     scalar('pretrained_path', cfg => cfg.policy.pretrained_path),
     scalar('device', cfg => cfg.policy.device),
   ], cfg => !!cfg.policy.pretrained_path),
@@ -624,7 +620,7 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
     result.adapter = 'lerobot'; result.lerobot_port = getVal(/port:\s*(.*)/);
     result.lerobot_robot_type = getVal(/robot_type:\s*(.*)/) || 'so101_follower';
     result.lerobot_robot_id = getVal(/(?<![_\w])id:\s*(.*)/); result.lerobot_calibration_path = getVal(/calibration_path:\s*(.*)/) || '';
-    const motorBlock = /type:\s*(?:motor|lerobot)\s*\n([\s\S]*?)(?=\n\s{4}\w+:\s*\n|\n\s{2}sinks:)/.exec(yaml)?.[1] ?? ''
+    const motorBlock = /type:\s*(?:motor|lerobot)\s*\n([\s\S]*?)(?=\n\s{4}\w+:\s*\n|\n\s{2}(?:interfaces|sources|sinks):|$)/.exec(yaml)?.[1] ?? ''
     const motorDegrees = /degrees_mode:\s*(true|false)/.exec(motorBlock)?.[1]
     result.lerobot_degrees_mode = (motorDegrees ?? 'true') === 'true'
     if (yaml.includes('type: dataset')) {
@@ -635,7 +631,7 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
     }
   } else if (yaml.includes('type: ros2')) {
     result.adapter = 'ros2'
-    // New canonical: `topic:` on the source/sink.  Old stackfiles used
+    // Canonical: `topic:` on the interface. Old stackfiles used
     // `joint_topic:` / `cmd_topic:` — recover those as a fallback.
     result.ros2JointTopic = getVal(/(?:joint_topic|topic):\s*(.*)/)
     result.ros2CmdTopic = getVal(/cmd_topic:\s*(.*)/) ?? ''
@@ -643,17 +639,6 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
     result.adapter = 'simulation'; result.simulation_dataset_repo_id = getVal(/dataset_repo_id:\s*(.*)/) ?? undefined;
     const ep = getVal(/episode:\s*(\d+)/); if (ep != null) result.simulation_episode = Number(ep);
   }
-
-  // hardware/policy input_space must match server-side; first hit wins.
-  const inputSpace = getVal(/input_space:\s*(\w+)/)?.toLowerCase()
-  if (
-    inputSpace === 'joint' ||
-    inputSpace === 'ee' ||
-    inputSpace === 'base' ||
-    inputSpace === 'twist' ||
-    inputSpace === 'ackermann' ||
-    inputSpace === 'pose2d'
-  ) result.input_space = inputSpace
 
   const pType = getVal(/policy:\s*\n\s*type:\s*(.*)/)
   if (pType) {
@@ -791,7 +776,7 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
 
   // Parse cameras from BOTH formats:
   // 1. Legacy nested: cameras: { top: { type: opencv, ... } }
-  // 2. New flat peer sources: top:\n  type: opencv\n  index_or_path: 0\n  ...
+  // 2. Flat image interfaces: top:\n  type: opencv\n  index_or_path: 0\n  ...
   const cameras: CameraConfig[] = [];
 
   // Legacy nested format
@@ -812,7 +797,7 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
     } else if (inCameras && line.startsWith('    ') && !line.startsWith('      ')) { inCameras = false; }
   }
 
-  // New flat peer-source opencv format
+  // Flat opencv interface format
   for (let i = 0; i < lines.length; i++) {
     const m = lines[i].match(/^\s{4}(\w+):\s*$/)
     if (!m) continue
@@ -834,7 +819,7 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
 
   if (cameras.length > 0) result.lerobot_cameras = cameras
 
-  // Channels are peer sources whose name == type and that carry `ref: <parent>`.
+  // Channels are telemetry interfaces whose name == type and that carry `ref: <parent>`.
   // We don't hardcode the channel allowlist — that's the adapter's responsibility
   // server-side (validated against supported_channels()).
   const adapterTypes = new Set(['motor', 'lerobot', 'ros2', 'opencv', 'camera', 'usb', 'dataset', 'simulation', 'mock'])
@@ -847,10 +832,13 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
     const next1 = lines[i + 1]?.trim() ?? ''
     const next2 = lines[i + 2]?.trim() ?? ''
     const next3 = lines[i + 3]?.trim() ?? ''
+    const next4 = lines[i + 4]?.trim() ?? ''
     const typeMatch = next1.match(/^type:\s+(\w+)/)
-    if (typeMatch && typeMatch[1] === name && next2.startsWith('ref:') && !adapterTypes.has(name)) {
+    const refLine = [next2, next3, next4].find(line => line.startsWith('ref:')) ?? ''
+    const topicLine = [next2, next3, next4].find(line => line.startsWith('topic:')) ?? ''
+    if (typeMatch && typeMatch[1] === name && refLine && !adapterTypes.has(name)) {
       obsChannels.push(name)
-      const topicMatch = next3.match(/^topic:\s+(\S+)/)
+      const topicMatch = topicLine.match(/^topic:\s+(\S+)/)
       if (topicMatch) channelTopics[name] = topicMatch[1]
     }
   }

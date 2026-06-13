@@ -29,12 +29,15 @@ class FakeKinematicsSolver:
     def __init__(self) -> None:
         self.last_target_ee_pose = None
         self.last_current_joints = None
+        self.ik_calls = 0
+        self.fk_calls = 0
 
     def inverse_kinematics(
         self,
         target_ee_pose: np.ndarray,
         current_joint_positions: np.ndarray,
     ) -> np.ndarray:
+        self.ik_calls += 1
         self.last_target_ee_pose = target_ee_pose.copy()
         self.last_current_joints = current_joint_positions.copy()
         joints = np.zeros(len(_JOINT_NAMES), dtype=np.float64)
@@ -42,10 +45,16 @@ class FakeKinematicsSolver:
         return joints
 
     def forward_kinematics(self, joint_positions: np.ndarray) -> np.ndarray:
+        self.fk_calls += 1
         return np.array(
             [joint_positions[0], 0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
             dtype=np.float64,
         )
+
+
+def enable_ee_layout(guard: SafetyGuard, solver_name: str = "kinematics") -> SafetyGuard:
+    guard._action_layout = [{"name": "arm", "type": "ee_pose", "solver": solver_name}]
+    return guard
 
 
 @pytest.fixture()
@@ -166,18 +175,21 @@ class TestSafetyGuard:
         # After second call, prev_positions should be obs2's converted positions
         assert guard._prev_positions is not None
 
-    def test_input_space_defaults_to_joint(self, stackfile: str) -> None:
+    def test_action_layout_defaults_to_preset_joint_layout(self, stackfile: str) -> None:
         guard = SafetyGuard(stackfile, joint_names=_JOINT_NAMES, degrees_mode=False)
-        assert guard.input_space == "joint"
+        assert guard.action_layout == []
 
-    def test_input_space_reads_hardware_config(self, tmp_path: Path) -> None:
+    def test_action_layout_reads_hardware_config(self, tmp_path: Path) -> None:
         path = tmp_path / "ee_safety.yaml"
         path.write_text(
             textwrap.dedent("""\
             version: "1"
             hardware:
               preset: so101_follower
-              input_space: ee
+              action_layout:
+                - name: arm
+                  type: ee_pose
+                  solver: kinematics
             guards:
               - L1: motion
             boundaries: {}
@@ -187,59 +199,25 @@ class TestSafetyGuard:
             """)
         )
         guard = SafetyGuard(str(path), joint_names=_JOINT_NAMES, degrees_mode=False)
-        assert guard.input_space == "ee"
+        assert guard.action_layout == [{"name": "arm", "type": "ee_pose", "solver": "kinematics"}]
 
-    def test_input_space_override_wins(self, tmp_path: Path) -> None:
-        path = tmp_path / "ee_safety.yaml"
-        path.write_text(
-            textwrap.dedent("""\
-            version: "1"
-            hardware:
-              preset: so101_follower
-              input_space: ee
-            guards:
-              - L1: motion
-            boundaries: {}
-            tasks:
-              default:
-                boundaries: []
-            """)
+    def test_layout_action_does_not_require_solver(self, stackfile: str) -> None:
+        guard = enable_ee_layout(
+            SafetyGuard(stackfile, joint_names=_JOINT_NAMES, degrees_mode=False)
         )
-        guard = SafetyGuard(
-            str(path),
-            joint_names=_JOINT_NAMES,
-            degrees_mode=False,
-            input_space="joint",
-        )
-        assert guard.input_space == "joint"
+        action = np.array([0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
+        result = guard(action, np.zeros(6))
+        np.testing.assert_allclose(result, action)
 
-    def test_invalid_input_space_override_raises(self, stackfile: str) -> None:
-        with pytest.raises(ValueError, match="input_space"):
+    def test_layout_action_does_not_call_solver_automatically(self, stackfile: str) -> None:
+        solver = FakeKinematicsSolver()
+        guard = enable_ee_layout(
             SafetyGuard(
                 stackfile,
                 joint_names=_JOINT_NAMES,
                 degrees_mode=False,
-                input_space="task",
+                solvers={"kinematics": solver},
             )
-
-    def test_ee_input_space_rejects_without_solver(self, stackfile: str) -> None:
-        guard = SafetyGuard(
-            stackfile,
-            joint_names=_JOINT_NAMES,
-            degrees_mode=False,
-            input_space="ee",
-        )
-        with pytest.raises(ValueError, match="requires a configured kinematics solver"):
-            guard(np.zeros(7), np.zeros(6))
-
-    def test_ee_input_space_uses_solver_and_returns_safe_ee_pose(self, stackfile: str) -> None:
-        solver = FakeKinematicsSolver()
-        guard = SafetyGuard(
-            stackfile,
-            joint_names=_JOINT_NAMES,
-            degrees_mode=False,
-            input_space="ee",
-            solvers={"kinematics": solver},
         )
         action_ee = np.array([2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
         obs_joints = np.zeros(6)
@@ -248,14 +226,14 @@ class TestSafetyGuard:
 
         assert isinstance(result, np.ndarray)
         assert result.shape == (7,)
-        assert result[0] <= 1.5 + 1e-3
-        np.testing.assert_allclose(result[3:], [0.0, 0.0, 0.0, 1.0])
-        np.testing.assert_allclose(solver.last_target_ee_pose, action_ee)
-        np.testing.assert_allclose(solver.last_current_joints, obs_joints)
-        assert guard.runtime is not None
+        np.testing.assert_allclose(result, action_ee)
+        assert solver.ik_calls == 0
+        assert solver.fk_calls == 0
 
-    def test_ee_input_space_uses_stackfile_solver_factory(self, tmp_path: Path) -> None:
+    def test_layout_action_exposes_solver_and_segments_to_callback(self, tmp_path: Path) -> None:
         solver_type = f"fake_kinematics_{id(self)}"
+        callback_name = f"inspect_layout_{id(self)}"
+        seen: dict[str, object] = {}
 
         def factory(_params):
             return FakeKinematicsSolver()
@@ -265,21 +243,47 @@ class TestSafetyGuard:
             factory,
             capabilities=["kinematics"],
         )
+        dam.register_callback(
+            callback_name,
+            lambda action, action_layout, solvers: (
+                seen.update(
+                    {
+                        "raw_action": action.metadata["raw_action"].copy(),
+                        "segments": {
+                            key: value.copy() if hasattr(value, "copy") else value
+                            for key, value in action.metadata["action_segments"].items()
+                        },
+                        "layout": action_layout,
+                        "solvers": solvers,
+                    }
+                )
+                or True
+            ),
+            layer="L1",
+        )
         path = tmp_path / "solver_safety.yaml"
         path.write_text(
             textwrap.dedent(f"""\
             version: "1"
             hardware:
-              input_space: ee
+              action_layout:
+                - name: arm
+                  type: ee_pose
+                  solver: arm
             solvers:
               arm:
                 type: {solver_type}
             guards:
               - L1: motion
-            boundaries: {{}}
+            boundaries:
+              inspect:
+                layer: L1
+                type: single
+                nodes:
+                  - callback: {callback_name}
             tasks:
               default:
-                boundaries: []
+                boundaries: [inspect]
             """)
         )
 
@@ -289,18 +293,78 @@ class TestSafetyGuard:
             degrees_mode=False,
         )
 
-        result = guard(np.array([0.5, 0, 0, 0, 0, 0, 1.0]), np.zeros(6))
-        assert result.shape == (7,)
+        action = np.array([0.5, 0, 0, 0, 0, 0, 1.0])
+        result = guard(action, np.zeros(6))
+        np.testing.assert_allclose(result, action)
+        np.testing.assert_allclose(seen["raw_action"], action)
+        assert "arm" in seen["segments"]
+        np.testing.assert_allclose(seen["segments"]["arm"], action)
+        assert seen["layout"] == [{"name": "arm", "type": "ee_pose", "solver": "arm"}]
+        assert "arm" in seen["solvers"]
 
-    def test_ee_input_space_preserves_tensor_dtype(self, stackfile: str) -> None:
-        torch = pytest.importorskip("torch")
-        solver = FakeKinematicsSolver()
+    def test_mixed_layout_segments_are_exposed(self, tmp_path: Path) -> None:
+        callback_name = f"inspect_segments_{id(self)}"
+        seen: dict[str, object] = {}
+        dam.register_callback(
+            callback_name,
+            lambda action: (
+                seen.update(
+                    {
+                        key: value.copy() if hasattr(value, "copy") else value
+                        for key, value in action.metadata["action_segments"].items()
+                    }
+                )
+                or True
+            ),
+            layer="L1",
+        )
+        path = tmp_path / "mixed_layout.yaml"
+        path.write_text(
+            textwrap.dedent(f"""\
+            version: "1"
+            hardware:
+              action_layout:
+                - name: arm
+                  type: ee_pose
+                  solver: arm
+                - name: gripper
+                  type: scalar
+            guards:
+              - L1: motion
+            boundaries:
+              inspect:
+                layer: L1
+                type: single
+                nodes:
+                  - callback: {callback_name}
+            tasks:
+              default:
+                boundaries: [inspect]
+            """)
+        )
+
         guard = SafetyGuard(
-            stackfile,
+            str(path),
             joint_names=_JOINT_NAMES,
             degrees_mode=False,
-            input_space="ee",
-            solvers={"kinematics": solver},
+        )
+
+        action = np.array([0.5, 0, 0, 0, 0, 0, 1.0, 0.25])
+        result = guard(action, np.zeros(6))
+        np.testing.assert_allclose(result, action)
+        np.testing.assert_allclose(seen["arm"], action[:7])
+        np.testing.assert_allclose(seen["gripper"], action[7:])
+
+    def test_ee_action_layout_preserves_tensor_dtype(self, stackfile: str) -> None:
+        torch = pytest.importorskip("torch")
+        solver = FakeKinematicsSolver()
+        guard = enable_ee_layout(
+            SafetyGuard(
+                stackfile,
+                joint_names=_JOINT_NAMES,
+                degrees_mode=False,
+                solvers={"kinematics": solver},
+            )
         )
         action_ee = torch.tensor([0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0], dtype=torch.float32)
         obs_joints = torch.zeros(6, dtype=torch.float32)
@@ -311,112 +375,17 @@ class TestSafetyGuard:
         assert result.device == action_ee.device
         assert tuple(result.shape) == (7,)
 
-    def test_ee_input_space_rejects_dict_action(self, stackfile: str) -> None:
-        guard = SafetyGuard(
-            stackfile,
-            joint_names=_JOINT_NAMES,
-            degrees_mode=False,
-            input_space="ee",
-            solvers={"kinematics": FakeKinematicsSolver()},
+    def test_layout_dict_action_passthrough(self, stackfile: str) -> None:
+        guard = enable_ee_layout(
+            SafetyGuard(
+                stackfile,
+                joint_names=_JOINT_NAMES,
+                degrees_mode=False,
+                solvers={"kinematics": FakeKinematicsSolver()},
+            )
         )
-        with pytest.raises(ValueError, match="expects an EE pose array"):
-            guard({"x": 0.1}, np.zeros(6))
-
-    def test_ee_ik_exception_falls_back_to_hold(self, stackfile: str) -> None:
-        class FailingIKSolver:
-            def inverse_kinematics(self, target_ee_pose, current_joints):
-                raise RuntimeError("IK singularity")
-
-            def forward_kinematics(self, joint_positions):
-                return np.array([joint_positions[0], 0, 0, 0, 0, 0, 1.0])
-
-        guard = SafetyGuard(
-            stackfile,
-            joint_names=_JOINT_NAMES,
-            degrees_mode=False,
-            input_space="ee",
-            solvers={"kinematics": FailingIKSolver()},
-        )
-        obs = np.array([0.3, -0.2, 0.1, 0.0, 0.0, 0.0])
-        result = guard(np.array([1.0, 0, 0, 0, 0, 0, 1.0]), obs)
-        assert isinstance(result, np.ndarray)
-        assert result.shape == (7,)
-
-    def test_ee_ik_nan_falls_back_to_hold(self, stackfile: str) -> None:
-        class NaNIKSolver:
-            def inverse_kinematics(self, target_ee_pose, current_joints):
-                return np.full(len(_JOINT_NAMES), np.nan)
-
-            def forward_kinematics(self, joint_positions):
-                return np.array([joint_positions[0], 0, 0, 0, 0, 0, 1.0])
-
-        guard = SafetyGuard(
-            stackfile,
-            joint_names=_JOINT_NAMES,
-            degrees_mode=False,
-            input_space="ee",
-            solvers={"kinematics": NaNIKSolver()},
-        )
-        obs = np.array([0.3, -0.2, 0.1, 0.0, 0.0, 0.0])
-        result = guard(np.array([1.0, 0, 0, 0, 0, 0, 1.0]), obs)
-        assert isinstance(result, np.ndarray)
-        assert result.shape == (7,)
-
-    def test_ee_fk_exception_returns_last_known_pose(self, stackfile: str) -> None:
-        call_count = 0
-
-        class FailAfterFirstFKSolver:
-            def inverse_kinematics(self, target_ee_pose, current_joints):
-                return np.zeros(len(_JOINT_NAMES))
-
-            def forward_kinematics(self, joint_positions):
-                nonlocal call_count
-                call_count += 1
-                if call_count > 1:
-                    raise RuntimeError("FK explosion")
-                return np.array([0.1, 0.2, 0.3, 0, 0, 0, 1.0])
-
-        guard = SafetyGuard(
-            stackfile,
-            joint_names=_JOINT_NAMES,
-            degrees_mode=False,
-            input_space="ee",
-            solvers={"kinematics": FailAfterFirstFKSolver()},
-        )
-        obs = np.zeros(6)
-        first = guard(np.array([0.1, 0, 0, 0, 0, 0, 1.0]), obs)
-        np.testing.assert_allclose(first[:3], [0.1, 0.2, 0.3], atol=1e-6)
-        second = guard(np.array([0.1, 0, 0, 0, 0, 0, 1.0]), obs)
-        np.testing.assert_allclose(second[:3], [0.1, 0.2, 0.3], atol=1e-6)
-
-    def test_ee_ik_wrong_dimension_raises(self, stackfile: str) -> None:
-        class WrongDimSolver:
-            def inverse_kinematics(self, target_ee_pose, current_joints):
-                return np.zeros(3)
-
-            def forward_kinematics(self, joint_positions):
-                return np.array([0, 0, 0, 0, 0, 0, 1.0])
-
-        guard = SafetyGuard(
-            stackfile,
-            joint_names=_JOINT_NAMES,
-            degrees_mode=False,
-            input_space="ee",
-            solvers={"kinematics": WrongDimSolver()},
-        )
-        with pytest.raises(ValueError, match="3 joints.*expected 6"):
-            guard(np.array([0.1, 0, 0, 0, 0, 0, 1.0]), np.zeros(6))
-
-    def test_ee_action_wrong_dimension_raises(self, stackfile: str) -> None:
-        guard = SafetyGuard(
-            stackfile,
-            joint_names=_JOINT_NAMES,
-            degrees_mode=False,
-            input_space="ee",
-            solvers={"kinematics": FakeKinematicsSolver()},
-        )
-        with pytest.raises(ValueError, match="exactly 7"):
-            guard(np.array([0.1, 0.2, 0.3]), np.zeros(6))
+        result = guard({"x": 0.1}, np.zeros(6))
+        assert result == {"x": 0.1}
 
 
 # ---------------------------------------------------------------------------

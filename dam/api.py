@@ -25,7 +25,6 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 if TYPE_CHECKING:
-    from dam.preset.registry import RobotPreset
     from dam.runner.base import BaseRunner
     from dam.types.result import GuardResult
 
@@ -42,33 +41,6 @@ class RunSummary:
     status: str  # RunnerStatus name, e.g. "STOPPED", "EMERGENCY"
     cycles: int
     emergency: bool
-
-
-def register_preset(
-    name: str,
-    *,
-    joint_names: list[str],
-    degrees_mode: bool = True,
-    assets: dict[str, str] | None = None,
-    solvers: dict[str, Any] | None = None,
-    chains: dict[str, Any] | None = None,
-) -> RobotPreset:
-    """Register or update a robot preset from library code.
-
-    The preset is written to DAM's user registry
-    (``${DAM_DATA_ROOT}/presets.yaml``), so it works in pip-installed
-    environments where the bundled ``assets/presets.yaml`` is read-only.
-    """
-    from dam.preset.registry import upsert_preset
-
-    return upsert_preset(
-        name,
-        joint_names=joint_names,
-        degrees_mode=degrees_mode,
-        assets=assets,
-        solvers=solvers,
-        chains=chains,
-    )
 
 
 def register_callback(
@@ -176,6 +148,83 @@ def register_solver_factory(
     )
 
 
+def register_read_interface(
+    interface_type: str,
+    factory: Callable[[str, Any, Mapping[str, Any]], Any],
+    *,
+    replace: bool = False,
+) -> Callable[[str, Any, Mapping[str, Any]], Any]:
+    """Register a user-defined runtime read interface.
+
+    The factory receives ``(name, source_config, context)`` and must return an
+    object with ``read() -> Observation``. Optional lifecycle methods such as
+    ``connect()``, ``verify()``, and ``disconnect()`` are called when present.
+    """
+    from dam.interface.registry import get_global_interface_registry
+
+    return get_global_interface_registry().register_read(
+        interface_type,
+        factory,
+        replace=replace,
+    )
+
+
+def register_write_interface(
+    interface_type: str,
+    factory: Callable[[str, Any, Mapping[str, Any]], Any],
+    *,
+    replace: bool = False,
+) -> Callable[[str, Any, Mapping[str, Any]], Any]:
+    """Register a user-defined runtime write interface.
+
+    The factory receives ``(name, sink_config, context)`` and must return an
+    object with ``apply(ValidatedAction)`` or ``write(ValidatedAction)``.
+    """
+    from dam.interface.registry import get_global_interface_registry
+
+    return get_global_interface_registry().register_write(
+        interface_type,
+        factory,
+        replace=replace,
+    )
+
+
+def register_robot_telemetry_interface(
+    interface_type: str,
+    factory: Callable[[str, Any, Mapping[str, Any]], Any],
+    *,
+    replace: bool = False,
+) -> Callable[[str, Any, Mapping[str, Any]], Any]:
+    """Register a robot telemetry interface.
+
+    The returned object should provide robot health/status data, typically via
+    ``read() -> Observation`` channels or ``get_hardware_status()``.
+    """
+    from dam.interface.registry import get_global_interface_registry
+
+    return get_global_interface_registry().register_robot_telemetry(
+        interface_type,
+        factory,
+        replace=replace,
+    )
+
+
+def register_host_telemetry_interface(
+    interface_type: str,
+    factory: Callable[[str, Any, Mapping[str, Any]], Any],
+    *,
+    replace: bool = False,
+) -> Callable[[str, Any, Mapping[str, Any]], Any]:
+    """Register a host telemetry interface."""
+    from dam.interface.registry import get_global_interface_registry
+
+    return get_global_interface_registry().register_host_telemetry(
+        interface_type,
+        factory,
+        replace=replace,
+    )
+
+
 def _register_builtins() -> None:
     """Register built-in callbacks and guards (idempotent).
 
@@ -190,7 +239,11 @@ def _register_builtins() -> None:
     reg_guards()
 
 
-def build_runner(stack: str, *, ros2_node: Any = None) -> BaseRunner:
+def build_runner(
+    stack: str,
+    *,
+    ros2_node: Any = None,
+) -> BaseRunner:
     """Build a :class:`Runner` from a Stackfile path.
 
     Built-in callbacks/fallbacks/guards are registered first.  The runner is
@@ -251,6 +304,21 @@ def run(
 # ---------------------------------------------------------------------------
 
 
+def _resolve_action_layout(config: Any) -> list[dict[str, Any]]:
+    hardware = getattr(config, "hardware", None)
+    if hardware and hardware.action_layout:
+        return [dict(item) for item in hardware.action_layout]
+    preset_name = hardware.preset if hardware else None
+    if not preset_name:
+        return []
+    try:
+        from dam.preset.registry import get_preset
+
+        return [dict(item) for item in get_preset(preset_name).action_layout]
+    except Exception:  # noqa: BLE001
+        return []
+
+
 class SafetyGuard:
     """Stateful safety validator — no hardware loop needed.
 
@@ -277,7 +345,6 @@ class SafetyGuard:
         task: str | None = None,
         joint_names: list[str] | None = None,
         degrees_mode: bool | None = None,
-        input_space: str | None = None,
         solvers: Mapping[str, Any] | None = None,
     ) -> None:
         _register_builtins()
@@ -290,8 +357,13 @@ class SafetyGuard:
 
         # Resolve joint_names / degrees_mode from preset when not explicit.
         if joint_names is None or degrees_mode is None:
-            preset_name = config.hardware.preset if config.hardware else None
-            if preset_name:
+            hardware = config.hardware
+            if hardware and joint_names is None and hardware.joint_names:
+                joint_names = list(hardware.joint_names)
+            if hardware and degrees_mode is None and hardware.degrees_mode is not None:
+                degrees_mode = bool(hardware.degrees_mode)
+            preset_name = hardware.preset if hardware else None
+            if preset_name and (joint_names is None or degrees_mode is None):
                 preset = get_preset(preset_name)
                 if joint_names is None:
                     joint_names = preset.joint_names
@@ -304,19 +376,10 @@ class SafetyGuard:
             )
         if degrees_mode is None:
             degrees_mode = True
-        resolved_input_space = (
-            input_space
-            if input_space is not None
-            else (config.hardware.input_space if config.hardware else "joint")
-        )
-        resolved_input_space = str(resolved_input_space).lower()
-        valid_input_spaces = {"joint", "ee", "base", "twist", "ackermann", "pose2d"}
-        if resolved_input_space not in valid_input_spaces:
-            raise ValueError(f"input_space must be one of {sorted(valid_input_spaces)}")
 
         self._joint_names: list[str] = joint_names
         self._degrees_mode: bool = degrees_mode
-        self._input_space: str = resolved_input_space
+        self._action_layout: list[dict[str, Any]] = _resolve_action_layout(config)
         self._solvers: dict[str, Any] = dict(solvers or {})
         self._n_joints: int = len(joint_names)
 
@@ -379,10 +442,8 @@ class SafetyGuard:
             self._runtime._hot_reload.config_pool["dt"] = actual_dt
 
         dam_obs = self._to_observation(obs)
-        if self._input_space == "ee":
-            dam_action = self._to_ee_action_proposal(action, dam_obs.joint_positions)
-        else:
-            dam_action = self._to_action_proposal(action)
+        is_joint_action = self._is_joint_action(action)
+        dam_action = self._to_action_proposal(action, dam_obs.joint_positions, is_joint_action)
         trace_id = str(uuid.uuid4())
 
         validated, results = self._runtime.validate(dam_obs, dam_action, trace_id, now=now)
@@ -392,11 +453,8 @@ class SafetyGuard:
         self._prev_positions = dam_obs.joint_positions.copy()
         self._prev_time = now
 
-        if self._input_space == "ee":
-            safe_positions = (
-                dam_obs.joint_positions if validated is None else validated.target_joint_positions
-            )
-            out = self._to_ee_output(safe_positions, input_is_dict)
+        if not is_joint_action:
+            out = self._raw_output(action)
         elif validated is None:
             out = self._to_output(dam_obs.joint_positions, input_is_dict)
         else:
@@ -433,9 +491,9 @@ class SafetyGuard:
         return self._last_results
 
     @property
-    def input_space(self) -> str:
-        """Action space accepted by this guard."""
-        return self._input_space
+    def action_layout(self) -> list[dict[str, Any]]:
+        """Policy action layout used by this guard."""
+        return [dict(item) for item in self._action_layout]
 
     @property
     def solvers(self) -> dict[str, Any]:
@@ -455,16 +513,6 @@ class SafetyGuard:
         runtime = getattr(self, "_runtime", None)
         if runtime is not None:
             runtime.stop_recording()
-
-    def _select_solver(self, capability: str) -> Any | None:
-        capability = capability.lower()
-        for name, solver in self._solvers.items():
-            if name.lower() == capability:
-                return solver
-            caps = getattr(solver, "_dam_solver_capabilities", ())
-            if capability in caps:
-                return solver
-        return None
 
     # -- conversion helpers -------------------------------------------------
 
@@ -493,101 +541,73 @@ class SafetyGuard:
             end_effector_pose=self._last_ee_pose,
         )
 
-    def _to_action_proposal(self, raw: np.ndarray | dict[str, Any]) -> Any:
+    def _is_joint_action(self, raw: np.ndarray | dict[str, Any]) -> bool:
+        if isinstance(raw, dict):
+            return all(f"{name}.pos" in raw for name in self._joint_names)
+        arr = np.asarray(raw).flatten()
+        return arr.shape[0] == self._n_joints
+
+    def _raw_output(self, raw: np.ndarray | dict[str, Any]) -> Any:
+        if isinstance(raw, dict):
+            return dict(raw)
+        return np.asarray(raw).copy()
+
+    def _split_raw_action(self, raw: np.ndarray | dict[str, Any]) -> dict[str, Any]:
+        if isinstance(raw, dict):
+            return dict(raw)
+        arr = np.asarray(raw).flatten()
+        segments: dict[str, Any] = {}
+        cursor = 0
+        for index, segment in enumerate(self._action_layout):
+            name = str(segment.get("name") or f"segment_{index}")
+            declared_size = segment.get("size") or segment.get("dim") or segment.get("dimensions")
+            if declared_size is None:
+                segment_type = str(segment.get("type", "")).lower()
+                declared_size = {"ee_pose": 7, "scalar": 1}.get(segment_type)
+            if declared_size is None:
+                continue
+            size = int(declared_size)
+            segments[name] = arr[cursor : cursor + size].copy()
+            cursor += size
+        if cursor < arr.shape[0]:
+            segments["_remaining"] = arr[cursor:].copy()
+        return segments
+
+    def _to_action_proposal(
+        self,
+        raw: np.ndarray | dict[str, Any],
+        current_joints: np.ndarray,
+        is_joint_action: bool,
+    ) -> Any:
         from dam.types.action import ActionProposal
 
-        if isinstance(raw, dict):
+        metadata = {
+            "raw_action": self._raw_output(raw),
+            "action_layout": [dict(item) for item in self._action_layout],
+            "action_segments": self._split_raw_action(raw),
+            "is_joint_action": is_joint_action,
+        }
+
+        if is_joint_action and isinstance(raw, dict):
             target = np.fromiter(
                 (float(raw.get(f"{n}.pos", 0.0)) for n in self._joint_names),
                 dtype=np.float64,
                 count=self._n_joints,
             )
             target = target * self._scale_in
-        else:
+        elif is_joint_action:
             target = np.asarray(raw, dtype=np.float64).flatten()[: self._n_joints]
             target = target * self._scale_in
+        else:
+            target = current_joints[: self._n_joints].copy()
 
-        return ActionProposal(target_joint_positions=target)
-
-    def _to_ee_action_proposal(
-        self, raw: np.ndarray | dict[str, Any], current_joints: np.ndarray
-    ) -> Any:
-        from dam.types.action import ActionProposal
-
-        if isinstance(raw, dict):
-            raise ValueError("SafetyGuard input_space='ee' expects an EE pose array, not a dict")
-        kinematics = self._select_solver("kinematics")
-        if kinematics is None:
-            raise ValueError(
-                "SafetyGuard input_space='ee' requires a configured kinematics solver. "
-                "Use input_space='joint' for joint targets, or pass solvers={'kinematics': solver}."
-            )
-        target_ee_pose = np.asarray(raw, dtype=np.float64).flatten()
-        if target_ee_pose.shape[0] != 7:
-            raise ValueError(
-                f"EE action must contain exactly 7 values [x,y,z,qx,qy,qz,qw], got {target_ee_pose.shape[0]}"
-            )
-        try:
-            ik_result = kinematics.inverse_kinematics(target_ee_pose, current_joints)
-        except Exception:
-            logger.warning(
-                "Kinematics solver IK failed; holding current joint positions", exc_info=True
-            )
-            return ActionProposal(
-                target_joint_positions=current_joints[: self._n_joints].copy(),
-                target_ee_pose=target_ee_pose,
-            )
-        target_joints = np.asarray(ik_result, dtype=np.float64).flatten()
-        if target_joints.shape[0] != self._n_joints:
-            raise ValueError(
-                f"Kinematics solver IK returned {target_joints.shape[0]} joints, expected {self._n_joints}"
-            )
-        if not np.all(np.isfinite(target_joints)):
-            logger.warning(
-                "Kinematics solver IK returned non-finite values; holding current joint positions"
-            )
-            return ActionProposal(
-                target_joint_positions=current_joints[: self._n_joints].copy(),
-                target_ee_pose=target_ee_pose,
-            )
-        return ActionProposal(
-            target_joint_positions=target_joints,
-            target_ee_pose=target_ee_pose,
-        )
+        return ActionProposal(target_joint_positions=target, metadata=metadata)
 
     def _to_output(self, positions_rad: np.ndarray, as_dict: bool) -> np.ndarray | dict[str, Any]:
         scaled = positions_rad[: self._n_joints] * self._scale_out
         if as_dict:
             return {f"{self._joint_names[i]}.pos": float(scaled[i]) for i in range(self._n_joints)}
         return scaled
-
-    def _to_ee_output(
-        self, positions_rad: np.ndarray, as_dict: bool
-    ) -> np.ndarray | dict[str, Any]:
-        if as_dict:
-            raise ValueError("SafetyGuard input_space='ee' does not support dict output")
-        kinematics = self._select_solver("kinematics")
-        if kinematics is None:
-            raise ValueError("SafetyGuard input_space='ee' requires a configured kinematics solver")
-        try:
-            fk_result = kinematics.forward_kinematics(positions_rad[: self._n_joints])
-        except Exception:
-            logger.warning(
-                "Kinematics solver FK failed; returning last known EE pose", exc_info=True
-            )
-            return self._last_ee_pose.copy() if self._last_ee_pose is not None else np.zeros(7)
-        ee_pose = np.asarray(fk_result, dtype=np.float64).flatten()
-        if ee_pose.shape[0] != 7:
-            raise ValueError(
-                f"Kinematics solver FK must return exactly 7 values [x,y,z,qx,qy,qz,qw], got {ee_pose.shape[0]}"
-            )
-        if not np.all(np.isfinite(ee_pose)):
-            logger.warning(
-                "Kinematics solver FK returned non-finite values; returning last known EE pose"
-            )
-            return self._last_ee_pose.copy() if self._last_ee_pose is not None else np.zeros(7)
-        self._last_ee_pose = ee_pose.copy()
-        return ee_pose
 
     def _estimate_velocity(self, positions: np.ndarray, now: float) -> np.ndarray:
         if self._prev_positions is not None and self._prev_time is not None:
@@ -604,7 +624,6 @@ def safe(
     task: str | None = None,
     joint_names: list[str] | None = None,
     degrees_mode: bool | None = None,
-    input_space: str | None = None,
     solvers: Mapping[str, Any] | None = None,
 ) -> Any:
     """Validate a single action against a safety stackfile.
@@ -618,7 +637,6 @@ def safe(
         task=task,
         joint_names=joint_names,
         degrees_mode=degrees_mode,
-        input_space=input_space,
         solvers=solvers,
     )
     return guard(action, obs)

@@ -44,7 +44,14 @@ class RuntimeFactory:
 
         if config.hardware is not None and config.hardware.urdf_path:
             return config.hardware.urdf_path
-        relpath = preset.asset_path("urdf") if hasattr(preset, "asset_path") else None
+        if config.hardware is not None and config.hardware.asset:
+            asset = config.hardware.asset
+            if str(asset.get("type", "")).lower() == "urdf":
+                return str(asset.get("path", "") or "") or None
+        asset_type = preset.asset_type() if hasattr(preset, "asset_type") else None
+        relpath = (
+            preset.asset_path() if asset_type == "urdf" and hasattr(preset, "asset_path") else None
+        )
         if not relpath:
             return None
         # factory.py lives at dam/runtime/factory.py; parents[2] is the repo
@@ -80,6 +87,7 @@ class RuntimeFactory:
         adapter_type = None
         hw_config = config.hardware
         if hw_config and hw_config.sources:
+            custom_registry = None
             source_types = {str(src.type or "").lower() for src in hw_config.sources.values()}
             if "dataset" in source_types and source_types.intersection({"motor", "lerobot"}):
                 adapter_type = "dataset_motor"
@@ -92,6 +100,17 @@ class RuntimeFactory:
                     break
                 if t == "dataset":
                     adapter_type = "simulation"
+                    break
+                if custom_registry is None:
+                    from dam.interface.registry import get_global_interface_registry
+
+                    custom_registry = get_global_interface_registry()
+                if (
+                    custom_registry.has_read(t)
+                    or custom_registry.has_robot_telemetry(t)
+                    or custom_registry.has_host_telemetry(t)
+                ):
+                    adapter_type = "custom"
                     break
 
         if not adapter_type:
@@ -109,6 +128,8 @@ class RuntimeFactory:
             return RuntimeFactory._build_dataset_hardware_replay(config)
         elif adapter_type == "ros2":
             return RuntimeFactory._build_ros2(config, ros2_node=ros2_node)
+        elif adapter_type == "custom":
+            return RuntimeFactory._build_custom_interfaces(config)
 
         # Explicit Simulation or fall-through — reuse already-parsed config.
         # Build the shared camera frame hub here too (mirrors _build_lerobot):
@@ -130,6 +151,62 @@ class RuntimeFactory:
 
         hz = config.safety.control_frequency_hz if config.safety else 10.0
         return SimulationRunner(runtime, control_frequency_hz=hz, frame_hub=frame_hub)
+
+    @staticmethod
+    def _build_custom_interfaces(config: StackfileConfig) -> BaseRunner:
+        from dam.camera.frame_hub import CameraFrameHub
+        from dam.interface.registry import get_global_interface_registry
+        from dam.runner.base import SimulationRunner
+        from dam.runtime.guard_runtime import GuardRuntime
+
+        assert config.hardware is not None
+        registry = get_global_interface_registry()
+        hz = config.safety.control_frequency_hz if config.safety else 30.0
+        frame_hub = CameraFrameHub(
+            window_sec=config.loopback.window_sec if config.loopback else 10.0
+        )
+        runtime = GuardRuntime._from_config(config, frame_hub=frame_hub)
+
+        built_sources: dict[str, Any] = {}
+        for name, src_cfg in (config.hardware.sources or {}).items():
+            source_type = str(src_cfg.type).lower()
+            if registry.has_read(source_type):
+                source = registry.build_read(name, src_cfg)
+            elif registry.has_robot_telemetry(source_type):
+                source = registry.build_robot_telemetry(name, src_cfg)
+            elif registry.has_host_telemetry(source_type):
+                source = registry.build_host_telemetry(name, src_cfg)
+            else:
+                continue
+            built_sources[name] = source
+            runtime.register_source(name, source)
+
+        if not built_sources:
+            raise ValueError("No registered read interface matched hardware.sources")
+
+        sink_obj = RuntimeFactory._build_custom_sink(config, registry, built_sources)
+        if sink_obj is not None:
+            runtime.register_sink(sink_obj)
+
+        policy = RuntimeFactory._build_policy(config)
+        if policy:
+            runtime.register_policy(policy)
+
+        return SimulationRunner(runtime, control_frequency_hz=hz, frame_hub=frame_hub)
+
+    @staticmethod
+    def _build_custom_sink(config: StackfileConfig, registry: Any, sources: dict[str, Any]) -> Any:
+        for name, sink_cfg in (config.hardware.sinks or {}).items() if config.hardware else ():
+            sink_type = str(sink_cfg.type or "").lower()
+            if sink_type and registry.has_write(sink_type):
+                return registry.build_write(name, sink_cfg)
+            ref = sink_cfg.ref or ""
+            if ref.startswith("sources."):
+                ref = ref[len("sources.") :]
+            source = sources.get(ref)
+            if source is not None and (hasattr(source, "apply") or hasattr(source, "write")):
+                return source
+        return None
 
     @staticmethod
     def _build_lerobot(config: StackfileConfig) -> BaseRunner:

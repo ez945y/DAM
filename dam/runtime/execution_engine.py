@@ -343,6 +343,8 @@ class ExecutionEngine:
         }
         if "joint_layout" in cp:
             pool["joint_layout"] = cp["joint_layout"]
+        if "action_layout" in cp:
+            pool["action_layout"] = cp["action_layout"]
         pool.update(
             {
                 "obs": obs,

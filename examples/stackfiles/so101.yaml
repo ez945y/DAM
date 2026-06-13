@@ -2,43 +2,45 @@ version: "1"
 
 hardware:
   preset: so101_follower
-  input_space: joint    # joint (default) or ee; must match policy.input_space
+  # by the preset's action_layout.
   telemetry_hz: 5       # decimate temperature/current/voltage bus reads;
                         # cached snapshots carry metadata.telemetry_timestamp
-  sources:
+  interfaces:
     arm:
       type: motor
+      capabilities: [observe_joints, command_joints]
       port: /dev/tty.usbmodem5AA90244141
       robot_type: so101_follower
       id: my_awesome_follower_arm
     top:
       type: opencv
+      capabilities: [image]
       index_or_path: 0
       width: 640
       height: 480
       fps: 30
     wrist:
       type: opencv
+      capabilities: [image]
       index_or_path: 1
       width: 640
       height: 480
       fps: 30
     current:
       type: current
+      capabilities: [robot_telemetry]
       ref: arm
     temperature:
       type: temperature
+      capabilities: [robot_telemetry]
       ref: arm
     voltage:
       type: voltage
+      capabilities: [robot_telemetry]
       ref: arm
-  sinks:
-    command:
-      ref: sources.arm
 
 policy:
   type: act
-  input_space: joint    # joint (default) or ee; must match hardware.input_space
   pretrained_path: MikeChenYZ/act-soarm-fmb-v2
   device: mps
 

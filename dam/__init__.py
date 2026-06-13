@@ -4,14 +4,18 @@ from importlib.metadata import version as _package_version
 from pathlib import Path
 
 from dam import testing
+from dam.adapter.base import ActionAdapter, SensorAdapter
 from dam.api import (
     RunSummary,
     SafetyGuard,
     build_runner,
     register_callback,
-    register_preset,
+    register_host_telemetry_interface,
+    register_read_interface,
+    register_robot_telemetry_interface,
     register_solver,
     register_solver_factory,
+    register_write_interface,
     run,
     safe,
 )
@@ -49,6 +53,8 @@ __all__ = [
     "callback",
     "fallback",
     "Guard",
+    "SensorAdapter",
+    "ActionAdapter",
     "aggregate_decisions",
     "GuardLayer",
     "GuardResult",
@@ -62,10 +68,13 @@ __all__ = [
     "build_runner",
     "run",
     "safe",
-    "register_preset",
     "register_callback",
     "register_solver",
     "register_solver_factory",
+    "register_read_interface",
+    "register_write_interface",
+    "register_robot_telemetry_interface",
+    "register_host_telemetry_interface",
     "RunSummary",
     "SafetyGuard",
     "SafetyProcessorStep",

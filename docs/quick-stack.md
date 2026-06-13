@@ -1,6 +1,6 @@
 # Quick Stack — Stackfile Reference Guide
 
-A **Stackfile** is a YAML file that wires together all the components of a DAM deployment: hardware sources and sinks, a policy, guard parameters, safety boundaries, and tasks. You point DAM at a Stackfile and it handles everything else — connection lifecycle, observation assembly, guard orchestration, and hardware dispatch.
+A **Stackfile** is a YAML file that wires together all the components of a DAM deployment: hardware interfaces, a policy, guard parameters, safety boundaries, and tasks. You point DAM at a Stackfile and it handles everything else — connection lifecycle, observation assembly, guard orchestration, and hardware dispatch.
 
 No Python code is required for a Tier 1 deployment (built-in guards + built-in adapters). Python callbacks and custom guards are opt-in for Tier 2 and Tier 3 deployments.
 
@@ -49,16 +49,12 @@ dam run my_stackfile.yaml --task demo
 Or in Python:
 
 ```python
-from dam.runtime.guard_runtime import GuardRuntime
+import dam
 
-runtime = GuardRuntime.from_stackfile("my_stackfile.yaml")
-runtime.register_source("arm", my_source)
-runtime.register_policy(my_policy)
-runtime.register_sink(my_sink)
-runtime.start_task("demo")
-
-for _ in range(100):
-    result = runtime.step()
+runner = dam.build_runner("my_stackfile.yaml")
+runner.connect()
+runner.verify()
+runner.start(task="demo", n_cycles=100)
 ```
 
 ---
@@ -70,7 +66,7 @@ Top-level keys accepted by a Stackfile:
 | Key | Type | Required | Default | Description |
 |-----|------|----------|---------|-------------|
 | `version` | string | no | `"1"` | Stackfile schema version |
-| `hardware` | object | no | — | Hardware sources, sinks, and joint presets |
+| `hardware` | object | no | — | Hardware interfaces and joint presets |
 | `policy` | object | no | — | Policy adapter type and parameters |
 | `guards` | object | no | `{}` | Guard enable flags and parameters |
 | `fallbacks` | object | no | built-ins | Named fallback strategies. Each entry references a registered `@dam.fallback` type. |
@@ -98,7 +94,7 @@ Top-level keys accepted by a Stackfile:
 High control rates (e.g. 60 Hz, 16.67 ms budget) cannot absorb expensive
 guards like vision OOD inference in the synchronous pipeline. `slow_lane`
 moves them to an async evaluator while the control loop stays the single
-writer to the sink and the single owner of the motor bus:
+writer to the command interface and the single owner of the motor bus:
 
 ```yaml
 safety:
@@ -351,7 +347,6 @@ The `hardware` section declares physical or virtual hardware interfaces.
 ```yaml
 hardware:
   preset: so101_follower    # auto-loads joint names and factory limits
-  input_space: joint         # joint (default) or ee; must match policy.input_space
   telemetry_hz: 5            # telemetry cadence — see "Telemetry cadence" below
 
   joints:                   # optional calibration overrides
@@ -360,37 +355,33 @@ hardware:
     gripper:
       limits_rad: [0.0, 0.044]
 
-  sources:
+  interfaces:
     follower_arm:
       type: motor
+      capabilities: [observe_joints, command_joints]
       port: /dev/tty.usbmodem5AA90244141
       robot_type: so101_follower
       id: my_follower_arm
 
     top_cam:
       type: opencv
+      capabilities: [image]
       index_or_path: 0
       width: 640
       height: 480
       fps: 30
-
-  sinks:
-    follower_command:
-      ref: sources.follower_arm   # bidirectional — same robot instance
 ```
 
-OpenCV camera options are source-level fields. Put `index_or_path`, `width`, `height`,
-and `fps` directly under the camera source; `params:` is reserved for boundary and
+OpenCV camera options are interface-level fields. Put `index_or_path`, `width`, `height`,
+and `fps` directly under the camera interface; `params:` is reserved for boundary and
 guard configuration.
 
-`hardware.input_space` declares the action space expected by the hardware or
-adapter layer. Valid values are `joint` and `ee`; the default is `joint`. When a
-Stackfile also declares `policy.input_space`, both values must match or
-validation fails. Current runners and sinks still dispatch validated joint
-targets; EE-space actions require an IK/FK resolver at the API or adapter
-boundary before they can be enforced.
+Policy output semantics are declared by the preset or by
+`hardware.action_layout`, where each segment names its `type` and optional
+`solver`. For example, an EE-pose arm segment can point at an arm kinematics
+solver while a gripper segment remains scalar.
 
-For a LeRobot motor source, `robot_type` selects the concrete LeRobot robot
+For a LeRobot motor interface, `robot_type` selects the concrete LeRobot robot
 configuration and its default calibration namespace. For `so101_follower`,
 the default calibration directory is
 `~/.cache/huggingface/lerobot/calibration/robots/so101_follower/`, and the
@@ -401,18 +392,20 @@ configured `id` selects the JSON file within that directory. Set
 
 ```yaml
 hardware:
-  sources:
+  interfaces:
     joint_states:
       type: ros2
+      capabilities: [observe_joints]
       topic: /joint_states
       msg_type: sensor_msgs/JointState
       mapping:
         joint_positions: position
         joint_velocities: velocity
 
-  sinks:
     joint_commands:
       type: ros2
+      capabilities: [command_joints]
+      ref: joint_states
       topic: /joint_trajectory_controller/joint_trajectory
       msg_type: trajectory_msgs/JointTrajectory
 ```
@@ -446,49 +439,39 @@ policy:
   type: act
   pretrained_path: MikeChenYZ/act-soarm-fmb-v2
   device: cpu
-  input_space: joint         # joint (default) or ee; must match hardware.input_space
 ```
 
-Use `input_space: joint` for policies that emit joint targets. `input_space: ee`
-is reserved for policies that emit end-effector poses
-`[x, y, z, qx, qy, qz, qw]`; DAM validates the declaration today, but EE action
-conversion must be provided by an IK/FK-capable integration before execution.
+The policy block says which producer to run. It does not define the action
+schema; use `hardware.action_layout` or the selected preset's layout for that.
 
 ---
 
 ## Loading a Stackfile in Python
 
-### High-level (with LeRobot runner)
+### High-level
 
 ```python
-from dam.runner.lerobot import LeRobotRunner
+import dam
 
-# build_from_stackfile automates registry and adapter construction
-runner = LeRobotRunner.from_stackfile("examples/stackfiles/so101.yaml")
-runner.run("pick_and_place")  # runs managed loop until KeyboardInterrupt
+runner = dam.build_runner("examples/stackfiles/so101.yaml")
+runner.connect()
+runner.verify()
+runner.start(task="pick_and_place")
 ```
 
-### Low-level (GuardRuntime directly)
+### Custom Interfaces
 
 ```python
-from dam.runtime.guard_runtime import GuardRuntime
+import dam
 
-runtime = GuardRuntime.from_stackfile("my_stackfile.yaml")
+def make_reader(name, cfg, context):
+    return MyRobotReader(cfg.endpoint)
 
-# Register your adapters (named)
-runtime.register_source("arm", my_source_adapter)
-runtime.register_policy(my_policy_adapter)
-runtime.register_sink(my_sink_adapter)
+def make_writer(name, cfg, context):
+    return MyRobotWriter(cfg.endpoint)
 
-# Start a task (activates its boundary containers)
-runtime.start_task("pick_and_place")
-
-# Step manually (passive mode)
-for _ in range(n_cycles):
-    result = runtime.step()
-    print(result.risk_level, result.was_clamped, result.was_rejected)
-
-runtime.stop_task()
+dam.register_read_interface("my_robot_state", make_reader)
+dam.register_write_interface("my_robot_command", make_writer)
 ```
 
 ### Programmatic construction

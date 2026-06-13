@@ -13,16 +13,17 @@
 #   - Tune guard parameters against known-good trajectories
 #   - Test new boundary configurations without re-running inference
 #
-# The dataset source provides both observations (state) and actions; no
+# The dataset interface provides both observations (state) and actions; no
 # policy is needed. Guard checking runs at the configured control frequency.
 version: "1"
 
 hardware:
   preset: so101_follower
-  input_space: joint    # joint (default) or ee; must match policy.input_space
-  sources:
+  # by the preset's action_layout.
+  interfaces:
     replay:
       type: dataset
+      capabilities: [observe_joints]
       dataset_repo_id: MikeChenYZ/soarm-fmb-v2
       episode: 0
       degrees_mode: true
@@ -30,33 +31,36 @@ hardware:
       image_namespace: replay
     arm:
       type: motor
+      capabilities: [observe_joints, command_joints]
       port: /dev/tty.usbmodem5AA90244141
       robot_type: so101_follower
       id: my_awesome_follower_arm
     top:
       type: opencv
+      capabilities: [image]
       index_or_path: 0
       width: 640
       height: 480
       fps: 30
     wrist:
       type: opencv
+      capabilities: [image]
       index_or_path: 1
       width: 640
       height: 480
       fps: 30
     current:
       type: current
+      capabilities: [robot_telemetry]
       ref: arm
     temperature:
       type: temperature
+      capabilities: [robot_telemetry]
       ref: arm
     voltage:
       type: voltage
+      capabilities: [robot_telemetry]
       ref: arm
-  sinks:
-    command:
-      ref: sources.arm
 
 safety:
   control_frequency_hz: 30

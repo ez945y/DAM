@@ -149,7 +149,9 @@ def _register_builtin_solver_factories() -> None:
 
         urdf_path = params.get("asset_path")
         if not urdf_path:
-            raise ValueError("pinocchio_kinematics solver requires params.asset_ref='urdf'")
+            raise ValueError(
+                "pinocchio_kinematics solver requires preset asset type='urdf' or params.asset_path"
+            )
         return KinematicsResolver(
             str(urdf_path),
             controlled_joints=params.get("controlled_joints"),
@@ -166,6 +168,8 @@ def _register_builtin_solver_factories() -> None:
 
 
 def _preset_joint_names(config: StackfileConfig) -> list[str] | None:
+    if config.hardware and config.hardware.joint_names:
+        return list(config.hardware.joint_names)
     if not (config.hardware and config.hardware.preset):
         return None
     try:
@@ -180,35 +184,40 @@ def _preset_joint_names(config: StackfileConfig) -> list[str] | None:
         return None
 
 
-def _preset_asset(config: StackfileConfig, asset_key: str) -> str | None:
+def _preset_asset(config: StackfileConfig) -> dict[str, str] | None:
+    if config.hardware and config.hardware.asset:
+        return dict(config.hardware.asset)
     if not (config.hardware and config.hardware.preset):
         return None
     try:
         from dam.preset.registry import get_preset
 
-        return get_preset(config.hardware.preset).asset_path(asset_key)
+        preset = get_preset(config.hardware.preset)
+        if not preset.asset:
+            return None
+        return dict(preset.asset)
     except Exception:  # noqa: BLE001
         logger.warning(
-            "GuardRuntime: preset '%s' not found; cannot resolve solver asset '%s'.",
+            "GuardRuntime: preset '%s' not found; cannot resolve solver asset.",
             config.hardware.preset,
-            asset_key,
         )
         return None
 
 
 def _preset_solver_configs(config: StackfileConfig) -> dict[str, Any]:
+    hardware_solvers = dict(config.hardware.solvers or {}) if config.hardware else {}
     if not (config.hardware and config.hardware.preset):
-        return {}
+        return hardware_solvers
     try:
         from dam.preset.registry import get_preset
 
-        return dict(get_preset(config.hardware.preset).solvers or {})
+        return {**dict(get_preset(config.hardware.preset).solvers or {}), **hardware_solvers}
     except Exception:  # noqa: BLE001
         logger.warning(
             "GuardRuntime: preset '%s' not found; cannot load preset solvers.",
             config.hardware.preset,
         )
-        return {}
+        return hardware_solvers
 
 
 def _init_solvers(config: StackfileConfig) -> dict[str, Any]:
@@ -219,6 +228,7 @@ def _init_solvers(config: StackfileConfig) -> dict[str, Any]:
     solvers: dict[str, Any] = {}
 
     solver_configs: dict[str, Any] = {**_preset_solver_configs(config), **config.solvers}
+    preset_asset = _preset_asset(config)
 
     for name, scfg in solver_configs.items():
         if isinstance(scfg, dict):
@@ -229,11 +239,10 @@ def _init_solvers(config: StackfileConfig) -> dict[str, Any]:
             solver_type = scfg.type
             capabilities = scfg.capabilities
             params = dict(scfg.params or {})
-        asset_ref = params.get("asset_ref") or params.get("asset")
-        if asset_ref and "asset_path" not in params:
-            asset_path = _preset_asset(config, str(asset_ref))
-            if asset_path:
-                params["asset_path"] = asset_path
+        if preset_asset:
+            params.setdefault("asset", preset_asset)
+            params.setdefault("asset_path", preset_asset.get("path"))
+            params.setdefault("asset_type", preset_asset.get("type"))
         if "observation_joint_names" not in params:
             preset_names = _preset_joint_names(config)
             if preset_names:

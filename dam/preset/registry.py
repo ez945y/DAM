@@ -6,10 +6,9 @@ The registry is read from two YAML files and merged at lookup time:
     (e.g. so101_follower). Treated as read-only by this module — never
     written to so the repo working tree stays clean.
 
-  - ``USER_PATH`` — ``${DAM_DATA_ROOT}/presets.yaml`` (default ``./data/``,
-    gitignored). All CRUD writes land here. User entries override bundled
-    entries on key collision. To "delete" a bundled preset, this module
-    writes a tombstone (``{_deleted: true}``) into the user file.
+  - ``USER_PATH`` — by default the same ``assets/presets.yaml`` file. Tests
+    and deployments can override it with ``DAM_DATA_ROOT``. CRUD writes land
+    here so presets remain YAML-managed.
 
 Both writes are atomic (write to ``.tmp``, then rename) and guarded by an
 fcntl advisory lock so multi-worker Uvicorn doesn't race on the user file.
@@ -17,9 +16,10 @@ fcntl advisory lock so multi-worker Uvicorn doesn't race on the user file.
 A preset captures only what is intrinsic to a robot model:
   - ``joint_names`` (ordered list of joint identifiers)
   - ``degrees_mode`` (True if hardware speaks degrees natively)
+  - ``asset`` (the single robot description resource, e.g. URDF or USD)
   - ``solvers`` (robot-owned solver definitions; a preset can expose multiple
     capabilities such as arm kinematics, base dynamics, collision, etc.)
-  - ``assets`` (private file paths referenced by those solver definitions)
+  - ``action_layout`` (named segments in the policy action vector)
 
 Limits / max velocities / gripper handling live on boundary callbacks in
 the stackfile — never here.
@@ -49,9 +49,11 @@ BUNDLED_PATH = _REPO_ROOT / "assets" / "presets.yaml"
 
 
 def _user_path() -> Path:
-    """User registry path — re-resolved each call so tests can override
-    ``DAM_DATA_ROOT`` between test cases."""
-    return Path(os.environ.get("DAM_DATA_ROOT", "./data")) / "presets.yaml"
+    """Preset registry path — re-resolved so tests can override it."""
+    data_root = os.environ.get("DAM_DATA_ROOT")
+    if data_root:
+        return Path(data_root) / "presets.yaml"
+    return BUNDLED_PATH
 
 
 @dataclass
@@ -61,12 +63,21 @@ class RobotPreset:
     name: str
     joint_names: list[str] = field(default_factory=list)
     degrees_mode: bool = True
-    assets: dict[str, str] = field(default_factory=dict)
+    asset: dict[str, str] | None = None
     solvers: dict[str, Any] = field(default_factory=dict)
+    action_layout: list[dict[str, Any]] = field(default_factory=list)
     chains: dict[str, Any] | None = field(default=None, repr=False)
 
-    def asset_path(self, key: str) -> str | None:
-        return self.assets.get(key)
+    def asset_path(self) -> str | None:
+        if not self.asset:
+            return None
+        return self.asset.get("path")
+
+    def asset_type(self) -> str | None:
+        if not self.asset:
+            return None
+        value = self.asset.get("type")
+        return str(value).lower() if value else None
 
     @property
     def joint_layout(self) -> JointLayout:
@@ -123,13 +134,14 @@ def _save_user(presets: dict[str, dict[str, Any]]) -> None:
 
 
 def _to_preset(name: str, entry: dict[str, Any]) -> RobotPreset:
-    assets = dict(entry.get("assets") or {})
+    asset = entry.get("asset")
     return RobotPreset(
         name=name,
         joint_names=list(entry.get("joint_names", []) or []),
         degrees_mode=bool(entry.get("degrees_mode", True)),
-        assets={str(k): str(v) for k, v in assets.items() if v},
+        asset=dict(asset) if isinstance(asset, dict) else None,
         solvers=dict(entry.get("solvers") or {}),
+        action_layout=list(entry.get("action_layout") or []),
         chains=entry.get("chains"),
     )
 
@@ -157,17 +169,21 @@ def list_preset_entries() -> list[dict[str, Any]]:
     """Return all presets as plain dicts (for API serialization)."""
     with _lock:
         merged = _load_merged()
-    return [
-        {
-            "name": name,
-            "joint_names": list(entry.get("joint_names", []) or []),
-            "degrees_mode": bool(entry.get("degrees_mode", True)),
-            "assets": dict(entry.get("assets") or {}),
-            "solvers": dict(entry.get("solvers") or {}),
-            "chains": entry.get("chains"),
-        }
-        for name, entry in sorted(merged.items())
-    ]
+    entries: list[dict[str, Any]] = []
+    for name, entry in sorted(merged.items()):
+        asset = entry.get("asset")
+        entries.append(
+            {
+                "name": name,
+                "joint_names": list(entry.get("joint_names", []) or []),
+                "degrees_mode": bool(entry.get("degrees_mode", True)),
+                "asset": dict(asset) if isinstance(asset, dict) else None,
+                "solvers": dict(entry.get("solvers") or {}),
+                "action_layout": list(entry.get("action_layout") or []),
+                "chains": entry.get("chains"),
+            }
+        )
+    return entries
 
 
 def upsert_preset(
@@ -175,8 +191,9 @@ def upsert_preset(
     *,
     joint_names: list[str],
     degrees_mode: bool,
-    assets: dict[str, str] | None = None,
+    asset: dict[str, str] | None = None,
     solvers: dict[str, Any] | None = None,
+    action_layout: list[dict[str, Any]] | None = None,
     chains: dict[str, Any] | None = None,
     rename_from: str | None = None,
 ) -> RobotPreset:
@@ -194,11 +211,13 @@ def upsert_preset(
         "joint_names": [str(j) for j in joint_names],
         "degrees_mode": bool(degrees_mode),
     }
-    clean_assets = {str(k): str(v) for k, v in dict(assets or {}).items() if str(v).strip()}
-    if clean_assets:
-        entry["assets"] = clean_assets
+    clean_asset = _clean_asset(asset)
+    if clean_asset:
+        entry["asset"] = clean_asset
     if solvers:
         entry["solvers"] = dict(solvers)
+    if action_layout:
+        entry["action_layout"] = [dict(item) for item in action_layout]
     if chains:
         entry["chains"] = chains
     with _lock:
@@ -220,6 +239,18 @@ def upsert_preset(
         f" (renamed from '{rename_from}')" if rename_from else "",
     )
     return _to_preset(key, entry)
+
+
+def _clean_asset(asset: dict[str, str] | None) -> dict[str, str] | None:
+    if not asset:
+        return None
+    asset_type = str(asset.get("type") or "").strip().lower()
+    path = str(asset.get("path") or "").strip()
+    if not asset_type and not path:
+        return None
+    if not asset_type or not path:
+        raise ValueError("Preset asset requires both 'type' and 'path'")
+    return {"type": asset_type, "path": path}
 
 
 def delete_preset(name: str) -> bool:

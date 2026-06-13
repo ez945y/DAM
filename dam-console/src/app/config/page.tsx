@@ -302,15 +302,6 @@ export default function ConfigPage() {
     { id: 'log_only', label: 'Log only', description: 'Records cycles without running guard checks' },
   ]
 
-  const INPUT_SPACES: { id: DamConfig['input_space']; label: string; description: string }[] = [
-    { id: 'joint',     label: 'Joint',        description: 'Policy outputs per-joint position targets.' },
-    { id: 'ee',        label: 'End-effector', description: 'Policy outputs an EE pose [x,y,z,quat]; configure a kinematics solver in solvers:.' },
-    { id: 'base',      label: 'Base',         description: 'Policy outputs a mobile-base command interpreted by a base solver.' },
-    { id: 'twist',     label: 'Twist',        description: 'Policy outputs [vx, vy, wz] body velocity commands.' },
-    { id: 'ackermann', label: 'Ackermann',    description: 'Policy outputs vehicle speed and steering commands.' },
-    { id: 'pose2d',    label: 'Pose 2D',      description: 'Policy outputs planar [x, y, yaw] targets.' },
-  ]
-
   return (
     <ActionShell
       title="Configuration"
@@ -514,7 +505,7 @@ export default function ConfigPage() {
           <div className="space-y-2 pt-2 border-t border-dam-border/60">
             <p className="text-dam-muted text-[10px] uppercase tracking-widest">Observation Channels</p>
             <p className="text-dam-muted text-[10px]">
-              Peer-source sensors logged alongside joint state.
+              Robot telemetry interfaces logged alongside joint state.
             </p>
             {cfg.observation_channels.length > 0 && (
               <div className="space-y-1.5">
@@ -642,34 +633,6 @@ export default function ConfigPage() {
                 {['cpu', 'cuda', 'mps'].map(d => <option key={d} value={d}>{d}</option>)}
               </select>
             </div>
-          </div>
-          <div className="pt-3 border-t border-dam-border/60">
-            <p className="text-dam-muted text-[10px] uppercase tracking-widest mb-2">Input Space</p>
-            <div className="flex gap-1.5 flex-wrap">
-              {INPUT_SPACES.map(s => (
-                <button
-                  key={s.id}
-                  title={s.description}
-                  onClick={() => set('input_space', s.id)}
-                  className={`px-3 py-1.5 rounded text-xs border transition-all ${
-                    (cfg.input_space ?? 'joint') === s.id
-                      ? 'bg-dam-blue-dim border-dam-blue text-dam-blue font-semibold'
-                      : 'bg-dam-surface-2 border-dam-border text-dam-muted hover:border-dam-blue/40'
-                  }`}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
-            <p className="text-dam-muted text-[10px] mt-1.5">
-              {INPUT_SPACES.find(s => s.id === (cfg.input_space ?? 'joint'))?.description}
-              {' '}Written to both hardware and policy — the backend requires them to match.
-            </p>
-            {cfg.input_space === 'ee' && (
-              <p className="text-amber-400 text-[10px] mt-1.5">
-                EE mode needs a kinematics solver in the Stackfile <span className="font-mono">solvers:</span> section.
-              </p>
-            )}
           </div>
           <div className="pt-3 border-t border-dam-border/60 mt-3">
             <div className="space-y-1">

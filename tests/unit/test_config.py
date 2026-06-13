@@ -62,7 +62,7 @@ def test_validate_method():
     StackfileLoader.validate(path)  # Should not raise
 
 
-def test_input_space_defaults_to_joint_when_declared_sections_exist():
+def test_declared_hardware_and_policy_sections_load_without_input_space():
     path = write_temp_yaml(
         textwrap.dedent("""\
         version: "1"
@@ -76,60 +76,61 @@ def test_input_space_defaults_to_joint_when_declared_sections_exist():
         """)
     )
     cfg = StackfileLoader.load(path)
-    assert cfg.hardware.input_space == "joint"
-    assert cfg.policy.input_space == "joint"
+    assert cfg.hardware.preset == "so101_follower"
+    assert cfg.policy.type == "act"
 
 
-def test_input_space_accepts_ee_when_policy_and_hardware_match():
+def test_hardware_accepts_action_layout_and_solver_overrides():
     path = write_temp_yaml(
         textwrap.dedent("""\
         version: "1"
         hardware:
-          preset: franka_emika_panda
-          input_space: EE
-        policy:
-          type: custom_rl
-          input_space: ee
+          preset: so101_follower
+          asset:
+            type: usd
+            path: /robots/franka.usd
+          solvers:
+            arm_kinematics:
+              type: isaac_kinematics
+          action_layout:
+            - name: arm
+              type: ee_pose
+              solver: arm_kinematics
+            - name: gripper
+              type: scalar
         tasks:
           default:
             boundaries: []
         """)
     )
     cfg = StackfileLoader.load(path)
-    assert cfg.hardware.input_space == "ee"
-    assert cfg.policy.input_space == "ee"
+    assert cfg.hardware.asset == {"type": "usd", "path": "/robots/franka.usd"}
+    assert cfg.hardware.solvers["arm_kinematics"]["type"] == "isaac_kinematics"
+    assert cfg.hardware.action_layout[0]["solver"] == "arm_kinematics"
 
 
-def test_input_space_mismatch_raises():
+def test_interfaces_lower_to_runtime_sources_and_sinks():
     path = write_temp_yaml(
         textwrap.dedent("""\
         version: "1"
         hardware:
           preset: so101_follower
-          input_space: joint
-        policy:
-          type: custom_rl
-          input_space: ee
+          interfaces:
+            arm:
+              type: motor
+              capabilities: [observe_joints, command_joints]
+              port: /dev/demo
+            current:
+              type: current
+              capabilities: [robot_telemetry]
+              ref: arm
         tasks:
           default:
             boundaries: []
         """)
     )
-    with pytest.raises(ValueError, match="hardware.input_space and policy.input_space"):
-        StackfileLoader.load(path)
-
-
-def test_invalid_input_space_raises():
-    path = write_temp_yaml(
-        textwrap.dedent("""\
-        version: "1"
-        hardware:
-          preset: so101_follower
-          input_space: task
-        tasks:
-          default:
-            boundaries: []
-        """)
-    )
-    with pytest.raises(ValueError, match="input_space"):
-        StackfileLoader.load(path)
+    cfg = StackfileLoader.load(path)
+    assert cfg.hardware.sources is not None
+    assert cfg.hardware.sinks is not None
+    assert set(cfg.hardware.sources) == {"arm", "current"}
+    assert cfg.hardware.sinks["command"].ref == "sources.arm"

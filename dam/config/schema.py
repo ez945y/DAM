@@ -2,11 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from dam.types.enforcement import EnforcementMode
-
-_INPUT_SPACES = {"joint", "ee", "base", "twist", "ackermann", "pose2d"}
 
 # ── Guard pipeline configs ─────────────────────────────────────────────────
 # All guard-specific parameters (model paths, thresholds, joint_position_limits, …)
@@ -182,6 +180,17 @@ class HardwareSourceConfig(BaseModel):
     image_namespace: str | None = None
 
 
+class HardwareInterfaceConfig(HardwareSourceConfig):
+    """Public hardware IO declaration.
+
+    ``capabilities`` says what the interface exposes. The runtime lowers this
+    into internal read/write endpoints.
+    """
+
+    capabilities: list[str] = Field(default_factory=list)
+    ref: str | None = None
+
+
 class HardwareSinkConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
     ref: str | None = None
@@ -192,7 +201,11 @@ class HardwareSinkConfig(BaseModel):
 class HardwareConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
     preset: str | None = None
-    input_space: str = "joint"
+    joint_names: list[str] | None = None
+    degrees_mode: bool | None = None
+    asset: dict[str, str] | None = None
+    solvers: dict[str, Any] = Field(default_factory=dict)
+    action_layout: list[dict[str, Any]] = Field(default_factory=list)
     # Cadence for telemetry register reads (temperature/current/voltage).
     # None → read every control cycle (legacy).  The bus stays owned by the
     # control loop; telemetry is decimated, cached, and timestamped — see
@@ -200,33 +213,76 @@ class HardwareConfig(BaseModel):
     telemetry_hz: float | None = None
     urdf_path: str | None = None
     joints: dict[str, HardwareJointConfig] | None = None
+    interfaces: dict[str, HardwareInterfaceConfig] | None = None
     sources: dict[str, HardwareSourceConfig] | None = None
     sinks: dict[str, HardwareSinkConfig] | None = None
 
-    @field_validator("input_space")
-    @classmethod
-    def validate_input_space(cls, v: str) -> str:
-        value = str(v).lower()
-        if value not in _INPUT_SPACES:
-            raise ValueError(f"input_space must be one of {sorted(_INPUT_SPACES)}")
-        return value
+    @model_validator(mode="after")
+    def lower_interfaces(self) -> HardwareConfig:
+        if not self.interfaces:
+            return self
+
+        sources: dict[str, HardwareSourceConfig] = {}
+        sinks: dict[str, HardwareSinkConfig] = {}
+
+        for name, iface in self.interfaces.items():
+            caps = _interface_capabilities(iface)
+            payload = iface.model_dump(exclude_none=True)
+            payload.pop("capabilities", None)
+
+            if _is_read_interface(caps):
+                source_payload = dict(payload)
+                source_payload.pop("ref", None)
+                sources[name] = HardwareSourceConfig(**source_payload)
+
+            if "command_joints" in caps:
+                sink_payload = dict(payload)
+                iface_ref = sink_payload.pop("ref", None)
+                if name in sources:
+                    sink_payload["ref"] = f"sources.{name}"
+                elif iface_ref:
+                    sink_payload["ref"] = (
+                        iface_ref
+                        if str(iface_ref).startswith("sources.")
+                        else f"sources.{iface_ref}"
+                    )
+                sinks["command" if "command" not in sinks else f"{name}_command"] = (
+                    HardwareSinkConfig(**sink_payload)
+                )
+
+        if sources:
+            self.sources = sources
+        if sinks:
+            self.sinks = sinks
+        return self
+
+
+def _interface_capabilities(iface: HardwareInterfaceConfig) -> set[str]:
+    caps = {str(c).strip().lower() for c in iface.capabilities if str(c).strip()}
+    if caps:
+        return caps
+    type_name = str(iface.type).lower()
+    if type_name in {"motor", "lerobot"}:
+        return {"observe_joints", "command_joints"}
+    if type_name in {"ros2", "dataset"}:
+        return {"observe_joints"}
+    if type_name in {"opencv", "camera", "usb"}:
+        return {"image"}
+    if type_name in {"current", "temperature", "voltage", "effort", "wrench"}:
+        return {"robot_telemetry"}
+    return {"observe_joints"}
+
+
+def _is_read_interface(caps: set[str]) -> bool:
+    return bool(caps.intersection({"observe_joints", "image", "robot_telemetry", "host_telemetry"}))
 
 
 class PolicyConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
     type: str
-    input_space: str = "joint"
     pretrained_path: str | None = None
     dataset_repo_id: str | None = None
     device: str = "cpu"
-
-    @field_validator("input_space")
-    @classmethod
-    def validate_input_space(cls, v: str) -> str:
-        value = str(v).lower()
-        if value not in _INPUT_SPACES:
-            raise ValueError(f"input_space must be one of {sorted(_INPUT_SPACES)}")
-        return value
 
 
 class SimulationConfig(BaseModel):
@@ -300,15 +356,3 @@ class StackfileConfig(BaseModel):
     loopback: LoopbackConfig | None = None
     risk_controller: RiskControllerConfig | None = None
     solvers: dict[str, SolverConfig] = {}
-
-    @model_validator(mode="after")
-    def validate_input_space_alignment(self) -> StackfileConfig:
-        if self.hardware is not None and self.policy is not None:
-            hardware_space = self.hardware.input_space
-            policy_space = self.policy.input_space
-            if hardware_space != policy_space:
-                raise ValueError(
-                    "hardware.input_space and policy.input_space must match "
-                    f"(got hardware={hardware_space!r}, policy={policy_space!r})"
-                )
-        return self

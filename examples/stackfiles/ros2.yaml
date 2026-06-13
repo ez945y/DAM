@@ -12,22 +12,26 @@ version: "1"
 
 hardware:
   preset: so101_follower
-  input_space: joint    # joint (default) or ee; must match policy.input_space
-  sources:
-    ros2_source:
+  # by the preset's action_layout.
+  interfaces:
+    ros2_joint_state:
       type: ros2
+      capabilities: [observe_joints]
       topic: /my_robot/joint_states
+    ros2_command:
+      type: ros2
+      capabilities: [command_joints]
+      ref: ros2_joint_state
+      topic: /my_robot/cmd
     effort:
       type: effort
-      ref: ros2_source
+      capabilities: [robot_telemetry]
+      ref: ros2_joint_state
     wrench:
       type: wrench
-      ref: ros2_source
+      capabilities: [robot_telemetry]
+      ref: ros2_joint_state
       topic: /my_robot/ft_sensor/wrench  # override default /wrench
-  sinks:
-    cmd:
-      ref: sources.ros2_source
-      topic: /my_robot/cmd
 
 safety:
   control_frequency_hz: 30

@@ -15,10 +15,11 @@ dam.SafetyGuard(stackfile, *, task, ...)    -> callable guard
 dam.SafetyProcessorStep(stackfile, *, ...)  -> LeRobot processor step
 
 # Registration decorators
-dam.register_preset(name, *, joint_names, degrees_mode, assets, solvers, chains)
 dam.register_callback(name, fn=None, *, layer, category, description, params)
 dam.register_solver(name, solver, *, capabilities)
 dam.register_solver_factory(type, factory, *, capabilities)
+dam.register_read_interface(type, factory)
+dam.register_write_interface(type, factory)
 @dam.callback(name)                         # register a boundary callback
 @dam.guard(layer, *, phase, always)         # register a Guard subclass
 @dam.fallback(name, *, monitors_hardware)   # register a fallback Context
@@ -27,6 +28,8 @@ dam.register_solver_factory(type, factory, *, capabilities)
 dam.RunSummary      # frozen: .status (str), .cycles (int), .emergency (bool)
 dam.Runner          # runner ABC (connect/verify/start/stop/shutdown)
 dam.RunnerStatus    # IDLE / STARTING / RUNNING / PAUSED / STOPPING / STOPPED / EMERGENCY
+dam.SensorAdapter   # optional base class for read interfaces
+dam.ActionAdapter   # optional base class for write interfaces
 dam.GuardResult     # per-guard evaluation outcome
 dam.GuardDecision   # PASS / CLAMP / REJECT
 dam.Observation     # sensor state snapshot
@@ -95,49 +98,52 @@ for action, obs in teleop_stream:
         print(r.decision, r.guard_name, r.reason)
 ```
 
-- Auto-detects `joint_names` and `degrees_mode` from the stackfile's `hardware.preset`
+- Auto-detects `joint_names` and `degrees_mode` from `hardware` or `hardware.preset`
 - Rejected actions return hold-position (current joint positions) so loops never break
 - Access the underlying runtime via `guard.runtime`
 
-`SafetyGuard` accepts joint-space actions by default. To validate another action
-space, provide first-class solvers. For an EE-space arm policy, register a
-solver with the `kinematics` capability:
+`SafetyGuard` exposes action semantics from `hardware.action_layout` or the
+selected preset to callbacks. It does not automatically run IK/FK based on
+`type`; callbacks choose a solver and the solver decides whether it supports
+that action segment.
 
 ```python
-class ArmSolver:
-    def inverse_kinematics(self, target_ee_pose, current_joint_positions):
-        ...
+@dam.register_callback("my_ee_rule", layer="L1")
+def my_ee_rule(*, action, action_layout, solvers):
+    ee_segment = action.metadata["action_segments"]["arm"]
+    solver = solvers["arm_kinematics"]
+    if not solver.supports("ee_pose"):
+        return True
 
-    def forward_kinematics(self, joint_positions):
-        ...
+    joint_target = solver.inverse_kinematics(
+        ee_segment,
+        action.target_joint_positions,
+    )
+    ...
+    return True
 
 guard = dam.SafetyGuard(
     "safety.yaml",
-    input_space="ee",
-    solvers={"kinematics": ArmSolver()},
+    solvers={"arm_kinematics": ArmSolver()},
 )
 
-safe_ee_pose = guard(ee_pose, current_joint_positions)
+safe_action = guard(policy_action, current_joint_positions)
 ```
 
-For a mobile base, use a solver whose capability matches the embodiment:
+Stackfile:
 
-```python
-class AckermannSolver:
-    def rollout(self, state, command, dt):
-        ...
-
-guard = dam.SafetyGuard(
-    "rover_safety.yaml",
-    input_space="ackermann",
-    solvers={"base": AckermannSolver()},
-)
+```yaml
+hardware:
+  action_layout:
+    - name: arm
+      type: ee_pose
+      solver: arm_kinematics
 ```
 
-Solvers are the extension point. A preset can own multiple solver definitions:
-arm kinematics, base dynamics, collision checking, map constraints, and more.
-URDF/USD/map files are preset resources referenced by those solvers, not
-standalone global configuration.
+Solvers are the extension point. A preset or stackfile `hardware` block can own
+multiple solver definitions: arm kinematics, base dynamics, collision checking,
+map constraints, and more. The robot description is a single `asset`; solvers
+receive that asset path automatically unless they override params explicitly.
 
 ### `dam.SafetyProcessorStep` — LeRobot integration
 
@@ -153,37 +159,25 @@ Drop-in `RobotActionProcessorStep` subclass. Lazy init — the guard is created 
 
 ## Registration Decorators
 
-Extend DAM by registering custom callbacks, guards, or fallbacks.
-
-### `dam.register_preset(...)`
-
-Register a robot preset from application code. This writes to the user preset
-registry (`${DAM_DATA_ROOT}/presets.yaml`), so it works with pip-installed DAM
-without editing bundled package files:
-
-```python
-import dam
-
-dam.register_preset(
-    "my_arm",
-    joint_names=["shoulder", "elbow", "wrist"],
-    degrees_mode=False,
-    assets={"urdf": "/opt/robots/my_arm.urdf"},
-    solvers={
-        "arm": {
-            "type": "pinocchio_kinematics",
-            "capabilities": ["kinematics"],
-            "params": {"asset_ref": "urdf"},
-        }
-    },
-)
-```
-
-Stackfiles can then reference:
+Extend DAM by registering custom callbacks, guards, solvers, or runtime
+read/write interfaces. Presets are YAML-managed in `assets/presets.yaml`:
 
 ```yaml
-hardware:
-  preset: my_arm
+presets:
+  my_arm:
+    joint_names: [shoulder, elbow, wrist]
+    degrees_mode: false
+    asset:
+      type: urdf
+      path: /opt/robots/my_arm.urdf
+    solvers:
+      arm_kinematics:
+        type: pinocchio_kinematics
+        capabilities: [kinematics, fk, ik]
+    action_layout:
+      - name: arm
+        type: ee_pose
+        solver: arm_kinematics
 ```
 
 ### `dam.register_callback(...)`
@@ -228,7 +222,7 @@ dam.register_solver(
 Pass it into `SafetyGuard` by name or object map:
 
 ```python
-guard = dam.SafetyGuard("safety.yaml", input_space="ee", solvers={"kinematics": isaac_solver})
+guard = dam.SafetyGuard("safety.yaml", solvers={"arm_kinematics": isaac_solver})
 ```
 
 ### `dam.register_solver_factory(...)`
@@ -249,12 +243,71 @@ dam.register_solver_factory(
 Stackfile:
 
 ```yaml
-solvers:
-  arm:
-    type: isaac_usd
-    capabilities: [kinematics]
-    params:
-      prim_path: /World/Robot
+hardware:
+  preset: my_arm
+  solvers:
+    arm:
+      type: isaac_usd
+      capabilities: [kinematics]
+      params:
+        prim_path: /World/Robot
+```
+
+### `dam.register_read_interface(...)` / `dam.register_write_interface(...)`
+
+Register runtime IO implementations for custom `hardware.interfaces` types.
+Presets and solvers still describe robot/action
+semantics; interfaces only read observations or write validated commands.
+
+```python
+import time
+
+import dam
+from dam.types.observation import Observation
+
+class MyRobot:
+    def read(self):
+        return Observation(timestamp=time.monotonic(), joint_positions=[0, 0, 0])
+
+    def apply(self, action):
+        ...
+
+def make_reader(name, cfg, context):
+    return MyRobot()
+
+dam.register_read_interface("my_robot", make_reader)
+```
+
+Stackfile:
+
+```yaml
+hardware:
+  preset: my_arm
+  interfaces:
+    arm:
+      type: my_robot
+      capabilities: [observe_joints, command_joints]
+      endpoint: /dev/my-robot
+```
+
+If read and write are different objects, register a write factory and set
+`command_joints` on a separate interface:
+
+```python
+dam.register_write_interface("my_robot_command", make_writer)
+```
+
+```yaml
+hardware:
+  interfaces:
+    arm_state:
+      type: my_robot_state
+      capabilities: [observe_joints]
+    command:
+      type: my_robot_command
+      capabilities: [command_joints]
+      ref: arm_state
+      endpoint: /dev/my-command
 ```
 
 ### `@dam.callback(name)`

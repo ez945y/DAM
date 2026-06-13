@@ -18,44 +18,46 @@ version: "1"
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 hardware:
   preset: so101_follower
-  input_space: joint    # joint (default) or ee; must match policy.input_space
+  # by the preset's action_layout.
 
-  sources:
+  interfaces:
     arm:
       type: motor
+      capabilities: [observe_joints, command_joints]
       port: /dev/tty.usbmodem5AA90244141
       robot_type: so101_follower
       id: follower_arm
     top:
       type: opencv
+      capabilities: [image]
       index_or_path: 0
       width: 640
       height: 480
       fps: 30
     wrist:
       type: opencv
+      capabilities: [image]
       index_or_path: 1
       width: 640
       height: 480
       fps: 30
     current:
       type: current
+      capabilities: [robot_telemetry]
       ref: arm
     temperature:
       type: temperature
+      capabilities: [robot_telemetry]
       ref: arm
     voltage:
       type: voltage
+      capabilities: [robot_telemetry]
       ref: arm
 
   teleop:
     type: so101_leader
     port: /dev/tty.usbmodem5AA90244081
     id: my_awesome_leader_arm
-
-  sinks:
-    command:
-      ref: sources.arm
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Recording — dataset and display settings (forwarded to lerobot-record)

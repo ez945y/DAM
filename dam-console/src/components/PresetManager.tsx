@@ -7,7 +7,7 @@ const inputCls =
   'bg-dam-surface-2 border border-dam-border rounded px-2 py-1.5 text-xs font-mono text-dam-text focus:outline-none focus:border-dam-blue/60 transition-colors'
 
 function emptyDraft(): PresetEntry {
-  return { name: '', joint_names: [], degrees_mode: true, assets: {}, solvers: {} }
+  return { name: '', joint_names: [], degrees_mode: true, asset: null, solvers: {}, action_layout: [] }
 }
 
 async function uploadAsset(file: File, target: string): Promise<string> {
@@ -34,6 +34,7 @@ export function PresetManager({
   const [editingOriginalName, setEditingOriginalName] = useState<string | null>(null)
   const [jointsCsv, setJointsCsv] = useState('')
   const [solversJson, setSolversJson] = useState('{}')
+  const [actionLayoutJson, setActionLayoutJson] = useState('[]')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
@@ -66,13 +67,15 @@ export function PresetManager({
     setEditingOriginalName(null)
     setJointsCsv('')
     setSolversJson('{}')
+    setActionLayoutJson('[]')
   }
 
   const startEdit = (p: PresetEntry) => {
-    setEditing({ ...p })
+    setEditing({ ...p, asset: p.asset?.path ? p.asset : null, action_layout: p.action_layout ?? [] })
     setEditingOriginalName(p.name)
     setJointsCsv(p.joint_names.join(', '))
     setSolversJson(JSON.stringify(p.solvers ?? {}, null, 2))
+    setActionLayoutJson(JSON.stringify(p.action_layout ?? [], null, 2))
   }
 
   const handleSave = async () => {
@@ -82,11 +85,13 @@ export function PresetManager({
     try {
       const joint_names = jointsCsv.split(',').map(s => s.trim()).filter(Boolean)
       const solvers = JSON.parse(solversJson || '{}') as Record<string, unknown>
+      const action_layout = JSON.parse(actionLayoutJson || '[]') as Record<string, unknown>[]
+      if (!Array.isArray(action_layout)) throw new Error('Action layout must be a JSON array')
       const renameFrom =
         editingOriginalName && editingOriginalName !== editing.name
           ? editingOriginalName
           : undefined
-      await upsertPreset({ ...editing, joint_names, solvers }, { renameFrom })
+      await upsertPreset({ ...editing, joint_names, solvers, action_layout }, { renameFrom })
       setEditing(null)
       setEditingOriginalName(null)
       await refresh()
@@ -113,15 +118,18 @@ export function PresetManager({
     }
   }
 
-  const setAsset = (key: string, path: string) => {
+  const setAssetType = (type: string) => {
     if (!editing) return
-    const assets = { ...(editing.assets ?? {}) }
-    if (path.trim()) assets[key] = path.trim()
-    else delete assets[key]
-    setEditing({ ...editing, assets })
+    setEditing({ ...editing, asset: { type, path: editing.asset?.path ?? '' } })
   }
 
-  const handleAssetFile = async (key: string, e: React.ChangeEvent<HTMLInputElement>) => {
+  const setAssetPath = (path: string) => {
+    if (!editing) return
+    const type = editing.asset?.type ?? 'urdf'
+    setEditing({ ...editing, asset: path.trim() ? { type, path: path.trim() } : null })
+  }
+
+  const handleAssetFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!editing) return
     const file = e.target.files?.[0]
     if (!file) return
@@ -129,8 +137,9 @@ export function PresetManager({
     setBusy(true)
     setError(null)
     try {
-      const path = await uploadAsset(file, key)
-      setAsset(key, path)
+      const type = editing.asset?.type ?? (file.name.toLowerCase().includes('.usd') ? 'usd' : 'urdf')
+      const path = await uploadAsset(file, type)
+      setEditing({ ...editing, asset: { type, path } })
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -169,14 +178,19 @@ export function PresetManager({
                   <p className="text-dam-muted text-[10px] mt-0.5">
                     {p.joint_names.length} joints · {p.degrees_mode ? 'degrees' : 'radians'} mode
                   </p>
-                  {Object.entries(p.assets ?? {}).map(([key, path]) => (
-                    <p key={key} className="text-dam-muted text-[10px] font-mono mt-0.5 truncate">
-                      {key}: {path}
+                  {p.asset && (
+                    <p className="text-dam-muted text-[10px] font-mono mt-0.5 truncate">
+                      {p.asset.type}: {p.asset.path}
                     </p>
-                  ))}
+                  )}
                   {Object.keys(p.solvers ?? {}).length > 0 && (
                     <p className="text-dam-blue text-[10px] mt-0.5">
                       {Object.keys(p.solvers).length} solver{Object.keys(p.solvers).length === 1 ? '' : 's'}
+                    </p>
+                  )}
+                  {(p.action_layout ?? []).length > 0 && (
+                    <p className="text-dam-muted text-[10px] mt-0.5">
+                      {(p.action_layout ?? []).length} action segment{(p.action_layout ?? []).length === 1 ? '' : 's'}
                     </p>
                   )}
                 </div>
@@ -255,27 +269,32 @@ export function PresetManager({
                 </label>
               </div>
               <div className="space-y-2">
-                <label className="text-dam-muted text-[10px] uppercase tracking-wider">Robot assets</label>
-                {(['urdf', 'usd'] as const).map(key => (
-                  <div key={key} className="flex gap-2 items-center">
-                    <span className="w-10 text-dam-muted text-[10px] uppercase">{key}</span>
+                <label className="text-dam-muted text-[10px] uppercase tracking-wider">Robot asset</label>
+                <div className="flex gap-2 items-center">
+                  <select
+                    value={editing.asset?.type ?? 'urdf'}
+                    onChange={e => setAssetType(e.target.value)}
+                    className={inputCls}
+                  >
+                    <option value="urdf">URDF</option>
+                    <option value="usd">USD</option>
+                  </select>
+                  <input
+                    value={editing.asset?.path ?? ''}
+                    onChange={e => setAssetPath(e.target.value)}
+                    className={`flex-1 ${inputCls}`}
+                    placeholder="assets/robot.urdf, /robots/franka.usd, ..."
+                  />
+                  <label className="flex items-center gap-1 px-2 py-1.5 bg-dam-surface-3 border border-dam-border rounded text-xs text-dam-muted hover:text-dam-text cursor-pointer transition-colors">
+                    <Upload size={11} /> Upload
                     <input
-                      value={editing.assets?.[key] ?? ''}
-                      onChange={e => setAsset(key, e.target.value)}
-                      className={`flex-1 ${inputCls}`}
-                      placeholder={key === 'urdf' ? 'assets/robot.urdf or /abs/path/robot.urdf' : 'assets/scene.usd or /abs/path/scene.usd'}
+                      type="file"
+                      accept=".urdf,.xml,.usd,.usda,.usdc"
+                      onChange={handleAssetFile}
+                      className="hidden"
                     />
-                    <label className="flex items-center gap-1 px-2 py-1.5 bg-dam-surface-3 border border-dam-border rounded text-xs text-dam-muted hover:text-dam-text cursor-pointer transition-colors">
-                      <Upload size={11} /> Upload
-                      <input
-                        type="file"
-                        accept={key === 'urdf' ? '.urdf,.xml' : '.usd,.usda,.usdc'}
-                        onChange={e => handleAssetFile(key, e)}
-                        className="hidden"
-                      />
-                    </label>
-                  </div>
-                ))}
+                  </label>
+                </div>
               </div>
               <div className="space-y-1">
                 <label className="text-dam-muted text-[10px] uppercase tracking-wider">Solver definitions (JSON)</label>
@@ -283,12 +302,21 @@ export function PresetManager({
                   value={solversJson}
                   onChange={e => setSolversJson(e.target.value)}
                   className={`w-full min-h-28 ${inputCls}`}
-                  placeholder='{"arm": {"type": "pinocchio_kinematics", "capabilities": ["kinematics"], "params": {"asset_ref": "urdf"}}}'
+                  placeholder='{"arm_kinematics": {"type": "pinocchio_kinematics", "capabilities": ["kinematics", "fk", "ik"]}}'
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-dam-muted text-[10px] uppercase tracking-wider">Action layout (JSON)</label>
+                <textarea
+                  value={actionLayoutJson}
+                  onChange={e => setActionLayoutJson(e.target.value)}
+                  className={`w-full min-h-20 ${inputCls}`}
+                  placeholder='[{"name": "arm", "type": "ee_pose", "solver": "arm_kinematics"}, {"name": "gripper", "type": "scalar"}]'
                 />
               </div>
               <div className="flex gap-2 justify-end pt-1">
                 <button
-                  onClick={() => { setEditing(null); setEditingOriginalName(null); setSolversJson('{}') }}
+                  onClick={() => { setEditing(null); setEditingOriginalName(null); setSolversJson('{}'); setActionLayoutJson('[]') }}
                   disabled={busy}
                   className="px-3 py-1 text-xs text-dam-muted hover:text-dam-text"
                 >

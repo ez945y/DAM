@@ -10,7 +10,7 @@ import pytest
 import dam
 from dam.api import RunSummary, build_runner, run
 from dam.boundary.callbacks import get_catalog
-from dam.preset.registry import get_preset
+from dam.interface.registry import get_global_interface_registry
 from dam.registry.callback import get_global_registry
 from dam.runner.base import BaseRunner, RunnerStatus
 from dam.solver.registry import get_global_solver_registry
@@ -24,10 +24,13 @@ class TestPublicSurface:
             "RunSummary",
             "Runner",
             "RunnerStatus",
-            "register_preset",
+            "SensorAdapter",
+            "ActionAdapter",
             "register_callback",
             "register_solver",
             "register_solver_factory",
+            "register_read_interface",
+            "register_write_interface",
         ):
             assert name in dam.__all__
             assert hasattr(dam, name)
@@ -56,24 +59,6 @@ class TestBuildRunner:
 
 
 class TestRegistrationAPI:
-    def test_register_preset_writes_user_registry(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("DAM_DATA_ROOT", str(tmp_path))
-
-        preset = dam.register_preset(
-            "pip_custom_arm",
-            joint_names=["j0", "j1"],
-            degrees_mode=False,
-            assets={"urdf": "/tmp/custom.urdf"},
-            solvers={"arm": {"type": "pinocchio_kinematics", "params": {"asset_ref": "urdf"}}},
-        )
-
-        assert preset.name == "pip_custom_arm"
-        loaded = get_preset("pip_custom_arm")
-        assert loaded.joint_names == ["j0", "j1"]
-        assert loaded.degrees_mode is False
-        assert loaded.asset_path("urdf") == "/tmp/custom.urdf"
-        assert "arm" in loaded.solvers
-
     def test_register_callback_direct_call_updates_registry_and_catalog(self):
         name = f"custom_direct_{uuid.uuid4().hex}"
 
@@ -147,3 +132,20 @@ class TestRegistrationAPI:
         )
         assert solver.gain == 2.0
         assert get_global_solver_registry().get(solver_name) is solver
+
+    def test_register_read_and_write_interfaces(self):
+        read_type = f"read_iface_{uuid.uuid4().hex}"
+        write_type = f"write_iface_{uuid.uuid4().hex}"
+
+        def read_factory(name, cfg, context):
+            return {"role": "read", "name": name, "type": cfg.type, "context": context}
+
+        def write_factory(name, cfg, context):
+            return {"role": "write", "name": name, "type": cfg.type, "context": context}
+
+        assert dam.register_read_interface(read_type, read_factory) is read_factory
+        assert dam.register_write_interface(write_type, write_factory) is write_factory
+
+        registry = get_global_interface_registry()
+        assert registry.has_read(read_type)
+        assert registry.has_write(write_type)

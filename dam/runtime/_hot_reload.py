@@ -93,6 +93,10 @@ class HotReloadManager:
         preset = _resolve_preset(new_config)
         if preset and preset.joint_names:
             pool["joint_layout"] = preset.joint_layout
+        if new_config.hardware and new_config.hardware.action_layout:
+            pool["action_layout"] = [dict(item) for item in new_config.hardware.action_layout]
+        elif preset and preset.action_layout:
+            pool["action_layout"] = [dict(item) for item in preset.action_layout]
 
         _STRUCTURAL = {
             "layer",

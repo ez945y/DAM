@@ -163,27 +163,27 @@ describe('generateYaml', () => {
     expect(yaml).toContain('type: act')
   })
 
-  it('quick_start emits the real hardware preset and dataset source', () => {
+  it('quick_start emits the real hardware preset and dataset interface', () => {
     const cfg = defaultConfig('quick_start')
     const yaml = generateYaml(cfg)
     expect(yaml).toContain('hardware:')
     expect(yaml).toContain('preset: so101_follower')
-    expect(yaml).toContain('sources:')
+    expect(yaml).toContain('interfaces:')
+    expect(yaml).not.toContain('sources:')
+    expect(yaml).not.toContain('sinks:')
     expect(yaml).toContain('type: dataset')
+    expect(yaml).toContain('capabilities: [observe_joints]')
     expect(yaml).toContain('MikeChenYZ/soarm-fmb-v2')
-    expect(yaml).toContain('sinks:')
-    expect(yaml).toContain('ref: sources.main')
   })
 
-  it('dataset replay check emits a dataset source, hardware sink, and two cameras', () => {
+  it('dataset replay check emits dataset, hardware, and camera interfaces', () => {
     const cfg = defaultConfig('dataset_replay_check')
     const yaml = generateYaml(cfg)
-    expect(yaml).toMatch(/replay:\s*\n\s*type: dataset/)
+    expect(yaml).toMatch(/replay:\s*\n\s*type: dataset\s*\n\s*capabilities: \[observe_joints\]/)
     expect(yaml).toMatch(/replay:[\s\S]*?image_namespace: replay/)
-    expect(yaml).toMatch(/arm:\s*\n\s*type: motor/)
-    expect(yaml).toMatch(/command:\s*\n\s*ref: sources\.arm/)
-    expect(yaml).toMatch(/top:\s*\n\s*type: opencv/)
-    expect(yaml).toMatch(/wrist:\s*\n\s*type: opencv/)
+    expect(yaml).toMatch(/arm:\s*\n\s*type: motor\s*\n\s*capabilities: \[observe_joints, command_joints\]/)
+    expect(yaml).toMatch(/top:\s*\n\s*type: opencv\s*\n\s*capabilities: \[image\]/)
+    expect(yaml).toMatch(/wrist:\s*\n\s*type: opencv\s*\n\s*capabilities: \[image\]/)
 
     const parsed = parseConfigFromYaml(yaml)
     expect(parsed.dataset_replay_to_hardware).toBe(true)
@@ -371,30 +371,9 @@ describe('generateYaml', () => {
     expect(yaml).not.toContain('index: 0')   // old key must not appear
   })
 
-  it('emits input_space into both hardware and policy blocks', () => {
-    const cfg = defaultConfig('so101')
-    const yaml = generateYaml(cfg)
-    expect(yaml).toContain('  input_space: joint')
-    const hw = yaml.slice(yaml.indexOf('hardware:'), yaml.indexOf('policy:'))
-    const pol = yaml.slice(yaml.indexOf('policy:'), yaml.indexOf('safety:'))
-    expect(hw).toContain('input_space: joint')
-    expect(pol).toContain('input_space: joint')
-  })
-
-  it('roundtrips input_space ee through generate → parse', () => {
-    const cfg = defaultConfig('so101')
-    cfg.input_space = 'ee'
-    const yaml = generateYaml(cfg)
-    const parsed = parseConfigFromYaml(yaml)
-    expect(parsed.input_space).toBe('ee')
-  })
-
-  it('input_space defaults to joint when absent from YAML', () => {
-    const cfg = defaultConfig('so101')
-    const yaml = generateYaml(cfg).split('\n').filter(l => !l.includes('input_space')).join('\n')
-    const parsed = parseConfigFromYaml(yaml)
-    expect(parsed.input_space).toBeUndefined()
-    expect(defaultConfig('so101').input_space).toBe('joint')
+  it('does not emit input_space in generated YAML', () => {
+    const yaml = generateYaml(defaultConfig('so101'))
+    expect(yaml).not.toContain('input_space:')
   })
 
   it('ACT template does not include diffusion params', () => {
@@ -419,27 +398,27 @@ describe('generateYaml', () => {
     expect(yaml).toContain('robot_type: so101_follower')
   })
 
-  it('includes ros2 source section for ros2 template', () => {
+  it('includes ros2 interfaces for ros2 template', () => {
     const cfg = defaultConfig('ros2_minimal')
     const yaml = generateYaml(cfg)
     expect(yaml).toContain('ros2')
     expect(yaml).toContain('/joint_states')
   })
 
-  it('emits observation channels as peer sources for lerobot', () => {
+  it('emits observation channels as telemetry interfaces for lerobot', () => {
     const cfg = defaultConfig('so101')
     const yaml = generateYaml(cfg)
     expect(yaml).toContain('current:')
-    expect(yaml).toMatch(/current:\s*\n\s*type: current\s*\n\s*ref: arm/)
-    expect(yaml).toMatch(/temperature:\s*\n\s*type: temperature\s*\n\s*ref: arm/)
-    expect(yaml).toMatch(/voltage:\s*\n\s*type: voltage\s*\n\s*ref: arm/)
+    expect(yaml).toMatch(/current:\s*\n\s*type: current\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: arm/)
+    expect(yaml).toMatch(/temperature:\s*\n\s*type: temperature\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: arm/)
+    expect(yaml).toMatch(/voltage:\s*\n\s*type: voltage\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: arm/)
   })
 
-  it('emits observation channels as peer sources for ros2', () => {
+  it('emits observation channels as telemetry interfaces for ros2', () => {
     const cfg = defaultConfig('ros2_minimal')
     const yaml = generateYaml(cfg)
-    expect(yaml).toMatch(/effort:\s*\n\s*type: effort\s*\n\s*ref: ros2_source/)
-    expect(yaml).toMatch(/wrench:\s*\n\s*type: wrench\s*\n\s*ref: ros2_source/)
+    expect(yaml).toMatch(/effort:\s*\n\s*type: effort\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: ros2_joint_state/)
+    expect(yaml).toMatch(/wrench:\s*\n\s*type: wrench\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: ros2_joint_state/)
   })
 
   it('includes adapter section for lerobot', () => {
@@ -515,8 +494,8 @@ describe('observation channel round-trip', () => {
     const yaml = generateYaml(cfg)
 
     // effort is JointState-derived → no topic line; wrench has its own topic
-    expect(yaml).toMatch(/effort:\s*\n\s*type: effort\s*\n\s*ref: ros2_source\s*(?!\s*topic:)/)
-    expect(yaml).toMatch(/wrench:\s*\n\s*type: wrench\s*\n\s*ref: ros2_source\s*\n\s*topic: \/my_robot\/ft_sensor\/wrench/)
+    expect(yaml).toMatch(/effort:\s*\n\s*type: effort\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: ros2_joint_state\s*(?!\s*topic:)/)
+    expect(yaml).toMatch(/wrench:\s*\n\s*type: wrench\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: ros2_joint_state\s*\n\s*topic: \/my_robot\/ft_sensor\/wrench/)
 
     const parsed = parseConfigFromYaml(yaml)
     expect(parsed.observation_channels).toEqual(['effort', 'wrench'])
@@ -533,7 +512,7 @@ describe('observation channel round-trip', () => {
     expect(yaml).toContain('effort:')
     expect(yaml).toContain('wrench:')
     // No `topic:` line under either channel block
-    expect(yaml).not.toMatch(/wrench:\s*\n\s*type: wrench\s*\n\s*ref: ros2_source\s*\n\s*topic:/)
+    expect(yaml).not.toMatch(/wrench:\s*\n\s*type: wrench\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: ros2_joint_state\s*\n\s*topic:/)
 
     const parsed = parseConfigFromYaml(yaml)
     expect(parsed.observation_channels).toEqual(['effort', 'wrench'])
@@ -543,9 +522,9 @@ describe('observation channel round-trip', () => {
   it('lerobot health channels round-trip without overrides', () => {
     const cfg = defaultConfig('so101')
     const yaml = generateYaml(cfg)
-    expect(yaml).toMatch(/current:\s*\n\s*type: current\s*\n\s*ref: arm/)
-    expect(yaml).toMatch(/temperature:\s*\n\s*type: temperature\s*\n\s*ref: arm/)
-    expect(yaml).toMatch(/voltage:\s*\n\s*type: voltage\s*\n\s*ref: arm/)
+    expect(yaml).toMatch(/current:\s*\n\s*type: current\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: arm/)
+    expect(yaml).toMatch(/temperature:\s*\n\s*type: temperature\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: arm/)
+    expect(yaml).toMatch(/voltage:\s*\n\s*type: voltage\s*\n\s*capabilities: \[robot_telemetry\]\s*\n\s*ref: arm/)
 
     const parsed = parseConfigFromYaml(yaml)
     expect(parsed.observation_channels).toEqual(['current', 'temperature', 'voltage'])
