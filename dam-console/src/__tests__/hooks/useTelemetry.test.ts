@@ -148,7 +148,7 @@ describe('useTelemetry', () => {
     await act(async () => { jest.runOnlyPendingTimers(); await Promise.resolve() })
     await act(async () => { await Promise.resolve() })
 
-    expect(Object.keys(result.current.guardMap).sort()).toEqual(['ood_detector', 'workspace'])
+    expect(Object.keys(result.current.guardMap).sort((a, b) => a.localeCompare(b))).toEqual(['ood_detector', 'workspace'])
 
     // Simulate a backend restart: socket closes, reconnect fires onopen again,
     // listBoundaries now returns a shorter list.

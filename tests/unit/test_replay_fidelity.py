@@ -123,6 +123,7 @@ def test_multisource_merge_keeps_dataset_positions_and_exposes_motor(monkeypatch
 
     runtime.step()
 
+    assert seen_obs, "step() did not record an observation"
     # Dataset positions are the primary observation (for policy)
     np.testing.assert_allclose(seen_obs[0].joint_positions, dataset_pos)
     # Motor channels are merged correctly

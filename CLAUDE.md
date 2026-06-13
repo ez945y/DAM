@@ -280,6 +280,42 @@ python -m pytest tests/unit/ -x
 
 ---
 
+## SonarCloud 品質清理
+
+專案 key：`ez945y_DAM`，branch `main`。Dashboard：<https://sonarcloud.io/project/overview?id=ez945y_DAM>
+
+**核心原則**：這個 codebase 防禦式／動態寫法多，SonarCloud 靜態分析會產生**大量 false positive**（taint 引擎認不出 regex/`relative_to` sanitizer、`# type: ignore` 搞亂型別推斷、test fixture 的 `/tmp` 與斷言）。每一條都必須**讀實際程式碼判定**，不可盲信掃描結果，也不可未讀 code 就標 safe。
+
+分流：
+
+* **真問題** → 改 code 根除（push 重掃後自動消，不要手動標）。能根除 pattern 才算修好（如 action pin commit SHA）。
+* **False positive** → 標 `falsepositive` ＋ 英文理由（引擎誤判、已有防護）。
+* **接受型風險／intentional** → 標 `accept`（如確定性 test 斷言、刻意的除零守衛）。
+
+讀取免 token（public）；改狀態需 `SONAR_TOKEN`：
+
+```bash
+# 驗證 token（用完提醒使用者 revoke；勿寫進 repo，存 /tmp 即可）
+curl -s -u "$SONAR_TOKEN:" https://sonarcloud.io/api/authentication/validate
+
+# Hotspots：讀 / 改（resolution 只接受 SAFE | FIXED）
+curl -s "https://sonarcloud.io/api/hotspots/search?projectKey=ez945y_DAM&branch=main&status=TO_REVIEW&ps=100"
+curl -s -u "$SONAR_TOKEN:" -X POST https://sonarcloud.io/api/hotspots/change_status \
+  --data-urlencode "hotspot=KEY" --data-urlencode "status=REVIEWED" \
+  --data-urlencode "resolution=SAFE" --data-urlencode "comment=..."
+
+# Issues（bug/vuln/smell）：讀 / 加註 / 轉狀態（transition：falsepositive | accept | wontfix）
+curl -s "https://sonarcloud.io/api/issues/search?componentKeys=ez945y_DAM&branch=main&resolved=false&types=VULNERABILITY&ps=100"
+curl -s -u "$SONAR_TOKEN:" -X POST https://sonarcloud.io/api/issues/add_comment \
+  --data-urlencode "issue=KEY" --data-urlencode "text=..."
+curl -s -u "$SONAR_TOKEN:" -X POST https://sonarcloud.io/api/issues/do_transition \
+  --data-urlencode "issue=KEY" --data-urlencode "transition=falsepositive"
+```
+
+安全邊界：guard / kinematics / runtime 的浮點比較、clamp、limit 不可為了消 warning 放寬或改行為；有疑慮標 intentional 並呈報，不要亂改。批量標記用腳本（每條附理由），標完用 `resolved=false` 重查確認歸零。
+
+---
+
 ## 文檔策略
 
 只有使用者可見行為改變時才立即更新文檔，例如：

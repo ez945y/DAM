@@ -5,15 +5,16 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
-permissions:
-  contents: read
-  id-token: write
+# Least-privilege: permissions are scoped per job below.  Only the PyPI publish
+# jobs need id-token:write (OIDC trusted publishing); build jobs only read.
 
 jobs:
   # ─── Stage 1: Build dam-rs wheels (Rust extension) ─────────────────────────
   build-rust-wheels:
     name: Build dam-rs (${{ matrix.target }} / ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -55,6 +56,8 @@ jobs:
   build-rust-sdist:
     name: Build dam-rs sdist
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -74,6 +77,8 @@ jobs:
   build-python:
     name: Build robot-dam
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -98,6 +103,9 @@ jobs:
     needs: [build-rust-wheels, build-rust-sdist]
     runs-on: ubuntu-latest
     environment: pypi
+    permissions:
+      contents: read
+      id-token: write  # OIDC trusted publishing to PyPI
 
     steps:
       - uses: actions/download-artifact@v4
@@ -118,6 +126,9 @@ jobs:
     needs: [build-python, publish-rust]
     runs-on: ubuntu-latest
     environment: pypi
+    permissions:
+      contents: read
+      id-token: write  # OIDC trusted publishing to PyPI
 
     steps:
       - uses: actions/download-artifact@v4

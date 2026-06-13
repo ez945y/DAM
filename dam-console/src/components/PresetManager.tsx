@@ -50,6 +50,14 @@ export function PresetManager({
     if (open) refresh()
   }, [open, refresh])
 
+  // Close on Escape for keyboard users (the backdrop click is mouse-only).
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, onClose])
+
   if (!open) return null
 
   const startCreate = () => {
@@ -119,10 +127,11 @@ export function PresetManager({
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose} role="presentation">
       <div
         className="bg-dam-surface border border-dam-border rounded-lg w-full max-w-2xl max-h-[90vh] flex flex-col"
         onClick={e => e.stopPropagation()}
+        role="presentation"
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-dam-border">
           <h2 className="text-dam-text text-sm font-semibold">Robot Preset Manager</h2>
