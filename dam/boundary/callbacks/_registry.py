@@ -168,6 +168,37 @@ def get_catalog() -> list[dict[str, Any]]:
     return list(_CATALOG)
 
 
+def register_external_callback(
+    *,
+    name: str,
+    fn: Callable[..., Any],
+    layer: str,
+    category: str = "custom",
+    description: str = "",
+    params: Mapping[str, str] | None = None,
+    unit_params: tuple[str, ...] | list[str] | None = None,
+    internal_params: tuple[str, ...] | list[str] | None = None,
+) -> Callable[..., Any]:
+    """Register a user callback with the same metadata path as built-ins.
+
+    Unlike ``boundary_callback``, this immediately registers the function in
+    the global runtime registry too. That makes it suitable for pip-installed
+    DAM users who cannot add modules to ``dam.boundary.callbacks`` and simply
+    want to call ``dam.register_callback(...)`` before constructing a runtime.
+    """
+    decorated = boundary_callback(
+        name=name,
+        layer=layer,
+        category=category,
+        description=description,
+        params=params,
+        unit_params=unit_params,
+        internal_params=internal_params,
+    )(fn)
+    get_global_registry().register(name, decorated)
+    return decorated
+
+
 def register_all() -> None:
     """Register every ``@boundary_callback``-decorated function.
 

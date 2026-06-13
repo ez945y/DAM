@@ -16,6 +16,8 @@ dam.SafetyKinematicsResolver               # Protocol for EE-space SafetyGuard a
 dam.SafetyProcessorStep(stackfile, *, ...)  -> LeRobot processor step
 
 # Registration decorators
+dam.register_preset(name, *, joint_names, degrees_mode, urdf_path, chains)
+dam.register_callback(name, fn=None, *, layer, category, description, params)
 @dam.callback(name)                         # register a boundary callback
 @dam.guard(layer, *, phase, always)         # register a Guard subclass
 @dam.fallback(name, *, monitors_hardware)   # register a fallback Context
@@ -136,6 +138,57 @@ Drop-in `RobotActionProcessorStep` subclass. Lazy init — the guard is created 
 ## Registration Decorators
 
 Extend DAM by registering custom callbacks, guards, or fallbacks.
+
+### `dam.register_preset(...)`
+
+Register a robot preset from application code. This writes to the user preset
+registry (`${DAM_DATA_ROOT}/presets.yaml`), so it works with pip-installed DAM
+without editing bundled package files:
+
+```python
+import dam
+
+dam.register_preset(
+    "my_arm",
+    joint_names=["shoulder", "elbow", "wrist"],
+    degrees_mode=False,
+    urdf_path="/opt/robots/my_arm.urdf",
+)
+```
+
+Stackfiles can then reference:
+
+```yaml
+hardware:
+  preset: my_arm
+```
+
+### `dam.register_callback(...)`
+
+Register a boundary callback from application code. It is added to both the
+runtime callback registry and the callback catalog used by tools:
+
+```python
+import dam
+
+@dam.register_callback(
+    "my_workspace_rule",
+    layer="L2",
+    category="execution",
+    description="Rejects actions outside the app-defined workspace",
+    params={"max_x": "Maximum allowed x coordinate"},
+)
+def my_workspace_rule(*, obs, action, max_x=0.5):
+    return obs.ee_pos[0] <= max_x
+```
+
+Or register an existing function directly:
+
+```python
+dam.register_callback("my_check", my_check, layer="L1")
+```
+
+Then reference `callback: my_workspace_rule` in your Stackfile.
 
 ### `@dam.callback(name)`
 

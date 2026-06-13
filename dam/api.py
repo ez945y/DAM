@@ -18,12 +18,14 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
 
 if TYPE_CHECKING:
+    from dam.preset.registry import RobotPreset
     from dam.runner.base import BaseRunner
     from dam.types.result import GuardResult
 
@@ -56,6 +58,85 @@ class SafetyKinematicsResolver(Protocol):
     def forward_kinematics(self, joint_positions: np.ndarray) -> np.ndarray:
         """Return EE pose [x,y,z,qx,qy,qz,qw] for validated joint positions."""
         ...
+
+
+def register_preset(
+    name: str,
+    *,
+    joint_names: list[str],
+    degrees_mode: bool = True,
+    urdf_path: str | None = None,
+    chains: dict[str, Any] | None = None,
+) -> RobotPreset:
+    """Register or update a robot preset from library code.
+
+    The preset is written to DAM's user registry
+    (``${DAM_DATA_ROOT}/presets.yaml``), so it works in pip-installed
+    environments where the bundled ``assets/presets.yaml`` is read-only.
+    """
+    from dam.preset.registry import upsert_preset
+
+    return upsert_preset(
+        name,
+        joint_names=joint_names,
+        degrees_mode=degrees_mode,
+        urdf_path=urdf_path,
+        chains=chains,
+    )
+
+
+def register_callback(
+    name: str,
+    fn: Callable[..., Any] | None = None,
+    *,
+    layer: str = "L1",
+    category: str = "custom",
+    description: str = "",
+    params: Mapping[str, str] | None = None,
+    unit_params: tuple[str, ...] | list[str] | None = None,
+    internal_params: tuple[str, ...] | list[str] | None = None,
+) -> Callable[..., Any] | Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """Register a boundary callback from library code.
+
+    Usable either as a direct call or a decorator:
+
+    .. code-block:: python
+
+        def check(...): ...
+        dam.register_callback("my_check", check, layer="L2")
+
+        @dam.register_callback("my_other_check", layer="L1")
+        def check_other(...): ...
+
+    The callback is added to both the runtime registry and the boundary
+    callback catalog, so Stackfiles can reference it by name and tools can
+    display its metadata.
+    """
+    from dam.guard.layer import GuardLayer
+
+    try:
+        GuardLayer[layer]
+    except KeyError:
+        valid = [member.name for member in GuardLayer]
+        raise ValueError(f"Unknown callback layer '{layer}'. Valid layers: {valid}") from None
+
+    def decorator(callback_fn: Callable[..., Any]) -> Callable[..., Any]:
+        from dam.boundary.callbacks._registry import register_external_callback
+
+        return register_external_callback(
+            name=name,
+            fn=callback_fn,
+            layer=layer,
+            category=category,
+            description=description,
+            params=params,
+            unit_params=unit_params,
+            internal_params=internal_params,
+        )
+
+    if fn is None:
+        return decorator
+    return decorator(fn)
 
 
 def _register_builtins() -> None:
