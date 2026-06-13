@@ -110,6 +110,7 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
+          skip-existing: true
 
   # ─── Stage 4: Publish robot-dam to PyPI ────────────────────────────────────
   publish-python:
@@ -128,3 +129,4 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
+          skip-existing: true
