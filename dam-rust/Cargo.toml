@@ -15,7 +15,7 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
-pyo3 = { version = "0.22", features = ["extension-module"] }
+pyo3 = { version = "0.22", features = ["extension-module", "abi3-py311"] }
 crossbeam = "0.8"
 parking_lot = "0.12"
 serde = { version = "1.0", features = ["derive"] }
