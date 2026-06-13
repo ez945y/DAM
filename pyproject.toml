@@ -29,11 +29,14 @@ dependencies = [
     "opencv-python>=4.9",
     "pyserial>=3.5",
     "msgpack>=1.0",
+    "msgspec>=0.18.6",
     # Core: torch + MCAP + lerobot always included
     "torch>=2.0",
     "mcap>=1.1",
     "lerobot[feetech]",
     "pin>=2.6",
+    "psutil>=5.9",
+    "proxsuite>=0.6",
     "dam-rs>=0.5.0",
 ]
 
@@ -73,17 +76,15 @@ services = [
     "uvicorn[standard]>=0.29",
     "httpx>=0.27",
     "datasets>=2.16",
-    "msgspec>=0.18.6",
 ]
 
 # Isaac Sim 6.0 adapter (isaacsim is installed separately via pip — no
 # macOS or Python ≥3.11 wheels exist, so it cannot be locked here)
 isaac = []
 
-# Safety filters — QP-based clamping (CBF, slack)
-safety = [
-    "proxsuite>=0.6",
-]
+# Safety filters are core runtime features. Keep this extra as a compatibility
+# alias for older install commands such as `robot-dam[safety]`.
+safety = []
 
 # Everything
 full = [

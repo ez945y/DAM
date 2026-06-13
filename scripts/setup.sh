@@ -85,12 +85,10 @@ need_cmd cargo "Install: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.
 # ── Python virtual environment ─────────────────────────────────────────────────
 if ! $RUST_ONLY; then
     info "Syncing Python environment (uv)…"
-    # torch and lerobot are core dependencies of robot-dam now, so they are
-    # always installed by 'uv sync'.  'safety' pulls in proxsuite — the QP/CBF
-    # solver L1 boundaries use when a stackfile sets qp_solver: proxsuite.
-    # Without proxsuite those configs fail at startup, so it belongs in the
-    # default setup, not as an opt-in.
-    EXTRAS="--extra dev --extra services --extra safety"
+    # torch, lerobot, and proxsuite are core dependencies of robot-dam now, so
+    # they are always installed by 'uv sync'. proxsuite backs the QP/CBF solver
+    # used by L1 boundaries.
+    EXTRAS="--extra dev --extra services"
     if $WITH_LEROBOT; then
         info "  lerobot hardware support is included by default"
     elif [[ -f .venv/bin/python ]] && .venv/bin/python -c "import lerobot" 2>/dev/null; then

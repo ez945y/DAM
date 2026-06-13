@@ -12,11 +12,21 @@ from __future__ import annotations
 import enum
 import pathlib
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from fastapi import Response
 from msgspec import json as msgspec_json
+
+if TYPE_CHECKING:
+    from fastapi import Response as _FastAPIResponse
+else:
+    try:
+        from fastapi import Response as _FastAPIResponse
+    except ImportError:  # pragma: no cover - exercised only in non-services installs
+
+        class _FastAPIResponse:  # type: ignore[no-redef]
+            pass
+
 
 # Exact-type dispatch first (O(1)); falls back to a small subclass scan.
 # msgspec already handles dataclasses, msgspec.Struct, and standard
@@ -54,7 +64,7 @@ def msgspec_enc_hook(obj: Any) -> Any:
     raise TypeError(f"Cannot serialize object of type {type(obj).__name__!r}")
 
 
-class MsgspecJSONResponse(Response):
+class MsgspecJSONResponse(_FastAPIResponse):
     """FastAPI response that encodes via ``msgspec`` with our enc_hook.
 
     Routes that return raw dicts/lists containing numpy / Path / Enum can

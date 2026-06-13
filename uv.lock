@@ -3511,9 +3511,12 @@ dependencies = [
     { name = "lerobot", extra = ["feetech"] },
     { name = "mcap" },
     { name = "msgpack" },
+    { name = "msgspec" },
     { name = "numpy" },
     { name = "opencv-python" },
     { name = "pin" },
+    { name = "proxsuite" },
+    { name = "psutil" },
     { name = "pydantic" },
     { name = "pyserial" },
     { name = "pyyaml" },
@@ -3539,10 +3542,8 @@ full = [
     { name = "hypothesis" },
     { name = "matplotlib" },
     { name = "maturin" },
-    { name = "msgspec" },
     { name = "mypy" },
     { name = "pre-commit" },
-    { name = "proxsuite" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
@@ -3552,14 +3553,10 @@ full = [
 ros2 = [
     { name = "transforms3d" },
 ]
-safety = [
-    { name = "proxsuite" },
-]
 services = [
     { name = "datasets" },
     { name = "fastapi" },
     { name = "httpx" },
-    { name = "msgspec" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -3575,13 +3572,14 @@ requires-dist = [
     { name = "maturin", marker = "extra == 'dev'", specifier = ">=1.0,<2.0" },
     { name = "mcap", specifier = ">=1.1" },
     { name = "msgpack", specifier = ">=1.0" },
-    { name = "msgspec", marker = "extra == 'services'", specifier = ">=0.18.6" },
+    { name = "msgspec", specifier = ">=0.18.6" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.8" },
     { name = "numpy", specifier = ">=1.24" },
     { name = "opencv-python", specifier = ">=4.9" },
     { name = "pin", specifier = ">=2.6" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.6" },
-    { name = "proxsuite", marker = "extra == 'safety'", specifier = ">=0.6" },
+    { name = "proxsuite", specifier = ">=0.6" },
+    { name = "psutil", specifier = ">=5.9" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pyserial", specifier = ">=3.5" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
