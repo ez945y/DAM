@@ -162,6 +162,36 @@ def register_solver_factory(
     return decorator(factory)
 
 
+def register_preset(
+    name: str,
+    *,
+    joint_names: list[str],
+    asset: dict[str, str] | None = None,
+    solvers: dict[str, Any] | None = None,
+    action_layout: list[dict[str, Any]] | None = None,
+    chains: dict[str, Any] | None = None,
+    rename_from: str | None = None,
+) -> Any:
+    """Register or update a robot preset in DAM's preset registry.
+
+    This is the public library-facing alias for the YAML-backed preset registry:
+    callers should use ``dam.register_preset(...)`` together with
+    ``dam.register_solver(...)`` / ``dam.register_callback(...)`` when defining
+    a custom embodiment from Python.
+    """
+    from dam.preset import upsert_preset
+
+    return upsert_preset(
+        name,
+        joint_names=joint_names,
+        asset=asset,
+        solvers=solvers,
+        action_layout=action_layout,
+        chains=chains,
+        rename_from=rename_from,
+    )
+
+
 _InterfaceFactory = Callable[[str, Any, Mapping[str, Any]], Any]
 _InterfaceDecorator = Callable[[_InterfaceFactory], _InterfaceFactory]
 

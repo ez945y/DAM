@@ -16,6 +16,7 @@ dam.SafetyProcessorStep(stackfile, *, ...)  -> LeRobot processor step
 
 # Registration decorators
 dam.register_callback(name, fn=None, *, layer, category, description, params)
+dam.register_preset(name, *, joint_names, asset, solvers, action_layout)
 dam.register_solver(name, solver, *, capabilities)
 dam.register_solver_factory(type, factory, *, capabilities)
 dam.register_read_interface(type, factory)
