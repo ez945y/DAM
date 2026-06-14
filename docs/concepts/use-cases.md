@@ -21,16 +21,16 @@ These bad frames end up in datasets and silently degrade policy quality.
 
 ### How DAM helps
 
-Insert a `SafetyProcessorStep` into a LeRobot recording pipeline. DAM
+Insert a `GuardrailProcessorStep` into a LeRobot recording pipeline. DAM
 evaluates every action through the guard stack and clamps out-of-bound
 commands before they reach hardware -- and before they land in your
 dataset.
 
 ```python
-from dam import SafetyProcessorStep
+from dam import GuardrailProcessorStep
 
 # Drop into any LeRobot robot_action_processor pipeline
-robot_action_processor.steps.insert(0, SafetyProcessorStep("safety.yaml"))
+robot_action_processor.steps.insert(0, GuardrailProcessorStep("safety.yaml"))
 ```
 
 Operators get immediate tactile feedback: when a motion is clamped, the
@@ -62,17 +62,17 @@ for unclear reasons.
 
 ### How DAM helps
 
-Wrap policy outputs with `SafetyGuard` to validate actions without a
+Wrap policy outputs with `Guardrail` to validate actions without a
 hardware loop. This works in offline eval scripts, batch rollouts, or
 anywhere you can call Python.
 
 ```python
 import dam
 
-guard = dam.SafetyGuard("safety.yaml")
+guard = dam.Guardrail("safety.yaml")
 
 for action, obs in rollout:
-    safe_action = guard(action, obs)
+    safe_action = guard({**obs, "action": action})
     if guard.last_results:  # inspect what happened
         print(guard.last_results)
 ```

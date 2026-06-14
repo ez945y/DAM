@@ -25,7 +25,10 @@ class Observation:
     """
 
     timestamp: float
-    joint_positions: np.ndarray
+    # Empty array when the embodiment has no joints (e.g. a mobile base whose
+    # state is a base pose carried in ``channels``). Builtin joint guards skip
+    # an empty vector; custom callbacks read their own ``channels`` groups.
+    joint_positions: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.float64))
     joint_velocities: np.ndarray | None = None  # [rad/s]; None if sensor unavailable
     end_effector_pose: np.ndarray | None = None  # [x,y,z,qx,qy,qz,qw]; None if not computed
     force_torque: np.ndarray | None = None  # [Fx,Fy,Fz,Tx,Ty,Tz]; None if no F/T sensor

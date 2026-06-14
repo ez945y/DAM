@@ -86,6 +86,7 @@ nav:
     - Overview: console.md
     - API Reference: services-api.md
   - Release Notes:
+    - v0.7.0: release-notes-0.7.0.md
     - v0.6.0: release-notes-0.6.0.md
     - v0.5.0: release-notes-0.5.0.md
     - v0.5.0 LinkedIn Draft: linkedin-0.5.0.md

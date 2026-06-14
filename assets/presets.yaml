@@ -11,8 +11,6 @@
 #       components, e.g. [x, y, z, yaw, pitch, roll] or [x, y, z, qx, qy, qz, qw];
 #       a differential base's are [v, omega]. An optional ``solver`` links the
 #       segment to a solvers entry that converts it into joint space.
-#   - chains: (optional) named kinematic chains using joint names, not indices.
-#             Auto-derived from joint_names when omitted (keyword matching).
 #
 # Limits, max velocities, and guard policy live on boundary callbacks in the
 # stackfile — never here. deg<->rad mode (degrees_mode) is an interface concern

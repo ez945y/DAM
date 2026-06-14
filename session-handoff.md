@@ -1,6 +1,28 @@
 # session-handoff.md — 會話交接摘要
 
-> 最後更新: 2026-06-14 (Preset/interface semantics follow-up — 兩個交付單元)
+> 最後更新: 2026-06-14 (Guardrail dict-in API + 0.7.0 收尾)
+
+## 本輪：Guardrail（filter API 重設計，dict 進／validated command 出）
+
+承上輪 preset/solver 收尾，使用者指出 filter API 的 `SafetyGuard(action, obs)` 用兩個**扁平 joint 向量**是錯的——obs 本質是多組異構資料（joints / 相機 / 電流 / base pose），不該被當成一個 joint 向量；要對齊 `step()` 的 Observation 模型，讓 callback 按 key 取分組。決策（已與使用者確認）：扁平 lerobot 風格 dict + `action` 保留 key、callback 直接宣告 key 注入、init 印契約且缺 key fail-fast、命名改 `Guardrail`/`guardrail()`。
+
+- **`SafetyGuard`→`Guardrail`、`safe()`→`guardrail()`、`SafetyProcessorStep`→`GuardrailProcessorStep`**（無 shim，0.7.0 breaking）。`__call__(action, obs)` → `__call__(inputs: dict)`：`action` 保留 key 是待驗證命令，其餘 key 是 obs 分組。回傳鏡像 `action` 輸入型別。
+- **obs 分組注入**：`Observation.channels`（current/temperature/base_pose…）+ images 在 `execution_engine._build_runtime_pool` 平鋪進 pool（`_iter_obs_groups`，只收合法識別字、不蓋保留 key）。callback 宣告 `base_pose`/`current` 直接拿。`dam/api.py:Guardrail._build_observation` 把 dict 拆成標準欄位（joints/`.pos`→joint_positions、images、其餘 array→channels）。
+- **自動契約 + fail-fast**：init 掃 active task 的 callback 簽名（`get_params`/`inspect`）減保留 key 與 node params＝required obs keys；`describe()` 印一次；每次 call 缺 required key 或撞保留 key → raise。
+- **`Observation.joint_positions` 改可空**（mobile base 無 joints，狀態走 channels）；`_compute_fk` 加 `len>0` 守衛。
+- **`ActionProposal` duck-type 成命令向量**（`__array__`/`__iter__`/`__len__`/`__getitem__`），讓 callback 寫 `v, omega = action` / `np.asarray(action)`，builtin 仍用 `.target_joint_positions`。
+- **`@dam.callback(name, *, layer="L1")`** 現在設 `fn._cb_layer`（之前沒設，導致 custom callback 被 L 層 guard 的 `expected_layer` 過濾掉、靜默不執行）。
+- **command space vs joint space**：action_layout 的 keys≠joint_names → command space（不做 deg↔rad scale、reject 回 `safe_action`）。`safe_action`：vector / `"hold"`（arm 預設，回當前 joint）/ `"zero"`。EE-pose（typed segment ee_pose=7/scalar=1）由 `_segment_size`/`_refresh_action_spec` 處理；非 joint-size 的 command-space stackfile 不應放 joint guard（EE 測試改用無 joint-clamp 的 `ee_stackfile`）。
+- **新 example** `examples/mobile_base_guardrail.py`（~55 行，純 numpy，註冊 solver+callback → `Guardrail` → 每 cycle 丟 dict）取代使用者原本 180 行的 `JetbotDAMWrapper`。jetbot stackfile callback 改名 `rollout_inside_band`。
+- **版本/文檔**：pyproject+package.json 已在前單元 bump 0.7.0；release-notes-0.7.0 加 Guardrail 章節＋migration 第 6 條；library-api / safe-recording / use-cases 全改新 API。
+
+驗證：721 unit + 292 safety/property/相關 integration 全過；ruff/docs-check clean；mobile_base_guardrail 與 safe_record 兩個 example 實跑 PASS/CLAMP/REJECT 正確。
+
+剩餘風險：`examples/isaac_jetbot_lane_demo.py` 仍 import 外部 `controll_scripts.safety`（使用者本地），未隨改；其 docstring 指向新 example。`safe_record.py` Level 2 首 cycle 顯示較大 clamp（無 prev velocity baseline 的既有行為，非回歸）。
+
+---
+
+> 上一輪更新: 2026-06-14 (Preset/interface semantics follow-up — 兩個交付單元)
 
 ## 本輪追加（第二單元：hz 改名 + capabilities + degrees_mode 搬位置）
 

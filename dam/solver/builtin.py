@@ -1,8 +1,9 @@
 """Built-in solver factories, registered together.
 
 These are the solvers DAM ships with. User code registers its own the same way
-via :func:`dam.register_solver_factory` (the name you register under is the name
-stackfiles reference — there is no separate ``type``).
+via the :func:`dam.solver_factory` decorator. A factory declares the params it needs as
+keyword arguments; the registry injects matching values from the stackfile
+``params`` plus robot context (``asset_path``, ``observation_joint_names``, …).
 
   - ``pinocchio_kinematics`` — arm FK/IK from a URDF (Pinocchio).
   - ``ackermann`` — planar ``[v, omega]`` rollout for differential-drive /
@@ -12,33 +13,36 @@ stackfiles reference — there is no separate ``type``).
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Mapping
 from typing import Any
 
 
-def _pinocchio_kinematics(params: Mapping[str, Any]) -> Any:
+def _pinocchio_kinematics(
+    asset_path: str | None = None,
+    controlled_joints: list[str] | None = None,
+    ee_link_name: str = "gripper_link",
+    observation_joint_names: list[str] | None = None,
+) -> Any:
     from dam.kinematics.resolver import KinematicsResolver
 
-    urdf_path = params.get("asset_path")
-    if not urdf_path:
+    if not asset_path:
         raise ValueError(
             "pinocchio_kinematics solver requires preset asset type='urdf' or params.asset_path"
         )
     return KinematicsResolver(
-        str(urdf_path),
-        controlled_joints=params.get("controlled_joints"),
-        ee_link_name=str(params.get("ee_link_name", "gripper_link")),
-        observation_joint_names=params.get("observation_joint_names"),
+        str(asset_path),
+        controlled_joints=controlled_joints,
+        ee_link_name=str(ee_link_name),
+        observation_joint_names=observation_joint_names,
     )
 
 
-def _ackermann(params: Mapping[str, Any]) -> Any:
+def _ackermann(
+    wheel_base: float | None = None,
+    track_width: float | None = None,
+) -> Any:
     from dam.kinematics.ackermann import AckermannSolver
 
-    return AckermannSolver(
-        wheel_base=params.get("wheel_base"),
-        track_width=params.get("track_width"),
-    )
+    return AckermannSolver(wheel_base=wheel_base, track_width=track_width)
 
 
 def register_all() -> None:

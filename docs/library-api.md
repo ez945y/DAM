@@ -9,20 +9,20 @@ import dam
 dam.run(stack, *, task, cycles, ros2_node)  -> RunSummary
 dam.build_runner(stack, *, ros2_node)       -> Runner
 
-# Safety guard (no hardware loop needed)
-dam.safe(action, obs, stackfile, *, ...)    -> ndarray | dict
-dam.SafetyGuard(stackfile, *, task, ...)    -> callable guard
-dam.SafetyProcessorStep(stackfile, *, ...)  -> LeRobot processor step
+# Guardrail (no hardware loop needed) — dict in, validated command out
+dam.guardrail(inputs, stackfile, *, ...)        -> ndarray | dict
+dam.Guardrail(stackfile, *, task, safe_action)  -> callable guard
+dam.GuardrailProcessorStep(stackfile, *, ...)   -> LeRobot processor step
 
 # Registration decorators
 dam.register_callback(name, fn=None, *, layer, category, description, params)
 dam.register_preset(name, *, joint_names, asset, solvers, action_layout)
 dam.register_solver(name, solver, *, capabilities)
-dam.register_solver_factory(type, factory, *, capabilities)
 dam.register_read_interface(type, factory)
 dam.register_write_interface(type, factory)
-@dam.callback(name)                         # register a boundary callback
+@dam.callback(name, *, layer)               # register a boundary callback
 @dam.guard(layer, *, phase, always)         # register a Guard subclass
+@dam.solver_factory(name, *, capabilities)  # register a config-driven solver
 @dam.fallback(name, *, monitors_hardware)   # register a fallback Context
 
 # Types
@@ -74,65 +74,69 @@ finally:
 
 ---
 
-## Safety Guard API
+## Guardrail API
 
-For validating actions without running a full hardware loop — during recording, offline evaluation, or testing.
+Validate a command without running a full hardware loop — during recording,
+offline evaluation, or testing. **One dict in, one validated command out.**
 
-### `dam.safe()` — one-liner
+The mental model is one sentence: *whatever key you put in the dict, a callback
+can receive by declaring a parameter of the same name.* `action` is the reserved
+key — the command to validate; every other key is an observation group. Standard
+keys are also folded into the `obs` object for builtin guards (`joints` /
+`<joint>.pos` → joint positions, `images` / camera frames, `current` /
+`temperature` / `voltage` and any other array → `obs.channels`).
 
-```python
-safe_action = dam.safe(action, obs, stackfile="safety.yaml")
-```
-
-Creates a `SafetyGuard` internally. Convenient but re-initializes every call — use `SafetyGuard` directly for repeated calls.
-
-### `dam.SafetyGuard` — stateful
-
-```python
-guard = dam.SafetyGuard("safety.yaml", task="record")
-
-for action, obs in teleop_stream:
-    safe_action = guard(action, obs)   # dict→dict or ndarray→ndarray
-
-    # Inspect what happened
-    for r in guard.last_results:
-        print(r.decision, r.guard_name, r.reason)
-```
-
-- Auto-detects `joint_names` from `hardware` or `hardware.preset`, and `degrees_mode` from the motor interface (`source.degrees_mode` / `hardware.degrees_mode`)
-- Rejected actions return hold-position (current joint positions) so loops never break
-- Access the underlying runtime via `guard.runtime`
-
-`SafetyGuard` exposes action semantics from `hardware.action_layout` or the
-selected preset to callbacks. Each segment lists its `keys` — what each slot
-means, in order — so the segment size is self-describing. It does not
-automatically run IK/FK; callbacks choose a solver and the solver decides
-whether it supports that action segment.
+### `dam.Guardrail` — stateful
 
 ```python
-@dam.register_callback("my_ee_rule", layer="L1")
-def my_ee_rule(*, action, action_layout, solvers):
-    ee_segment = action.metadata["action_segments"]["arm"]
-    solver = solvers["arm_kinematics"]
-    if not solver.supports("ee_pose"):
-        return True
+rail = dam.Guardrail("jetbot.yaml", safe_action=[0.0, 0.0])
+# Prints its contract on construction:
+#   [Guardrail] jetbot.yaml · task=default
+#     requires obs: base_pose
+#     action:       [v, omega]  (command space)
+#     on reject:    [0. 0.]
 
-    joint_target = solver.inverse_kinematics(
-        ee_segment,
-        action.target_joint_positions,
-    )
-    ...
-    return True
+safe_cmd = rail({"base_pose": [x, y, yaw], "action": [v, omega]})
 
-guard = dam.SafetyGuard(
-    "safety.yaml",
-    solvers={"arm_kinematics": ArmSolver()},
-)
-
-safe_action = guard(policy_action, current_joint_positions)
+for r in rail.last_results:           # inspect what happened
+    print(r.decision, r.guard_name, r.reason)
 ```
 
-Stackfile:
+A callback declares the observation groups it needs by name — the runtime
+injects them, no positional slicing:
+
+```python
+@dam.callback("forward_only", layer="L1")
+def forward_only(*, base_pose, action, solvers, dt=0.1):
+    x_next, *_ = solvers["ackermann"].rollout(base_pose, action, dt)
+    return bool(x_next >= 0.0)
+```
+
+- Auto-detects `joint_names` and `degrees_mode` from `hardware` / the preset.
+- The input dict is checked against the contract: a missing required obs group,
+  or one whose key collides with a reserved runtime key, raises immediately.
+- `safe_action` on reject: an explicit vector (e.g. `[0, 0]` to stop a base),
+  `"hold"` (default — re-issue the current joint positions, safe for a
+  position-controlled arm), or `"zero"`.
+- The return value mirrors the `action` you passed (list/ndarray/tensor, or a
+  `{key: value}` dict). Pass `quiet=True` to suppress the contract print.
+
+### `dam.guardrail()` — one-liner
+
+```python
+safe_cmd = dam.guardrail({"base_pose": pose, "action": cmd}, "jetbot.yaml", safe_action=[0, 0])
+```
+
+Builds a `Guardrail` internally. Convenient but re-initializes every call — use
+`Guardrail` directly for repeated calls.
+
+### Action segments & solvers
+
+When the action is a structured command (an EE pose, a base twist), declare its
+shape in `hardware.action_layout`. Each segment lists its `keys` (or a typed
+size like `ee_pose`), and the per-segment vectors are exposed to callbacks via
+`action.metadata["action_segments"]`; the chosen `solver` does the embodiment
+math.
 
 ```yaml
 hardware:
@@ -144,17 +148,12 @@ hardware:
       keys: [gripper]
 ```
 
-Solvers are the extension point. A preset or stackfile `hardware` block can own
-multiple solver definitions: arm kinematics, base dynamics, collision checking,
-map constraints, and more. The robot description is a single `asset`; solvers
-receive that asset path automatically unless they override params explicitly.
-
-### `dam.SafetyProcessorStep` — LeRobot integration
+### `dam.GuardrailProcessorStep` — LeRobot integration
 
 ```python
-from dam import SafetyProcessorStep
+from dam import GuardrailProcessorStep
 
-robot_action_processor.steps.insert(0, SafetyProcessorStep("safety.yaml"))
+robot_action_processor.steps.insert(0, GuardrailProcessorStep("safety.yaml"))
 ```
 
 Drop-in `RobotActionProcessorStep` subclass. Lazy init — the guard is created on the first call, not at import time. Falls back to a no-op if LeRobot is not installed.
@@ -221,22 +220,26 @@ dam.register_solver(
 )
 ```
 
-Pass it into `SafetyGuard` by name or object map:
+Pass it into `Guardrail` by name or object map:
 
 ```python
-guard = dam.SafetyGuard("safety.yaml", solvers={"arm_kinematics": isaac_solver})
+guard = dam.Guardrail("safety.yaml", solvers={"arm_kinematics": isaac_solver})
 ```
 
-### `dam.register_solver_factory(...)`
+### `@dam.solver_factory(...)`
 
 Register a Stackfile-instantiable solver factory. The name you register under
 IS the name stackfiles reference (the solvers-block key) — there is no separate
-`type`. Usable as a direct call or a decorator, like `register_callback`:
+`type`. The factory **declares the params it needs as keyword arguments**; DAM
+injects matching values from the stackfile `params` plus robot context it knows
+(`asset_path`, `asset_type`, `asset`, `observation_joint_names`). Params the
+factory does not declare are dropped — no `params.get()`, and you never receive
+keys you did not ask for. Declare `**kwargs` to receive everything.
 
 ```python
-@dam.register_solver_factory("isaac_usd", capabilities=["fk", "ik"])
-def make_usd_solver(params):
-    return IsaacUsdSolver(params["prim_path"])
+@dam.solver_factory("isaac_usd", capabilities=["fk", "ik"])
+def make_usd_solver(prim_path, observation_joint_names=None):
+    return IsaacUsdSolver(prim_path, joints=observation_joint_names)
 ```
 
 Stackfile — the solver key is the registered name:
@@ -245,8 +248,7 @@ Stackfile — the solver key is the registered name:
 hardware:
   preset: my_arm
   solvers:
-    isaac_usd:                 # key == registered name == type
-      capabilities: [fk, ik]
+    isaac_usd:                 # key == registered name
       params:
         prim_path: /World/Robot
 ```

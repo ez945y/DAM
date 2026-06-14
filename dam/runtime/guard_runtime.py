@@ -638,7 +638,7 @@ class GuardRuntime:
 
         If loopback recording is active, the cycle is also submitted to
         the MCAP writer — so ``validate()``-only callers (e.g.
-        ``SafetyGuard``) get guard event logging for free.
+        ``Guardrail``) get guard event logging for free.
         """
         if advance_cycle:
             self._cycle_id += 1

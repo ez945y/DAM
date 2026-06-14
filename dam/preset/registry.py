@@ -33,10 +33,7 @@ import os
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from dam.types.joint_layout import JointLayout
+from typing import Any
 
 import yaml
 
@@ -65,7 +62,6 @@ class RobotPreset:
     asset: dict[str, str] | None = None
     solvers: dict[str, Any] = field(default_factory=dict)
     action_layout: list[dict[str, Any]] = field(default_factory=list)
-    chains: dict[str, Any] | None = field(default=None, repr=False)
 
     def asset_path(self) -> str | None:
         if not self.asset:
@@ -77,17 +73,6 @@ class RobotPreset:
             return None
         value = self.asset.get("type")
         return str(value).lower() if value else None
-
-    @property
-    def joint_layout(self) -> JointLayout:
-        """Resolved joint layout — explicit from chains config, or auto-derived from joint_names."""
-        from dam.types.joint_layout import JointLayout
-
-        if self.chains:
-            return JointLayout.from_config(self.chains, joint_names=self.joint_names)
-        if self.joint_names:
-            return JointLayout.from_names(self.joint_names)
-        return JointLayout.trivial(0)
 
 
 # ── Registry I/O ─────────────────────────────────────────────────────────────
@@ -140,7 +125,6 @@ def _to_preset(name: str, entry: dict[str, Any]) -> RobotPreset:
         asset=dict(asset) if isinstance(asset, dict) else None,
         solvers=dict(entry.get("solvers") or {}),
         action_layout=list(entry.get("action_layout") or []),
-        chains=entry.get("chains"),
     )
 
 
@@ -177,7 +161,6 @@ def list_preset_entries() -> list[dict[str, Any]]:
                 "asset": dict(asset) if isinstance(asset, dict) else None,
                 "solvers": dict(entry.get("solvers") or {}),
                 "action_layout": list(entry.get("action_layout") or []),
-                "chains": entry.get("chains"),
             }
         )
     return entries
@@ -190,7 +173,6 @@ def upsert_preset(
     asset: dict[str, str] | None = None,
     solvers: dict[str, Any] | None = None,
     action_layout: list[dict[str, Any]] | None = None,
-    chains: dict[str, Any] | None = None,
     rename_from: str | None = None,
 ) -> RobotPreset:
     """Create or update a preset (writes to the user file).
@@ -213,8 +195,6 @@ def upsert_preset(
         entry["solvers"] = dict(solvers)
     if action_layout:
         entry["action_layout"] = [dict(item) for item in action_layout]
-    if chains:
-        entry["chains"] = chains
     with _lock:
         user = _load_one(_user_path())
         bundled = _load_one(BUNDLED_PATH)

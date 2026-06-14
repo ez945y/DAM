@@ -131,16 +131,12 @@ class TestRegistrationAPI:
             def __init__(self, gain: float):
                 self.gain = gain
 
-        def factory(params):
-            return Solver(params["gain"])
+        # Factory declares the param it needs by name; the registry injects it.
+        @dam.solver_factory(solver_type, capabilities=["kinematics"])
+        def factory(gain):
+            return Solver(gain)
 
-        returned = dam.register_solver_factory(
-            solver_type,
-            factory,
-            capabilities=["kinematics"],
-        )
-
-        assert returned is factory
+        assert callable(factory)
         solver = get_global_solver_registry().build(
             solver_name,
             solver_type,
@@ -188,14 +184,16 @@ class TestRegistrationAPI:
     def test_register_solver_factory_decorator(self):
         solver_type = f"deco_solver_{uuid.uuid4().hex}"
 
-        @dam.register_solver_factory(solver_type, capabilities=["rollout"])
-        def make(params):
+        # A factory with **kwargs receives every injected param.
+        @dam.solver_factory(solver_type, capabilities=["rollout"])
+        def make(**params):
             return {"type": solver_type, "params": dict(params)}
 
         # Decorator returns the factory unchanged, and the name is the type.
         assert callable(make)
         solver = get_global_solver_registry().build("inst", solver_type, {"k": 1})
         assert solver["type"] == solver_type
+        assert solver["params"] == {"k": 1}
 
     def test_register_read_interface_decorator(self):
         read_type = f"deco_read_{uuid.uuid4().hex}"

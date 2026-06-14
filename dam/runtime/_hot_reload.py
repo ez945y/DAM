@@ -89,10 +89,12 @@ class HotReloadManager:
         if new_config.safety and new_config.safety.control_hz > 0:
             pool["dt"] = 1.0 / new_config.safety.control_hz
 
-        # Joint layout: resolved from preset (which owns the physical description).
+        # Joint names: ordered observation/joint identifiers from the preset
+        # (which owns the physical description). Used to align the observation
+        # vector with the URDF dynamics model by name during FK.
         preset = _resolve_preset(new_config)
         if preset and preset.joint_names:
-            pool["joint_layout"] = preset.joint_layout
+            pool["joint_names"] = list(preset.joint_names)
         if new_config.hardware and new_config.hardware.action_layout:
             pool["action_layout"] = [dict(item) for item in new_config.hardware.action_layout]
         elif preset and preset.action_layout:

@@ -5,9 +5,9 @@
 #   v     = forward linear velocity command in m/s
 #   omega = yaw-rate command in rad/s
 #
-# The L1 callback rolls the command forward with a diff-drive/Ackermann solver
-# and rejects commands whose predicted next state enters the red left/right/
-# bottom bands. See examples/isaac_jetbot_lane_demo.py.
+# The L1 callback (rollout_inside_band) rolls the command forward with a
+# diff-drive/Ackermann solver and rejects commands whose predicted next state
+# leaves the safe x-band. See examples/mobile_base_guardrail.py.
 
 version: "1"
 
@@ -38,11 +38,10 @@ boundaries:
     layer: L1
     type: single
     nodes:
-      - callback: jetbot_rollout_inside_safe_region
+      - callback: rollout_inside_band
         params:
           x_min: -0.28
           x_max: 1.20
-          y_abs_max: 0.24
           dt: 0.12
 
 tasks:

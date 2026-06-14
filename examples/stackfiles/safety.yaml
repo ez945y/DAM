@@ -8,7 +8,7 @@
 #   .venv/bin/python scripts/record.py --dataset.num_episodes=20   # override
 #
 # Programmatic:
-#   guard = dam.SafetyGuard("examples/stackfiles/safety.yaml")
+#   guard = dam.Guardrail("examples/stackfiles/safety.yaml")
 #   safe_action = guard(action, obs)
 
 version: "1"

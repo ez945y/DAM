@@ -60,11 +60,61 @@ def guard(
     return decorator
 
 
-def callback(name: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    """Validate runtime-pool keys and register in global CallbackRegistry at import time."""
+def callback(name: str, *, layer: str = "L1") -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """Register a boundary callback in the global CallbackRegistry at import time.
+
+    ``layer`` (``L0``–``L3``) tags which guard dispatches it; it must match the
+    ``layer`` of the boundary that references it. The callback declares the
+    observation groups and runtime values it needs as keyword parameters
+    (``obs``, ``action``, ``base_pose``, ``current``, ``dt``, …) — the runtime
+    injects them by name.
+    """
 
     def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
+        fn._cb_layer = layer  # type: ignore[attr-defined]
         get_global_registry().register(name=name, fn=fn, valid_keys=None)
+        return fn
+
+    return decorator
+
+
+def solver_factory(
+    name: str,
+    *,
+    capabilities: tuple[str, ...] | list[str],
+    replace: bool = False,
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """Register a config-driven solver factory under ``name``.
+
+    Mirrors @dam.guard / @dam.callback / @dam.fallback. The factory declares
+    the parameters it needs as **keyword arguments**; DAM injects matching
+    values from the stackfile ``params`` plus robot context the runtime knows
+    (``asset_path``, ``asset_type``, ``asset``, ``observation_joint_names``).
+    Parameters the factory does not declare are dropped — no ``params.get()``
+    boilerplate, no swallowing of keys you never asked for. Declare ``**kwargs``
+    to receive everything.
+
+    The name you register under IS the name stackfiles reference (the
+    solvers-block key); there is no separate ``type``.
+
+    .. code-block:: python
+
+        @dam.solver_factory("ackermann", capabilities=["rollout"])
+        def make_ackermann(wheel_base=None, track_width=None):
+            return AckermannSolver(wheel_base, track_width)
+
+    .. code-block:: yaml
+
+        solvers:
+          ackermann:            # key == registered name
+            params: { wheel_base: 0.32 }
+    """
+    from dam.solver.registry import get_global_solver_registry
+
+    def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
+        get_global_solver_registry().register_factory(
+            name, fn, capabilities=capabilities, replace=replace
+        )
         return fn
 
     return decorator
