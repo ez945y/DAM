@@ -1,0 +1,52 @@
+# jetbot_lane_safety.yaml -- DAM safety config for the Jetbot boundary demo.
+#
+# Action vector: [v, omega]  (declared by the jetbot_diff_drive preset's
+# action_layout keys — see assets/presets.yaml)
+#   v     = forward linear velocity command in m/s
+#   omega = yaw-rate command in rad/s
+#
+# The L1 callback rolls the command forward with a diff-drive/Ackermann solver
+# and rejects commands whose predicted next state enters the red left/right/
+# bottom bands. See examples/isaac_jetbot_lane_demo.py.
+
+version: "1"
+
+hardware:
+  preset: jetbot_diff_drive
+
+safety:
+  control_hz: 120
+  enforcement_mode: enforce
+  no_task_behavior: hold_position
+
+fallbacks:
+  hold_position:
+    severity: 80
+  slow_down:
+    severity: 40
+    requires_proposal: true
+    params:
+      scale: 0.35
+
+guards:
+  - L1: boundary
+    phase: 0
+    timeout_ms: 10
+
+boundaries:
+  rollout_inside_safe_region:
+    layer: L1
+    type: single
+    nodes:
+      - callback: jetbot_rollout_inside_safe_region
+        params:
+          x_min: -0.28
+          x_max: 1.20
+          y_abs_max: 0.24
+          dt: 0.12
+
+tasks:
+  default:
+    description: "Jetbot diff-drive command keeps rollout inside the green safe region"
+    boundaries:
+      - rollout_inside_safe_region

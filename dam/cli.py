@@ -546,7 +546,7 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
     print(f"\nfallbacks ({len(config.fallbacks)}):")
     for name, fb in config.fallbacks.items():
         chain = f" -> {fb.escalate_to}" if fb.escalate_to else ""
-        print(f"  {name}: {fb.type}{chain}")
+        print(f"  {name}{chain}")
     return 0
 
 

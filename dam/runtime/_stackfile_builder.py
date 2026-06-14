@@ -140,31 +140,10 @@ def _apply_guard_overrides(
 
 
 def _register_builtin_solver_factories() -> None:
-    from dam.solver.registry import get_global_solver_registry
+    """Register DAM's built-in solver factories (see ``dam.solver.builtin``)."""
+    from dam.solver.builtin import register_all
 
-    registry = get_global_solver_registry()
-
-    def pinocchio_kinematics(params: Mapping[str, Any]) -> Any:
-        from dam.kinematics.resolver import KinematicsResolver
-
-        urdf_path = params.get("asset_path")
-        if not urdf_path:
-            raise ValueError(
-                "pinocchio_kinematics solver requires preset asset type='urdf' or params.asset_path"
-            )
-        return KinematicsResolver(
-            str(urdf_path),
-            controlled_joints=params.get("controlled_joints"),
-            ee_link_name=str(params.get("ee_link_name", "gripper_link")),
-            observation_joint_names=params.get("observation_joint_names"),
-        )
-
-    with contextlib.suppress(ValueError):
-        registry.register_factory(
-            "pinocchio_kinematics",
-            pinocchio_kinematics,
-            capabilities=("fk", "ik"),
-        )
+    register_all()
 
 
 def _preset_joint_names(config: StackfileConfig) -> list[str] | None:
@@ -231,12 +210,14 @@ def _init_solvers(config: StackfileConfig) -> dict[str, Any]:
     preset_asset = _preset_asset(config)
 
     for name, scfg in solver_configs.items():
+        # The solvers-block key IS the solver type / registered implementation
+        # name; an explicit ``type`` only aliases a different implementation.
         if isinstance(scfg, dict):
-            solver_type = str(scfg.get("type", ""))
+            solver_type = str(scfg.get("type") or name)
             capabilities = scfg.get("capabilities")
             params = dict(scfg.get("params") or {})
         else:
-            solver_type = scfg.type
+            solver_type = scfg.type or name
             capabilities = scfg.capabilities
             params = dict(scfg.params or {})
         if preset_asset:

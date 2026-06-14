@@ -173,13 +173,12 @@ presets:
       type: urdf
       path: /opt/robots/my_arm.urdf
     solvers:
-      arm_kinematics:
-        type: pinocchio_kinematics
+      pinocchio_kinematics:        # key IS the registered solver name / type
         capabilities: [fk, ik]
     action_layout:
       - name: arm
         keys: [x, y, z, yaw, pitch, roll]
-        solver: arm_kinematics
+        solver: pinocchio_kinematics
 ```
 
 ### `dam.register_callback(...)`
@@ -229,28 +228,24 @@ guard = dam.SafetyGuard("safety.yaml", solvers={"arm_kinematics": isaac_solver})
 
 ### `dam.register_solver_factory(...)`
 
-Register a Stackfile-instantiable solver factory:
+Register a Stackfile-instantiable solver factory. The name you register under
+IS the name stackfiles reference (the solvers-block key) — there is no separate
+`type`. Usable as a direct call or a decorator, like `register_callback`:
 
 ```python
+@dam.register_solver_factory("isaac_usd", capabilities=["fk", "ik"])
 def make_usd_solver(params):
     return IsaacUsdSolver(params["prim_path"])
-
-dam.register_solver_factory(
-    "isaac_usd",
-    make_usd_solver,
-    capabilities=["kinematics"],
-)
 ```
 
-Stackfile:
+Stackfile — the solver key is the registered name:
 
 ```yaml
 hardware:
   preset: my_arm
   solvers:
-    arm:
-      type: isaac_usd
-      capabilities: [kinematics]
+    isaac_usd:                 # key == registered name == type
+      capabilities: [fk, ik]
       params:
         prim_path: /World/Robot
 ```

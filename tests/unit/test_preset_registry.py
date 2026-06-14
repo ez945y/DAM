@@ -39,7 +39,8 @@ def test_get_preset_so101_by_name(isolated_user_path):
     assert p.name == "so101_follower"
     assert p.asset_type() == "urdf"
     assert p.asset_path() is not None
-    assert "arm_kinematics" in p.solvers
+    # Solver key IS the registered implementation name (no separate `type`).
+    assert "pinocchio_kinematics" in p.solvers
     assert "shoulder_pan" in p.joint_names
     assert p.joint_names[-1] == "gripper"
 
@@ -63,7 +64,7 @@ def test_list_preset_entries_returns_dicts(isolated_user_path):
     assert len(so101["joint_names"]) == 6
     assert so101["asset"]["type"] == "urdf"
     assert so101["asset"]["path"]
-    assert "arm_kinematics" in so101["solvers"]
+    assert "pinocchio_kinematics" in so101["solvers"]
     assert so101["action_layout"][0]["name"] == "arm"
 
 

@@ -182,7 +182,6 @@ export type EnforcementMode = 'enforce' | 'monitor' | 'log_only'
 
 export interface FallbackDef {
   name: string
-  type?: string
   params?: Record<string, unknown>
   description?: string
   severity?: number

@@ -84,6 +84,7 @@ python -m pytest tests/unit/ -x   # 快速跑 unit test
 * 改動完成後派 QA 或自己驗收
 * 能用 grep/read 解決的事，不要浪費 agent
 * 不做推測性抽象，不過度設計
+* **不保留向後相容／舊代碼**：採用新設計時直接替換——移除舊欄位、別名、deprecated shim 與 migration 路徑，呼叫端全部更新，schema 用 `extra="forbid"` 直接拒收舊名。不留「先相容著」的過渡代碼。
 * 不把「看起來完成」當成完成
 * 優先選擇小步驟、高信心、易 review 的改善
 * 以證據優先，而不是假設

@@ -247,12 +247,12 @@ describe('generateYaml', () => {
     expect(yaml).not.toContain('nn_threshold:')
   })
 
-  it('includes fallbacks block with severity and type', () => {
+  it('includes fallbacks block with severity and no separate type', () => {
     const cfg = defaultConfig('quick_start')
     const yaml = generateYaml(cfg)
     expect(yaml).toContain('fallbacks:')
     expect(yaml).toContain('emergency_stop:')
-    expect(yaml).toContain('type: emergency_stop')
+    expect(yaml).not.toContain('type: emergency_stop')
     expect(yaml).toContain('severity: 100')
     expect(yaml).toContain('hold_position:')
     expect(yaml).toContain('severity: 80')

@@ -69,9 +69,6 @@ _DEFAULT_SIM_STACK = textwrap.dedent("""\
       control_hz: 30.0
       no_task_behavior: emergency_stop
       enforcement_mode: monitor
-    fallbacks:
-      emergency_stop:
-        type: emergency_stop
 """)
 
 

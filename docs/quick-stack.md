@@ -69,7 +69,7 @@ Top-level keys accepted by a Stackfile:
 | `hardware` | object | no | — | Hardware interfaces and joint presets |
 | `policy` | object | no | — | Policy adapter type and parameters |
 | `guards` | object | no | `{}` | Guard enable flags and parameters |
-| `fallbacks` | object | no | built-ins | Named fallback strategies. Each entry references a registered `@dam.fallback` type. |
+| `fallbacks` | object | no | built-ins | Named fallback strategies. Each key is a registered `@dam.fallback` type. |
 | `boundaries` | object | no | `{}` | Named boundary containers |
 | `tasks` | object | no | `{}` | Named tasks referencing boundary containers |
 | `safety` | object | no | see below | Global safety settings |
@@ -149,20 +149,20 @@ nodes reference those names.
 ```yaml
 fallbacks:
   emergency_stop:
-    type: emergency_stop
+    severity: 100
   hold_position:
-    type: hold_position
-  slow_payload:
-    type: slow_down
+    severity: 80
+  slow_down:
     escalate_to: emergency_stop
     escalate_after_seconds: 5.0
     params:
       scale: 0.5
 ```
 
-Built-in context types are `emergency_stop`, `hold_position`, `wait_and_retry`,
-`slow_down`, and `retreat`. Fallback Contexts can opt into L3 hardware monitoring
-with `monitors_hardware`; `emergency_stop` is terminal and disables it.
+Built-in fallback names are `emergency_stop`, `hold_position`, `wait_and_retry`,
+`slow_down`, and `retreat`; the key is the Context type. Fallback Contexts can
+opt into L3 hardware monitoring with `monitors_hardware`; `emergency_stop` is
+terminal and disables it.
 
 ### `runtime` section defaults
 

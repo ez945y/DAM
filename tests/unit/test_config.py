@@ -62,6 +62,36 @@ def test_validate_method():
     StackfileLoader.validate(path)  # Should not raise
 
 
+def test_fallback_key_is_type_and_type_field_is_rejected():
+    path = write_temp_yaml(
+        textwrap.dedent("""\
+        version: "1"
+        fallbacks:
+          emergency_stop:
+            type: emergency_stop
+        tasks:
+          default:
+            boundaries: []
+        """)
+    )
+    with pytest.raises(ValueError, match="type"):
+        StackfileLoader.load(path)
+
+    ok_path = write_temp_yaml(
+        textwrap.dedent("""\
+        version: "1"
+        fallbacks:
+          emergency_stop:
+            severity: 100
+        tasks:
+          default:
+            boundaries: []
+        """)
+    )
+    cfg = StackfileLoader.load(ok_path)
+    assert cfg.fallbacks["emergency_stop"].severity == 100
+
+
 def test_declared_hardware_and_policy_sections_load_without_input_space():
     path = write_temp_yaml(
         textwrap.dedent("""\
@@ -90,12 +120,12 @@ def test_hardware_accepts_action_layout_and_solver_overrides():
             type: usd
             path: /robots/franka.usd
           solvers:
-            arm_kinematics:
-              type: isaac_kinematics
+            isaac_kinematics:
+              capabilities: [fk, ik]
           action_layout:
             - name: arm
               keys: [x, y, z, yaw, pitch, roll]
-              solver: arm_kinematics
+              solver: isaac_kinematics
             - name: gripper
               keys: [gripper]
         tasks:
@@ -105,8 +135,9 @@ def test_hardware_accepts_action_layout_and_solver_overrides():
     )
     cfg = StackfileLoader.load(path)
     assert cfg.hardware.asset == {"type": "usd", "path": "/robots/franka.usd"}
-    assert cfg.hardware.solvers["arm_kinematics"]["type"] == "isaac_kinematics"
-    assert cfg.hardware.action_layout[0]["solver"] == "arm_kinematics"
+    # Solver key IS the type — no separate `type` field needed.
+    assert cfg.hardware.solvers["isaac_kinematics"]["capabilities"] == ["fk", "ik"]
+    assert cfg.hardware.action_layout[0]["solver"] == "isaac_kinematics"
     # Segment size is self-describing via keys (6-DoF EE pose + 1 gripper).
     assert cfg.hardware.action_layout[0]["keys"] == ["x", "y", "z", "yaw", "pitch", "roll"]
     assert cfg.hardware.action_layout[1]["keys"] == ["gripper"]

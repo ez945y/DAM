@@ -149,3 +149,25 @@ class TestRegistrationAPI:
         registry = get_global_interface_registry()
         assert registry.has_read(read_type)
         assert registry.has_write(write_type)
+
+    def test_register_solver_factory_decorator(self):
+        solver_type = f"deco_solver_{uuid.uuid4().hex}"
+
+        @dam.register_solver_factory(solver_type, capabilities=["rollout"])
+        def make(params):
+            return {"type": solver_type, "params": dict(params)}
+
+        # Decorator returns the factory unchanged, and the name is the type.
+        assert callable(make)
+        solver = get_global_solver_registry().build("inst", solver_type, {"k": 1})
+        assert solver["type"] == solver_type
+
+    def test_register_read_interface_decorator(self):
+        read_type = f"deco_read_{uuid.uuid4().hex}"
+
+        @dam.register_read_interface(read_type)
+        def factory(name, cfg, context):
+            return {"name": name}
+
+        assert callable(factory)
+        assert get_global_interface_registry().has_read(read_type)

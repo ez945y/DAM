@@ -22,10 +22,8 @@ safety:
 
 fallbacks:
   hold_position:
-    type: hold_position
     severity: 80
   slow_down:
-    type: slow_down
     severity: 40
     requires_proposal: true
     params:

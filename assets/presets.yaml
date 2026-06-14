@@ -32,15 +32,15 @@ presets:
     asset:
       type: urdf
       path: assets/so101_new_calib.urdf
+    # Solver key IS the registered implementation name (no separate `type`).
     solvers:
-      arm_kinematics:
-        type: pinocchio_kinematics
+      pinocchio_kinematics:
         capabilities: [fk, ik]
     # Policy emits 6 joint positions: 5 arm joints + 1 gripper.
     action_layout:
       - name: arm
         keys: [shoulder_pan, shoulder_lift, elbow_flex, wrist_flex, wrist_roll]
-        solver: arm_kinematics
+        solver: pinocchio_kinematics
       - name: gripper
         keys: [gripper]
 
@@ -64,3 +64,21 @@ presets:
         keys: [panda_joint1, panda_joint2, panda_joint3, panda_joint4, panda_joint5, panda_joint6, panda_joint7]
       - name: gripper
         keys: [panda_finger_joint1, panda_finger_joint2]
+
+  jetbot_diff_drive:
+    # Differential-drive base (NVIDIA Jetbot). Policy command is a body twist
+    # [v, omega] (v = linear m/s, omega = yaw-rate rad/s); the application's
+    # solver maps it onto wheel commands. See examples/stackfiles/
+    # jetbot_lane_safety.yaml and examples/isaac_jetbot_lane_demo.py.
+    # Wheel joints per Isaac Sim/Lab: /World/jetbot/chassis revolute joints.
+    joint_names:
+      - left_wheel_joint
+      - right_wheel_joint
+    # Solver key IS the registered implementation name (no separate `type`).
+    solvers:
+      ackermann:               # planar [v, omega] rollout (dam.kinematics.ackermann)
+        capabilities: [rollout]
+    action_layout:
+      - name: base
+        keys: [v, omega]
+        solver: ackermann

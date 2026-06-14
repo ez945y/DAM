@@ -195,7 +195,7 @@ def build_runtime(
             "enforcement_mode": enforcement_mode,
             "no_task_behavior": "emergency_stop",
         },
-        "fallbacks": {"emergency_stop": {"type": "emergency_stop"}},
+        "fallbacks": {"emergency_stop": {}},
     }
 
     with tempfile.NamedTemporaryFile(

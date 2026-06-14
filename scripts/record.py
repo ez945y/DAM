@@ -59,7 +59,10 @@ def _build_hardware_args(data: dict) -> list[str]:
         return []
 
     args: list[str] = []
-    sources = hardware.get("sources", {})
+    # Stackfiles declare IO under ``interfaces:`` (canonical); ``sources:`` is the
+    # lowered form and only appears when a stackfile uses it directly. Read raw
+    # YAML, so accept whichever the file provides.
+    sources = hardware.get("interfaces") or hardware.get("sources") or {}
 
     # Find the motor source → robot config
     _calib_base = Path.home() / ".cache" / "huggingface" / "lerobot" / "calibration"

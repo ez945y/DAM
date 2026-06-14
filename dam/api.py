@@ -20,7 +20,7 @@ import time
 import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, overload
 
 import numpy as np
 
@@ -122,107 +122,150 @@ def register_solver(
 
 def register_solver_factory(
     solver_type: str,
-    factory: Callable[[Mapping[str, Any]], Any],
+    factory: Callable[[Mapping[str, Any]], Any] | None = None,
     *,
     capabilities: tuple[str, ...] | list[str],
     replace: bool = False,
-) -> Callable[[Mapping[str, Any]], Any]:
-    """Register a config-driven solver factory.
+) -> Callable[..., Any]:
+    """Register a config-driven solver factory by name.
 
-    Stackfiles can instantiate it with:
+    The name you register under IS the name stackfiles reference — the
+    solvers-block key. There is no separate ``type`` field; ``key == type ==
+    implementation``.  Usable as a direct call or a decorator (like
+    :func:`register_callback`):
+
+    .. code-block:: python
+
+        @dam.register_solver_factory("ackermann", capabilities=["rollout"])
+        def make_ackermann(params):
+            return AckermannSolver(wheel_base=params.get("wheel_base"))
 
     .. code-block:: yaml
 
         solvers:
-          arm:
-            type: my_solver_type
+          ackermann:          # key == registered name == type
+            capabilities: [rollout]
             params: {...}
     """
     from dam.solver.registry import get_global_solver_registry
 
-    return get_global_solver_registry().register_factory(
-        solver_type,
-        factory,
-        capabilities=capabilities,
-        replace=replace,
-    )
+    def decorator(fn: Callable[[Mapping[str, Any]], Any]) -> Callable[[Mapping[str, Any]], Any]:
+        return get_global_solver_registry().register_factory(
+            solver_type,
+            fn,
+            capabilities=capabilities,
+            replace=replace,
+        )
+
+    if factory is None:
+        return decorator
+    return decorator(factory)
+
+
+_InterfaceFactory = Callable[[str, Any, Mapping[str, Any]], Any]
+_InterfaceDecorator = Callable[[_InterfaceFactory], _InterfaceFactory]
+
+
+@overload
+def _interface_register(
+    register_method: str,
+    interface_type: str,
+    factory: None,
+    replace: bool,
+) -> _InterfaceDecorator: ...
+
+
+@overload
+def _interface_register(
+    register_method: str,
+    interface_type: str,
+    factory: _InterfaceFactory,
+    replace: bool,
+) -> _InterfaceFactory: ...
+
+
+def _interface_register(
+    register_method: str,
+    interface_type: str,
+    factory: _InterfaceFactory | None,
+    replace: bool,
+) -> _InterfaceFactory | _InterfaceDecorator:
+    """Shared dual-form (direct call / decorator) interface registration.
+
+    Like :func:`register_callback`, the name you register under IS the interface
+    ``type`` stackfiles reference — telemetry channels may then omit ``type:``
+    entirely (the channel key resolves to the registered name).
+    """
+    from dam.interface.registry import get_global_interface_registry
+
+    def decorator(fn: _InterfaceFactory) -> _InterfaceFactory:
+        registry = get_global_interface_registry()
+        if register_method == "register_read":
+            return registry.register_read(interface_type, fn, replace=replace)
+        if register_method == "register_write":
+            return registry.register_write(interface_type, fn, replace=replace)
+        if register_method == "register_robot_telemetry":
+            return registry.register_robot_telemetry(interface_type, fn, replace=replace)
+        if register_method == "register_host_telemetry":
+            return registry.register_host_telemetry(interface_type, fn, replace=replace)
+        raise ValueError(f"Unknown interface registration method '{register_method}'")
+
+    if factory is None:
+        return decorator
+    return decorator(factory)
 
 
 def register_read_interface(
     interface_type: str,
-    factory: Callable[[str, Any, Mapping[str, Any]], Any],
+    factory: _InterfaceFactory | None = None,
     *,
     replace: bool = False,
-) -> Callable[[str, Any, Mapping[str, Any]], Any]:
-    """Register a user-defined runtime read interface.
+) -> _InterfaceFactory | _InterfaceDecorator:
+    """Register a user-defined runtime read interface (direct call or decorator).
 
     The factory receives ``(name, source_config, context)`` and must return an
     object with ``read() -> Observation``. Optional lifecycle methods such as
     ``connect()``, ``verify()``, and ``disconnect()`` are called when present.
     """
-    from dam.interface.registry import get_global_interface_registry
-
-    return get_global_interface_registry().register_read(
-        interface_type,
-        factory,
-        replace=replace,
-    )
+    return _interface_register("register_read", interface_type, factory, replace)
 
 
 def register_write_interface(
     interface_type: str,
-    factory: Callable[[str, Any, Mapping[str, Any]], Any],
+    factory: _InterfaceFactory | None = None,
     *,
     replace: bool = False,
-) -> Callable[[str, Any, Mapping[str, Any]], Any]:
-    """Register a user-defined runtime write interface.
+) -> _InterfaceFactory | _InterfaceDecorator:
+    """Register a user-defined runtime write interface (direct call or decorator).
 
     The factory receives ``(name, sink_config, context)`` and must return an
     object with ``apply(ValidatedAction)`` or ``write(ValidatedAction)``.
     """
-    from dam.interface.registry import get_global_interface_registry
-
-    return get_global_interface_registry().register_write(
-        interface_type,
-        factory,
-        replace=replace,
-    )
+    return _interface_register("register_write", interface_type, factory, replace)
 
 
 def register_robot_telemetry_interface(
     interface_type: str,
-    factory: Callable[[str, Any, Mapping[str, Any]], Any],
+    factory: _InterfaceFactory | None = None,
     *,
     replace: bool = False,
-) -> Callable[[str, Any, Mapping[str, Any]], Any]:
-    """Register a robot telemetry interface.
+) -> _InterfaceFactory | _InterfaceDecorator:
+    """Register a robot telemetry interface (direct call or decorator).
 
     The returned object should provide robot health/status data, typically via
     ``read() -> Observation`` channels or ``get_hardware_status()``.
     """
-    from dam.interface.registry import get_global_interface_registry
-
-    return get_global_interface_registry().register_robot_telemetry(
-        interface_type,
-        factory,
-        replace=replace,
-    )
+    return _interface_register("register_robot_telemetry", interface_type, factory, replace)
 
 
 def register_host_telemetry_interface(
     interface_type: str,
-    factory: Callable[[str, Any, Mapping[str, Any]], Any],
+    factory: _InterfaceFactory | None = None,
     *,
     replace: bool = False,
-) -> Callable[[str, Any, Mapping[str, Any]], Any]:
-    """Register a host telemetry interface."""
-    from dam.interface.registry import get_global_interface_registry
-
-    return get_global_interface_registry().register_host_telemetry(
-        interface_type,
-        factory,
-        replace=replace,
-    )
+) -> _InterfaceFactory | _InterfaceDecorator:
+    """Register a host telemetry interface (direct call or decorator)."""
+    return _interface_register("register_host_telemetry", interface_type, factory, replace)
 
 
 def _register_builtins() -> None:

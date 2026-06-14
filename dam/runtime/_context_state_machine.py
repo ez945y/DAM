@@ -84,14 +84,12 @@ class ContextStateMachine:
         """
         entry = self._fallbacks_config.get(fallback_name)
         if entry is not None:
-            ctx_type = getattr(entry, "type", None)
-            if isinstance(ctx_type, str):
-                return ResolvedFallback(
-                    context_type=ctx_type,
-                    params=dict(getattr(entry, "params", {}) or {}),
-                    escalate_after_seconds=getattr(entry, "escalate_after_seconds", None),
-                    escalate_to=getattr(entry, "escalate_to", None),
-                )
+            return ResolvedFallback(
+                context_type=fallback_name,
+                params=dict(getattr(entry, "params", {}) or {}),
+                escalate_after_seconds=getattr(entry, "escalate_after_seconds", None),
+                escalate_to=getattr(entry, "escalate_to", None),
+            )
         if get_context_class(fallback_name) is not None:
             return ResolvedFallback(context_type=fallback_name)
         return None
@@ -105,9 +103,8 @@ class ContextStateMachine:
             return None
         if get_context_class(resolved.context_type) is None:
             logger.warning(
-                "fallbacks['%s'].type='%s' is not a registered fallback Context",
+                "fallbacks['%s'] is not a registered fallback Context",
                 fallback_name,
-                resolved.context_type,
             )
             return None
         try:

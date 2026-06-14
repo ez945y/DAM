@@ -214,11 +214,11 @@ const DEFAULT_BOUNDARIES: BoundaryDef[] = orderBoundaries([...BASE_BOUNDARIES, G
 const REPLAY_BOUNDARIES: BoundaryDef[] = orderBoundaries([...BASE_BOUNDARIES, GRIPPER_SEQUENCE_BOUNDARY])
 
 const DEFAULT_FALLBACKS: FallbackDef[] = [
-  { name: 'emergency_stop', type: 'emergency_stop', severity: 100, requires_proposal: false, monitors_hardware: false, description: 'Immediate full stop. Highest severity.', params: {}, escalate_to: null },
-  { name: 'hold_position', type: 'hold_position', severity: 80, requires_proposal: false, monitors_hardware: false, description: 'Hold current joint positions until trigger clears.', params: {}, escalate_to: null },
-  { name: 'retreat', type: 'retreat', severity: 60, requires_proposal: false, monitors_hardware: false, description: 'Retract along the last safe trajectory segment.', params: { duration_seconds: 3.0, arrival_tol: 0.01 }, escalate_to: null },
-  { name: 'slow_down', type: 'slow_down', severity: 40, requires_proposal: true, monitors_hardware: false, description: 'Scale action magnitude while monitoring trigger.', params: { scale: 0.5 }, escalate_to: null },
-  { name: 'wait_and_retry', type: 'wait_and_retry', severity: 20, requires_proposal: false, monitors_hardware: false, description: 'Pause and re-check the trigger after a delay.', params: { wait_seconds: 1.0 }, escalate_to: null },
+  { name: 'emergency_stop', severity: 100, requires_proposal: false, monitors_hardware: false, description: 'Immediate full stop. Highest severity.', params: {}, escalate_to: null },
+  { name: 'hold_position', severity: 80, requires_proposal: false, monitors_hardware: false, description: 'Hold current joint positions until trigger clears.', params: {}, escalate_to: null },
+  { name: 'retreat', severity: 60, requires_proposal: false, monitors_hardware: false, description: 'Retract along the last safe trajectory segment.', params: { duration_seconds: 3.0, arrival_tol: 0.01 }, escalate_to: null },
+  { name: 'slow_down', severity: 40, requires_proposal: true, monitors_hardware: false, description: 'Scale action magnitude while monitoring trigger.', params: { scale: 0.5 }, escalate_to: null },
+  { name: 'wait_and_retry', severity: 20, requires_proposal: false, monitors_hardware: false, description: 'Pause and re-check the trigger after a delay.', params: { wait_seconds: 1.0 }, escalate_to: null },
 ]
 
 // QP fusion is now mandatory for all L1 boundaries — no opt-in needed.
@@ -564,7 +564,7 @@ const SCHEMA: YamlSection[] = [
     return [
       `${indent}fallbacks:`,
       ...defs.flatMap(f => {
-        const lines = [`${indent}  ${f.name}:`, `${indent}    type: ${f.type}`]
+        const lines = [`${indent}  ${f.name}:`]
         if (f.severity != null) lines.push(`${indent}    severity: ${f.severity}`)
         if (f.requires_proposal) lines.push(`${indent}    requires_proposal: true`)
         if (f.monitors_hardware) lines.push(`${indent}    monitors_hardware: true`)
@@ -714,7 +714,7 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
 
     if (section === 'fallbacks') {
       if (line.startsWith('  ') && !line.startsWith('    ')) {
-        currentFallback = { name: trimmed.replaceAll(':', ''), type: '', params: {}, escalate_to: null, escalate_after_seconds: null }
+        currentFallback = { name: trimmed.replaceAll(':', ''), params: {}, escalate_to: null, escalate_after_seconds: null }
         fallbacks.push(currentFallback)
         inFallbackParams = false
       } else if (currentFallback && line.startsWith('      ') && inFallbackParams) {
@@ -725,7 +725,6 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
       } else if (currentFallback && line.startsWith('    ')) {
         inFallbackParams = false
         if (trimmed === 'params:') { inFallbackParams = true }
-        else if (trimmed.startsWith('type:')) currentFallback.type = trimmed.replaceAll('type:', '').trim()
         else if (trimmed.startsWith('severity:')) currentFallback.severity = Number(trimmed.replaceAll('severity:', '').trim())
         else if (trimmed.startsWith('requires_proposal:')) currentFallback.requires_proposal = trimmed.replaceAll('requires_proposal:', '').trim() === 'true'
         else if (trimmed.startsWith('monitors_hardware:')) currentFallback.monitors_hardware = trimmed.replaceAll('monitors_hardware:', '').trim() === 'true'

@@ -34,18 +34,22 @@ class NodeConfig(BaseModel):
 class FallbackConfig(BaseModel):
     """Stackfile-defined fallback strategy.
 
-    ``type`` references a builtin Context (see ``dam.runtime.builtin_contexts``).
-    The map key is the local name used by boundary nodes' ``fallback``
-    field. Optional auto-escalation: when this fallback has been active for
+    The map key is both the local name used by boundary nodes' ``fallback``
+    field AND the builtin Context it resolves to (see
+    ``dam.runtime.builtin_contexts``) — there is no separate ``type``. Optional
+    auto-escalation: when this fallback has been active for
     ``escalate_after_seconds`` and the trigger hasn't cleared, the runtime
     pushes the ``escalate_to`` fallback on top of the stack. Useful for
-    ambiguous triggers — e.g. high current is either heavy payload (clears
-    under SlowDown) or collision (won't clear).
+    ambiguous triggers — e.g. high current is either heavy payload (clears under
+    SlowDown) or collision (won't clear).
     """
 
-    model_config = ConfigDict(extra="allow")
-    type: str
+    model_config = ConfigDict(extra="forbid")
     params: dict[str, Any] = {}
+    severity: int | None = None
+    requires_proposal: bool | None = None
+    monitors_hardware: bool | None = None
+    description: str | None = None
     escalate_to: str | None = None
     escalate_after_seconds: float | None = None
 
@@ -364,7 +368,10 @@ class RiskControllerConfig(BaseModel):
 
 class SolverConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
-    type: str
+    # The solvers-block key IS the solver type / implementation name (the same
+    # name it was registered under). ``type`` is therefore optional — supply it
+    # only to alias a different implementation under a custom key.
+    type: str | None = None
     capabilities: list[str] | None = None
     params: dict[str, Any] = {}
 
