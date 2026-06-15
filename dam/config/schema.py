@@ -214,7 +214,7 @@ class HardwareConfig(BaseModel):
     # deg<->rad mode is an interface concern, not robot identity — presets no
     # longer carry it. The motor interface declares ``source.degrees_mode``;
     # this hardware-level field is the declaration point for interface-less
-    # configs (e.g. a tensor-only SafetyGuard). See ``motor_degrees_mode``.
+    # configs (e.g. a tensor-only Guardrail). See ``motor_degrees_mode``.
     degrees_mode: bool | None = None
     asset: dict[str, str] | None = None
     solvers: dict[str, Any] = Field(default_factory=dict)

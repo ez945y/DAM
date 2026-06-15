@@ -302,7 +302,7 @@ def main() -> None:
     import lerobot.scripts.lerobot_record as _record_mod
     from lerobot.processor.factory import make_default_processors as _original
 
-    from dam.processor import SafetyProcessorStep
+    from dam.processor import GuardrailProcessorStep
 
     def _patch_record_loop_dataset_action() -> None:
         """Make LeRobot record the same safety-processed action sent to hardware."""
@@ -339,9 +339,9 @@ def main() -> None:
 
     def _patched_make_default_processors():  # type: ignore[no-untyped-def]
         teleop, robot_action, obs_proc = _original()
-        step = SafetyProcessorStep(our_args.stackfile, task=our_args.task)
+        step = GuardrailProcessorStep(our_args.stackfile, task=our_args.task)
         robot_action.steps.insert(0, step)
-        print("[DAM] SafetyProcessorStep injected ✓", file=sys.stderr)
+        print("[DAM] GuardrailProcessorStep injected ✓", file=sys.stderr)
         return teleop, robot_action, obs_proc
 
     _patch_record_loop_dataset_action()

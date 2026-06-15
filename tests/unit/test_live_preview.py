@@ -229,7 +229,7 @@ class TestWSCoalescing:
             {"type": "cycle", "cycle_id": 2},
             {"type": "cycle", "cycle_id": 3},
         ]
-        cycle, binary, misc = self._coalesce(batch)
+        cycle, binary, _ = self._coalesce(batch)
         assert cycle["cycle_id"] == 3
         assert len(binary) == 0
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 import dataclasses
 import logging
 import time
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from typing import TYPE_CHECKING, Any, cast
@@ -33,6 +34,24 @@ if TYPE_CHECKING:
     from dam.types.observation import Observation
 
 logger = logging.getLogger(__name__)
+
+
+def _iter_obs_groups(obs: Observation) -> Iterator[tuple[str, Any]]:
+    """Yield named observation groups eligible for direct key-injection.
+
+    Channels (e.g. ``current``, ``base_pose``) and camera frames keyed by name.
+    Keys that aren't valid Python identifiers (e.g. lerobot's
+    ``observation.images.top``) are skipped — those stay reachable via the
+    ``obs`` object only.
+    """
+    if obs.channels:
+        for name, value in obs.channels.items():
+            if name.isidentifier():
+                yield name, value
+    if obs.images:
+        for name, value in obs.images.items():
+            if name.isidentifier():
+                yield name, value
 
 
 def _compute_fk_into_pool(
@@ -59,8 +78,7 @@ def _compute_fk_into_pool(
         # Falls back to dynamics.update()'s positional truncation when
         # names don't line up (e.g. trivial layouts without names).
         jac_idx = None
-        layout = pool.get("joint_layout")
-        obs_names = list(getattr(layout, "names", None) or [])
+        obs_names = list(pool.get("joint_names") or [])
         if obs_names and hasattr(dynamics, "q_indices_for"):
             idx = dynamics.q_indices_for(obs_names)
             if idx is not None and q.shape[0] > int(idx.max()):
@@ -341,8 +359,8 @@ class ExecutionEngine:
         pool: dict[str, Any] = {
             "dt": cp.get("dt", self._dt),
         }
-        if "joint_layout" in cp:
-            pool["joint_layout"] = cp["joint_layout"]
+        if "joint_names" in cp:
+            pool["joint_names"] = cp["joint_names"]
         if "action_layout" in cp:
             pool["action_layout"] = cp["action_layout"]
         pool.update(
@@ -368,9 +386,18 @@ class ExecutionEngine:
                 "now": now,
             }
         )
+        # Flatten observation groups (channels + images) into the pool so a
+        # callback can declare e.g. ``base_pose`` / ``current`` as a parameter
+        # and receive it directly — same key-injection contract as ``obs`` /
+        # ``action``. Never clobber an existing pool key (reserved runtime data
+        # wins); the Guardrail contract check rejects user groups that collide.
+        for group_name, group_value in _iter_obs_groups(obs):
+            if group_name not in pool:
+                pool[group_name] = group_value
+
         # Pre-compute FK so L1/L2 callbacks can read EE pose from pool
         # without each computing it independently.
-        if obs.joint_positions is not None:
+        if obs.joint_positions is not None and len(obs.joint_positions) > 0:
             _compute_fk_into_pool(pool, obs.joint_positions, ctx.dynamics)
         # Guards that dispatch to their own callbacks (MotionGuard,
         # ExecutionGuard) receive the full pool via the 'runtime_pool' key

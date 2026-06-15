@@ -1,8 +1,8 @@
-"""Isaac Sim safety filter — wraps SafetyGuard for Isaac Sim tensor workflows.
+"""Isaac Sim safety filter — wraps Guardrail for Isaac Sim tensor workflows.
 
 Designed for Isaac Sim 6.0+ (isaacsim pip package). Handles:
   - torch.Tensor input/output (preserves device and dtype)
-  - Batched environments (vectorized safe() over N envs)
+  - Batched environments (vectorized validation over N envs)
   - Auto-extraction of joint limits from ArticulationView
 """
 
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 class IsaacSafetyFilter:
     """Drop-in safety filter for Isaac Sim control loops.
 
-    Wraps :class:`dam.SafetyGuard` with Isaac-native tensor I/O and
+    Wraps :class:`dam.Guardrail` with Isaac-native tensor I/O and
     optional vectorized (multi-env) support.
 
     .. code-block:: python
@@ -44,7 +44,7 @@ class IsaacSafetyFilter:
         degrees_mode: bool | None = None,
         num_envs: int = 1,
     ) -> None:
-        from dam.api import SafetyGuard
+        from dam.api import Guardrail
 
         self._num_envs = num_envs
         self._stackfile = stackfile
@@ -52,14 +52,15 @@ class IsaacSafetyFilter:
         self._joint_names = joint_names
         self._degrees_mode = degrees_mode
 
-        self._guards: list[SafetyGuard] = []
+        self._guards: list[Guardrail] = []
         for _ in range(num_envs):
             self._guards.append(
-                SafetyGuard(
+                Guardrail(
                     stackfile,
                     task=task,
                     joint_names=joint_names,
                     degrees_mode=degrees_mode,
+                    quiet=True,
                 )
             )
 
@@ -97,7 +98,7 @@ class IsaacSafetyFilter:
 
         results = np.empty_like(action_np)
         for i in range(n):
-            results[i] = self._guards[i](action_np[i], obs_np[i])
+            results[i] = self._guards[i]({"joints": obs_np[i], "action": action_np[i]})
 
         out = torch.as_tensor(results, dtype=dtype, device=device)
         if squeeze:
@@ -106,7 +107,7 @@ class IsaacSafetyFilter:
 
     @property
     def guards(self) -> list[Any]:
-        """Underlying SafetyGuard instances (one per env)."""
+        """Underlying Guardrail instances (one per env)."""
         return self._guards
 
     @property

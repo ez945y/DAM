@@ -55,7 +55,7 @@ def bench_frame_hub() -> None:
 
     for cam_name, (w, h) in resolutions.items():
         frame = np.random.randint(0, 255, (h, w, 3), dtype=np.uint8)
-        ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
         jpeg = bytes(buf)
 
         # Measure put_jpeg
@@ -103,7 +103,7 @@ def bench_downscale() -> None:
 
     for label, (w, h) in resolutions.items():
         frame = np.random.randint(0, 255, (h, w, 3), dtype=np.uint8)
-        ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
         original_jpeg = bytes(buf)
 
         times = []
@@ -156,11 +156,11 @@ def bench_telemetry_service() -> None:
 
     # Prepare test data
     frame = np.random.randint(0, 255, (1080, 1920, 3), dtype=np.uint8)
-    ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+    _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
     jpeg_1080p = bytes(buf)
 
     frame_small = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
-    ok, buf = cv2.imencode(".jpg", frame_small, [cv2.IMWRITE_JPEG_QUALITY, 60])
+    _, buf = cv2.imencode(".jpg", frame_small, [cv2.IMWRITE_JPEG_QUALITY, 60])
     jpeg_480p = bytes(buf)
 
     def make_result(cycle_id: int) -> CycleResult:
@@ -223,7 +223,7 @@ def bench_ws_send_simulation() -> None:
     print("=" * 70)
 
     frame = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
-    ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
+    _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
     jpeg = bytes(buf)
 
     # Build binary payloads like TelemetryService would

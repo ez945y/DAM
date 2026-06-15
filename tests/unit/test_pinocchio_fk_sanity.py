@@ -152,7 +152,7 @@ class TestWorkspaceReach:
 
 
 class TestConventionAlignment:
-    """Verify FK output matches DAM SafetyGuard expectations."""
+    """Verify FK output matches DAM Guardrail expectations."""
 
     def test_pose_is_7_elements(self, fk_model):
         pose = _compute_fk(fk_model, np.zeros(5))

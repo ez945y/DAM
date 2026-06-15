@@ -5,7 +5,7 @@
 registry wiring.  The ``dam`` CLI's ``run`` subcommand is a thin shell over
 ``dam.run`` — single source of truth.
 
-``dam.SafetyGuard`` / ``dam.safe`` provide a lightweight action-validation
+``dam.Guardrail`` / ``dam.guardrail`` provide a lightweight action-validation
 API that doesn't require hardware — ideal for wrapping policy outputs
 during IL data collection or offline evaluation.
 
@@ -20,6 +20,7 @@ import time
 import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, overload
 
 import numpy as np
@@ -120,48 +121,6 @@ def register_solver(
     )
 
 
-def register_solver_factory(
-    solver_type: str,
-    factory: Callable[[Mapping[str, Any]], Any] | None = None,
-    *,
-    capabilities: tuple[str, ...] | list[str],
-    replace: bool = False,
-) -> Callable[..., Any]:
-    """Register a config-driven solver factory by name.
-
-    The name you register under IS the name stackfiles reference — the
-    solvers-block key. There is no separate ``type`` field; ``key == type ==
-    implementation``.  Usable as a direct call or a decorator (like
-    :func:`register_callback`):
-
-    .. code-block:: python
-
-        @dam.register_solver_factory("ackermann", capabilities=["rollout"])
-        def make_ackermann(params):
-            return AckermannSolver(wheel_base=params.get("wheel_base"))
-
-    .. code-block:: yaml
-
-        solvers:
-          ackermann:          # key == registered name == type
-            capabilities: [rollout]
-            params: {...}
-    """
-    from dam.solver.registry import get_global_solver_registry
-
-    def decorator(fn: Callable[[Mapping[str, Any]], Any]) -> Callable[[Mapping[str, Any]], Any]:
-        return get_global_solver_registry().register_factory(
-            solver_type,
-            fn,
-            capabilities=capabilities,
-            replace=replace,
-        )
-
-    if factory is None:
-        return decorator
-    return decorator(factory)
-
-
 def register_preset(
     name: str,
     *,
@@ -169,7 +128,6 @@ def register_preset(
     asset: dict[str, str] | None = None,
     solvers: dict[str, Any] | None = None,
     action_layout: list[dict[str, Any]] | None = None,
-    chains: dict[str, Any] | None = None,
     rename_from: str | None = None,
 ) -> Any:
     """Register or update a robot preset in DAM's preset registry.
@@ -187,7 +145,6 @@ def register_preset(
         asset=asset,
         solvers=solvers,
         action_layout=action_layout,
-        chains=chains,
         rename_from=rename_from,
     )
 
@@ -373,7 +330,7 @@ def run(
 
 
 # ---------------------------------------------------------------------------
-# SafetyGuard — lightweight action validation without a hardware loop
+# Guardrail — lightweight action validation without a hardware loop
 # ---------------------------------------------------------------------------
 
 
@@ -392,21 +349,66 @@ def _resolve_action_layout(config: Any) -> list[dict[str, Any]]:
         return []
 
 
-class SafetyGuard:
-    """Stateful safety validator — no hardware loop needed.
+# Pool keys the runtime owns — a user observation group must never shadow them.
+# A callback may still *declare* one (e.g. ``dt``) to read the runtime value;
+# the collision check only rejects them as input-dict keys.
+_RESERVED_POOL_KEYS = frozenset(
+    {
+        "obs",
+        "action",
+        "dt",
+        "solvers",
+        "joint_names",
+        "action_layout",
+        "cycle_id",
+        "trace_id",
+        "timestamp",
+        "now",
+        "ee_pos",
+        "ee_rot",
+        "ee_pose",
+        "J_linear",
+        "J_angular",
+        "jacobian_joint_indices",
+        "runtime_pool",
+        "prev_validated_positions",
+        "prev_validated_velocities",
+        "active_task",
+        "active_boundaries",
+        "active_containers",
+        "active_map",
+        "node_start_times",
+        "dynamics",
+        "boundary_name",
+    }
+)
 
-    Wraps a :class:`GuardRuntime` built from a stackfile.  Call the instance
-    to validate one action per cycle; the return value has the **same type
-    and shape** as the input (``dict`` or ``ndarray``).
 
-    .. code-block:: python
+class Guardrail:
+    """Filter a policy's command through a safety stackfile — dict in, command out.
 
-        guard = dam.SafetyGuard("safety.yaml")
-        safe_action = guard(action, obs)   # dict→dict or ndarray→ndarray
+    One call per control cycle. You pass a dict: the reserved ``"action"`` key is
+    the command to validate, every other key is an observation group. A callback
+    receives any group by declaring a parameter of the same name::
 
-    If the action is **rejected** by the guards, the current observation's
-    joint positions are returned (hold-position fallback) so the recording
-    loop never breaks.
+        @dam.callback("forward_only")
+        def forward_only(*, base_pose, action, dt=0.1):
+            ...
+
+        rail = dam.Guardrail("jetbot.yaml", safe_action=[0.0, 0.0])
+        safe_cmd = rail({"base_pose": [x, y, yaw], "action": [v, omega]})
+
+    Standard keys are also folded into the ``obs`` object for builtin guards:
+    ``joints`` / ``<joint>.pos`` → joint positions, ``images`` / camera frames,
+    ``current`` / ``temperature`` / ``voltage`` and any other array group →
+    ``obs.channels``. The return value mirrors the ``action`` you passed
+    (list/ndarray/tensor, or a ``{key: value}`` dict).
+
+    On **reject** the command is replaced by ``safe_action``:
+      * an explicit vector (e.g. ``[0, 0]`` to stop a mobile base),
+      * ``"hold"`` (default) — re-issue the current joint positions, the safe
+        choice for a position-controlled arm,
+      * ``"zero"`` — a zero command.
 
     Not thread-safe — one instance per control loop.
     """
@@ -419,6 +421,8 @@ class SafetyGuard:
         joint_names: list[str] | None = None,
         degrees_mode: bool | None = None,
         solvers: Mapping[str, Any] | None = None,
+        safe_action: Any = "hold",
+        quiet: bool = False,
     ) -> None:
         _register_builtins()
 
@@ -453,11 +457,22 @@ class SafetyGuard:
         self._solvers: dict[str, Any] = dict(solvers or {})
         self._n_joints: int = len(joint_names)
 
-        # Conversion scales (vectorised, bound once).
+        # Action space derived from action_layout (or the joints when no layout
+        # is given). "command space" = the action is not the joint vector →
+        # never deg<->rad scaled, reject falls back to a stop command.
+        self._action_keys: list[str] | None = None
+        self._n_actions: int = self._n_joints
+        self._command_space: bool = False
+        self._refresh_action_spec()
+
+        # Conversion scales for the joint space (vectorised, bound once).
         scale_in = _DEG2RAD if degrees_mode else 1.0
         scale_out = _RAD2DEG if degrees_mode else 1.0
         self._scale_in = np.full(self._n_joints, scale_in, dtype=np.float64)
         self._scale_out = np.full(self._n_joints, scale_out, dtype=np.float64)
+
+        # Reject fallback.
+        self._safe_action_mode, self._safe_action_value = self._resolve_safe_action(safe_action)
 
         # Build runtime (no sources / policy / sink needed).
         self._runtime = GuardRuntime.from_stackfile(stackfile)
@@ -467,7 +482,13 @@ class SafetyGuard:
         # Start the first task to activate guards and build the stage DAG.
         if task is None:
             task = next(iter(config.tasks))
+        self._task = task
         self._runtime.start_task(task)
+
+        # Self-describing contract: which observation keys the active callbacks
+        # require (declared parameters without defaults, minus reserved pool
+        # keys and per-node stackfile params).
+        self._required_obs = self._compute_contract(config, task)
 
         # If stackfile has loopback:, start MCAP recording.
         self._runtime.start_recording()
@@ -478,75 +499,101 @@ class SafetyGuard:
         self._last_results: list[GuardResult] = []
         self._last_ee_pose: np.ndarray | None = None
 
+        if not quiet:
+            print(self.describe(stackfile))
+
     # -- public interface ---------------------------------------------------
 
-    def __call__(
-        self,
-        action: Any,
-        obs: Any,
-    ) -> Any:
-        """Validate *action* given *obs*; return the safe version.
+    def __call__(self, inputs: dict[str, Any]) -> Any:
+        """Validate ``inputs["action"]`` against the observation groups in
+        ``inputs``; return the safe command in the same form it arrived."""
+        if not isinstance(inputs, dict):
+            raise TypeError(
+                "Guardrail expects a dict with an 'action' key plus observation "
+                f"groups, got {type(inputs).__name__}."
+            )
+        if "action" not in inputs:
+            raise KeyError("Guardrail input is missing the required 'action' key.")
 
-        Accepts and returns the same type — ``dict[str, Any]`` (lerobot
-        format with ``{joint}.pos`` keys), ``np.ndarray``, or
-        ``torch.Tensor`` (returned on same device/dtype).
-        """
-        input_is_dict = isinstance(action, dict)
-        input_is_tensor = not input_is_dict and hasattr(action, "detach")
-        _tensor_device: Any = None
-        _tensor_dtype: Any = None
+        # Fail fast on a missing required observation group or a reserved-key
+        # collision — silent fallbacks hide safety-relevant mistakes.
+        provided = set(inputs) - {"action"}
+        missing = self._required_obs - provided
+        if missing:
+            raise KeyError(
+                f"Guardrail missing observation group(s) {sorted(missing)}; "
+                f"received {sorted(provided)}. Required: {sorted(self._required_obs)}."
+            )
+        clashes = provided & _RESERVED_POOL_KEYS
+        if clashes:
+            raise KeyError(
+                f"Observation key(s) {sorted(clashes)} collide with reserved runtime "
+                "keys — rename them."
+            )
 
-        if input_is_tensor:
-            _tensor_device = action.device
-            _tensor_dtype = action.dtype
-            action = action.detach().cpu().numpy()
-        if not isinstance(obs, dict) and hasattr(obs, "detach"):
-            obs = obs.detach().cpu().numpy()
+        raw_action = inputs["action"]
+        action_is_dict = isinstance(raw_action, dict)
+        action_is_tensor = not action_is_dict and hasattr(raw_action, "detach")
+        tensor_device = raw_action.device if action_is_tensor else None
+        tensor_dtype = raw_action.dtype if action_is_tensor else None
+        # lerobot dicts key the command as ``<joint>.pos``; bare ``<key>`` else.
+        pos_style = action_is_dict and any(str(k).endswith(".pos") for k in raw_action)
 
         now = time.monotonic()
-
-        # Use actual dt between calls so velocity limits stay accurate
-        # when the caller's loop runs slower than control_frequency_hz.
         if self._prev_time is not None:
             actual_dt = max(now - self._prev_time, 1e-6)
             self._runtime._hot_reload.config_pool["dt"] = actual_dt
 
-        dam_obs = self._to_observation(obs)
-        is_joint_action = self._is_joint_action(action)
-        dam_action = self._to_action_proposal(action, dam_obs.joint_positions, is_joint_action)
+        mappable = self._action_mappable(raw_action, action_is_dict, pos_style)
+        obs = self._build_observation(inputs, now)
+        action = self._build_action(raw_action, action_is_dict, pos_style, mappable)
         trace_id = str(uuid.uuid4())
 
-        validated, results = self._runtime.validate(dam_obs, dam_action, trace_id, now=now)
+        validated, results = self._runtime.validate(obs, action, trace_id, now=now)
         self._last_results = results
-
-        # Update velocity-estimation state.
-        self._prev_positions = dam_obs.joint_positions.copy()
+        self._prev_positions = obs.joint_positions.copy()
         self._prev_time = now
 
-        if not is_joint_action:
-            out = self._raw_output(action)
-        elif validated is None:
-            out = self._to_output(dam_obs.joint_positions, input_is_dict)
+        if not mappable:
+            # Opaque action (partial EE-pose dict): echo it back as-is.
+            return dict(raw_action)
+        if validated is not None:
+            command = np.asarray(validated.target_joint_positions, dtype=np.float64).flatten()
         else:
-            out = self._to_output(validated.target_joint_positions, input_is_dict)
+            command = self._reject_command(obs)
 
-        if input_is_tensor:
+        out = self._format_command(command, action_is_dict, pos_style)
+        if action_is_tensor:
             import torch as _torch
 
-            return _torch.as_tensor(out, dtype=_tensor_dtype, device=_tensor_device)
+            return _torch.as_tensor(out, dtype=tensor_dtype, device=tensor_device)
         return out
 
+    def describe(self, stackfile: str = "") -> str:
+        """Human-readable contract: which obs keys and action this guard expects."""
+        name = Path(stackfile).name if stackfile else "<stackfile>"
+        required = ", ".join(sorted(self._required_obs)) or "—"
+        action = ", ".join(self._action_keys) if self._action_keys else f"{self._n_actions}-vector"
+        space = "command space" if self._command_space else "joint positions"
+        if self._safe_action_mode == "hold":
+            reject = "hold current position"
+        else:
+            reject = f"{np.array2string(self._safe_action_value, precision=3)}"
+        return "\n".join(
+            [
+                f"[Guardrail] {name} · task={self._task}",
+                f"  requires obs: {required}",
+                f"  action:       [{action}]  ({space})",
+                f"  on reject:    {reject}",
+            ]
+        )
+
     def set_ee_pose(self, ee_pose: Any) -> None:
-        """Set end-effector pose for the next guard cycle.
+        """Set the end-effector pose for the next cycle so EE-space guards
+        (workspace_bounds, keep_out_zone, ee_velocity_limit) can run.
 
-        Call this before ``__call__`` when EE pose is available (e.g. from
-        Isaac Sim, FK, or a motion capture system). The pose is included in
-        the Observation so EE-space guards (workspace_bounds, keep_out_zone,
-        ee_velocity_limit) can function.
-
-        Args:
-            ee_pose: [x, y, z, qx, qy, qz, qw] as ndarray, list, or torch.Tensor.
-                     Pass None to clear.
+        ``ee_pose`` is ``[x, y, z, qx, qy, qz, qw]``; pass None to clear. This
+        is also accepted as an ``ee_pose`` key in the input dict.
         """
         if ee_pose is None:
             self._last_ee_pose = None
@@ -554,6 +601,11 @@ class SafetyGuard:
             self._last_ee_pose = ee_pose.detach().cpu().numpy().flatten()[:7]
         else:
             self._last_ee_pose = np.asarray(ee_pose, dtype=np.float64).flatten()[:7]
+
+    @property
+    def required_obs_keys(self) -> set[str]:
+        """Observation group keys every input dict must contain."""
+        return set(self._required_obs)
 
     @property
     def last_results(self) -> list[GuardResult]:
@@ -584,136 +636,229 @@ class SafetyGuard:
         if runtime is not None:
             runtime.stop_recording()
 
-    # -- conversion helpers -------------------------------------------------
+    # -- internals ----------------------------------------------------------
 
-    def _to_observation(self, raw: np.ndarray | dict[str, Any]) -> Any:
+    def _resolve_safe_action(self, safe_action: Any) -> tuple[str, np.ndarray]:
+        if isinstance(safe_action, str):
+            if safe_action == "hold":
+                # Holding the last command is unsafe for a velocity base, so a
+                # command-space guard stops instead.
+                if self._command_space:
+                    return "fixed", np.zeros(self._n_actions, dtype=np.float64)
+                return "hold", np.zeros(self._n_actions, dtype=np.float64)
+            if safe_action == "zero":
+                return "fixed", np.zeros(self._n_actions, dtype=np.float64)
+            raise ValueError(
+                f"safe_action must be a vector, 'hold', or 'zero'; got {safe_action!r}"
+            )
+        return "fixed", np.asarray(safe_action, dtype=np.float64).flatten()
+
+    def _compute_contract(self, config: Any, task: str) -> set[str]:
+        """Observation groups the active callbacks require: their declared
+        parameters without defaults, minus reserved pool keys and the per-node
+        stackfile params (which the runtime already supplies)."""
+        import inspect
+
+        from dam.registry.callback import get_global_registry
+
+        registry = get_global_registry()
+        required: set[str] = set()
+        task_cfg = config.tasks.get(task)
+        boundary_names = list(task_cfg.boundaries) if task_cfg else list(config.boundaries)
+        for bname in boundary_names:
+            container = config.boundaries.get(bname)
+            if container is None:
+                continue
+            for node in container.nodes:
+                cb_name = node.callback
+                if not cb_name:
+                    continue
+                try:
+                    fn = registry.get(cb_name)
+                except KeyError:
+                    continue
+                node_params = set(node.params or {})
+                for p in inspect.signature(fn).parameters.values():
+                    if p.kind in (p.VAR_POSITIONAL, p.VAR_KEYWORD):
+                        continue
+                    if p.name in _RESERVED_POOL_KEYS or p.name in node_params:
+                        continue
+                    if p.default is inspect.Parameter.empty:
+                        required.add(p.name)
+        return required
+
+    def _build_observation(self, inputs: dict[str, Any], now: float) -> Any:
         from dam.types.observation import Observation
 
-        now = time.monotonic()
+        images: dict[str, Any] = {}
+        channels: dict[str, Any] = {}
+        joint_pos: np.ndarray | None = None
+        ee_pose = self._last_ee_pose
 
-        if isinstance(raw, dict):
-            positions = np.fromiter(
-                (float(raw.get(f"{n}.pos", 0.0)) for n in self._joint_names),
+        for key, value in inputs.items():
+            if key == "action":
+                continue
+            if key == "images" and isinstance(value, dict):
+                images.update(value)
+            elif key.startswith("observation.images.") or key.startswith("images."):
+                images[key.rsplit(".", 1)[-1]] = value
+            elif key == "joints":
+                joint_pos = np.asarray(value, dtype=np.float64).flatten()
+            elif key == "ee_pose":
+                ee_pose = np.asarray(value, dtype=np.float64).flatten()[:7]
+            elif not key.endswith(".pos"):
+                channels[key] = np.asarray(value, dtype=np.float64).flatten()
+
+        if joint_pos is None and any(k.endswith(".pos") for k in inputs):
+            joint_pos = np.fromiter(
+                (float(inputs.get(f"{n}.pos", 0.0)) for n in self._joint_names),
                 dtype=np.float64,
                 count=self._n_joints,
             )
-            positions = positions * self._scale_in
+        if joint_pos is None:
+            joint_pos = np.zeros(0, dtype=np.float64)
         else:
-            positions = np.asarray(raw, dtype=np.float64).flatten()[: self._n_joints]
-            positions = positions * self._scale_in
+            joint_pos = joint_pos * self._scale_in[: joint_pos.shape[0]]
 
-        velocities = self._estimate_velocity(positions, now)
-
+        velocities = self._estimate_velocity(joint_pos, now) if joint_pos.shape[0] else None
         return Observation(
             timestamp=now,
-            joint_positions=positions,
+            joint_positions=joint_pos,
             joint_velocities=velocities,
-            end_effector_pose=self._last_ee_pose,
+            end_effector_pose=ee_pose,
+            images=images or None,
+            channels=channels or None,
         )
 
-    def _is_joint_action(self, raw: np.ndarray | dict[str, Any]) -> bool:
-        if isinstance(raw, dict):
-            return all(f"{name}.pos" in raw for name in self._joint_names)
-        arr = np.asarray(raw).flatten()
-        return arr.shape[0] == self._n_joints
+    def _refresh_action_spec(self) -> None:
+        """(Re)derive ``_n_actions`` / ``_action_keys`` / ``_command_space`` from
+        the current action_layout. Tests mutate ``_action_layout`` and call this."""
+        keys: list[str] = []
+        size = 0
+        fully_keyed = bool(self._action_layout)
+        for segment in self._action_layout:
+            seg_keys = segment.get("keys")
+            if isinstance(seg_keys, (list, tuple)):
+                keys.extend(str(k) for k in seg_keys)
+            else:
+                fully_keyed = False
+            size += _segment_size(segment) or 0
+        if not self._action_layout or size == 0:
+            self._n_actions = self._n_joints
+            self._action_keys = list(self._joint_names)
+            self._command_space = False
+        else:
+            self._n_actions = size
+            self._action_keys = keys if fully_keyed else None
+            self._command_space = self._action_keys != list(self._joint_names)
 
-    def _raw_output(self, raw: np.ndarray | dict[str, Any]) -> Any:
-        if isinstance(raw, dict):
-            return dict(raw)
-        return np.asarray(raw).copy()
+    def _action_mappable(self, raw: Any, is_dict: bool, pos_style: bool) -> bool:
+        """Can this action be placed into the n_actions vector? Array always;
+        dict only when the layout is fully keyed and all keys are present."""
+        if not is_dict:
+            return True
+        if self._action_keys is None:
+            return False
+        suffix = ".pos" if pos_style else ""
+        return all(f"{k}{suffix}" in raw for k in self._action_keys)
 
-    def _split_raw_action(self, raw: np.ndarray | dict[str, Any]) -> dict[str, Any]:
-        if isinstance(raw, dict):
-            return dict(raw)
-        arr = np.asarray(raw).flatten()
+    def _build_action(self, raw: Any, is_dict: bool, pos_style: bool, mappable: bool) -> Any:
+        from dam.types.action import ActionProposal
+
+        if not mappable:
+            # Opaque action (e.g. a partial EE-pose dict): guards inspect it via
+            # metadata; the command is echoed back unchanged by _format_command.
+            target = np.zeros(self._n_actions, dtype=np.float64)
+        elif is_dict:
+            suffix = ".pos" if pos_style else ""
+            target = np.fromiter(
+                (float(raw[f"{k}{suffix}"]) for k in self._action_keys or []),
+                dtype=np.float64,
+                count=self._n_actions,
+            )
+        else:
+            target = np.asarray(raw, dtype=np.float64).flatten()[: self._n_actions]
+        if mappable and not self._command_space:
+            target = target * self._scale_in[: target.shape[0]]
+
+        metadata = {
+            "raw_action": dict(raw) if is_dict else np.asarray(raw).copy(),
+            "action_layout": [dict(item) for item in self._action_layout],
+            "action_segments": self._split_action(target),
+        }
+        return ActionProposal(target_joint_positions=target, metadata=metadata)
+
+    def _split_action(self, arr: np.ndarray) -> dict[str, Any]:
         segments: dict[str, Any] = {}
         cursor = 0
         for index, segment in enumerate(self._action_layout):
             name = str(segment.get("name") or f"segment_{index}")
-            declared_size = segment.get("size") or segment.get("dim") or segment.get("dimensions")
-            # Canonical: ``keys`` lists what each slot means (joint names,
-            # [x, y, z, yaw, pitch, roll], [v, omega], …) so the segment size
-            # is self-describing. ``size``/``type`` stay as legacy fallbacks.
-            if declared_size is None:
-                keys = segment.get("keys")
-                if isinstance(keys, (list, tuple)):
-                    declared_size = len(keys)
-            if declared_size is None:
-                segment_type = str(segment.get("type", "")).lower()
-                declared_size = {"ee_pose": 7, "scalar": 1}.get(segment_type)
-            if declared_size is None:
+            size = _segment_size(segment)
+            if size is None:
                 continue
-            size = int(declared_size)
             segments[name] = arr[cursor : cursor + size].copy()
             cursor += size
-        if cursor < arr.shape[0]:
-            segments["_remaining"] = arr[cursor:].copy()
         return segments
 
-    def _to_action_proposal(
-        self,
-        raw: np.ndarray | dict[str, Any],
-        current_joints: np.ndarray,
-        is_joint_action: bool,
-    ) -> Any:
-        from dam.types.action import ActionProposal
+    def _reject_command(self, obs: Any) -> np.ndarray:
+        if self._safe_action_mode == "hold":
+            return np.asarray(obs.joint_positions, dtype=np.float64).flatten()
+        return self._safe_action_value.copy()
 
-        metadata = {
-            "raw_action": self._raw_output(raw),
-            "action_layout": [dict(item) for item in self._action_layout],
-            "action_segments": self._split_raw_action(raw),
-            "is_joint_action": is_joint_action,
-        }
-
-        if is_joint_action and isinstance(raw, dict):
-            target = np.fromiter(
-                (float(raw.get(f"{n}.pos", 0.0)) for n in self._joint_names),
-                dtype=np.float64,
-                count=self._n_joints,
-            )
-            target = target * self._scale_in
-        elif is_joint_action:
-            target = np.asarray(raw, dtype=np.float64).flatten()[: self._n_joints]
-            target = target * self._scale_in
-        else:
-            target = current_joints[: self._n_joints].copy()
-
-        return ActionProposal(target_joint_positions=target, metadata=metadata)
-
-    def _to_output(self, positions_rad: np.ndarray, as_dict: bool) -> np.ndarray | dict[str, Any]:
-        scaled = positions_rad[: self._n_joints] * self._scale_out
+    def _format_command(self, command: np.ndarray, as_dict: bool, pos_style: bool) -> Any:
+        if not self._command_space:
+            command = command[: self._n_joints] * self._scale_out[: command.shape[0]]
         if as_dict:
-            return {f"{self._joint_names[i]}.pos": float(scaled[i]) for i in range(self._n_joints)}
-        return scaled
+            keys = self._action_keys or [str(i) for i in range(command.shape[0])]
+            suffix = ".pos" if pos_style else ""
+            return {f"{keys[i]}{suffix}": float(command[i]) for i in range(len(keys))}
+        return command
 
     def _estimate_velocity(self, positions: np.ndarray, now: float) -> np.ndarray:
-        if self._prev_positions is not None and self._prev_time is not None:
+        if (
+            self._prev_positions is not None
+            and self._prev_time is not None
+            and self._prev_positions.shape == positions.shape
+        ):
             dt = max(now - self._prev_time, 1e-9)
             return (positions - self._prev_positions) / dt  # type: ignore[no-any-return]
         return np.zeros_like(positions)
 
 
-def safe(
-    action: Any,
-    obs: Any,
+def _segment_size(segment: dict[str, Any]) -> int | None:
+    """Resolve one action_layout segment's width: ``keys`` length, an explicit
+    ``size``, or a typed default (``ee_pose`` → 7, ``scalar`` → 1)."""
+    seg_keys = segment.get("keys")
+    if isinstance(seg_keys, (list, tuple)):
+        return len(seg_keys)
+    declared = segment.get("size") or segment.get("dim") or segment.get("dimensions")
+    if declared is not None:
+        return int(declared)
+    return {"ee_pose": 7, "scalar": 1}.get(str(segment.get("type", "")).lower())
+
+
+def guardrail(
+    inputs: dict[str, Any],
     stackfile: str = "safety.yaml",
     *,
     task: str | None = None,
     joint_names: list[str] | None = None,
     degrees_mode: bool | None = None,
     solvers: Mapping[str, Any] | None = None,
+    safe_action: Any = "hold",
 ) -> Any:
-    """Validate a single action against a safety stackfile.
+    """Validate one input dict against a safety stackfile.
 
-    Convenience one-liner — creates a :class:`SafetyGuard` internally.
-    For repeated calls use ``SafetyGuard`` directly to amortise setup.
-    Accepts ``np.ndarray``, ``dict``, or ``torch.Tensor`` (same device/dtype preserved).
+    Convenience one-liner — builds a :class:`Guardrail` internally. For repeated
+    calls use ``Guardrail`` directly to amortise setup.
     """
-    guard = SafetyGuard(
+    rail = Guardrail(
         stackfile,
         task=task,
         joint_names=joint_names,
         degrees_mode=degrees_mode,
         solvers=solvers,
+        safe_action=safe_action,
+        quiet=True,
     )
-    return guard(action, obs)
+    return rail(inputs)

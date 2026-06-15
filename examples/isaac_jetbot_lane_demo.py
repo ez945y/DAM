@@ -8,7 +8,7 @@ Twin-lane Jetbot DAM boundary demo (Isaac Lab).
 
 Both cars chase the same scripted 2D target stream. The RAW car applies its
 nominal differential-drive command directly. The DAM car sends the same
-``[v, omega]`` command through robot-dam's SafetyGuard first; a diff-drive /
+``[v, omega]`` command through robot-dam's Guardrail first; a diff-drive /
 Ackermann solver rolls the command forward and guards against entering the red
 boundary bands. The ``[v, omega]`` action layout is declared by the
 ``jetbot_diff_drive`` preset (assets/presets.yaml); the stackfile is
@@ -77,35 +77,20 @@ from isaaclab.assets.articulation import ArticulationCfg
 from isaaclab.scene import InteractiveScene, InteractiveSceneCfg
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
-from controll_scripts.safety import JetbotDAMWrapper
+from controll_scripts.safety import JetbotDAMWrapper, AckermannSolver
 from controll_scripts.utils import physx_to_torch
-
-import dam
-from dam.kinematics.ackermann import AckermannSolver
-
-
-# Public solver-registration API: the name you register under IS the name the
-# stackfile/preset references (key == type == implementation) — same sugar as
-# @dam.register_callback. DAM also ships a built-in "ackermann" factory; this
-# registers it again from application code (replace=True) to show the path.
-@dam.register_solver_factory("ackermann", capabilities=["rollout"], replace=True)
-def make_ackermann(params):
-    return AckermannSolver(
-        wheel_base=params.get("wheel_base"),
-        track_width=params.get("track_width"),
-    )
 
 
 JETBOT_TRACK_WIDTH = 0.12
 RAW_LANE_Y = 0.72
 DAM_LANE_Y = -0.72
 LANE_CENTER_X = 0.42
-ARENA_LENGTH = 2.45
-ARENA_WIDTH = 0.92
-BOTTOM_BAND_X = -0.48
-SAFE_X_MIN = -0.28
-SAFE_X_MAX = 1.20
-SAFE_Y_LIMIT = 0.24
+ARENA_LENGTH = 3.00
+ARENA_WIDTH = 1.20
+BOTTOM_BAND_X = -0.51
+SAFE_X_MIN = -0.35
+SAFE_X_MAX = 1.40
+SAFE_Y_LIMIT = 0.48
 SIDE_BAND_WIDTH = 0.12
 START_X = 0.18
 START_LOCAL_Y = 0.0
@@ -134,96 +119,99 @@ def _cuboid(
 def create_scene_cfg() -> type:
     red = (0.92, 0.04, 0.04)
     green = (0.03, 0.45, 0.16)
-    raw_floor_color = (0.36, 0.07, 0.06)
-    dam_floor_color = (0.04, 0.24, 0.11)
     white = (0.86, 0.86, 0.86)
 
     class SceneCfg(InteractiveSceneCfg):
         ground = AssetBaseCfg(
-            prim_path="/World/defaultGroundPlane", spawn=sim_utils.GroundPlaneCfg()
+            prim_path="/World/Warehouse",
+            spawn=sim_utils.UsdFileCfg(
+                usd_path=f"{ISAAC_NUCLEUS_DIR}/Environments/Simple_Warehouse/warehouse.usd",
+                scale=(0.25, 0.25, 0.25),
+            ),
+            init_state=AssetBaseCfg.InitialStateCfg(rot=(0.0, 0.0, -0.7071, 0.7071)),
         )
         dome_light = AssetBaseCfg(
             prim_path="/World/Light",
             spawn=sim_utils.DomeLightCfg(intensity=3800.0, color=(0.85, 0.85, 0.85)),
         )
 
-        raw_floor = AssetBaseCfg(
-            prim_path="/World/RawArena/Floor",
-            spawn=_cuboid((ARENA_LENGTH, ARENA_WIDTH, 0.012), raw_floor_color),
-            init_state=AssetBaseCfg.InitialStateCfg(pos=(LANE_CENTER_X, RAW_LANE_Y, 0.006)),
-        )
-        dam_floor = AssetBaseCfg(
-            prim_path="/World/DamArena/Floor",
-            spawn=_cuboid((ARENA_LENGTH, ARENA_WIDTH, 0.012), dam_floor_color),
-            init_state=AssetBaseCfg.InitialStateCfg(pos=(LANE_CENTER_X, DAM_LANE_Y, 0.006)),
-        )
         raw_safe = AssetBaseCfg(
             prim_path="/World/RawArena/SafeRegion",
-            spawn=_cuboid((SAFE_X_MAX - SAFE_X_MIN, SAFE_Y_LIMIT * 2.0, 0.018), green),
+            spawn=_cuboid((SAFE_X_MAX - SAFE_X_MIN, SAFE_Y_LIMIT * 2.0, 0.001), green),
             init_state=AssetBaseCfg.InitialStateCfg(
-                pos=((SAFE_X_MIN + SAFE_X_MAX) / 2.0, RAW_LANE_Y, 0.018)
+                pos=((SAFE_X_MIN + SAFE_X_MAX) / 2.0, RAW_LANE_Y, 0.0001)
             ),
         )
         dam_safe = AssetBaseCfg(
             prim_path="/World/DamArena/SafeRegion",
-            spawn=_cuboid((SAFE_X_MAX - SAFE_X_MIN, SAFE_Y_LIMIT * 2.0, 0.018), green),
+            spawn=_cuboid((SAFE_X_MAX - SAFE_X_MIN, SAFE_Y_LIMIT * 2.0, 0.001), green),
             init_state=AssetBaseCfg.InitialStateCfg(
-                pos=((SAFE_X_MIN + SAFE_X_MAX) / 2.0, DAM_LANE_Y, 0.018)
+                pos=((SAFE_X_MIN + SAFE_X_MAX) / 2.0, DAM_LANE_Y, 0.0001)
             ),
         )
 
         raw_left_forbidden = AssetBaseCfg(
             prim_path="/World/RawArena/LeftForbidden",
-            spawn=_cuboid((ARENA_LENGTH, SIDE_BAND_WIDTH, 0.035), red),
+            spawn=_cuboid((ARENA_LENGTH, SIDE_BAND_WIDTH, 0.001), red),
             init_state=AssetBaseCfg.InitialStateCfg(
-                pos=(LANE_CENTER_X, RAW_LANE_Y + ARENA_WIDTH / 2.0 - SIDE_BAND_WIDTH / 2.0, 0.026)
+                pos=(LANE_CENTER_X, RAW_LANE_Y + ARENA_WIDTH / 2.0 - SIDE_BAND_WIDTH / 2.0, 0.0002)
             ),
         )
         raw_right_forbidden = AssetBaseCfg(
             prim_path="/World/RawArena/RightForbidden",
-            spawn=_cuboid((ARENA_LENGTH, SIDE_BAND_WIDTH, 0.035), red),
+            spawn=_cuboid((ARENA_LENGTH, SIDE_BAND_WIDTH, 0.001), red),
             init_state=AssetBaseCfg.InitialStateCfg(
-                pos=(LANE_CENTER_X, RAW_LANE_Y - ARENA_WIDTH / 2.0 + SIDE_BAND_WIDTH / 2.0, 0.026)
+                pos=(LANE_CENTER_X, RAW_LANE_Y - ARENA_WIDTH / 2.0 + SIDE_BAND_WIDTH / 2.0, 0.0002)
             ),
         )
         raw_bottom_forbidden = AssetBaseCfg(
             prim_path="/World/RawArena/BottomForbidden",
-            spawn=_cuboid((0.32, ARENA_WIDTH, 0.035), red),
-            init_state=AssetBaseCfg.InitialStateCfg(pos=(BOTTOM_BAND_X, RAW_LANE_Y, 0.026)),
+            spawn=_cuboid((0.32, ARENA_WIDTH, 0.001), red),
+            init_state=AssetBaseCfg.InitialStateCfg(pos=(BOTTOM_BAND_X, RAW_LANE_Y, 0.0002)),
         )
         dam_left_forbidden = AssetBaseCfg(
             prim_path="/World/DamArena/LeftForbidden",
-            spawn=_cuboid((ARENA_LENGTH, SIDE_BAND_WIDTH, 0.035), red),
+            spawn=_cuboid((ARENA_LENGTH, SIDE_BAND_WIDTH, 0.001), red),
             init_state=AssetBaseCfg.InitialStateCfg(
-                pos=(LANE_CENTER_X, DAM_LANE_Y + ARENA_WIDTH / 2.0 - SIDE_BAND_WIDTH / 2.0, 0.026)
+                pos=(LANE_CENTER_X, DAM_LANE_Y + ARENA_WIDTH / 2.0 - SIDE_BAND_WIDTH / 2.0, 0.0002)
             ),
         )
         dam_right_forbidden = AssetBaseCfg(
             prim_path="/World/DamArena/RightForbidden",
-            spawn=_cuboid((ARENA_LENGTH, SIDE_BAND_WIDTH, 0.035), red),
+            spawn=_cuboid((ARENA_LENGTH, SIDE_BAND_WIDTH, 0.001), red),
             init_state=AssetBaseCfg.InitialStateCfg(
-                pos=(LANE_CENTER_X, DAM_LANE_Y - ARENA_WIDTH / 2.0 + SIDE_BAND_WIDTH / 2.0, 0.026)
+                pos=(LANE_CENTER_X, DAM_LANE_Y - ARENA_WIDTH / 2.0 + SIDE_BAND_WIDTH / 2.0, 0.0002)
             ),
         )
         dam_bottom_forbidden = AssetBaseCfg(
             prim_path="/World/DamArena/BottomForbidden",
-            spawn=_cuboid((0.32, ARENA_WIDTH, 0.035), red),
-            init_state=AssetBaseCfg.InitialStateCfg(pos=(BOTTOM_BAND_X, DAM_LANE_Y, 0.026)),
+            spawn=_cuboid((0.32, ARENA_WIDTH, 0.001), red),
+            init_state=AssetBaseCfg.InitialStateCfg(pos=(BOTTOM_BAND_X, DAM_LANE_Y, 0.0002)),
         )
         divider = AssetBaseCfg(
             prim_path="/World/Divider",
             spawn=_cuboid((ARENA_LENGTH, 0.045, 0.045), white),
-            init_state=AssetBaseCfg.InitialStateCfg(pos=(LANE_CENTER_X, 0.0, 0.027)),
+            init_state=AssetBaseCfg.InitialStateCfg(pos=(LANE_CENTER_X, 0.0, 0.0225)),
         )
-        raw_badge = AssetBaseCfg(
-            prim_path="/World/RawArena/RawBadge",
-            spawn=_cuboid((0.42, 0.08, 0.055), (1.0, 0.08, 0.05)),
-            init_state=AssetBaseCfg.InitialStateCfg(pos=(1.35, RAW_LANE_Y, 0.05)),
+        raw_flagpole = AssetBaseCfg(
+            prim_path="/World/RawArena/Flagpole",
+            spawn=_cuboid((0.02, 0.02, 0.40), (0.7, 0.7, 0.7)),
+            init_state=AssetBaseCfg.InitialStateCfg(pos=(1.55, RAW_LANE_Y - 0.5, 0.20)),
         )
-        dam_badge = AssetBaseCfg(
-            prim_path="/World/DamArena/DamBadge",
-            spawn=_cuboid((0.42, 0.08, 0.055), (0.08, 0.95, 0.22)),
-            init_state=AssetBaseCfg.InitialStateCfg(pos=(1.35, DAM_LANE_Y, 0.05)),
+        raw_flag = AssetBaseCfg(
+            prim_path="/World/RawArena/Flag",
+            spawn=_cuboid((0.15, 0.01, 0.08), (1.0, 0.08, 0.05)),
+            init_state=AssetBaseCfg.InitialStateCfg(pos=(1.485, RAW_LANE_Y - 0.5, 0.36)),
+        )
+        dam_flagpole = AssetBaseCfg(
+            prim_path="/World/DamArena/Flagpole",
+            spawn=_cuboid((0.02, 0.02, 0.40), (0.7, 0.7, 0.7)),
+            init_state=AssetBaseCfg.InitialStateCfg(pos=(1.55, DAM_LANE_Y + 0.5, 0.20)),
+        )
+        dam_flag = AssetBaseCfg(
+            prim_path="/World/DamArena/Flag",
+            spawn=_cuboid((0.15, 0.01, 0.08), (0.08, 0.95, 0.22)),
+            init_state=AssetBaseCfg.InitialStateCfg(pos=(1.485, DAM_LANE_Y + 0.5, 0.36)),
         )
 
         raw_jetbot = JETBOT_CONFIG.replace(prim_path="/World/RawArena/Jetbot")
@@ -294,7 +282,7 @@ class TwinLaneDAMDemo:
     def setup(self) -> bool:
         sim_cfg = sim_utils.SimulationCfg(device=args_cli.device)
         self.sim = sim_utils.SimulationContext(sim_cfg)
-        self.sim.set_camera_view([2.15, -2.2, 1.75], [0.35, 0.0, 0.02])
+        self.sim.set_camera_view([-0.8, -1.5, 0.5], [1.8, 1.0, 0.1])
         self.sim_dt = self.sim.get_physics_dt()
 
         scene_cfg = create_scene_cfg()(num_envs=1, env_spacing=2.0)
@@ -303,7 +291,13 @@ class TwinLaneDAMDemo:
 
         self.raw_jetbot = self.scene["raw_jetbot"]
         self.dam_jetbot = self.scene["dam_jetbot"]
-        self.dam_guard = JetbotDAMWrapper(self.stackfile, device=self.sim.device)
+        self.dam_guard = JetbotDAMWrapper(
+            self.stackfile,
+            device=self.sim.device,
+            solver=AckermannSolver(
+                track_width=JETBOT_TRACK_WIDTH, wheel_radius=0.03, max_v=1.4, max_omega=6.0
+            ),
+        )
         self._reset_robots()
 
         print("\n" + "=" * 78)
@@ -312,7 +306,7 @@ class TwinLaneDAMDemo:
         print("  Red bands:     forbidden left/right/bottom boundary zones")
         print("  Green region:  allowed target region")
         print("  RAW lane:      applies nominal [v, omega] directly")
-        print("  DAM lane:      applies SafetyGuard-validated [v, omega]")
+        print("  DAM lane:      applies Guardrail-validated [v, omega]")
         print("=" * 78 + "\n")
         return True
 
@@ -337,7 +331,7 @@ class TwinLaneDAMDemo:
             self.sim.step()
             self.scene.update(self.sim_dt)
 
-            self._record_step(dam_raw_command, safe_command)
+            self._record_step()
             if step % args_cli.log_every == 0 or step == args_cli.steps - 1:
                 self._print_step(step, dam_raw_command, safe_command)
 
@@ -381,7 +375,7 @@ class TwinLaneDAMDemo:
 
     def _yaw(self, robot) -> torch.Tensor:
         quat = physx_to_torch(robot.data.root_quat_w)
-        w, x, y, z = quat[:, 0], quat[:, 1], quat[:, 2], quat[:, 3]
+        x, y, z, w = quat[:, 0], quat[:, 1], quat[:, 2], quat[:, 3]
         return torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
     def _local_state(self, robot, lane_y: float) -> torch.Tensor:
@@ -401,17 +395,18 @@ class TwinLaneDAMDemo:
             torch.sin(desired_heading - yaw), torch.cos(desired_heading - yaw)
         )
         distance = torch.linalg.norm(delta, dim=1)
-        forward = torch.clamp(args_cli.drive_gain * distance * torch.cos(heading_error), -1.2, 1.2)
+        forward = torch.clamp(args_cli.drive_gain * distance * torch.cos(heading_error), -1.4, 1.4)
         omega = torch.clamp(5.0 * heading_error, -5.0, 5.0)
         return torch.stack([forward, omega], dim=1).to(dtype=torch.float32)
 
     @staticmethod
     def _command_to_wheels(command: torch.Tensor) -> torch.Tensor:
-        left = command[:, 0] - command[:, 1] * JETBOT_TRACK_WIDTH / 2.0
-        right = command[:, 0] + command[:, 1] * JETBOT_TRACK_WIDTH / 2.0
+        wheel_radius = 0.03
+        left = (command[:, 0] - command[:, 1] * JETBOT_TRACK_WIDTH / 2.0) / wheel_radius
+        right = (command[:, 0] + command[:, 1] * JETBOT_TRACK_WIDTH / 2.0) / wheel_radius
         return torch.stack([left, right], dim=1).to(dtype=torch.float32)
 
-    def _record_step(self, raw_command: torch.Tensor, safe_command: torch.Tensor) -> None:
+    def _record_step(self) -> None:
         raw_pos = self._position(self.raw_jetbot)
         dam_pos = self._position(self.dam_jetbot)
         raw_margin = self._safe_margin(_to_local_target(raw_pos, RAW_LANE_Y))
@@ -457,7 +452,7 @@ class TwinLaneDAMDemo:
             [
                 "",
                 "TWIN-LANE DAM BOUNDARY SUMMARY",
-                "Same target stream; RAW applies nominal [v, omega], DAM applies SafetyGuard-validated [v, omega].",
+                "Same target stream; RAW applies nominal [v, omega], DAM applies Guardrail-validated [v, omega].",
                 f"Steps: {self.metrics.steps}",
                 f"DAM decisions: {decisions}",
                 f"DAM interventions: {self.metrics.interventions} ({self.dam_guard.intervention_rate:.1%})",

@@ -638,7 +638,7 @@ class GuardRuntime:
 
         If loopback recording is active, the cycle is also submitted to
         the MCAP writer — so ``validate()``-only callers (e.g.
-        ``SafetyGuard``) get guard event logging for free.
+        ``Guardrail``) get guard event logging for free.
         """
         if advance_cycle:
             self._cycle_id += 1
@@ -1296,7 +1296,7 @@ class GuardRuntime:
         return _build_all_boundaries(config, _cb_reg, _guard_reg)
 
     @staticmethod
-    def _build_boundary_node(ncfg: Any, guard_kind: str, config: Any) -> Any:
+    def _build_boundary_node(ncfg: Any, config: Any) -> Any:
         from dam.runtime._stackfile_builder import _build_boundary_node
 
-        return _build_boundary_node(ncfg, guard_kind, config)
+        return _build_boundary_node(ncfg, config)

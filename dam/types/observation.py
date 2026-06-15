@@ -25,14 +25,18 @@ class Observation:
     """
 
     timestamp: float
-    joint_positions: np.ndarray
+    # Empty array when the embodiment has no joints (e.g. a mobile base whose
+    # state is a base pose carried in ``channels``). Builtin joint guards skip
+    # an empty vector; custom callbacks read their own ``channels`` groups.
+    joint_positions: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.float64))
     joint_velocities: np.ndarray | None = None  # [rad/s]; None if sensor unavailable
     end_effector_pose: np.ndarray | None = None  # [x,y,z,qx,qy,qz,qw]; None if not computed
     force_torque: np.ndarray | None = None  # [Fx,Fy,Fz,Tx,Ty,Tz]; None if no F/T sensor
     images: dict[str, np.ndarray] | None = None
-    # Device-specific observation channels keyed by name (e.g. "current", "temperature").
-    # Each value is shape (n_joints,).  Populated when register-type sources are
-    # declared in the stackfile alongside the main device source.
+    # Named observation groups keyed by name (e.g. "current", "temperature",
+    # "base_pose"). Each value is an arbitrary-length float array — device
+    # telemetry is typically (n_joints,), but Guardrail also routes user
+    # observation groups (e.g. a (3,) base pose) here for by-key callback access.
     channels: dict[str, np.ndarray] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 

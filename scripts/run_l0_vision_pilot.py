@@ -129,7 +129,7 @@ def main() -> None:
     print(f"\nApplying PCA: {train_feat.shape[1]} -> {n_components} dims...")
     feat_mean = train_feat.mean(axis=0)
     centered = train_feat - feat_mean
-    U, S, Vt = svd(centered, full_matrices=False)
+    _, S, Vt = svd(centered, full_matrices=False)
     pca_components = Vt[:n_components]
     variance_explained = np.sum(S[:n_components] ** 2) / np.sum(S**2)
     print(f"  Variance explained: {variance_explained:.4f}")

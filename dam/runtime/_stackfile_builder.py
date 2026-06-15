@@ -272,7 +272,7 @@ def _build_all_boundaries(
             _register_guard_if_new(guard_kind, ncfg, cb_layer, guards_by_kind, _guard_reg)
             if guard_kind in guards_by_kind:
                 boundary_to_kind[bname] = guard_kind
-            nodes.append(_build_boundary_node(ncfg, guard_kind, config))
+            nodes.append(_build_boundary_node(ncfg, config))
         boundary_containers[bname] = _make_container(bcfg, nodes)
 
     _configure_stackfile_guard_instances(config, guards_by_kind)
@@ -331,7 +331,7 @@ def _register_guard_if_new(
         guards_by_kind[guard_kind] = instance
 
 
-def _build_boundary_node(ncfg: Any, guard_kind: str, config: StackfileConfig) -> Any:
+def _build_boundary_node(ncfg: Any, config: StackfileConfig) -> Any:
     from dam.boundary.callbacks._registry import normalize_unit_params
     from dam.boundary.constraint import BoundaryConstraint
     from dam.boundary.node import BoundaryNode

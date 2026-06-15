@@ -1,16 +1,16 @@
 """LeRobot processor integration — safety-guard actions during recording.
 
-Provides :class:`SafetyProcessorStep`, a drop-in
+Provides :class:`GuardrailProcessorStep`, a drop-in
 ``RobotActionProcessorStep`` that validates every action through DAM's
 guard pipeline before it reaches the robot.
 
 .. code-block:: python
 
     from lerobot.processor.factory import make_default_processors
-    from dam import SafetyProcessorStep
+    from dam import GuardrailProcessorStep
 
     teleop, robot_action, obs = make_default_processors()
-    robot_action.steps.insert(0, SafetyProcessorStep("safety.yaml"))
+    robot_action.steps.insert(0, GuardrailProcessorStep("safety.yaml"))
 """
 
 from __future__ import annotations
@@ -160,7 +160,7 @@ class _EdgePrinter:
 # ── Processor step ────────────────────────────────────────────────────────
 
 
-class SafetyProcessorStep(_Base):  # type: ignore[valid-type,misc]
+class GuardrailProcessorStep(_Base):  # type: ignore[valid-type,misc]
     """LeRobot processor step that validates actions through DAM guards.
 
     Features beyond basic safety checking:
@@ -198,13 +198,14 @@ class SafetyProcessorStep(_Base):  # type: ignore[valid-type,misc]
 
     def _ensure_guard(self) -> Any:
         if self._guard is None:
-            from dam.api import SafetyGuard
+            from dam.api import Guardrail
 
-            self._guard = SafetyGuard(
+            self._guard = Guardrail(
                 self._stackfile,
                 task=self._task,
                 joint_names=self._joint_names,
                 degrees_mode=self._degrees_mode,
+                quiet=True,
             )
         return self._guard
 
@@ -217,15 +218,15 @@ class SafetyProcessorStep(_Base):  # type: ignore[valid-type,misc]
 
         if obs is None:
             logger.warning(
-                "SafetyProcessorStep: no observation in transition, "
+                "GuardrailProcessorStep: no observation in transition, "
                 "passing action through unguarded"
             )
             return action
 
-        if self._hold_first_cycle and not self._has_guarded_cycle:
-            result = guard(obs, obs)
-        else:
-            result = guard(action, obs)
+        # First cycle has no prior command to clamp against; echo the current
+        # pose as the action so the guard establishes a baseline (hold).
+        command = obs if (self._hold_first_cycle and not self._has_guarded_cycle) else action
+        result = guard({**obs, "action": command})
         self._has_guarded_cycle = True
 
         notable = self._stats.record_cycle(guard.last_results)
@@ -283,13 +284,13 @@ def make_safe_processors(
     """Drop-in replacement for lerobot's ``make_default_processors()``.
 
     Returns ``(teleop_action_processor, robot_action_processor,
-    robot_observation_processor)`` with a :class:`SafetyProcessorStep`
+    robot_observation_processor)`` with a :class:`GuardrailProcessorStep`
     prepended to the robot action pipeline.
     """
     from lerobot.processor.factory import make_default_processors
 
     teleop, robot_action, obs_proc = make_default_processors()
-    step = SafetyProcessorStep(
+    step = GuardrailProcessorStep(
         stackfile,
         task=task,
         joint_names=joint_names,

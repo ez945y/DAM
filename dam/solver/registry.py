@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-SolverFactory = Callable[[Mapping[str, Any]], Any]
+# A factory declares the params it needs as keyword arguments; the registry
+# injects matching values from the stackfile params + robot context.
+SolverFactory = Callable[..., Any]
 
 
 @dataclass(frozen=True)
@@ -82,7 +85,7 @@ class SolverRegistry:
                 f"Solver factory '{solver_type}' not found. Registered: {sorted(self._factories)}"
             )
         factory, default_caps = self._factories[type_key]
-        solver = factory(dict(params or {}))
+        solver = _invoke_factory(factory, dict(params or {}))
         self.register(
             name,
             solver,
@@ -110,6 +113,30 @@ class SolverRegistry:
 
     def entries(self) -> dict[str, SolverEntry]:
         return dict(self._instances)
+
+
+def _invoke_factory(factory: SolverFactory, params: dict[str, Any]) -> Any:
+    """Call a solver factory, injecting only the keyword params it declares.
+
+    The runtime hands every factory the same flat dict (user ``params`` merged
+    with robot context like ``asset_path`` / ``observation_joint_names``). A
+    factory lists what it wants by name; anything it does not declare is
+    dropped, so factories stay free of ``params.get()`` and never receive keys
+    they did not ask for. A factory with ``**kwargs`` receives everything.
+    """
+    try:
+        sig = inspect.signature(factory)
+    except (TypeError, ValueError):
+        # Builtins / C callables without an introspectable signature: pass all.
+        return factory(**params)
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+        return factory(**params)
+    accepted = {
+        p.name
+        for p in sig.parameters.values()
+        if p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+    }
+    return factory(**{k: v for k, v in params.items() if k in accepted})
 
 
 def _normalize_name(value: str) -> str:

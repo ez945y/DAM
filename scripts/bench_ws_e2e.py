@@ -48,7 +48,7 @@ def make_result(cycle_id: int) -> CycleResult:
 
 def make_jpeg(w: int, h: int, quality: int) -> bytes:
     frame = np.random.randint(0, 255, (h, w, 3), dtype=np.uint8)
-    ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
+    _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
     return bytes(buf)
 
 

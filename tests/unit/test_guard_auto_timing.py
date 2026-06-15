@@ -247,7 +247,7 @@ class TestEngineReadsAutoTiming:
         assert g.get_name() in snapshot.get("guards", {})
 
     def test_run_guards_sequential_reads_latency(self):
-        engine, bus = self._make_engine()
+        engine, _ = self._make_engine()
         g = _PassGuard()
         precompute_injection(g, {})
         results = engine._run_guards_sequential([g], {})
@@ -255,7 +255,7 @@ class TestEngineReadsAutoTiming:
         assert "_latency_ms" in results[0].metadata
 
     def test_run_guards_sequential_fault_has_no_latency(self):
-        engine, bus = self._make_engine()
+        engine, _ = self._make_engine()
         g = _ExplodingGuard()
         precompute_injection(g, {})
         results = engine._run_guards_sequential([g], {})
@@ -263,7 +263,7 @@ class TestEngineReadsAutoTiming:
         assert results[0].decision == GuardDecision.FAULT
 
     def test_per_boundary_flows_through_engine(self):
-        engine, bus = self._make_engine()
+        engine, _ = self._make_engine()
         g = _PerBoundaryGuard()
         precompute_injection(g, {})
         result = engine._run_one_guard(g, None, {})
@@ -278,7 +278,7 @@ class TestEngineReadsAutoTiming:
         would compute them). This is the path that feeds MCAP + risk log."""
         from dam.runtime.execution_engine import _fan_out_per_boundary
 
-        engine, bus = self._make_engine()
+        engine, _ = self._make_engine()
         g = _PerBoundaryGuard()
         precompute_injection(g, {})
         result = engine._run_one_guard(g, None, {})

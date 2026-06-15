@@ -3,7 +3,7 @@
 # Use with Isaac Sim or real hardware. All values in radians.
 #
 # Usage:
-#   guard = dam.SafetyGuard("examples/stackfiles/franka_safety.yaml")
+#   guard = dam.Guardrail("examples/stackfiles/franka_safety.yaml")
 #   safe_action = guard(action_tensor, obs_tensor)
 #
 #   from dam.adapter.isaac import IsaacSafetyFilter

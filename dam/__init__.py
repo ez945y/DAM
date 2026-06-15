@@ -6,21 +6,20 @@ from pathlib import Path
 from dam import testing
 from dam.adapter.base import ActionAdapter, SensorAdapter
 from dam.api import (
+    Guardrail,
     RunSummary,
-    SafetyGuard,
     build_runner,
+    guardrail,
     register_callback,
     register_host_telemetry_interface,
     register_preset,
     register_read_interface,
     register_robot_telemetry_interface,
     register_solver,
-    register_solver_factory,
     register_write_interface,
     run,
-    safe,
 )
-from dam.decorators import callback, fallback, guard
+from dam.decorators import callback, fallback, guard, solver_factory
 from dam.guard.aggregator import aggregate_decisions
 from dam.guard.base import Guard
 from dam.guard.layer import GuardLayer
@@ -53,6 +52,7 @@ __all__ = [
     "guard",
     "callback",
     "fallback",
+    "solver_factory",
     "Guard",
     "SensorAdapter",
     "ActionAdapter",
@@ -68,26 +68,25 @@ __all__ = [
     "testing",
     "build_runner",
     "run",
-    "safe",
+    "guardrail",
     "register_callback",
     "register_preset",
     "register_solver",
-    "register_solver_factory",
     "register_read_interface",
     "register_write_interface",
     "register_robot_telemetry_interface",
     "register_host_telemetry_interface",
     "RunSummary",
-    "SafetyGuard",
-    "SafetyProcessorStep",
+    "Guardrail",
+    "GuardrailProcessorStep",
     "Runner",
     "RunnerStatus",
 ]
 
 
 def __getattr__(name: str):  # type: ignore[no-untyped-def]
-    if name == "SafetyProcessorStep":
-        from dam.processor import SafetyProcessorStep
+    if name == "GuardrailProcessorStep":
+        from dam.processor import GuardrailProcessorStep
 
-        return SafetyProcessorStep
+        return GuardrailProcessorStep
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -28,12 +28,12 @@ STACKFILE = "examples/stackfiles/franka_safety.yaml"
 
 
 def demo_single_env():
-    """Single-environment demo — SafetyGuard with torch.Tensor."""
+    """Single-environment demo — Guardrail with torch.Tensor."""
     print("=" * 60)
-    print("Demo 1: Single env — dam.SafetyGuard + torch.Tensor")
+    print("Demo 1: Single env — dam.Guardrail + torch.Tensor")
     print("=" * 60)
 
-    guard = dam.SafetyGuard(STACKFILE, task="manipulation")
+    guard = dam.Guardrail(STACKFILE, task="manipulation", quiet=True)
 
     # Simulate Isaac Sim joint state (radians, on GPU if available)
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -44,7 +44,7 @@ def demo_single_env():
         [0.1, -0.05, 0.02, -0.01, 0.03, 0.01, -0.02, 0.0, 0.0],
         device=device,
     )
-    result = guard(safe_action, obs)
+    result = guard({"joints": obs, "action": safe_action})
     print(f"  Device:    {result.device}")
     print(f"  Input:     {safe_action[:4]}...")
     print(f"  Output:    {result[:4]}...")
@@ -55,7 +55,7 @@ def demo_single_env():
         [3.0, -3.0, 2.0, -2.0, 1.5, 1.0, 0.5, 0.05, 0.05],
         device=device,
     )
-    result = guard(dangerous, obs)
+    result = guard({"joints": obs, "action": dangerous})
     clamped = any(r.decision.name == "CLAMP" for r in guard.last_results)
     print(f"\n  Dangerous: {dangerous[:4]}...")
     print(f"  Clamped:   {result[:4]}...")

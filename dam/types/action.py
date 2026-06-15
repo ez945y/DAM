@@ -51,6 +51,22 @@ class ActionProposal:
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError(f"confidence must be in [0, 1], got {self.confidence}")
 
+    # A proposal duck-types as its command vector so a callback can write
+    # ``v, omega = action`` / ``np.asarray(action)`` while builtins keep using
+    # ``action.target_joint_positions``.
+    def __array__(self, dtype: Any = None) -> np.ndarray:
+        arr = self.target_joint_positions
+        return arr.astype(dtype) if dtype is not None else arr
+
+    def __iter__(self) -> Any:
+        return iter(self.target_joint_positions)
+
+    def __len__(self) -> int:
+        return len(self.target_joint_positions)
+
+    def __getitem__(self, index: Any) -> Any:
+        return self.target_joint_positions[index]
+
 
 @dataclass(frozen=True)
 class ValidatedAction:

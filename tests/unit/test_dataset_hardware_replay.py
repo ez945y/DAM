@@ -244,7 +244,6 @@ def test_legacy_gripper_phase_timeout_is_ignored_at_runtime():
     )
     node = GuardRuntime._build_boundary_node(
         NodeConfig(callback="task_gripper_command_guard", timeout_sec=1.0),
-        "execution",
         config,
     )
     assert node.timeout_sec is None

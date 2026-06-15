@@ -87,7 +87,7 @@ def test_monitor_mode_passes_action_on_guard_violation():
 
     obs = _obs()
     action = _action_nan()
-    validated, results = runtime.validate(obs, action, "trace-001")
+    validated, _ = runtime.validate(obs, action, "trace-001")
 
     assert validated is not None, "monitor mode must pass the action through"
 
