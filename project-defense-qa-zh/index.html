@@ -1,0 +1,3927 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Real-time safety middleware for ML-driven robot arms">
+      
+      
+      
+        <link rel="canonical" href="https://ez945y.github.io/DAM/project-defense-qa-zh/">
+      
+      
+        <link rel="prev" href="../concepts/safety/">
+      
+      
+        <link rel="next" href="../library-api/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/logo.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Defense Q&A (中文) - DAM — Detachable Action Monitor</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="amber" data-md-color-accent="yellow">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#dam" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="DAM — Detachable Action Monitor" class="md-header__button md-logo" aria-label="DAM — Detachable Action Monitor" data-md-component="logo">
+      
+  <img src="../assets/logo.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            DAM — Detachable Action Monitor
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Defense Q&A (中文)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="amber" data-md-color-accent="yellow"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="amber" data-md-color-accent="yellow"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/ez945y/DAM" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ez945y/DAM
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../getting-started/quickstart/" class="md-tabs__link">
+          
+  
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../learn/" class="md-tabs__link">
+          
+  
+  
+  Learning
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../concepts/architecture/" class="md-tabs__link">
+          
+  
+  
+  Concepts
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../library-api/" class="md-tabs__link">
+          
+  
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../console/" class="md-tabs__link">
+          
+  
+  
+  Console
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../release-notes-0.7.0/" class="md-tabs__link">
+          
+  
+  
+  Release Notes
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../contributing/" class="md-tabs__link">
+          
+  
+  
+  Contributing
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="DAM — Detachable Action Monitor" class="md-nav__button md-logo" aria-label="DAM — Detachable Action Monitor" data-md-component="logo">
+      
+  <img src="../assets/logo.svg" alt="logo">
+
+    </a>
+    DAM — Detachable Action Monitor
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/ez945y/DAM" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ez945y/DAM
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/safe-recording/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Safe Recording
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/stackfile-walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stackfile Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/common-stackfile-edits/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Common Stackfile Edits
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/console-walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Console Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/hardware-readiness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hardware Readiness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quick-stack/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stackfile Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Learning
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Learning
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../learn/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start Here
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../learn/tutorial/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Complete Tutorial
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../learn/glossary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../concepts/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../concepts/use-cases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Use Cases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../concepts/guards-explained/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guard Stack
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../concepts/boundaries/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Boundaries
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../concepts/safety/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Safety Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Defense Q&A (中文)
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Defense Q&A (中文)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+  
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        一句話介紹
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        這個專案中的「安全」定義
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="這個專案中的「安全」定義">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-action-safety" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Action safety
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-operational-safety" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Operational safety
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-epistemic-safety" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Epistemic safety
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-debuggable-safety" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Debuggable safety
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        系統架構怎麼說
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#guard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        四層 Guard 的定義
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="四層 Guard 的定義">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#l0-ood-detection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        L0: OOD Detection
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#l1-physical-kinematics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        L1: Physical Kinematics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#l2-task-execution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        L2: Task Execution
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#l3-hardware-monitoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        L3: Hardware Monitoring
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        數學部分怎麼講
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="數學部分怎麼講">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. 最保守決策聚合
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-joint-limit-clamp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Joint limit clamp
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-velocity-limit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Velocity limit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-acceleration-limit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Acceleration limit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-qp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. QP 最小改動修正
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#6-control-barrier-function" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Control Barrier Function 直覺
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#7-ood-threshold-calibration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. OOD threshold calibration
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rule-based" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rule-based 方法的缺點怎麼回答
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Rule-based 方法的缺點怎麼回答">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#rule-based_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        專業問題：這不就是 rule-based 嗎？有什麼貢獻？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rule-based_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        專業問題：rule-based 最大缺點是什麼？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#end-to-end-learning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        專業問題：為什麼不用 end-to-end learning 直接學安全？
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#60-fps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        延遲與 60 FPS 問題怎麼回答
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="延遲與 60 FPS 問題怎麼回答">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#budget" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        先講控制週期 budget
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#60-fps_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        專業問題：你的系統能跑 60 FPS 嗎？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#60-fps_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        如果目前沒有實測 60 FPS 數據
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        延遲來源
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#60-fps_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        60 FPS 策略
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        好的回答範例
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        專業人士可能會問的困難問題與回答
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="專業人士可能會問的困難問題與回答">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#q1-safe-action" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q1. 你怎麼定義「safe action」？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q2-robot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q2. 你能保證 robot 不會撞到人或物嗎？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q3-policy-nan-inf" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q3. 如果 policy 輸出 NaN 或 Inf 會怎樣？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q4-guard-timeout-exception" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q4. 如果 guard 自己出錯、timeout 或 exception 呢？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q5-guard-clamp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q5. 多個 guard 同時 clamp，怎麼合併？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q6-workspace-constraint-clamp-xyz" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q6. 為什麼 workspace constraint 不是直接 clamp XYZ？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q7-qp-infeasible" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q7. QP 如果 infeasible 怎麼辦？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q8-cbf" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q8. CBF 的限制是什麼？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q9-l0-ood-false-positive" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q9. L0 OOD 有 false positive 怎麼處理？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q10-l0-ood-false-negative" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q10. L0 OOD 有 false negative 怎麼辦？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q11-threshold" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q11. 你怎麼設定 threshold？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q12-safety-controller" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q12. 這跟傳統 safety controller 有什麼不同？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q13-sensor-spoof" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q13. 如果 sensor 被 spoof 呢？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q14-adversarial-testing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q14. 你有做 adversarial testing 嗎？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q15-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q15. 你的安全系統和 policy 誰負責最終安全？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q16-mcapreplay" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q16. 為什麼需要 MCAP/replay？安全不是擋下來就好嗎？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q17-robot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q17. 你怎麼避免過度保守導致 robot 不會動？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q18-layer-bottleneck" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q18. 如果控制頻率提高，哪個 layer 會最先成為 bottleneck？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q19-majority-vote" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q19. 為什麼不用 majority vote？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q20-boundary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q20. 如果 boundary 設錯怎麼辦？
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        可以主動講出的專案限制
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#30" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        30 秒口頭版
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2 分鐘口頭版
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        簡報建議頁面
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../library-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Library API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guards-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guards
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../boundary-callbacks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Boundary Callbacks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../loopback-logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Loopback Logging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../failure-tuple-schema/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Failure Tuple Schema
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adversarial-testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Adversarial Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../DAM_Specification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experiments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Experiments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Console
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Console
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../console/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../services-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release Notes
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Release Notes
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-notes-0.7.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v0.7.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-notes-0.6.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v0.6.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-notes-0.5.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v0.5.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../linkedin-0.5.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v0.5.0 LinkedIn Draft
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../release-notes-0.4.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v0.4.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Contributing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../documentation-workplan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation Workplan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+  
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        一句話介紹
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        這個專案中的「安全」定義
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="這個專案中的「安全」定義">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-action-safety" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Action safety
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-operational-safety" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Operational safety
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-epistemic-safety" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Epistemic safety
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-debuggable-safety" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Debuggable safety
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        系統架構怎麼說
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#guard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        四層 Guard 的定義
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="四層 Guard 的定義">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#l0-ood-detection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        L0: OOD Detection
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#l1-physical-kinematics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        L1: Physical Kinematics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#l2-task-execution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        L2: Task Execution
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#l3-hardware-monitoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        L3: Hardware Monitoring
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        數學部分怎麼講
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="數學部分怎麼講">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. 最保守決策聚合
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-joint-limit-clamp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Joint limit clamp
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-velocity-limit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Velocity limit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-acceleration-limit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Acceleration limit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-qp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. QP 最小改動修正
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#6-control-barrier-function" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Control Barrier Function 直覺
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#7-ood-threshold-calibration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. OOD threshold calibration
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rule-based" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rule-based 方法的缺點怎麼回答
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Rule-based 方法的缺點怎麼回答">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#rule-based_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        專業問題：這不就是 rule-based 嗎？有什麼貢獻？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rule-based_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        專業問題：rule-based 最大缺點是什麼？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#end-to-end-learning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        專業問題：為什麼不用 end-to-end learning 直接學安全？
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#60-fps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        延遲與 60 FPS 問題怎麼回答
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="延遲與 60 FPS 問題怎麼回答">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#budget" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        先講控制週期 budget
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#60-fps_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        專業問題：你的系統能跑 60 FPS 嗎？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#60-fps_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        如果目前沒有實測 60 FPS 數據
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        延遲來源
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#60-fps_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        60 FPS 策略
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        好的回答範例
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        專業人士可能會問的困難問題與回答
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="專業人士可能會問的困難問題與回答">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#q1-safe-action" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q1. 你怎麼定義「safe action」？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q2-robot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q2. 你能保證 robot 不會撞到人或物嗎？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q3-policy-nan-inf" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q3. 如果 policy 輸出 NaN 或 Inf 會怎樣？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q4-guard-timeout-exception" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q4. 如果 guard 自己出錯、timeout 或 exception 呢？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q5-guard-clamp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q5. 多個 guard 同時 clamp，怎麼合併？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q6-workspace-constraint-clamp-xyz" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q6. 為什麼 workspace constraint 不是直接 clamp XYZ？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q7-qp-infeasible" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q7. QP 如果 infeasible 怎麼辦？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q8-cbf" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q8. CBF 的限制是什麼？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q9-l0-ood-false-positive" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q9. L0 OOD 有 false positive 怎麼處理？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q10-l0-ood-false-negative" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q10. L0 OOD 有 false negative 怎麼辦？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q11-threshold" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q11. 你怎麼設定 threshold？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q12-safety-controller" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q12. 這跟傳統 safety controller 有什麼不同？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q13-sensor-spoof" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q13. 如果 sensor 被 spoof 呢？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q14-adversarial-testing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q14. 你有做 adversarial testing 嗎？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q15-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q15. 你的安全系統和 policy 誰負責最終安全？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q16-mcapreplay" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q16. 為什麼需要 MCAP/replay？安全不是擋下來就好嗎？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q17-robot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q17. 你怎麼避免過度保守導致 robot 不會動？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q18-layer-bottleneck" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q18. 如果控制頻率提高，哪個 layer 會最先成為 bottleneck？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q19-majority-vote" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q19. 為什麼不用 majority vote？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#q20-boundary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Q20. 如果 boundary 設錯怎麼辦？
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        可以主動講出的專案限制
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#30" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        30 秒口頭版
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2 分鐘口頭版
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        簡報建議頁面
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+  <nav class="md-path" aria-label="Navigation" >
+    <ol class="md-path__list">
+      
+        
+  
+  
+    <li class="md-path__item">
+      <a href=".." class="md-path__link">
+        
+  <span class="md-ellipsis">
+    Home
+  </span>
+
+      </a>
+    </li>
+  
+
+      
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="../concepts/architecture/" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    Concepts
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ol>
+  </nav>
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="dam">DAM 專案安全定義與專業答辯筆記<a class="headerlink" href="#dam" title="Permanent link">&para;</a></h1>
+<p>這份筆記是給專案簡報、面試、論文口試或技術審查使用。重點不是把 DAM 說成「保證安全」的系統，而是清楚說明：它把 ML policy 輸出的動作放進一個可設定、可量測、可追溯的安全監控層，在動作進入硬體前做攔截、修正或拒絕。</p>
+<hr />
+<h2 id="_1">一句話介紹<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
+<p>DAM, Detachable Action Monitor，是一個放在機器人 policy 和硬體之間的安全 middleware。它攔截每一次 action proposal，經過 L0 到 L3 的 guard pipeline，最後輸出 PASS、CLAMP 或 REJECT，並記錄每次決策的原因、延遲和上下文。</p>
+<p>可以這樣講：</p>
+<blockquote>
+<p>我的系統不是取代 robot controller，也不是宣稱形式化保證安全；它是一個 action-level 的 safety monitor。它讓 policy 的輸出在到達硬體前，先通過分佈外偵測、運動學限制、任務規則和硬體健康檢查。系統的核心價值是把 unsafe action 擋下來，並把原因和資料留下來讓人可以 debug。</p>
+</blockquote>
+<hr />
+<h2 id="_2">這個專案中的「安全」定義<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h2>
+<p>在 DAM 裡，安全不是抽象口號，而是每個 control cycle 都要滿足的條件集合。</p>
+<h3 id="1-action-safety">1. Action safety<a class="headerlink" href="#1-action-safety" title="Permanent link">&para;</a></h3>
+<p>每個由 policy 產生的 action 必須滿足硬體和任務約束。例如：</p>
+<ul>
+<li>joint position 在上下限內</li>
+<li>joint velocity 不超過 motor limit</li>
+<li>joint acceleration 不造成劇烈跳動</li>
+<li>end-effector 留在 workspace 內</li>
+<li>gripper 動作符合目前任務階段</li>
+<li>硬體溫度、電流、電壓、heartbeat 正常</li>
+</ul>
+<p>如果違反但可以安全修正，就 CLAMP；如果無法可靠修正，就 REJECT。</p>
+<h3 id="2-operational-safety">2. Operational safety<a class="headerlink" href="#2-operational-safety" title="Permanent link">&para;</a></h3>
+<p>系統在執行時不能只看單一步驟，也要考慮控制迴圈是否穩定：</p>
+<ul>
+<li>guard timeout 或 exception 時 fail-to-reject</li>
+<li>延遲要低於控制週期 budget</li>
+<li>hot reload 只能套用完整有效的設定</li>
+<li>decision 和 telemetry 要可追溯</li>
+</ul>
+<h3 id="3-epistemic-safety">3. Epistemic safety<a class="headerlink" href="#3-epistemic-safety" title="Permanent link">&para;</a></h3>
+<p>ML policy 在陌生狀態下可能仍然輸出看似合理的 action。L0 OOD guard 用 memory bank、Real-NVP NLL 或 Welford z-score 估計 observation 是否偏離訓練分佈。這不是完美保證，而是降低「模型不知道自己不知道」的風險。</p>
+<h3 id="4-debuggable-safety">4. Debuggable safety<a class="headerlink" href="#4-debuggable-safety" title="Permanent link">&para;</a></h3>
+<p>DAM 的安全目標包含「看得見失敗」。每次 clamp 或 reject 都應該能回答：</p>
+<ul>
+<li>哪一層 guard 觸發？</li>
+<li>觸發哪個 boundary？</li>
+<li>超過多少？</li>
+<li>最後 action 被怎麼改？</li>
+<li>當時前後的 observation/action 是什麼？</li>
+<li>這次 guard latency 有沒有超過 deadline？</li>
+</ul>
+<hr />
+<h2 id="_3">系統架構怎麼說<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h2>
+<p>專業人士會想知道這是不是只是一些 if-else。可以用這個層次回答：</p>
+<ol>
+<li>Policy 產生 proposed action。</li>
+<li>DAM 在 action 進硬體前攔截。</li>
+<li>L0 和 L1/L2/L3 從不同角度檢查同一個 action。</li>
+<li>每層產生 GuardResult：PASS、CLAMP、REJECT 或 FAULT。</li>
+<li>Aggregator 取最保守結果：FAULT &gt; REJECT &gt; CLAMP &gt; PASS。</li>
+<li>若只是可修正的 kinematic violation，系統求一個最小改動的 safe action。</li>
+<li>若無法可靠修正，進入 fallback，例如 hold position、retreat 或 emergency stop。</li>
+<li>Console、risk log、MCAP replay 記錄整個 cycle。</li>
+</ol>
+<p>可以這樣講：</p>
+<blockquote>
+<p>我把安全設計成 defense-in-depth，不是單一規則。L1 負責物理限制，L2 負責任務語意，L3 負責硬體健康，L0 則處理 ML policy 在陌生資料分佈下的不確定性。最後不是平均投票，而是最保守決策勝出，因為安全系統中一個 reject 就足以阻止 action。</p>
+</blockquote>
+<hr />
+<h2 id="guard">四層 Guard 的定義<a class="headerlink" href="#guard" title="Permanent link">&para;</a></h2>
+<h3 id="l0-ood-detection">L0: OOD Detection<a class="headerlink" href="#l0-ood-detection" title="Permanent link">&para;</a></h3>
+<p>目的：判斷 observation 是否偏離 policy 熟悉的資料分佈。</p>
+<p>方法：</p>
+<ul>
+<li>Memory Bank：抽 feature vector，算 nearest-neighbor distance，距離超過 threshold 就拒絕。</li>
+<li>Real-NVP：用 normalizing flow 估計 negative log-likelihood，NLL 過高代表異常。</li>
+<li>Welford z-score：線上估計 mean/variance，若最大 z-score 超過門檻則拒絕。</li>
+</ul>
+<p>重點回答：</p>
+<blockquote>
+<p>L0 是 statistical guard，所以有 false positive 和 false negative。我不會把它說成保證安全，而是用 calibration set 設 threshold，例如 EER threshold，並用 temporal smoothing 避免單幀雜訊造成過多誤拒絕。</p>
+</blockquote>
+<h3 id="l1-physical-kinematics">L1: Physical Kinematics<a class="headerlink" href="#l1-physical-kinematics" title="Permanent link">&para;</a></h3>
+<p>目的：確保 action 符合 joint、velocity、acceleration、workspace、keep-out zone、orientation 等物理限制。</p>
+<p>常見約束：</p>
+<ul>
+<li>joint position: lower_i &lt;= q_i &lt;= upper_i</li>
+<li>velocity: |q_target - q_current| / dt &lt;= v_max</li>
+<li>acceleration: |v_t - v_{t-1}| / dt &lt;= a_max</li>
+<li>workspace: end-effector 必須留在 box bounds</li>
+<li>keep-out zone: end-effector 必須避開禁區</li>
+</ul>
+<p>重點回答：</p>
+<blockquote>
+<p>L1 是目前最接近 hard safety envelope 的層。對 joint/velocity/acceleration 這種可直接修正的限制，我會 clamp；對 workspace 或 CBF 類限制，會透過 QP 找到最小改動的 safe action。如果缺少 Jacobian 或 kinematic model，就不能假裝能精準修正，應該降級成 hold/reject。</p>
+</blockquote>
+<h3 id="l2-task-execution">L2: Task Execution<a class="headerlink" href="#l2-task-execution" title="Permanent link">&para;</a></h3>
+<p>目的：同一個動作在物理上可能合法，但在任務階段上不合理。例如還沒到抓取區就關 gripper。</p>
+<p>範例：</p>
+<ul>
+<li>pick phase 只能 close gripper</li>
+<li>place phase 才能 open gripper</li>
+<li>特定階段只能在某個 workspace 內移動</li>
+<li>node timeout 後不允許繼續執行</li>
+</ul>
+<p>重點回答：</p>
+<blockquote>
+<p>L2 補足 L1 看不到的語意。L1 只知道物理限制，L2 知道任務階段。這也代表 L2 的品質取決於 boundary 設計，使用者必須定義正確的任務規則。</p>
+</blockquote>
+<h3 id="l3-hardware-monitoring">L3: Hardware Monitoring<a class="headerlink" href="#l3-hardware-monitoring" title="Permanent link">&para;</a></h3>
+<p>目的：檢查硬體狀態是否允許繼續執行。</p>
+<p>範例：</p>
+<ul>
+<li>motor temperature</li>
+<li>current</li>
+<li>voltage</li>
+<li>force/torque</li>
+<li>following error</li>
+<li>heartbeat/watchdog</li>
+<li>host CPU/GPU/memory/temperature</li>
+</ul>
+<p>重點回答：</p>
+<blockquote>
+<p>L3 不是預防所有硬體故障，而是對硬體回報的健康訊號做最後一道 gate。如果 sensor 本身壞掉或被 spoof，L3 無法憑空知道真相，所以它要搭配獨立硬體 E-stop 和 watchdog。</p>
+</blockquote>
+<hr />
+<h2 id="_4">數學部分怎麼講<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h2>
+<h3 id="1">1. 最保守決策聚合<a class="headerlink" href="#1" title="Permanent link">&para;</a></h3>
+<p>DAM 的決策不是投票，而是取 worst case：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>FAULT &gt; REJECT &gt; CLAMP &gt; PASS
+</code></pre></div>
+<p>如果任何一層 REJECT，最後就 REJECT。這是安全系統常見的 conservative aggregation。</p>
+<p>可以這樣回答：</p>
+<blockquote>
+<p>我沒有用 majority vote，因為安全不是分類任務。只要有一個 guard 發現不可接受的 violation，就應該阻止 action。這避免一個嚴重風險被其他 pass 結果稀釋。</p>
+</blockquote>
+<h3 id="2-joint-limit-clamp">2. Joint limit clamp<a class="headerlink" href="#2-joint-limit-clamp" title="Permanent link">&para;</a></h3>
+<p>對每個 joint：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>q_safe_i = min(max(q_nom_i, lower_i), upper_i)
+</code></pre></div>
+<p>這是 box constraint。它簡單、快、可解釋，但只能處理獨立 joint limit，無法處理耦合限制。</p>
+<h3 id="3-velocity-limit">3. Velocity limit<a class="headerlink" href="#3-velocity-limit" title="Permanent link">&para;</a></h3>
+<p>若 action 是 target position：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>v_i = (q_target_i - q_current_i) / dt
+</code></pre></div>
+<p>限制：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>|v_i| &lt;= v_max_i
+</code></pre></div>
+<p>若超過，系統把 target position 改成：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>q_safe_i = q_current_i + clip(v_i, -v_max_i, v_max_i) * dt
+</code></pre></div>
+<p>可以這樣回答：</p>
+<blockquote>
+<p>速度限制不是只檢查 policy 有沒有提供 velocity，而是就算 action 是 target position，也可以用 dt 反推出 implied velocity。</p>
+</blockquote>
+<h3 id="4-acceleration-limit">4. Acceleration limit<a class="headerlink" href="#4-acceleration-limit" title="Permanent link">&para;</a></h3>
+<p>加速度由相鄰 cycle 的 velocity 差估計：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>a_i = (v_i(t) - v_i(t-1)) / dt
+</code></pre></div>
+<p>限制：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>|a_i| &lt;= a_max_i
+</code></pre></div>
+<p>這能抑制 policy 輸出的 jitter 或突然跳動。</p>
+<h3 id="5-qp">5. QP 最小改動修正<a class="headerlink" href="#5-qp" title="Permanent link">&para;</a></h3>
+<p>當多個 L1 約束同時存在時，不能各自 clamp 後隨便套用，因為不同約束可能互相衝突。DAM 的 motion QP aggregator 把多個 constraint 合成一個 optimization：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>minimize    1/2 ||u - u_nom||^2 + 1/2 sum(lambda_i * delta_i^2)
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>subject to  lower_i - delta_lo_i &lt;= u_i
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>            u_i - delta_up_i &lt;= upper_i
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>            A_cbf u - delta_cbf &lt;= b_cbf
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>            delta &gt;= 0
+</code></pre></div>
+<p>其中：</p>
+<ul>
+<li>u_nom 是 policy 原本想執行的 action</li>
+<li>u 是修正後 action</li>
+<li>delta 是 slack variable</li>
+<li>lambda 是 slack penalty</li>
+<li>A_cbf u &lt;= b_cbf 代表 workspace、keep-out、orientation 這類線性化後的 CBF constraint</li>
+</ul>
+<p>可以這樣回答：</p>
+<blockquote>
+<p>我用 QP 的原因是希望 action 被改得越少越好，同時滿足多個 safety constraints。這比單純 rule-by-rule clamp 更一致，因為所有限制會在同一個 optimization 裡一起考慮。</p>
+</blockquote>
+<h3 id="6-control-barrier-function">6. Control Barrier Function 直覺<a class="headerlink" href="#6-control-barrier-function" title="Permanent link">&para;</a></h3>
+<p>對 workspace 邊界，可以定義安全函數：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>h(x) &gt;= 0
+</code></pre></div>
+<p>例如上界：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>h_up = bound_max - ee_pos
+</code></pre></div>
+<p>離邊界越近，h 越小。CBF 會要求下一步仍保持安全：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>h(x_{k+1}) &gt;= (1 - alpha * dt) h(x_k)
+</code></pre></div>
+<p>再用 Jacobian 線性化：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>ee_pos_next ≈ ee_pos + J (u - q)
+</code></pre></div>
+<p>最後得到 QP 可處理的線性不等式：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>A u &lt;= b
+</code></pre></div>
+<p>可以這樣回答：</p>
+<blockquote>
+<p>CBF 的重點不是等撞到邊界才 reject，而是當系統接近邊界時就開始限制動作，讓它保持在 forward invariant 的安全集合內。不過這依賴 kinematic model 和 Jacobian 的準確性。</p>
+</blockquote>
+<h3 id="7-ood-threshold-calibration">7. OOD threshold calibration<a class="headerlink" href="#7-ood-threshold-calibration" title="Permanent link">&para;</a></h3>
+<p>如果用 anomaly score s(x)，規則是：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>reject if s(x) &gt; tau
+</code></pre></div>
+<p>tau 可以用 calibration set 決定，例如 Equal Error Rate：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>FPR(tau) = FNR(tau)
+</code></pre></div>
+<p>重點回答：</p>
+<blockquote>
+<p>threshold 不是憑感覺設的。理想上我會用 normal、legal variation、abnormal 三種資料做 calibration，看 AUROC、FPR/FNR，選一個符合任務風險偏好的 operating point。安全要求高時會選比較保守的 threshold，接受較高 false positive。</p>
+</blockquote>
+<hr />
+<h2 id="rule-based">Rule-based 方法的缺點怎麼回答<a class="headerlink" href="#rule-based" title="Permanent link">&para;</a></h2>
+<h3 id="rule-based_1">專業問題：這不就是 rule-based 嗎？有什麼貢獻？<a class="headerlink" href="#rule-based_1" title="Permanent link">&para;</a></h3>
+<p>建議回答：</p>
+<blockquote>
+<p>是的，L1 到 L3 很大一部分是 rule-based 或 constraint-based，這是刻意的。因為安全層需要可解釋、可 audit、可預期，而不是再放一個黑箱模型。但我的貢獻不是單一 if-else，而是把 rule-based constraints、statistical OOD、QP-based clamp、fallback、telemetry 和 replay 整合成 action-level safety middleware。</p>
+</blockquote>
+<p>補充：</p>
+<ul>
+<li>rule-based 適合 hard constraints</li>
+<li>ML/OOD 適合處理分佈偏移</li>
+<li>QP 適合處理多約束下的最小改動修正</li>
+<li>log/replay 適合安全事件分析</li>
+</ul>
+<h3 id="rule-based_2">專業問題：rule-based 最大缺點是什麼？<a class="headerlink" href="#rule-based_2" title="Permanent link">&para;</a></h3>
+<p>建議回答：</p>
+<blockquote>
+<p>最大缺點是 coverage 和 brittleness。規則只能擋住我有明確建模的風險，沒寫進 boundary 的風險不會自動被發現。例如 collision checking、人類意圖預測、sensor spoofing，都不是簡單 rule 可以完整處理。所以我會把 DAM 定位成 guardrail 和 observability layer，不是 complete safety certification。</p>
+</blockquote>
+<p>可以主動承認：</p>
+<ul>
+<li>rule 太寬：unsafe action 可能通過</li>
+<li>rule 太窄：合法 action 被誤擋</li>
+<li>規則之間可能衝突</li>
+<li>需要 domain expert 設定 threshold</li>
+<li>對未建模風險無能為力</li>
+</ul>
+<h3 id="end-to-end-learning">專業問題：為什麼不用 end-to-end learning 直接學安全？<a class="headerlink" href="#end-to-end-learning" title="Permanent link">&para;</a></h3>
+<p>建議回答：</p>
+<blockquote>
+<p>因為 safety-critical constraint 需要明確邊界和可驗證行為。End-to-end model 可以幫助感知或 anomaly detection，但我不希望最後一道 gate 完全不可解釋。DAM 的策略是：learned policy 負責 performance，safety monitor 負責 constraint enforcement。</p>
+</blockquote>
+<hr />
+<h2 id="60-fps">延遲與 60 FPS 問題怎麼回答<a class="headerlink" href="#60-fps" title="Permanent link">&para;</a></h2>
+<h3 id="budget">先講控制週期 budget<a class="headerlink" href="#budget" title="Permanent link">&para;</a></h3>
+<p>不同頻率的時間 budget：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>10 Hz  -&gt; 100 ms / cycle
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>20 Hz  -&gt; 50 ms / cycle
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>50 Hz  -&gt; 20 ms / cycle
+<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>60 Hz  -&gt; 16.67 ms / cycle
+<a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>100 Hz -&gt; 10 ms / cycle
+</code></pre></div>
+<p>60 FPS 不只是平均低於 16.67 ms，還要看 p95、p99、max latency。安全系統最怕 tail latency。</p>
+<h3 id="60-fps_1">專業問題：你的系統能跑 60 FPS 嗎？<a class="headerlink" href="#60-fps_1" title="Permanent link">&para;</a></h3>
+<p>建議回答：</p>
+<blockquote>
+<p>我不會只用「能」或「不能」回答。要看啟用哪些 guard、硬體平台、是否包含 vision preprocessing、policy inference、I/O 和 logging。DAM 有 latency benchmark，會測 mean、p95、p99、max 和 deadline miss rate。60 Hz 的 budget 是 16.67 ms，所以我會用 p95/p99 是否低於這個 budget 來判斷，而不是只看平均值。</p>
+</blockquote>
+<h3 id="60-fps_2">如果目前沒有實測 60 FPS 數據<a class="headerlink" href="#60-fps_2" title="Permanent link">&para;</a></h3>
+<p>誠實但專業地回答：</p>
+<blockquote>
+<p>目前我會把 60 Hz 當成需要 benchmark 驗證的目標，不會直接宣稱保證可達。尤其 Full RSMF 如果包含 L0 vision OOD、QP、MCAP logging，可能會超過 16.67 ms。工程上可以把 hot path 移到 Rust、降低 L0 頻率、快慢路徑分離、非同步 logging，或在高頻控制迴圈中只跑 L1/L3，低頻跑 L0/L2。</p>
+</blockquote>
+<h3 id="_5">延遲來源<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h3>
+<p>常見 latency 來源：</p>
+<ul>
+<li>policy inference</li>
+<li>camera/image preprocessing</li>
+<li>L0 vision embedding 或 flow scoring</li>
+<li>QP solver</li>
+<li>Python GIL 和 GC</li>
+<li>hardware I/O</li>
+<li>MCAP/logging</li>
+<li>frontend telemetry websocket</li>
+</ul>
+<p>DAM 的 RQ4 benchmark 目前定義是測 guard path：收到 proposed action 到產生 validated action，不包含 policy inference 和 image preprocessing。</p>
+<h3 id="60-fps_3">60 FPS 策略<a class="headerlink" href="#60-fps_3" title="Permanent link">&para;</a></h3>
+<p>可以提出具體優化：</p>
+<ul>
+<li>L1 hard constraints 每 cycle 跑，因為它們便宜且最關鍵。</li>
+<li>L3 watchdog 每 cycle 或固定頻率跑。</li>
+<li>L0 OOD 不一定每 cycle 跑，可以每 N frame 跑一次，或只在 observation drift 明顯時跑。</li>
+<li>Vision OOD 可以使用 cached embedding、降解析度、輕量 backbone。</li>
+<li>Logging 改成 ring buffer + background flush。</li>
+<li>QP 只在接近邊界或有 violation candidate 時啟動。</li>
+<li>Rust data plane 降低 Python runtime jitter。</li>
+<li>用 p95/p99 deadline miss rate 做驗收，而不是平均 FPS。</li>
+</ul>
+<h3 id="_6">好的回答範例<a class="headerlink" href="#_6" title="Permanent link">&para;</a></h3>
+<blockquote>
+<p>如果只跑 deterministic L1/L3，60 Hz 比較可行；如果 Full RSMF 包含 vision OOD 和大量 logging，就需要實測，不能保證。我的設計會把 safety 分成 fast path 和 slow path：fast path 放 joint/velocity/acceleration、watchdog 這些必跑限制；slow path 放 OOD、replay、重型分析。這樣即使 slow path 掉幀，也不會阻塞核心控制安全。</p>
+</blockquote>
+<hr />
+<h2 id="_7">專業人士可能會問的困難問題與回答<a class="headerlink" href="#_7" title="Permanent link">&para;</a></h2>
+<h3 id="q1-safe-action">Q1. 你怎麼定義「safe action」？<a class="headerlink" href="#q1-safe-action" title="Permanent link">&para;</a></h3>
+<p>A:</p>
+<blockquote>
+<p>safe action 是在目前 observation、task phase 和 hardware status 下，滿足所有 active boundaries 的 action。它不代表全域絕對安全，而是相對於我明確建模的 constraints：joint limits、velocity/acceleration、workspace、task semantics 和 hardware health。若 action 可修正，就輸出最小改動的 clamped action；若不可可靠修正，就 reject 並進 fallback。</p>
+</blockquote>
+<h3 id="q2-robot">Q2. 你能保證 robot 不會撞到人或物嗎？<a class="headerlink" href="#q2-robot" title="Permanent link">&para;</a></h3>
+<p>A:</p>
+<blockquote>
+<p>不能。DAM 預設沒有完整 collision checker，也沒有做人類存在偵測或人類 motion prediction。它能做的是限制 action、workspace、速度、硬體狀態，並支援加入 custom collision callback。若要用在 collaborative robot，需要額外整合 perception、collision checking、硬體 E-stop，以及符合 ISO/TS 15066 等標準的驗證。</p>
+</blockquote>
+<h3 id="q3-policy-nan-inf">Q3. 如果 policy 輸出 NaN 或 Inf 會怎樣？<a class="headerlink" href="#q3-policy-nan-inf" title="Permanent link">&para;</a></h3>
+<p>A:</p>
+<blockquote>
+<p>這是我特別測的 adversarial case。NaN 很危險，因為在 Python 裡 <code>nan &gt; limit</code> 會是 False，天真的 limit check 可能誤判 PASS。DAM 的 safety test 把 non-finite input 視為 violation，不允許 PASS。</p>
+</blockquote>
+<h3 id="q4-guard-timeout-exception">Q4. 如果 guard 自己出錯、timeout 或 exception 呢？<a class="headerlink" href="#q4-guard-timeout-exception" title="Permanent link">&para;</a></h3>
+<p>A:</p>
+<blockquote>
+<p>原則是 fail-to-reject。安全層無法可靠判斷時，不應該讓 action 通過。exception、timeout、corrupt data 都應該導向 REJECT 或 FAULT，然後由 fallback engine 處理。</p>
+</blockquote>
+<h3 id="q5-guard-clamp">Q5. 多個 guard 同時 clamp，怎麼合併？<a class="headerlink" href="#q5-guard-clamp" title="Permanent link">&para;</a></h3>
+<p>A:</p>
+<blockquote>
+<p>如果只是獨立 clamp，可能會互相覆蓋。DAM 對 L1 motion constraints 使用 QP aggregator，把 box bounds 和 CBF linear inequalities 合成一個 optimization，求離原 action 最近、同時滿足約束的 action。若結果是 reject 或 fault，則 reject/fault 優先於 clamp。</p>
+</blockquote>
+<h3 id="q6-workspace-constraint-clamp-xyz">Q6. 為什麼 workspace constraint 不是直接 clamp XYZ？<a class="headerlink" href="#q6-workspace-constraint-clamp-xyz" title="Permanent link">&para;</a></h3>
+<p>A:</p>
+<blockquote>
+<p>因為 action 是 joint space，而 workspace 是 end-effector space。從 XYZ 回到 joint space 不是唯一解，也可能牽涉 singularity 和 joint limits。直接 clamp XYZ 不一定能產生合法 joint action。所以 DAM 使用 Jacobian 線性化和 CBF/QP，把 workspace 限制轉成 joint-space action constraint。</p>
+</blockquote>
+<h3 id="q7-qp-infeasible">Q7. QP 如果 infeasible 怎麼辦？<a class="headerlink" href="#q7-qp-infeasible" title="Permanent link">&para;</a></h3>
+<p>A:</p>
+<blockquote>
+<p>目前 QP 使用 slack variables 讓問題盡量保持 feasible，並用 slack penalty 控制違反限制的成本。如果 solver failure 或結果不可信，就不能硬送到硬體，應該 reject 或 fallback。安全上不能把 solver failure 當 pass。</p>
+</blockquote>
+<h3 id="q8-cbf">Q8. CBF 的限制是什麼？<a class="headerlink" href="#q8-cbf" title="Permanent link">&para;</a></h3>
+<p>A:</p>
+<blockquote>
+<p>CBF 依賴模型和線性化。若 Jacobian 不準、dt 太大、速度太高或系統 dynamics 沒被建模，CBF 的保證會變弱。另外目前 workspace/keep-out 是幾何 constraint，不等於完整 collision avoidance。</p>
+</blockquote>
+<h3 id="q9-l0-ood-false-positive">Q9. L0 OOD 有 false positive 怎麼處理？<a class="headerlink" href="#q9-l0-ood-false-positive" title="Permanent link">&para;</a></h3>
+<p>A:</p>
+<blockquote>
+<p>我會用 calibration set 選 threshold，並報告 FPR/FNR 或 AUROC。高風險任務可接受比較高 false positive，因為誤拒絕通常比執行危險 action 好。另外可以用 temporal smoothing，要求連續多幀異常才 reject，降低單幀 sensor noise 的影響。</p>
+</blockquote>
+<h3 id="q10-l0-ood-false-negative">Q10. L0 OOD 有 false negative 怎麼辦？<a class="headerlink" href="#q10-l0-ood-false-negative" title="Permanent link">&para;</a></h3>
+<p>A:</p>
+<blockquote>
+<p>這就是為什麼不能只靠 OOD。L0 只能捕捉 distribution shift，不保證抓到所有 unsafe action。因此還需要 L1 physical constraints、L2 task rules、L3 hardware monitoring。這是 defense-in-depth 的理由。</p>
+</blockquote>
+<h3 id="q11-threshold">Q11. 你怎麼設定 threshold？<a class="headerlink" href="#q11-threshold" title="Permanent link">&para;</a></h3>
+<p>A:</p>
+<blockquote>
+<p>deterministic constraints 來自 robot spec、motor limit、workspace 設計和任務需求。OOD threshold 則用 validation/calibration data 設定，例如 EER threshold 或根據風險偏好選擇較低 FNR 的 operating point。threshold 設定後要用 boundary scan、latency bench 和 replay 驗證。</p>
+</blockquote>
+<h3 id="q12-safety-controller">Q12. 這跟傳統 safety controller 有什麼不同？<a class="headerlink" href="#q12-safety-controller" title="Permanent link">&para;</a></h3>
+<p>A:</p>
+<blockquote>
+<p>傳統 controller 通常和特定硬體或任務綁在一起。DAM 的定位是 detachable middleware：policy 和 hardware driver 不必大改，透過 Stackfile 設定 boundaries，並提供 console、risk log、MCAP replay、experiment benchmark。它更像一個可插拔的 safety and observability layer。</p>
+</blockquote>
+<h3 id="q13-sensor-spoof">Q13. 如果 sensor 被 spoof 呢？<a class="headerlink" href="#q13-sensor-spoof" title="Permanent link">&para;</a></h3>
+<p>A:</p>
+<blockquote>
+<p>DAM 假設 observation 大致可信。若 sensor 被 spoof，guard 可能被騙。這是系統限制，所以高風險部署需要 sensor redundancy、hardware watchdog、out-of-band safety channel 和 physical E-stop。</p>
+</blockquote>
+<h3 id="q14-adversarial-testing">Q14. 你有做 adversarial testing 嗎？<a class="headerlink" href="#q14-adversarial-testing" title="Permanent link">&para;</a></h3>
+<p>A:</p>
+<blockquote>
+<p>有。測試包含 NaN/Inf injection、boundary skimming、guard fault/timeout、aggregator leakage。目標是確保 hostile 或 degenerate input 不會讓 unsafe action 在所有 guard 都 PASS 的情況下進入 sink。</p>
+</blockquote>
+<h3 id="q15-policy">Q15. 你的安全系統和 policy 誰負責最終安全？<a class="headerlink" href="#q15-policy" title="Permanent link">&para;</a></h3>
+<p>A:</p>
+<blockquote>
+<p>Policy 負責產生高效能 action，DAM 負責在 action 進硬體前做 constraint enforcement。但真正安全部署還需要底層 controller、硬體 limit、E-stop、操作流程和人員監督。DAM 不是唯一安全來源，而是其中一層。</p>
+</blockquote>
+<h3 id="q16-mcapreplay">Q16. 為什麼需要 MCAP/replay？安全不是擋下來就好嗎？<a class="headerlink" href="#q16-mcapreplay" title="Permanent link">&para;</a></h3>
+<p>A:</p>
+<blockquote>
+<p>對研究和工程來說，擋下來只是第一步。更重要的是知道為什麼擋、是否誤擋、policy 在什麼狀態下壞掉。MCAP/replay 可以保留 violation 前後 context，幫助改 boundary、重訓 policy、做 failure taxonomy。</p>
+</blockquote>
+<h3 id="q17-robot">Q17. 你怎麼避免過度保守導致 robot 不會動？<a class="headerlink" href="#q17-robot" title="Permanent link">&para;</a></h3>
+<p>A:</p>
+<blockquote>
+<p>用 boundary scan 和 usability test。看 interception rate 隨 disturbance 增加的曲線，也看 benign legal variation 的 false trigger rate。如果合法動作常被擋，代表 boundary 太緊或 threshold 需要校準。安全系統不是越緊越好，而是要在任務成功率和風險之間找到可解釋的 operating point。</p>
+</blockquote>
+<h3 id="q18-layer-bottleneck">Q18. 如果控制頻率提高，哪個 layer 會最先成為 bottleneck？<a class="headerlink" href="#q18-layer-bottleneck" title="Permanent link">&para;</a></h3>
+<p>A:</p>
+<blockquote>
+<p>通常是 L0 vision/OOD、QP solver、logging 或 Python runtime jitter。L1 的簡單 box constraints 很便宜，但 Full RSMF 在 60 Hz 下必須看 p95/p99。工程上我會把 critical fast path 保留在每 cycle，重型檢查降頻或非同步化。</p>
+</blockquote>
+<h3 id="q19-majority-vote">Q19. 為什麼不用 majority vote？<a class="headerlink" href="#q19-majority-vote" title="Permanent link">&para;</a></h3>
+<p>A:</p>
+<blockquote>
+<p>因為安全決策不是分類投票。一個 guard 發現硬體過熱，其他 guard pass，最後也必須 reject。DAM 用 most-restrictive aggregation，避免嚴重風險被多數 pass 稀釋。</p>
+</blockquote>
+<h3 id="q20-boundary">Q20. 如果 boundary 設錯怎麼辦？<a class="headerlink" href="#q20-boundary" title="Permanent link">&para;</a></h3>
+<p>A:</p>
+<blockquote>
+<p>Boundary 設錯是 rule-based 系統的重要風險。DAM 用 schema validation、console visualization、risk log、boundary scan 和 replay 降低這個風險，但不能完全消除。正式部署前必須用 simulation、dry run、hardware readiness checklist 和 supervised testing 驗證。</p>
+</blockquote>
+<hr />
+<h2 id="_8">可以主動講出的專案限制<a class="headerlink" href="#_8" title="Permanent link">&para;</a></h2>
+<p>講限制不是扣分，講得清楚反而加分。</p>
+<ul>
+<li>不是 certified safety system。</li>
+<li>沒有內建完整 collision checker。</li>
+<li>不能單獨處理 human-robot collaboration safety。</li>
+<li>OOD 是 statistical，會有 false positive/false negative。</li>
+<li>Rule-based boundary coverage 取決於人是否定義對。</li>
+<li>延遲必須在目標硬體上量測，不能只看開發機。</li>
+<li>Python fallback timing jitter 較高，real-time hot path 建議用 Rust 或獨立 controller。</li>
+<li>Sensor spoofing 和硬體故障需要 out-of-band safety。</li>
+</ul>
+<p>可以這樣總結：</p>
+<blockquote>
+<p>我不把 DAM 包裝成完整安全認證，而是把它定位成 research-grade safety middleware。它的強項是 action interception、constraint enforcement、fallback 和 observability；它的限制是未建模風險、sensor trust、collision checking 和 certified real-time guarantee。</p>
+</blockquote>
+<hr />
+<h2 id="30">30 秒口頭版<a class="headerlink" href="#30" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p>DAM 是一個放在 robot policy 和硬體之間的 detachable safety monitor。它每個 control cycle 攔截 action，透過 L0 OOD、L1 physical kinematics、L2 task execution、L3 hardware health 四層 guard 判斷 PASS、CLAMP 或 REJECT。數學上，簡單 joint limit 用 box clamp，velocity/acceleration 用 dt 推導，workspace/keep-out/orientation 用 Jacobian 線性化成 CBF constraint，再用 QP 求最小改動的 safe action。它不是 certified safety system，也不保證 collision-free；它的價值是讓 unsafe action 在進硬體前被攔截，且所有決策可追蹤、可 replay、可 benchmark。</p>
+</blockquote>
+<hr />
+<h2 id="2">2 分鐘口頭版<a class="headerlink" href="#2" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p>我的專案 DAM 是 Detachable Action Monitor，目標是解決 ML policy 永遠會輸出下一個 action，但它不一定知道這個 action 對硬體或任務是否安全的問題。DAM 放在 policy 和 hardware sink 中間，每次 action 進硬體前都先通過 guard stack。</p>
+<p>我把安全分成四層。L0 是 OOD detection，處理 policy 在陌生 observation 下不可靠的問題；L1 是 physical kinematics，檢查 joint limit、velocity、acceleration、workspace、keep-out zone；L2 是 task execution，處理任務階段的語意限制，例如不該抓的時候不能關 gripper；L3 是 hardware monitoring，檢查溫度、電流、電壓、watchdog 和 following error。最後 aggregator 不做 majority vote，而是最保守決策勝出，FAULT &gt; REJECT &gt; CLAMP &gt; PASS。</p>
+<p>數學上，簡單限制可以直接 clamp，但多個 L1 constraints 同時存在時，我用 QP 做最小改動修正：minimize action 和原 policy output 的距離，同時滿足 joint bounds 和 CBF 線性化後的 constraints。workspace 的部分會用 end-effector position 和 Jacobian 把安全集合 h(x) &gt;= 0 轉成 A u &lt;= b。這樣比單純 if-else 更一致，因為多個限制是在同一個 optimization 裡一起處理。</p>
+<p>我也清楚知道限制。DAM 不是 safety certification，沒有內建完整 collision checker，也不能單獨保證 human safety。Rule-based 的缺點是 coverage 取決於 boundary 是否定義完整；OOD 也會有 false positive 和 false negative。延遲方面，60 Hz 只有 16.67 ms budget，所以不能只看 average，要看 p95/p99 和 deadline miss rate。工程上我會把 L1/L3 放 fast path，每 cycle 跑；L0 vision、logging、replay 這些重型工作可以降頻或非同步化。</p>
+</blockquote>
+<hr />
+<h2 id="_9">簡報建議頁面<a class="headerlink" href="#_9" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Problem: ML policy always outputs actions, even unsafe ones.</li>
+<li>Definition of safety: action-level, operational, epistemic, debuggable.</li>
+<li>Architecture: policy -&gt; DAM guard stack -&gt; fallback -&gt; hardware.</li>
+<li>Guard layers: L0/L1/L2/L3.</li>
+<li>Math: clamp, velocity/acceleration, QP, CBF.</li>
+<li>Latency: 10/20/50/60 Hz budgets, p95/p99, deadline miss.</li>
+<li>Evaluation: boundary scan, OOD calibration, latency benchmark, adversarial tests.</li>
+<li>Limitations: not certified, no built-in full collision checking, sensor trust.</li>
+<li>Contribution: detachable safety middleware with observability and replay.</li>
+</ol>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../concepts/safety/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Safety Model">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Safety Model
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../library-api/" class="md-footer__link md-footer__link--next" aria-label="Next: Library API">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Library API
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/ez945y/DAM" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.path", "navigation.top", "navigation.footer", "search.highlight", "search.suggest", "content.code.annotate", "content.code.copy", "content.tooltips", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": "0.7.0"}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
