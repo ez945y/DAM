@@ -1,0 +1,44 @@
+# jetbot_clamp_safety.yaml -- DAM safety config for the Jetbot CLAMP demo.
+#
+# Action vector: [v, omega] (from the jetbot_diff_drive preset's action_layout).
+# The L1 callback rolls the command forward with an Ackermann solver; if the
+# predicted pose leaves the safe box it QP-corrects the command in place
+# (falling back to a full stop when no QP solver is available).
+# See examples/jetbot_guardrail.py.
+
+version: "1"
+
+hardware:
+  preset: jetbot_diff_drive
+
+safety:
+  control_hz: 120
+  enforcement_mode: enforce
+  no_task_behavior: hold_position
+
+fallbacks:
+  hold_position:
+    severity: 80
+
+guards:
+  - L1: boundary
+    phase: 0
+    timeout_ms: 10
+
+boundaries:
+  clamp_inside_box:
+    layer: L1
+    type: single
+    nodes:
+      - callback: jetbot_clamp_inside_band
+        params:
+          x_min: -0.28
+          x_max: 1.20
+          y_abs_max: 0.24
+          dt: 0.12
+
+tasks:
+  default:
+    description: "Keep the diff-drive rollout inside the safe box; QP-correct if not."
+    boundaries:
+      - clamp_inside_box
