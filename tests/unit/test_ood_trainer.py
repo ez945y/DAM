@@ -49,6 +49,6 @@ def test_ood_trainer_success(mock_guard_class, tmp_path):
 
         mock_guard.train.assert_called_once()
         mock_guard.save.assert_called_once()
-        args, kwargs = mock_guard.save.call_args
+        _, kwargs = mock_guard.save.call_args
         assert "test_ood_model.pt" in kwargs["model_path"]
         assert "test_ood_model.npy" in kwargs["bank_path"]

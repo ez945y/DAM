@@ -142,7 +142,7 @@ class TestRegistrationAPI:
             solver_type,
             {"gain": 2.0},
         )
-        assert solver.gain == 2.0
+        assert solver.gain == pytest.approx(2.0)
         assert get_global_solver_registry().get(solver_name) is solver
 
     def test_register_preset_updates_registry(self, monkeypatch, tmp_path):

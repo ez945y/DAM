@@ -440,8 +440,8 @@ class TestTelemetryDecimation:
     def test_decimated_reads_serve_cache_between(self):
         adapter = self._adapter(telemetry_hz=2.0)  # period 0.5 s
         robot = adapter._robot
-        ch1, st1, ts1 = adapter.read_telemetry(now=0.0)
-        ch2, st2, ts2 = adapter.read_telemetry(now=0.1)  # within period → cache
+        _, st1, ts1 = adapter.read_telemetry(now=0.0)
+        _, st2, ts2 = adapter.read_telemetry(now=0.1)  # within period → cache
         assert robot.sync_read_calls == 1
         assert ts1 == ts2 == 0.0
         assert st2["temperatures"] == st1["temperatures"]

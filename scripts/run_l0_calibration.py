@@ -790,7 +790,6 @@ def _attach_vision_frames(
 def _attach_vision_frames_labelled(
     repo_id: str,
     episode_ids: list[int],
-    by_episode: dict[int, list[Observation]],
     labelled: list[tuple[int, int, Observation]],
     cameras: list[str],
     subsample: int,
@@ -1008,7 +1007,6 @@ def run_calibration(
             vision_frames["normal_test"] = _attach_vision_frames_labelled(
                 normal_repo_id,
                 normal_test_eps,
-                normal_by_episode,
                 normal_labelled,
                 effective_cameras,
                 vision_subsample,
@@ -1017,7 +1015,6 @@ def run_calibration(
             vision_frames["legal_variation"] = _attach_vision_frames_labelled(
                 legal_repo_id,
                 sorted(legal_by_episode.keys()),
-                legal_by_episode,
                 legal_labelled,
                 effective_cameras,
                 vision_subsample,
@@ -1026,7 +1023,6 @@ def run_calibration(
             vision_frames["abnormal_a"] = _attach_vision_frames_labelled(
                 anomaly_repo_id,
                 sorted(anomaly_by_episode.keys()),
-                anomaly_by_episode,
                 anomaly_labelled,
                 effective_cameras,
                 vision_subsample,

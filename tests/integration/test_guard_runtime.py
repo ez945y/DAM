@@ -149,7 +149,7 @@ def test_clamp_joint_position_limits():
     runtime.start_task("task")
     obs = make_obs()
     action = make_action([3.0, 0.0, 0.0, 0.0, 0.0, 0.0])  # First joint way out
-    validated, results = runtime.validate(obs, action, "test-trace")
+    validated, _ = runtime.validate(obs, action, "test-trace")
     assert validated is not None
     assert validated.was_clamped
     # QP solver may add tiny perturbation (~1e-5)
@@ -165,7 +165,7 @@ def test_reject_returns_none():
     runtime.start_task("task")
     obs = make_obs()
     action = ActionProposal(target_joint_positions=np.full(6, float("nan")))
-    validated, results = runtime.validate(obs, action, "test-trace")
+    validated, _ = runtime.validate(obs, action, "test-trace")
     assert validated is None
 
 
@@ -267,5 +267,5 @@ def test_guard_exception_causes_reject():
     obs = make_obs()
     action = make_action()
     runtime.start_task("task")
-    validated, results = runtime.validate(obs, action, "test-trace")
+    validated, _ = runtime.validate(obs, action, "test-trace")
     assert validated is None  # Exception → FAULT → REJECT → None

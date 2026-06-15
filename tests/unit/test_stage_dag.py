@@ -85,7 +85,7 @@ def test_sequential_stage_runs_all_guards():
 
     obs = make_obs()
     action = make_action()
-    validated, results = rt.validate(obs, action, "trace-1")
+    _, results = rt.validate(obs, action, "trace-1")
 
     assert len(results) == 2
     assert all(r.decision == GuardDecision.PASS for r in results)
@@ -102,7 +102,7 @@ def test_parallel_stage_runs_all_guards():
 
     obs = make_obs()
     action = make_action()
-    validated, results = rt.validate(obs, action, "trace-2")
+    _, results = rt.validate(obs, action, "trace-2")
 
     assert len(results) == 2
     assert all(r.decision == GuardDecision.PASS for r in results)

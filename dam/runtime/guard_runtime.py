@@ -1296,7 +1296,7 @@ class GuardRuntime:
         return _build_all_boundaries(config, _cb_reg, _guard_reg)
 
     @staticmethod
-    def _build_boundary_node(ncfg: Any, guard_kind: str, config: Any) -> Any:
+    def _build_boundary_node(ncfg: Any, config: Any) -> Any:
         from dam.runtime._stackfile_builder import _build_boundary_node
 
-        return _build_boundary_node(ncfg, guard_kind, config)
+        return _build_boundary_node(ncfg, config)

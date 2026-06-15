@@ -247,7 +247,7 @@ class TestLoadLerobotPolicy:
             mock_policy_cls.from_pretrained.return_value = mock_policy
             sys.modules["lerobot.policies.factory"].get_policy_class.return_value = mock_policy_cls
 
-            res_policy, pre, post = builder._load_lerobot_policy("MikeChenYZ/act-soarm-fmb-v2")
+            res_policy, _, _ = builder._load_lerobot_policy("MikeChenYZ/act-soarm-fmb-v2")
 
         assert mock_cfg.device == "mps"
         assert res_policy == mock_policy

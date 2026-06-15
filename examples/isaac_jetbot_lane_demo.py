@@ -331,7 +331,7 @@ class TwinLaneDAMDemo:
             self.sim.step()
             self.scene.update(self.sim_dt)
 
-            self._record_step(dam_raw_command, safe_command)
+            self._record_step()
             if step % args_cli.log_every == 0 or step == args_cli.steps - 1:
                 self._print_step(step, dam_raw_command, safe_command)
 
@@ -406,7 +406,7 @@ class TwinLaneDAMDemo:
         right = (command[:, 0] + command[:, 1] * JETBOT_TRACK_WIDTH / 2.0) / wheel_radius
         return torch.stack([left, right], dim=1).to(dtype=torch.float32)
 
-    def _record_step(self, raw_command: torch.Tensor, safe_command: torch.Tensor) -> None:
+    def _record_step(self) -> None:
         raw_pos = self._position(self.raw_jetbot)
         dam_pos = self._position(self.dam_jetbot)
         raw_margin = self._safe_margin(_to_local_target(raw_pos, RAW_LANE_Y))

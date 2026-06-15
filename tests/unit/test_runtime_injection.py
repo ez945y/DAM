@@ -56,7 +56,7 @@ def test_guard_runtime_param_injection(tmp_path):
     action = ActionProposal(target_joint_positions=np.array([0.05] * 6))
 
     # Run a step
-    validated, results = runtime.validate(obs, action, "test-trace")
+    _, results = runtime.validate(obs, action, "test-trace")
 
     # Find the result for test_kin
     kin_result = next(r for r in results if r.guard_name == "test_kin")
