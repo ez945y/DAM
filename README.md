@@ -111,31 +111,7 @@ robot_action_processor.steps.insert(0, GuardrailProcessorStep("safety.yaml"))
 
 <img src="docs/diagrams/diagram2_runtime_workflow.png" alt="Runtime Workflow" width="600" />
 
-The recorded dataset contains **only safe actions** — your policy trains on data that already respects physical constraints. See [Safe Recording Guide](docs/getting-started/safe-recording.md) for full details.
-
----
-
-## Isaac Sim Integration
-
-DAM works as a drop-in safety filter for Isaac Sim 6.0+ control loops. Accepts and returns `torch.Tensor` on any device — no CPU↔GPU copies needed.
-
-```python
-import dam
-from dam.adapter.isaac import IsaacSafetyFilter
-
-# Single env — IsaacSafetyFilter accepts torch.Tensor directly
-filt = IsaacSafetyFilter("franka_safety.yaml", task="manipulation")
-safe_action = filt(action_tensor, obs_tensor)  # same device/dtype
-
-# Multi-env (Isaac Lab) — vectorized filter
-filt = IsaacSafetyFilter("franka_safety.yaml", task="manipulation", num_envs=4096)
-safe_actions = filt(actions_batch, obs_batch)    # (N, J) → (N, J)
-
-# Auto-detect from ArticulationView
-filt = IsaacSafetyFilter.from_articulation(franka_view, "franka_safety.yaml")
-```
-
-Bundled presets: `so101_follower`, `franka_emika_panda`. See [`examples/isaac_franka_demo.py`](examples/isaac_franka_demo.py) for the full demo.
+The recorded dataset contains **only safe actions** — your policy trains on data that already respects physical constraints. See [Safe Recording Guide](https://ez945y.github.io/DAM/getting-started/safe-recording) for full details.
 
 ---
 
@@ -168,7 +144,7 @@ boundaries:
           lower: [-1.8243, -1.7691, -1.8326, -1.8067, -3.0741, 0.0]
 ```
 
-Start from [`examples/stackfiles/minimal.yaml`](examples/stackfiles/minimal.yaml) or see the [Stackfile Walkthrough](docs/getting-started/stackfile-walkthrough.md).
+Start from [`examples/stackfiles/minimal.yaml`](examples/stackfiles/minimal.yaml) or see the [Stackfile Walkthrough](https://ez945y.github.io/DAM/getting-started/stackfile-walkthrough/).
 
 ### 18 Built-in Safety Checks
 
@@ -185,15 +161,15 @@ Run `dam callbacks` to list them all:
 
 | Goal | Start here |
 |------|------------|
-| Learn DAM step by step | [Learn DAM](docs/learn/index.md) |
-| Read a Stackfile | [Stackfile Walkthrough](docs/getting-started/stackfile-walkthrough.md) |
-| Common config edits | [Common Stackfile Edits](docs/getting-started/common-stackfile-edits.md) |
-| Understand the console | [Console Walkthrough](docs/getting-started/console-walkthrough.md) |
-| Prepare for hardware | [Hardware Readiness](docs/getting-started/hardware-readiness.md) |
-| Troubleshooting | [Troubleshooting](docs/getting-started/troubleshooting.md) |
+| Learn DAM step by step | [Learn DAM](https://ez945y.github.io/DAM/learn/) |
+| Read a Stackfile | [Stackfile Walkthrough](https://ez945y.github.io/DAM/getting-started/stackfile-walkthrough/) |
+| Common config edits | [Common Stackfile Edits](https://ez945y.github.io/DAM/getting-started/common-stackfile-edits/) |
+| Understand the console | [Console Walkthrough](https://ez945y.github.io/DAM/getting-started/console-walkthrough/) |
+| Prepare for hardware | [Hardware Readiness](https://ez945y.github.io/DAM/getting-started/hardware-readiness/) |
+| Troubleshooting | [Troubleshooting](https://ez945y.github.io/DAM/getting-started/troubleshooting/) |
 
 ---
 
 ## Contributing
 
-See [Contributing](docs/contributing.md). We welcome safety testing, hardware adapters, performance optimization, and example Stackfiles.
+See [Contributing](https://ez945y.github.io/DAM/contributing/). We welcome safety testing, hardware adapters, performance optimization, and example Stackfiles.
