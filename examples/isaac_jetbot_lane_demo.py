@@ -8,7 +8,7 @@ Twin-lane Jetbot DAM boundary demo (Isaac Lab).
 
 Both cars chase the same scripted 2D target stream. The RAW car applies its
 nominal differential-drive command directly. The DAM car sends the same
-``[v, omega]`` command through robot-dam's SafetyGuard first; a diff-drive /
+``[v, omega]`` command through robot-dam's Guardrail first; a diff-drive /
 Ackermann solver rolls the command forward and guards against entering the red
 boundary bands. The ``[v, omega]`` action layout is declared by the
 ``jetbot_diff_drive`` preset (assets/presets.yaml); the stackfile is
@@ -306,7 +306,7 @@ class TwinLaneDAMDemo:
         print("  Red bands:     forbidden left/right/bottom boundary zones")
         print("  Green region:  allowed target region")
         print("  RAW lane:      applies nominal [v, omega] directly")
-        print("  DAM lane:      applies SafetyGuard-validated [v, omega]")
+        print("  DAM lane:      applies Guardrail-validated [v, omega]")
         print("=" * 78 + "\n")
         return True
 
@@ -452,7 +452,7 @@ class TwinLaneDAMDemo:
             [
                 "",
                 "TWIN-LANE DAM BOUNDARY SUMMARY",
-                "Same target stream; RAW applies nominal [v, omega], DAM applies SafetyGuard-validated [v, omega].",
+                "Same target stream; RAW applies nominal [v, omega], DAM applies Guardrail-validated [v, omega].",
                 f"Steps: {self.metrics.steps}",
                 f"DAM decisions: {decisions}",
                 f"DAM interventions: {self.metrics.interventions} ({self.dam_guard.intervention_rate:.1%})",

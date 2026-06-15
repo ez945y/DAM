@@ -369,6 +369,7 @@ _RESERVED_POOL_KEYS = frozenset(
         "ee_pose",
         "J_linear",
         "J_angular",
+        "jacobian_joint_indices",
         "runtime_pool",
         "prev_validated_positions",
         "prev_validated_velocities",
@@ -487,7 +488,7 @@ class Guardrail:
         # Self-describing contract: which observation keys the active callbacks
         # require (declared parameters without defaults, minus reserved pool
         # keys and per-node stackfile params).
-        self._required_obs, self._optional_obs = self._compute_contract(config, task)
+        self._required_obs = self._compute_contract(config, task)
 
         # If stackfile has loopback:, start MCAP recording.
         self._runtime.start_recording()
@@ -652,14 +653,16 @@ class Guardrail:
             )
         return "fixed", np.asarray(safe_action, dtype=np.float64).flatten()
 
-    def _compute_contract(self, config: Any, task: str) -> tuple[set[str], set[str]]:
+    def _compute_contract(self, config: Any, task: str) -> set[str]:
+        """Observation groups the active callbacks require: their declared
+        parameters without defaults, minus reserved pool keys and the per-node
+        stackfile params (which the runtime already supplies)."""
         import inspect
 
         from dam.registry.callback import get_global_registry
 
         registry = get_global_registry()
         required: set[str] = set()
-        optional: set[str] = set()
         task_cfg = config.tasks.get(task)
         boundary_names = list(task_cfg.boundaries) if task_cfg else list(config.boundaries)
         for bname in boundary_names:
@@ -682,9 +685,7 @@ class Guardrail:
                         continue
                     if p.default is inspect.Parameter.empty:
                         required.add(p.name)
-                    else:
-                        optional.add(p.name)
-        return required, optional - required
+        return required
 
     def _build_observation(self, inputs: dict[str, Any], now: float) -> Any:
         from dam.types.observation import Observation

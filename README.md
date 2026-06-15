@@ -94,16 +94,19 @@ make record ARGS="--dataset.num_episodes=20"   # CLI args override YAML
 ```python
 import dam
 
+# One input dict per cycle: "action" is the command to validate, every other
+# key is an observation group. Returns the safe command in the action's form.
+
 # Level 1: one-liner (notebooks)
-safe_action = dam.safe(action, obs, stackfile="safety.yaml")
+safe_action = dam.guardrail({"joints": obs, "action": action}, stackfile="safety.yaml")
 
 # Level 2: stateful guard (recording loops + Isaac Sim)
-guard = dam.SafetyGuard("safety.yaml", task="record")
-safe_action = guard(action, obs)  # dict → dict, ndarray → ndarray, Tensor → Tensor
+guard = dam.Guardrail("safety.yaml", task="record")   # prints the obs/action contract
+safe_action = guard({"joints": obs, "action": action})  # mirrors the action's type
 
 # Level 3: lerobot pipeline (one line addition)
-from dam import SafetyProcessorStep
-robot_action_processor.steps.insert(0, SafetyProcessorStep("safety.yaml"))
+from dam import GuardrailProcessorStep
+robot_action_processor.steps.insert(0, GuardrailProcessorStep("safety.yaml"))
 ```
 
 <img src="docs/diagrams/diagram2_runtime_workflow.png" alt="Runtime Workflow" width="600" />
@@ -120,9 +123,9 @@ DAM works as a drop-in safety filter for Isaac Sim 6.0+ control loops. Accepts a
 import dam
 from dam.adapter.isaac import IsaacSafetyFilter
 
-# Single env — SafetyGuard accepts torch.Tensor directly
-guard = dam.SafetyGuard("franka_safety.yaml", task="manipulation")
-safe_action = guard(action_tensor, obs_tensor)  # same device/dtype
+# Single env — IsaacSafetyFilter accepts torch.Tensor directly
+filt = IsaacSafetyFilter("franka_safety.yaml", task="manipulation")
+safe_action = filt(action_tensor, obs_tensor)  # same device/dtype
 
 # Multi-env (Isaac Lab) — vectorized filter
 filt = IsaacSafetyFilter("franka_safety.yaml", task="manipulation", num_envs=4096)
