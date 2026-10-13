@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import numpy as np
@@ -129,11 +129,37 @@ class ValidatedAction:
         """
         self.validate_payload()
         other.validate_payload(self.target_joint_positions.shape)
+        velocity = self.target_joint_velocities
+        other_velocity = other.target_joint_velocities
+        if (
+            velocity is not None
+            and other_velocity is not None
+            and not np.array_equal(velocity, other_velocity)
+        ):
+            raise ValueError("Cannot merge conflicting velocity corrections")
+        if velocity is None:
+            velocity = other_velocity
+        gripper = self.gripper_action
+        if (
+            gripper is not None
+            and other.gripper_action is not None
+            and gripper != other.gripper_action
+        ):
+            raise ValueError("Cannot merge conflicting gripper corrections")
+        if gripper is None:
+            gripper = other.gripper_action
         orig = self.original_proposal
         if orig is None:
             if not np.array_equal(self.target_joint_positions, other.target_joint_positions):
                 raise ValueError("Cannot merge distinct corrections without an original proposal")
-            return self
+            return replace(
+                self,
+                target_joint_velocities=velocity,
+                gripper_action=gripper,
+                timestamp=max(self.timestamp, other.timestamp),
+                was_clamped=self.was_clamped or other.was_clamped,
+                original_proposal=other.original_proposal,
+            )
         if other.original_proposal is not None and not np.array_equal(
             orig.target_joint_positions, other.original_proposal.target_joint_positions
         ):
@@ -158,10 +184,10 @@ class ValidatedAction:
                 continue
 
             # If only one changed from origin, take that one
-            if np.isclose(val1, p0[i]):
+            if val1 == p0[i]:
                 merged_p[i] = val2
                 continue
-            if np.isclose(val2, p0[i]):
+            if val2 == p0[i]:
                 merged_p[i] = val1
                 continue
 
@@ -177,9 +203,9 @@ class ValidatedAction:
 
         return ValidatedAction(
             target_joint_positions=merged_p,
-            target_joint_velocities=self.target_joint_velocities,  # Simplified
+            target_joint_velocities=velocity,
             timestamp=max(self.timestamp, other.timestamp),
-            gripper_action=self.gripper_action,  # Placeholder
+            gripper_action=gripper,
             was_clamped=self.was_clamped or other.was_clamped,
             original_proposal=orig,
         )

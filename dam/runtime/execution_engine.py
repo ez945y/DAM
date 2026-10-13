@@ -305,6 +305,19 @@ class ExecutionEngine:
             all_results = all_results + list(extra_results)
 
         aggregated = aggregate_decisions(all_results)
+        if aggregated.decision == GuardDecision.CLAMP:
+            try:
+                if aggregated.clamped_action is None:
+                    raise ValueError("CLAMP produced no action")
+                aggregated.clamped_action.validate_payload(action.target_joint_positions.shape)
+            except Exception as exc:
+                aggregated = GuardResult.fault(exc, "guard_code", "aggregator", aggregated.layer)
+        # A fault created during aggregation must reach telemetry and the
+        # runtime fallback selector, which consume all_results, not aggregate.
+        if aggregated.decision == GuardDecision.FAULT and not any(
+            r is aggregated for r in all_results
+        ):
+            all_results = [*all_results, aggregated]
 
         if aggregated.decision in (GuardDecision.REJECT, GuardDecision.FAULT):
             return self._handle_violation(action, all_results, aggregated, ctx)
@@ -443,6 +456,8 @@ class ExecutionEngine:
             target_joint_velocities=action.target_joint_velocities.copy()
             if action.target_joint_velocities is not None
             else None,
+            timestamp=action.timestamp,
+            gripper_action=action.gripper_action,
             was_clamped=False,
             original_proposal=action,
         )
@@ -479,8 +494,8 @@ class ExecutionEngine:
         all_results: list[GuardResult] = []
         for phase_num in sorted(by_phase):
             phase_results = self._run_guards_sequential(by_phase[phase_num], runtime_pool)
-            all_results.extend(phase_results)
             self._accumulate_phase_clamps(phase_results, runtime_pool)
+            all_results.extend(phase_results)
 
         # Always-on guards see the post-phase action — that's the same view a
         # mid-cycle hardware check would have. Their reject/fault joins the
@@ -530,17 +545,21 @@ class ExecutionEngine:
         After merging, re-compute FK from the clamped joint positions so the
         next phase sees the updated EE pose (e.g. L2 reads post-L1 EE).
         """
-        clamps = [
-            r
-            for r in phase_results
-            if r.decision == GuardDecision.CLAMP and r.clamped_action is not None
-        ]
+        clamps = [r for r in phase_results if r.decision == GuardDecision.CLAMP]
         if not clamps:
             return
-        merged = cast(ValidatedAction, clamps[0].clamped_action)
-        for r in clamps[1:]:
-            if r.clamped_action is not None:
-                merged = merged.merge_restrictive(r.clamped_action)
+        result = aggregate_decisions(clamps)
+        if result.decision == GuardDecision.FAULT:
+            phase_results.append(result)
+            return
+        merged = result.clamped_action
+        try:
+            if merged is None:
+                raise ValueError("Phase CLAMP produced no action")
+            merged.validate_payload(runtime_pool["action"].target_joint_positions.shape)
+        except Exception as exc:
+            phase_results.append(GuardResult.fault(exc, "guard_code", "aggregator", result.layer))
+            return
         runtime_pool["action"] = merged
 
         # Re-compute FK with clamped joints so L2 sees the correct EE.
