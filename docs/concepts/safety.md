@@ -56,6 +56,17 @@ Guard exceptions, timeouts, and corrupt data all produce rejections. The system
 is conservative by default: do not execute an action when the guard stack cannot
 evaluate it reliably.
 
+Missing callbacks, malformed callback results, and missing or invalid clamp
+payloads produce `FAULT`. Clamp fusion failures remain faults when results are
+split back into per-boundary records. Custom callbacks must return `bool`,
+`(bool, reason)`, `CallbackResult`, or `GuardResult`; arbitrary truthy values
+are not accepted as passes.
+
+When multiple motion callbacks clamp an action, each must supply QP constraint
+metadata so fusion can account for every constraint. A single custom clamp
+can omit QP metadata. Generic cross-guard merging faults on incompatible command
+shapes, different proposal baselines, or corrections in opposite directions.
+
 ### Defense-in-Depth
 
 Four independent guard layers evaluate every proposed action from different
@@ -123,10 +134,17 @@ on the Python path.
 
 ### Hot-Reload
 
-When a Stackfile changes at runtime, DAM parses, validates, and swaps the
-config atomically at the start of the next cycle. Partial or invalid configs are
-not applied. Verify hot-reload behavior in your own deployment before relying on
-it around hardware.
+Hot-reload supports boundary node `params` updates at the start of the next
+`step()` or `validate()` cycle. Both the shared parameter pool and callback
+node parameters are replaced together, while the current phase and node timers
+are preserved. Preparation failures keep the previous configuration and version.
+
+Changes to callbacks, boundary structure, tasks, hardware, guards, or safety
+settings require restarting the runtime; they are rejected rather than partially
+applied. Reloads are also rejected while a slow-lane worker is running, to avoid
+mixing old asynchronous verdicts with new limits. Stop the runtime before making
+those changes. Check the reload log and configuration version to confirm that
+an update took effect.
 
 ---
 

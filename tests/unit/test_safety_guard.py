@@ -398,7 +398,9 @@ class TestEEActionLayout:
         assert result.device == action_ee.device
         assert tuple(result.shape) == (7,)
 
-    def test_layout_dict_action_passthrough(self, ee_stackfile: str) -> None:
+    def test_layout_dict_action_without_complete_mapping_is_rejected(
+        self, ee_stackfile: str
+    ) -> None:
         guard = enable_ee_layout(
             Guardrail(
                 ee_stackfile,
@@ -408,8 +410,8 @@ class TestEEActionLayout:
                 quiet=True,
             )
         )
-        result = guard({"joints": np.zeros(6), "action": {"x": 0.1}})
-        assert result == {"x": 0.1}
+        with pytest.raises(ValueError, match="fully keyed action_layout"):
+            guard({"joints": np.zeros(6), "action": {"x": 0.1}})
 
 
 # ---------------------------------------------------------------------------
@@ -778,3 +780,58 @@ class TestDecoupledMobileBase:
         out = guard({"base_pose": [0.2, 0.0, 0.0], "action": torch.tensor([0.5, 0.1])})
         assert out.shape == (2,)
         np.testing.assert_allclose(out.numpy(), [0.5, 0.1])
+
+
+@pytest.mark.parametrize("value", [[0.0], [0.0] * 7, [float("nan")] * 6, [float("inf")] * 6])
+def test_invalid_safe_action_fails_at_construction(stackfile, value):
+    with pytest.raises(ValueError, match="safe_action must contain"):
+        Guardrail(stackfile, joint_names=_JOINT_NAMES, safe_action=value, quiet=True)
+
+
+@pytest.mark.parametrize("value", [[0.0], [0.0] * 7, [float("nan")] * 6, [float("inf")] * 6])
+def test_malformed_action_is_not_truncated_or_forwarded(stackfile, value):
+    with (
+        contextlib.closing(Guardrail(stackfile, joint_names=_JOINT_NAMES, quiet=True)) as guard,
+        pytest.raises(ValueError, match="action must contain"),
+    ):
+        guard({"action": value, "joints": np.zeros(6)})
+
+
+@pytest.mark.parametrize("value", [[0.0], [0.0] * 7, [float("nan")] * 6])
+def test_malformed_joints_are_not_used_for_hold(stackfile, value):
+    with (
+        contextlib.closing(Guardrail(stackfile, joint_names=_JOINT_NAMES, quiet=True)) as guard,
+        pytest.raises(ValueError, match="joints must contain"),
+    ):
+        guard({"action": np.zeros(6), "joints": value})
+
+
+def test_partial_joint_observation_does_not_invent_zero_positions(stackfile):
+    with (
+        contextlib.closing(Guardrail(stackfile, joint_names=_JOINT_NAMES, quiet=True)) as guard,
+        pytest.raises(ValueError, match="Missing joint observation"),
+    ):
+        guard({"action": np.zeros(6), "shoulder_pan.pos": 0.0})
+
+
+def test_safe_action_is_copied_from_callers_buffer(stackfile):
+    safe = np.zeros(6)
+    with contextlib.closing(
+        Guardrail(stackfile, joint_names=_JOINT_NAMES, safe_action=safe, quiet=True)
+    ) as guard:
+        safe[:] = np.nan
+        np.testing.assert_array_equal(guard._safe_action_value, np.zeros(6))
+
+
+@pytest.mark.parametrize("positions", [[float("nan")] * 6, [0.0]])
+def test_invalid_validated_output_is_not_returned(stackfile, monkeypatch, positions):
+    from dam.types.action import ValidatedAction
+
+    with contextlib.closing(Guardrail(stackfile, joint_names=_JOINT_NAMES, quiet=True)) as guard:
+        monkeypatch.setattr(
+            guard._runtime,
+            "validate",
+            lambda *args, **kw: (ValidatedAction(target_joint_positions=np.array(positions)), []),
+        )
+        with pytest.raises(ValueError, match="Validated command must contain"):
+            guard({"action": np.zeros(6), "joints": np.zeros(6)})

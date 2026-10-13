@@ -545,6 +545,8 @@ class Guardrail:
             self._runtime._hot_reload.config_pool["dt"] = actual_dt
 
         mappable = self._action_mappable(raw_action, action_is_dict, pos_style)
+        if not mappable:
+            raise ValueError("Action dict must contain every key in a fully keyed action_layout")
         obs = self._build_observation(inputs, now)
         action = self._build_action(raw_action, action_is_dict, pos_style, mappable)
         trace_id = str(uuid.uuid4())
@@ -554,14 +556,13 @@ class Guardrail:
         self._prev_positions = obs.joint_positions.copy()
         self._prev_time = now
 
-        if not mappable:
-            # Opaque action (partial EE-pose dict): echo it back as-is.
-            return dict(raw_action)
         if validated is not None:
             command = np.asarray(validated.target_joint_positions, dtype=np.float64).flatten()
         else:
             command = self._reject_command(obs)
 
+        if command.size != self._n_actions or not np.all(np.isfinite(command)):
+            raise ValueError(f"Validated command must contain {self._n_actions} finite values")
         out = self._format_command(command, action_is_dict, pos_style)
         if action_is_tensor:
             import torch as _torch
@@ -651,7 +652,10 @@ class Guardrail:
             raise ValueError(
                 f"safe_action must be a vector, 'hold', or 'zero'; got {safe_action!r}"
             )
-        return "fixed", np.asarray(safe_action, dtype=np.float64).flatten()
+        value = np.asarray(safe_action, dtype=np.float64).flatten()
+        if value.size != self._n_actions or not np.all(np.isfinite(value)):
+            raise ValueError(f"safe_action must contain {self._n_actions} finite values")
+        return "fixed", value.copy()
 
     def _compute_contract(self, config: Any, task: str) -> set[str]:
         """Observation groups the active callbacks require: their declared
@@ -710,14 +714,19 @@ class Guardrail:
                 channels[key] = np.asarray(value, dtype=np.float64).flatten()
 
         if joint_pos is None and any(k.endswith(".pos") for k in inputs):
+            missing = [f"{n}.pos" for n in self._joint_names if f"{n}.pos" not in inputs]
+            if missing:
+                raise ValueError(f"Missing joint observation keys: {missing}")
             joint_pos = np.fromiter(
-                (float(inputs.get(f"{n}.pos", 0.0)) for n in self._joint_names),
+                (float(inputs[f"{n}.pos"]) for n in self._joint_names),
                 dtype=np.float64,
                 count=self._n_joints,
             )
         if joint_pos is None:
             joint_pos = np.zeros(0, dtype=np.float64)
         else:
+            if joint_pos.size != self._n_joints or not np.all(np.isfinite(joint_pos)):
+                raise ValueError(f"joints must contain {self._n_joints} finite values")
             joint_pos = joint_pos * self._scale_in[: joint_pos.shape[0]]
 
         velocities = self._estimate_velocity(joint_pos, now) if joint_pos.shape[0] else None
@@ -766,10 +775,8 @@ class Guardrail:
         from dam.types.action import ActionProposal
 
         if not mappable:
-            # Opaque action (e.g. a partial EE-pose dict): guards inspect it via
-            # metadata; the command is echoed back unchanged by _format_command.
-            target = np.zeros(self._n_actions, dtype=np.float64)
-        elif is_dict:
+            raise ValueError("Action dict cannot be mapped to the configured action layout")
+        if is_dict:
             suffix = ".pos" if pos_style else ""
             target = np.fromiter(
                 (float(raw[f"{k}{suffix}"]) for k in self._action_keys or []),
@@ -777,7 +784,9 @@ class Guardrail:
                 count=self._n_actions,
             )
         else:
-            target = np.asarray(raw, dtype=np.float64).flatten()[: self._n_actions]
+            target = np.asarray(raw, dtype=np.float64).flatten()
+        if target.size != self._n_actions or not np.all(np.isfinite(target)):
+            raise ValueError(f"action must contain {self._n_actions} finite values")
         if mappable and not self._command_space:
             target = target * self._scale_in[: target.shape[0]]
 
@@ -802,7 +811,10 @@ class Guardrail:
 
     def _reject_command(self, obs: Any) -> np.ndarray:
         if self._safe_action_mode == "hold":
-            return np.asarray(obs.joint_positions, dtype=np.float64).flatten()
+            command = np.asarray(obs.joint_positions, dtype=np.float64).flatten()
+            if command.size != self._n_actions or not np.all(np.isfinite(command)):
+                raise ValueError("Cannot hold without a complete finite joint observation")
+            return command
         return self._safe_action_value.copy()
 
     def _format_command(self, command: np.ndarray, as_dict: bool, pos_style: bool) -> Any:

@@ -28,6 +28,7 @@ import shutil
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -185,7 +186,7 @@ def detect_cameras_from_hf(repo_id: str) -> list[str]:
         return []
 
 
-def _cache_key(payload: dict) -> str:
+def _cache_key(payload: dict[str, Any]) -> str:
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()[:16]
 
@@ -489,7 +490,13 @@ def _save_feature_cache(
 
 def _load_feature_cache(
     path: Path,
-) -> tuple[np.ndarray, dict[str, np.ndarray], dict[str, np.ndarray], dict | None, dict | None]:
+) -> tuple[
+    np.ndarray,
+    dict[str, np.ndarray],
+    dict[str, np.ndarray],
+    dict[str, Any] | None,
+    dict[str, Any] | None,
+]:
     data = np.load(path)
     return (
         data["train_vectors"],
@@ -559,7 +566,7 @@ def _export_runtime_bundle(
             }
         )
         cams = feature_config.get("vision_cameras")
-        if cams:
+        if isinstance(cams, (list, tuple)) and cams:
             stackfile_params["vision_cameras"] = list(cams)
     metadata = {
         "callback": "ood_detector",
@@ -650,7 +657,7 @@ def _compute_roc_and_eer(
     normal_scores: np.ndarray,
     anomaly_scores: np.ndarray,
     n_thresholds: int = 500,
-) -> dict:
+) -> dict[str, Any]:
     """Compute ROC curve, AUROC, and EER threshold from normal vs anomaly scores.
 
     Higher score → more likely OOD (anomalous).
@@ -699,8 +706,8 @@ def _build_nll_rows(
     labelled_obs: list[tuple[int, int, Observation]],
     scores: np.ndarray,
     is_nll: bool = False,
-) -> list[dict]:
-    rows: list[dict] = []
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
     for (episode_index, frame_index, obs), score in zip(labelled_obs, scores, strict=True):
         score_f = float(score)
         rows.append(
@@ -865,7 +872,7 @@ def run_calibration(
     vision_cameras: list[str] | None = None,  # None = auto-detect from dataset
     vision_subsample: int = 30,
     runtime_model_path: str | None = _DEFAULT_RUNTIME_MODEL_PATH,
-) -> tuple[list[dict], dict]:
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     rng = np.random.default_rng(seed)
     del ood_samples_per_scenario, n_thresholds, sessions_dir
 
@@ -970,7 +977,7 @@ def run_calibration(
         # Vision mode evaluates only observations with an actual video frame. It
         # must not compare image embeddings against zero-padded missing-image rows.
         # Auto-detect cameras when not explicitly specified.
-        effective_cameras: list[str] = vision_cameras or []
+        effective_cameras = vision_cameras or []
         if vision_model and not effective_cameras:
             LOGGER.info("Auto-detecting cameras from %s...", normal_repo_id)
             effective_cameras = detect_cameras_from_hf(normal_repo_id)
@@ -1212,7 +1219,7 @@ def run_calibration(
             values.get("p95"),
         )
 
-    summary: dict = {
+    summary: dict[str, Any] = {
         "callback": "ood_detector",
         "backend": "normalizing_flow",
         "model": "Real-NVP",
@@ -1288,7 +1295,7 @@ def run_calibration(
     return rows, summary
 
 
-def write_csv(rows: list[dict], path: Path) -> None:
+def write_csv(rows: list[dict[str, Any]], path: Path) -> None:
     if not rows:
         path.write_text("")
         return
@@ -1299,7 +1306,7 @@ def write_csv(rows: list[dict], path: Path) -> None:
     LOGGER.info("CSV saved: %s", path)
 
 
-def plot_results(rows: list[dict], outdir: Path) -> None:
+def plot_results(rows: list[dict[str, Any]], outdir: Path) -> None:
     try:
         import matplotlib
 
@@ -1340,7 +1347,7 @@ def plot_results(rows: list[dict], outdir: Path) -> None:
     LOGGER.info("Plot saved: %s", out)
 
 
-def plot_roc(summary: dict, outdir: Path) -> None:
+def plot_roc(summary: dict[str, Any], outdir: Path) -> None:
     """Plot ROC curve with EER point marked."""
     try:
         import matplotlib
@@ -1366,8 +1373,8 @@ def plot_roc(summary: dict, outdir: Path) -> None:
     ax.set_ylabel("True Positive Rate (TPR)")
     ax.set_title("RQ1 — L0 Real-NVP ROC Curve (Normal vs Abnormal)")
     ax.legend(loc="lower right")
-    ax.set_xlim([-0.02, 1.02])
-    ax.set_ylim([-0.02, 1.02])
+    ax.set_xlim((-0.02, 1.02))
+    ax.set_ylim((-0.02, 1.02))
     ax.grid(True, alpha=0.3)
     ax.set_aspect("equal")
     fig.tight_layout()

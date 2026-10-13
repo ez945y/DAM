@@ -326,3 +326,117 @@ def test_event_loop_retries_on_transient_failure(monkeypatch):
         assert call_count["n"] == 3
     finally:
         os.unlink(path)
+
+
+def _motion_reload_runtime(tmp_path):
+    import dam
+    from dam.config.loader import StackfileLoader
+    from dam.runtime.guard_runtime import GuardRuntime
+
+    path = tmp_path / "reload.yaml"
+    path.write_text("""version: "1"
+guards:
+  - L1: motion
+boundaries:
+  limits:
+    layer: L1
+    type: single
+    nodes:
+      - callback: joint_position_limits
+        params:
+          upper: [1.0, 1.0]
+          lower: [-1.0, -1.0]
+tasks:
+  default:
+    boundaries: [limits]
+safety:
+  enforcement_mode: enforce
+""")
+    dam.api._register_builtins()
+    config = StackfileLoader.load(str(path))
+    runtime = GuardRuntime._from_config(config)
+    runtime.start_task("default")
+    return runtime, config
+
+
+def test_reloaded_limits_reach_callbacks_on_validate_only_path(tmp_path):
+    from dam.types.action import ActionProposal
+    from dam.types.observation import Observation
+
+    runtime, config = _motion_reload_runtime(tmp_path)
+    obs = Observation(timestamp=time.monotonic(), joint_positions=np.zeros(2))
+    action = ActionProposal(target_joint_positions=np.array([0.8, 0.8]))
+    before, _ = runtime.validate(obs, action, "before")
+    np.testing.assert_allclose(before.target_joint_positions, [0.8, 0.8])
+    timers = dict(runtime._node_start_times)
+    config.boundaries["limits"].nodes[0].params["upper"] = [0.2, 0.2]
+    runtime.apply_pending_reload(config)
+    # Caller mutation after queueing must not change the accepted candidate.
+    config.boundaries["limits"].nodes[0].params["upper"] = [9.0, 9.0]
+    after, _ = runtime.validate(obs, action, "after")
+    assert after is not None
+    np.testing.assert_allclose(after.target_joint_positions, [0.2, 0.2], atol=1e-5)
+    assert runtime._config_version == 1
+    assert runtime._node_start_times == timers
+
+
+def test_structural_reload_does_not_partially_change_limits(tmp_path, caplog):
+    runtime, config = _motion_reload_runtime(tmp_path)
+    config.boundaries["limits"].nodes[0].params["upper"] = [0.2, 0.2]
+    config.safety.control_hz = 100
+    previous_pool = runtime._config_pool
+    previous_containers = runtime._boundary_containers
+    runtime._apply_config_swap(config)
+    assert runtime._config_version == 0
+    assert runtime._config_pool is previous_pool
+    assert runtime._boundary_containers is previous_containers
+    assert "REJECTED" in caplog.text
+
+
+def test_reload_preparation_failure_is_atomic(tmp_path, monkeypatch):
+    import dam.runtime.guard_runtime as module
+
+    runtime, config = _motion_reload_runtime(tmp_path)
+    config.boundaries["limits"].nodes[0].params["upper"] = [0.2, 0.2]
+    previous_pool = runtime._config_pool
+    previous_containers = runtime._boundary_containers
+
+    def fail(*args):
+        raise ValueError("injection preparation failed")
+
+    monkeypatch.setattr(module, "precompute_injection", fail)
+    runtime._apply_config_swap(config)
+    assert runtime._config_version == 0
+    assert runtime._config_pool is previous_pool
+    assert runtime._boundary_containers is previous_containers
+
+
+def test_reload_preserves_list_phase(tmp_path):
+    from dam.runtime.guard_runtime import GuardRuntime
+
+    _, config = _motion_reload_runtime(tmp_path)
+    boundary = config.boundaries["limits"]
+    boundary.type = "list"
+    first = boundary.nodes[0]
+    second = first.model_copy(deep=True)
+    second.node_id = "second"
+    boundary.nodes.append(second)
+    runtime = GuardRuntime._from_config(config)
+    runtime.start_task("default")
+    runtime._boundary_containers["limits"].advance()
+    updated = config.model_copy(deep=True)
+    updated.boundaries["limits"].nodes[1].params["upper"] = [0.2, 0.2]
+    runtime._apply_config_swap(updated)
+    node = runtime._boundary_containers["limits"].get_active_node()
+    assert node.node_id == "second"
+    assert node.constraint.params["upper"] == [0.2, 0.2]
+    assert runtime._config_version == 1
+
+
+def test_running_slow_lane_rejects_reload_without_mutation(tmp_path):
+    runtime, config = _motion_reload_runtime(tmp_path)
+    runtime._slow_lane = object()
+    previous_pool = runtime._config_pool
+    runtime._apply_config_swap(config)
+    assert runtime._config_version == 0
+    assert runtime._config_pool is previous_pool

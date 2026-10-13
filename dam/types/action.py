@@ -102,16 +102,42 @@ class ValidatedAction:
                 np.asarray(self.target_joint_velocities, dtype=np.float64).copy(),
             )
 
+    def validate_payload(self, expected_shape: tuple[int, ...] | None = None) -> None:
+        """Reject malformed corrections before aggregation or hardware output."""
+        positions = self.target_joint_positions
+        if positions.ndim != 1 or not np.all(np.isfinite(positions)):
+            raise ValueError("Clamped positions must be a finite one-dimensional vector")
+        if expected_shape is not None and positions.shape != expected_shape:
+            raise ValueError("Clamped positions do not match the command shape")
+        if self.original_proposal is not None:
+            original = self.original_proposal.target_joint_positions
+            if original.shape != positions.shape or not np.all(np.isfinite(original)):
+                raise ValueError("Clamped positions do not match a finite original proposal")
+        velocities = self.target_joint_velocities
+        if velocities is not None and (
+            velocities.shape != positions.shape or not np.all(np.isfinite(velocities))
+        ):
+            raise ValueError("Clamped velocities must be finite and match positions")
+        if self.gripper_action is not None and not 0.0 <= self.gripper_action <= 1.0:
+            raise ValueError("Clamped gripper action must be in [0, 1]")
+
     def merge_restrictive(self, other: ValidatedAction) -> ValidatedAction:
         """Combine two validated actions, taking the most conservative value for each joint.
 
         If both actions modified the same joint, we pick the value furthest from the
         original proposal (assuming the original was 'too aggressive' and was clamped inwards).
         """
+        self.validate_payload()
+        other.validate_payload(self.target_joint_positions.shape)
         orig = self.original_proposal
-        if not orig:
-            # Fallback to simple mean or return self if no baseline to compare against
+        if orig is None:
+            if not np.array_equal(self.target_joint_positions, other.target_joint_positions):
+                raise ValueError("Cannot merge distinct corrections without an original proposal")
             return self
+        if other.original_proposal is not None and not np.array_equal(
+            orig.target_joint_positions, other.original_proposal.target_joint_positions
+        ):
+            raise ValueError("Cannot merge corrections from different proposals")
 
         p1 = self.target_joint_positions
         p2 = other.target_joint_positions
@@ -121,11 +147,8 @@ class ValidatedAction:
         d1 = p1 - p0
         d2 = p2 - p0
 
-        # Most restrictive logic:
-        # If both corrected in same direction, pick the LARGER correction (further from origin)
-        # If they corrected in opposite directions (unlikely with limits), pick the sum?
-        # Actually, if d1 is -0.5 and d2 is -1.0, we want -1.0.
-        # So for negative deltas, take min. For positive deltas, take max.
+        # Corrections in the same direction use the larger correction.
+        # Opposing corrections cannot be safely fused without constraints.
 
         merged_p = p0.copy()
         for i in range(len(p0)):
@@ -150,9 +173,7 @@ class ValidatedAction:
             elif d1[i] > 0 and d2[i] > 0:
                 merged_p[i] = max(val1, val2)
             else:
-                # Opposite corrections? This implies overlapping forbidden zones from
-                # different directions. Take the one with higher magnitude.
-                merged_p[i] = val1 if abs(d1[i]) > abs(d2[i]) else val2
+                raise ValueError("Cannot safely merge corrections in opposite directions")
 
         return ValidatedAction(
             target_joint_positions=merged_p,

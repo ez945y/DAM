@@ -23,6 +23,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -79,7 +80,7 @@ def run_session(stack: str, task: str, cycles: int) -> Path | None:
     return max(new_files, key=lambda p: p.stat().st_mtime)
 
 
-def read_cycles(mcap_path: Path) -> list[dict]:
+def read_cycles(mcap_path: Path) -> list[dict[str, Any]]:
     """Read /dam/cycle messages from an MCAP file."""
     cycles = []
     with open(mcap_path, "rb") as f:
@@ -90,7 +91,7 @@ def read_cycles(mcap_path: Path) -> list[dict]:
     return cycles
 
 
-def analyse(cycles: list[dict], control_freq: float = 30.0) -> dict:
+def analyse(cycles: list[dict[str, Any]], control_freq: float = 30.0) -> dict[str, Any]:
     """Compute per-joint velocity / acceleration / clamp metrics."""
     dt = 1.0 / control_freq
     n_cycles = len(cycles)
@@ -152,7 +153,7 @@ def analyse(cycles: list[dict], control_freq: float = 30.0) -> dict:
     )
 
     # Guard result extraction
-    guard_vel_results = []
+    guard_vel_results: list[dict[str, Any] | None] = []
     for c in cycles:
         for gr in c.get("guard_results", []):
             if isinstance(gr, dict) and gr.get("name") == "joint_velocity_limit":
@@ -185,7 +186,7 @@ def analyse(cycles: list[dict], control_freq: float = 30.0) -> dict:
     return results
 
 
-def print_report(r: dict) -> None:
+def print_report(r: dict[str, Any]) -> None:
     """Print a human-readable diagnostic report."""
     if not r:
         return
@@ -316,6 +317,7 @@ def main() -> None:
     if args.mcap and args.run:
         parser.error("--mcap and --run cannot be used together")
 
+    mcap_path: Path | None
     if args.mcap:
         mcap_path = Path(args.mcap)
     elif args.run:

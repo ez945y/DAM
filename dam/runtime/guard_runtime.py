@@ -599,8 +599,47 @@ class GuardRuntime:
         return HotReloadManager.build_config_pool(new_config)
 
     def _apply_config_swap(self, new_config: StackfileConfig) -> None:
+        """Apply parameter-only reloads after preparing every affected object.
+
+        Structural changes require runtime reconstruction. Reject them rather
+        than reporting a successful reload with a mixture of old and new state.
+        """
+        import copy
+
+        from dam.runtime._stackfile_builder import _build_boundary_node, _make_container
+
         try:
+            previous = getattr(self, "_reload_config", None)
+            if previous is None:
+                raise ValueError("Hot reload requires a runtime built from a Stackfile")
+
+            def structure(config: StackfileConfig) -> dict[str, Any]:
+                data = config.model_dump()
+                for boundary in data["boundaries"].values():
+                    for node in boundary["nodes"]:
+                        node.pop("params", None)
+                return data
+
+            if structure(previous) != structure(new_config):
+                raise ValueError("Structural Stackfile changes require restarting the runtime")
+            if self._slow_lane is not None:
+                raise ValueError("Stop the slow-lane worker before reloading safety parameters")
+
             candidate_pool = self._build_config_pool(new_config)
+            containers = {}
+            for name, config in new_config.boundaries.items():
+                nodes = [_build_boundary_node(node, new_config) for node in config.nodes]
+                container = _make_container(config, nodes)
+                container.restore(self._boundary_containers[name].snapshot())
+                container._runtime_boundary_name = name
+                containers[name] = container
+            active_containers = [containers[name] for name in self._active_container_names]
+            prepared_guards = []
+            for guard in self._all_guards:
+                prepared = copy.copy(guard)
+                precompute_injection(prepared, candidate_pool)
+                prepared_guards.append((guard, prepared))
+            saved_config = new_config.model_copy(deep=True)
         except Exception:
             logger.error(
                 "GuardRuntime: config swap REJECTED; keeping previous config (v%d)",
@@ -608,13 +647,18 @@ class GuardRuntime:
                 exc_info=True,
             )
             return
-        self._hot_reload.apply_swap(
-            new_config,
-            candidate_pool=candidate_pool,
-            guards=self._guards,
-            apply_guards_config=self._apply_guards_config,
-            node_start_times=self._node_start_times,
-        )
+
+        # Commit only prepared values. Preserve node timers and motion history:
+        # updating a limit must not grant fresh hardware grace or reset a phase.
+        self._boundary_containers = containers
+        self._active_containers = active_containers
+        self._hot_reload._config_pool = candidate_pool
+        for guard, prepared in prepared_guards:
+            guard._static_kwargs = prepared._static_kwargs
+            guard._runtime_keys = prepared._runtime_keys
+        self._reload_config = saved_config
+        self._hot_reload._config_version += 1
+        logger.info("GuardRuntime: config swap committed (v%d)", self._config_version)
 
     # ── Core validate (thin wrapper → ExecutionEngine) ───────────────────────
 
@@ -641,6 +685,9 @@ class GuardRuntime:
         ``Guardrail``) get guard event logging for free.
         """
         if advance_cycle:
+            pending = self._hot_reload.consume_pending()
+            if pending is not None:
+                self._apply_config_swap(pending)
             self._cycle_id += 1
         cycle_id = self._cycle_id
         ctx = ValidationContext(

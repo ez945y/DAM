@@ -27,6 +27,7 @@ import logging
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -35,7 +36,7 @@ import numpy as np
 # ── DAM imports ──────────────────────────────────────────────────────────────
 from dam.types.action import ActionProposal
 from dam.types.observation import Observation
-from dam.types.result import GuardDecision
+from dam.types.result import GuardDecision, GuardResult
 from scripts._bench_stackfiles import (
     JOINT_LOWER as _JOINT_LOWER,
 )
@@ -83,7 +84,7 @@ def _nominal_action() -> np.ndarray:
     return np.zeros(_N_JOINTS)
 
 
-def _is_intercepted(result) -> bool:
+def _is_intercepted(result: GuardResult) -> bool:
     # CLAMP counts as intercepted: the guard modified the action to enforce safety.
     return result.decision in (GuardDecision.REJECT, GuardDecision.FAULT, GuardDecision.CLAMP)
 
@@ -97,7 +98,7 @@ _motion_runtime = None
 _motion_runtime_cycle = 0
 
 
-def _l1_intercepted(obs, action) -> bool:
+def _l1_intercepted(obs: Observation, action: ActionProposal) -> bool:
     """Run MotionGuard via the production validate() path."""
     global _motion_runtime, _motion_runtime_cycle
     if _motion_runtime is None:
@@ -107,7 +108,7 @@ def _l1_intercepted(obs, action) -> bool:
     return any(_is_intercepted(r) for r in results)
 
 
-def scan_l1_joint_offset(trials: int) -> list[dict]:
+def scan_l1_joint_offset(trials: int) -> list[dict[str, Any]]:
     """L1-A: Gaussian noise σ on joint positions."""
     sigmas = np.linspace(0.05, 0.50, 10)
     rows = []
@@ -136,7 +137,7 @@ def scan_l1_joint_offset(trials: int) -> list[dict]:
     return rows
 
 
-def scan_l1_velocity_scale(trials: int) -> list[dict]:
+def scan_l1_velocity_scale(trials: int) -> list[dict[str, Any]]:
     """L1-B: velocity magnitude scaled by factor k."""
     ks = np.linspace(1.2, 3.0, 10)
     rows = []
@@ -177,7 +178,7 @@ def scan_l1_velocity_scale(trials: int) -> list[dict]:
 # ── L2 guards (ExecutionGuard) ───────────────────────────────────────────────
 
 
-def scan_l2_collision_distance(trials: int) -> list[dict]:
+def scan_l2_collision_distance(trials: int) -> list[dict[str, Any]]:
     """L2-A: End-effector clearance relative to a prohibited-zone boundary.
 
     A tight prohibited zone is defined at x_max = 0.30 m.  The scan sweeps
@@ -242,7 +243,7 @@ def scan_l2_collision_distance(trials: int) -> list[dict]:
     return rows
 
 
-def scan_l2_timeout(trials: int) -> list[dict]:
+def scan_l2_timeout(trials: int) -> list[dict[str, Any]]:
     """L2-B: Node execution time relative to T_timeout.
 
     Injects a fake L2 node with ``timeout_sec=_T_TIMEOUT`` and rewinds its
@@ -304,7 +305,7 @@ def scan_l2_timeout(trials: int) -> list[dict]:
 # ── Reporting ─────────────────────────────────────────────────────────────────
 
 
-def write_csv(rows: list[dict], path: Path) -> None:
+def write_csv(rows: list[dict[str, Any]], path: Path) -> None:
     if not rows:
         return
     with open(path, "w", newline="") as f:
@@ -314,7 +315,7 @@ def write_csv(rows: list[dict], path: Path) -> None:
     LOGGER.info("CSV saved: %s", path)
 
 
-def plot_results(rows: list[dict], outdir: Path) -> None:
+def plot_results(rows: list[dict[str, Any]], outdir: Path) -> None:
     try:
         import matplotlib
 
@@ -324,7 +325,7 @@ def plot_results(rows: list[dict], outdir: Path) -> None:
         LOGGER.warning("matplotlib not installed; skipping plot generation.")
         return
 
-    scenarios = {}
+    scenarios: dict[str, list[dict[str, Any]]] = {}
     for r in rows:
         scenarios.setdefault(r["scenario"], []).append(r)
 
@@ -364,7 +365,7 @@ def _interpolate_x(xs: np.ndarray, rates: np.ndarray, target: float) -> float | 
     return None
 
 
-def _process_scenario(name: str, data: list[dict]) -> None:
+def _process_scenario(name: str, data: list[dict[str, Any]]) -> None:
     xs = np.array([d["disturbance_value"] for d in data])
     rates = np.array([d["interception_rate"] for d in data])
 
@@ -378,9 +379,9 @@ def _process_scenario(name: str, data: list[dict]) -> None:
     LOGGER.info("%s x50=%s x90=%s steepness=%s", name, x50_s, x90_s, steep_s)
 
 
-def compute_summary(rows: list[dict]) -> None:
+def compute_summary(rows: list[dict[str, Any]]) -> None:
     """Print x50/x90 and steepness per scenario."""
-    scenarios: dict[str, list] = {}
+    scenarios: dict[str, list[Any]] = {}
     for r in rows:
         scenarios.setdefault(r["scenario"], []).append(r)
 
@@ -402,7 +403,7 @@ def main() -> None:
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
-    all_rows: list[dict] = []
+    all_rows: list[dict[str, Any]] = []
 
     LOGGER.info("L1-A: Joint Angle Offset")
     all_rows += scan_l1_joint_offset(args.trials)

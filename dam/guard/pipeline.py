@@ -31,6 +31,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
+
 from dam.guard.base import PER_BOUNDARY_KEY
 from dam.types.result import GuardDecision, GuardResult
 
@@ -155,9 +157,13 @@ def _coerce_legacy_return(
     reason: str = ""
     if isinstance(raw, tuple) and len(raw) == 2:
         ok_raw, reason_raw = raw
+        if not isinstance(ok_raw, (bool, np.bool_)):
+            raise TypeError("Callback tuple must start with a boolean")
         ok = bool(ok_raw)
         reason = str(reason_raw or "")
     else:
+        if not isinstance(raw, (bool, np.bool_)):
+            raise TypeError("Callback must return bool, (bool, reason), or a guard result")
         ok = bool(raw)
 
     if ok:
@@ -217,7 +223,12 @@ def run_callbacks(
         try:
             callback = registry.get(callback_name)
         except KeyError:
-            logger.warning("Boundary callback '%s' is not registered", callback_name)
+            results.append(
+                CallbackResult.fault(
+                    boundary_name or callback_name,
+                    f"Boundary callback {callback_name!r} is not registered",
+                )
+            )
             continue
 
         if expected_layer is not None and getattr(callback, "_cb_layer", None) != expected_layer:
@@ -229,19 +240,24 @@ def run_callbacks(
 
         try:
             raw = callback(**_filter_kwargs(callback, kwargs))
-        except Exception as exc:  # noqa: BLE001 — converted to a structured FAULT result
-            results.append(CallbackResult.fault(bname, exc, fault_source="guard_code"))
-            continue
-
-        results.append(
-            _coerce_legacy_return(
+            result = _coerce_legacy_return(
                 raw,
                 boundary_name=bname,
                 callback_name=callback_name,
                 params=params,
                 node_id=node.node_id,
             )
-        )
+            if not isinstance(result.decision, GuardDecision):
+                raise ValueError("Callback returned an invalid guard decision")
+            if result.decision == GuardDecision.CLAMP and result.clamped_action is not None:
+                proposal = runtime_pool.get("action")
+                expected_shape = (
+                    proposal.target_joint_positions.shape if proposal is not None else None
+                )
+                result.clamped_action.validate_payload(expected_shape)
+            results.append(dataclasses.replace(result, boundary_name=bname))
+        except Exception as exc:  # noqa: BLE001 — converted to a structured FAULT result
+            results.append(CallbackResult.fault(bname, exc, fault_source="guard_code"))
 
     return results
 
@@ -256,7 +272,7 @@ ClampAggregator = Callable[
 """User-injectable fusion strategy for multiple CLAMP results.
 
 Receives the CLAMP-flavoured CallbackResults plus an optional running action
-to fold into; must return the final clamped action (or None to skip CLAMP).
+to fold into; must return the final clamped action. None is treated as a guard fault.
 """
 
 
@@ -320,16 +336,33 @@ def aggregate(
 
     clamps = [r for r in results if r.decision == GuardDecision.CLAMP]
     if clamps:
-        fused = clamp_aggregator(clamps, action_in)
-        if fused is None:
-            # Aggregator declined; degrade to PASS rather than emit a CLAMP
-            # without a payload — that would be a contract violation.
-            logger.warning(
-                "Guard %s: clamp aggregator returned None despite %d clamp contribution(s)",
-                guard_name,
-                len(clamps),
+        try:
+            from dam.types.action import ValidatedAction
+
+            shape = action_in.target_joint_positions.shape if action_in is not None else None
+            for contribution in clamps:
+                payload = contribution.clamped_action
+                if not isinstance(payload, ValidatedAction):
+                    raise ValueError("CLAMP callback returned no valid action")
+                payload.validate_payload(shape)
+                shape = payload.target_joint_positions.shape
+            fused = clamp_aggregator(clamps, action_in)
+            if not isinstance(fused, ValidatedAction):
+                raise ValueError("Clamp aggregator returned no valid action")
+            fused.validate_payload(shape)
+        except Exception as exc:
+            metadata = _merge_metadata(clamps, all_results=results)
+            # Fusion failed for the whole group. Callback-level CLAMP entries
+            # must not downgrade this FAULT during execution-engine fan-out.
+            metadata.pop(PER_BOUNDARY_KEY, None)
+            return GuardResult(
+                decision=GuardDecision.FAULT,
+                guard_name=guard_name,
+                layer=guard_layer,
+                reason=str(exc),
+                fault_source="guard_code",
+                metadata=metadata,
             )
-            return GuardResult.success(guard_name=guard_name, layer=guard_layer)
         reason = "; ".join(f"{r.boundary_name}: {r.reason}" for r in clamps if r.reason)
         return GuardResult(
             decision=GuardDecision.CLAMP,

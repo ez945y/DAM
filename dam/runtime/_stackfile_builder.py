@@ -75,6 +75,7 @@ def from_config(runtime_cls: type, config: StackfileConfig, frame_hub: Any | Non
         slow_lane_config=config.safety.slow_lane,
     )
 
+    runtime._reload_config = config.model_copy(deep=True)
     _apply_guard_overrides(config, guards_by_kind, runtime)
     runtime._ctx_sm.fallbacks_config = dict(config.fallbacks)
 

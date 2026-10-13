@@ -22,11 +22,13 @@ import logging
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np
 
+from dam.runtime.guard_runtime import GuardRuntime
 from dam.types.action import ActionProposal
 from dam.types.observation import Observation
 from dam.types.result import GuardDecision
@@ -51,7 +53,7 @@ SCENARIOS = (
 )
 
 
-def _build_study_runtime():
+def _build_study_runtime() -> GuardRuntime:
     """Build the same L0/L1/L2 safety stack the study uses, via the production
     stackfile path. Boundary params (joint limits, velocity caps, workspace)
     come from the YAML — never from Python kwargs."""
@@ -99,7 +101,7 @@ def _intercepted(result: object) -> bool:
     )
 
 
-def run_scenario(name: str, trials: int, rng: np.random.Generator) -> dict:
+def run_scenario(name: str, trials: int, rng: np.random.Generator) -> dict[str, Any]:
     rt = _build_study_runtime()
     # Warm up the welford OOD baseline so a fresh estimator doesn't flag
     # the early benign frames it has never seen before.
@@ -131,12 +133,12 @@ def run_scenario(name: str, trials: int, rng: np.random.Generator) -> dict:
     }
 
 
-def run_study(trials_per_scenario: int, seed: int) -> list[dict]:
+def run_study(trials_per_scenario: int, seed: int) -> list[dict[str, Any]]:
     rng = np.random.default_rng(seed)
     return [run_scenario(name, trials_per_scenario, rng) for name in SCENARIOS]
 
 
-def write_csv(rows: list[dict], path: Path) -> None:
+def write_csv(rows: list[dict[str, Any]], path: Path) -> None:
     if not rows:
         path.write_text("")
         return
@@ -147,7 +149,7 @@ def write_csv(rows: list[dict], path: Path) -> None:
     LOGGER.info("CSV saved: %s", path)
 
 
-def plot_results(rows: list[dict], outdir: Path) -> None:
+def plot_results(rows: list[dict[str, Any]], outdir: Path) -> None:
     try:
         import matplotlib
 

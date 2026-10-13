@@ -66,7 +66,7 @@ class HotReloadManager:
     def queue_reload(self, new_config: StackfileConfig) -> None:
         """Store a new config for application at the next cycle boundary."""
         with self._lock:
-            self._pending_config = new_config
+            self._pending_config = new_config.model_copy(deep=True)
 
     def consume_pending(self) -> StackfileConfig | None:
         """Atomically take the pending config (if any)."""

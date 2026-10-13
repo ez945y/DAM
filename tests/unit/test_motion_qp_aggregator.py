@@ -40,13 +40,12 @@ def _clamp(u_nom, *, meta=None, clamped=None, name="b") -> CallbackResult:
 # ── 1. no QP metadata → returns None ─────────────────────────────────────────
 
 
-def test_no_qp_metadata_uses_first_clamp() -> None:
-    """Without QP metadata, aggregator returns the first clamped action."""
+def test_multiple_clamps_without_metadata_are_rejected() -> None:
+    """Do not silently drop the second constraint when fusion is undefined."""
     c1 = _clamp([2.0, 2.0], clamped=[1.0, 2.0], name="a")
     c2 = _clamp([2.0, 2.0], clamped=[2.0, 1.0], name="b")
-    out = motion_qp_aggregator([c1, c2], None)
-    assert out is not None
-    np.testing.assert_allclose(out.target_joint_positions, [1.0, 2.0])
+    with pytest.raises(ValueError, match="Every CLAMP needs QP metadata"):
+        motion_qp_aggregator([c1, c2], None)
 
 
 # ── 2. position box via QP ────────────────────────────────────────────────────
@@ -107,3 +106,10 @@ def test_no_metadata_uses_clamp_without_proxsuite(monkeypatch) -> None:
     out = motion_qp_aggregator([c], None)
     assert out is not None
     np.testing.assert_allclose(out.target_joint_positions, [1.0, 1.0])
+
+
+def test_mixed_qp_and_custom_clamps_cannot_drop_custom_constraint():
+    qp = _clamp([2.0, 2.0], meta=QPTerm(upper=np.ones(2)), name="qp")
+    custom = _clamp([2.0, 2.0], clamped=[0.0, 0.0], name="custom")
+    with pytest.raises(ValueError, match="Every CLAMP needs QP metadata"):
+        motion_qp_aggregator([qp, custom], None)

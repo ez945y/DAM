@@ -165,8 +165,10 @@ def motion_qp_aggregator(
         for c in clamps
         if c.metadata and METADATA_KEY in c.metadata
     ]
+    if len(clamps) > 1 and len(terms) != len(clamps):
+        raise ValueError("Every CLAMP needs QP metadata when fusing multiple motion constraints")
     if not terms:
-        # CLAMPs without QP metadata — use the first clamped action directly.
+        # A single custom CLAMP does not require a QP solve.
         for c in clamps:
             if c.clamped_action is not None:
                 return c.clamped_action

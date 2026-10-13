@@ -256,7 +256,7 @@ def test_aggregate_all_pass_returns_pass() -> None:
     assert out.decision == GuardDecision.PASS
 
 
-def test_aggregate_clamp_aggregator_returning_none_degrades_to_pass() -> None:
+def test_aggregate_clamp_aggregator_returning_none_faults() -> None:
     action = ActionProposal(target_joint_positions=np.array([1.0]))
     clamped = ValidatedAction(
         target_joint_positions=np.array([0.5]), was_clamped=True, original_proposal=action
@@ -268,7 +268,7 @@ def test_aggregate_clamp_aggregator_returning_none_degrades_to_pass() -> None:
         guard_layer=GuardLayer.L1,
         clamp_aggregator=lambda _clamps, _action_in: None,
     )
-    assert out.decision == GuardDecision.PASS
+    assert out.decision == GuardDecision.FAULT
 
 
 # ── sequential_clamp_aggregator ───────────────────────────────────────────────
@@ -305,3 +305,113 @@ def test_run_and_aggregate_end_to_end() -> None:
     )
     assert len(results) == 1
     assert final.decision == GuardDecision.REJECT
+
+
+def test_missing_callback_faults_instead_of_skipping():
+    results, final = run_and_aggregate(
+        containers=[_make_container("missing", "_missing_safety_callback")],
+        runtime_pool={},
+        expected_layer="L1",
+        guard_name="g",
+        guard_layer=GuardLayer.L1,
+    )
+    assert final.decision == GuardDecision.FAULT
+    assert "not registered" in final.reason
+
+
+@pytest.mark.parametrize("raw", ["False", 1, None, ("False", "bad"), np.array([True, False])])
+def test_malformed_callback_return_faults(raw, monkeypatch):
+    reg = get_global_registry()
+    monkeypatch.setitem(reg._registry, "_bad_return", lambda: raw)
+    results = run_callbacks(containers=[_make_container("b", "_bad_return")], runtime_pool={})
+    assert results[0].decision == GuardDecision.FAULT
+
+
+def test_missing_clamp_payload_cannot_hide_behind_another_clamp():
+    action = ValidatedAction(target_joint_positions=np.zeros(2))
+    result = aggregate(
+        [CallbackResult.clamp("good", action), CallbackResult(GuardDecision.CLAMP, "bad")],
+        guard_name="g",
+        guard_layer=GuardLayer.L1,
+    )
+    assert result.decision == GuardDecision.FAULT
+
+
+def test_aggregator_exception_is_a_structured_fault():
+    def broken(clamps, action_in):
+        raise ValueError("infeasible constraints")
+
+    result = aggregate(
+        [CallbackResult.clamp("b", ValidatedAction(target_joint_positions=np.zeros(2)))],
+        guard_name="g",
+        guard_layer=GuardLayer.L1,
+        clamp_aggregator=broken,
+    )
+    assert result.decision == GuardDecision.FAULT
+    assert "infeasible" in result.reason
+
+
+def test_fusion_fault_survives_per_boundary_fan_out():
+    from dam.guard.aggregator import aggregate_decisions
+    from dam.runtime.execution_engine import _fan_out_per_boundary
+
+    result = aggregate(
+        [CallbackResult.clamp("a", ValidatedAction(target_joint_positions=np.zeros(2)))],
+        guard_name="g",
+        guard_layer=GuardLayer.L1,
+        clamp_aggregator=lambda *_: None,
+    )
+    final = aggregate_decisions(_fan_out_per_boundary(result, ["a"]))
+    assert final.decision == GuardDecision.FAULT
+
+
+def test_callback_cannot_overwrite_another_boundary_decision(monkeypatch):
+    from dam.runtime.execution_engine import _fan_out_per_boundary
+
+    reg = get_global_registry()
+    monkeypatch.setitem(
+        reg._registry, "_reject_as_other", lambda: CallbackResult.violate("other", "unsafe")
+    )
+    monkeypatch.setitem(reg._registry, "_pass_as_other", lambda: CallbackResult.ok("other"))
+    results = run_callbacks(
+        containers=[
+            _make_container("first", "_reject_as_other"),
+            _make_container("second", "_pass_as_other"),
+        ],
+        runtime_pool={},
+    )
+    result = aggregate(results, guard_name="g", guard_layer=GuardLayer.L1)
+    outputs = _fan_out_per_boundary(result, ["first", "second"])
+    assert [r.decision for r in outputs] == [GuardDecision.REJECT, GuardDecision.PASS]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        ValidatedAction(target_joint_positions=np.array([np.nan])),
+        ValidatedAction(target_joint_positions=np.array([[0.0]])),
+        ValidatedAction(
+            target_joint_positions=np.zeros(2), target_joint_velocities=np.array([np.inf, 0.0])
+        ),
+        ValidatedAction(target_joint_positions=np.zeros(2), target_joint_velocities=np.zeros(1)),
+        ValidatedAction(target_joint_positions=np.zeros(2), gripper_action=np.nan),
+        ValidatedAction(
+            target_joint_positions=np.zeros(2), original_proposal=ActionProposal(np.zeros(3))
+        ),
+    ],
+)
+def test_invalid_clamp_payload_faults_before_fusion(payload):
+    result = aggregate(
+        [CallbackResult.clamp("b", payload)], guard_name="g", guard_layer=GuardLayer.L1
+    )
+    assert result.decision == GuardDecision.FAULT
+
+
+def test_invalid_fused_payload_faults():
+    result = aggregate(
+        [CallbackResult.clamp("b", ValidatedAction(np.zeros(2)))],
+        guard_name="g",
+        guard_layer=GuardLayer.L1,
+        clamp_aggregator=lambda *_: ValidatedAction(np.zeros(1)),
+    )
+    assert result.decision == GuardDecision.FAULT

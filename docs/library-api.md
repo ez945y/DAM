@@ -115,6 +115,11 @@ def forward_only(*, base_pose, action, solvers, dt=0.1):
 - Auto-detects `joint_names` and `degrees_mode` from `hardware` / the preset.
 - The input dict is checked against the contract: a missing required obs group,
   or one whose key collides with a reserved runtime key, raises immediately.
+- Actions and explicit fallback vectors must have exactly the configured command
+  length and contain only finite values. Joint observations must be complete;
+  missing joint positions are not filled with zeros. Action dictionaries require
+  a fully keyed `action_layout` and every configured key; partial dictionaries
+  raise `ValueError` instead of being passed through.
 - `safe_action` on reject: an explicit vector (e.g. `[0, 0]` to stop a base),
   `"hold"` (default — re-issue the current joint positions, safe for a
   position-controlled arm), or `"zero"`.

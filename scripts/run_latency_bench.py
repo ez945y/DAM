@@ -42,6 +42,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import numpy as np
 
 # ── DAM imports ──────────────────────────────────────────────────────────────
+from dam.runtime.guard_runtime import GuardRuntime
 from dam.types.action import ActionProposal
 from dam.types.observation import Observation
 from scripts._bench_stackfiles import (
@@ -92,7 +93,7 @@ def _make_nominal_action(obs: Observation) -> ActionProposal:
 # nothing is hand-rolled in this script.
 
 
-def _build_runtime_for(guard_names: list[str]):
+def _build_runtime_for(guard_names: list[str]) -> GuardRuntime:
     return _build_runtime(
         ood="ood" in guard_names,
         motion="motion" in guard_names,
@@ -117,7 +118,7 @@ def run_config(
     frames: int,
     rng: np.random.Generator,
     budget_ms: float | None = None,
-) -> dict:
+) -> dict[str, Any]:
     runtime = _build_runtime_for(guard_names) if guard_names else None
     latencies_ms: list[float] = []
 
@@ -138,7 +139,7 @@ def run_frequency(
     realtime: bool = False,
     pace_seconds: float = 0.0,
     progress: Callable[[int, int], None] | None = None,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     runtime_sets = [
         (label, _build_runtime_for(guard_names) if guard_names else None)
         for label, guard_names in _CONFIGS
@@ -192,7 +193,7 @@ def _latency_stats(
     frames: int,
     latencies_ms: list[float],
     budget_ms: float | None = None,
-) -> dict:
+) -> dict[str, Any]:
     arr = np.array(latencies_ms)
     return {
         "config": label,
@@ -210,7 +211,7 @@ def _latency_stats(
 # ── Reporting ─────────────────────────────────────────────────────────────────
 
 
-def write_csv(results: list[dict], path: Path) -> None:
+def write_csv(results: list[dict[str, Any]], path: Path) -> None:
     keys = [
         "target_fps",
         "budget_ms",
@@ -231,7 +232,7 @@ def write_csv(results: list[dict], path: Path) -> None:
     LOGGER.info("CSV saved: %s", path)
 
 
-def plot_results(results: list[dict], outdir: Path) -> None:
+def plot_results(results: list[dict[str, Any]], outdir: Path) -> None:
     try:
         import matplotlib
 
@@ -294,7 +295,7 @@ def plot_results(results: list[dict], outdir: Path) -> None:
     plt.close(fig)
 
 
-def print_table(results: list[dict]) -> None:
+def print_table(results: list[dict[str, Any]]) -> None:
     LOGGER.info("Latency results")
     for r in results:
         LOGGER.info(
@@ -337,7 +338,7 @@ def main() -> None:
     outdir.mkdir(parents=True, exist_ok=True)
 
     rng = np.random.default_rng(42)
-    results: list[dict] = []
+    results: list[dict[str, Any]] = []
 
     budget_ms = 1000.0 / args.fps
     if args.realtime:
