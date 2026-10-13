@@ -40,7 +40,7 @@ def _resolve_version() -> str:
         if version:
             return str(version)
     try:
-        return _package_version("dam")
+        return _package_version("robot-dam")
     except PackageNotFoundError:
         return "unknown"
 

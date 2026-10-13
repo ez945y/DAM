@@ -15,6 +15,7 @@ the functions so ``import dam`` stays cheap.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
 import uuid
@@ -430,7 +431,14 @@ class Guardrail:
         from dam.preset.registry import get_preset
         from dam.runtime.guard_runtime import GuardRuntime
 
+        self._closed = True
         config = StackfileLoader.load(stackfile)
+        if not config.tasks:
+            raise ValueError("Guardrail requires at least one task in the Stackfile")
+        if task is None:
+            task = next(iter(config.tasks))
+        if task not in config.tasks:
+            raise ValueError(f"Unknown task {task!r}; available tasks: {sorted(config.tasks)}")
 
         # joint_names from preset; degrees_mode from the motor interface
         # (source.degrees_mode / hardware.degrees_mode) — never the preset.
@@ -451,7 +459,7 @@ class Guardrail:
         if degrees_mode is None:
             degrees_mode = True
 
-        self._joint_names: list[str] = joint_names
+        self._joint_names: list[str] = list(joint_names)
         self._degrees_mode: bool = degrees_mode
         self._action_layout: list[dict[str, Any]] = _resolve_action_layout(config)
         self._solvers: dict[str, Any] = dict(solvers or {})
@@ -475,23 +483,20 @@ class Guardrail:
         self._safe_action_mode, self._safe_action_value = self._resolve_safe_action(safe_action)
 
         # Build runtime (no sources / policy / sink needed).
-        self._runtime = GuardRuntime.from_stackfile(stackfile)
+        self._runtime = GuardRuntime._from_config(config)
+        self._closed = False
         self._solvers = {**self._runtime._solvers, **self._solvers}
         self._runtime._solvers.update(self._solvers)
 
-        # Start the first task to activate guards and build the stage DAG.
-        if task is None:
-            task = next(iter(config.tasks))
         self._task = task
-        self._runtime.start_task(task)
-
-        # Self-describing contract: which observation keys the active callbacks
-        # require (declared parameters without defaults, minus reserved pool
-        # keys and per-node stackfile params).
-        self._required_obs = self._compute_contract(config, task)
-
-        # If stackfile has loopback:, start MCAP recording.
-        self._runtime.start_recording()
+        try:
+            self._required_obs = self._compute_contract(config, task)
+            self._runtime.start_task(task)
+            self._runtime.start_recording()
+        except Exception:
+            with contextlib.suppress(Exception):
+                self.close()
+            raise
 
         # State for velocity estimation between calls.
         self._prev_positions: np.ndarray | None = None
@@ -507,11 +512,15 @@ class Guardrail:
     def __call__(self, inputs: dict[str, Any]) -> Any:
         """Validate ``inputs["action"]`` against the observation groups in
         ``inputs``; return the safe command in the same form it arrived."""
+        if self._closed:
+            raise RuntimeError("Guardrail is closed; create a new instance for another session")
         if not isinstance(inputs, dict):
             raise TypeError(
                 "Guardrail expects a dict with an 'action' key plus observation "
                 f"groups, got {type(inputs).__name__}."
             )
+        if any(not isinstance(key, str) for key in inputs):
+            raise TypeError("Guardrail input keys must be strings")
         if "action" not in inputs:
             raise KeyError("Guardrail input is missing the required 'action' key.")
 
@@ -536,6 +545,8 @@ class Guardrail:
         action_is_tensor = not action_is_dict and hasattr(raw_action, "detach")
         tensor_device = raw_action.device if action_is_tensor else None
         tensor_dtype = raw_action.dtype if action_is_tensor else None
+        if action_is_tensor and not raw_action.is_floating_point():
+            raise TypeError("Action tensors must use a floating-point dtype")
         # lerobot dicts key the command as ``<joint>.pos``; bare ``<key>`` else.
         pos_style = action_is_dict and any(str(k).endswith(".pos") for k in raw_action)
 
@@ -553,8 +564,6 @@ class Guardrail:
 
         validated, results = self._runtime.validate(obs, action, trace_id, now=now)
         self._last_results = results
-        self._prev_positions = obs.joint_positions.copy()
-        self._prev_time = now
 
         if validated is not None:
             command = np.asarray(validated.target_joint_positions, dtype=np.float64).flatten()
@@ -567,7 +576,15 @@ class Guardrail:
         if action_is_tensor:
             import torch as _torch
 
-            return _torch.as_tensor(out, dtype=tensor_dtype, device=tensor_device)
+            out = _torch.as_tensor(out, dtype=tensor_dtype, device=tensor_device)
+            if not bool(_torch.isfinite(out).all()):
+                raise ValueError(
+                    "Validated command cannot be represented in the action tensor dtype"
+                )
+        elif isinstance(raw_action, list):
+            out = out.tolist()
+        self._prev_positions = obs.joint_positions.copy()
+        self._prev_time = now
         return out
 
     def describe(self, stackfile: str = "") -> str:
@@ -598,10 +615,11 @@ class Guardrail:
         """
         if ee_pose is None:
             self._last_ee_pose = None
-        elif hasattr(ee_pose, "detach"):
-            self._last_ee_pose = ee_pose.detach().cpu().numpy().flatten()[:7]
         else:
-            self._last_ee_pose = np.asarray(ee_pose, dtype=np.float64).flatten()[:7]
+            pose = _command_array(ee_pose).flatten()
+            if pose.size != 7 or not np.all(np.isfinite(pose)):
+                raise ValueError("ee_pose must contain 7 finite values [x, y, z, qx, qy, qz, qw]")
+            self._last_ee_pose = pose.copy()
 
     @property
     def required_obs_keys(self) -> set[str]:
@@ -611,7 +629,7 @@ class Guardrail:
     @property
     def last_results(self) -> list[GuardResult]:
         """Guard results from the most recent :meth:`__call__`."""
-        return self._last_results
+        return list(self._last_results)
 
     @property
     def action_layout(self) -> list[dict[str, Any]]:
@@ -629,13 +647,25 @@ class Guardrail:
         return self._runtime
 
     def close(self) -> None:
-        """Stop MCAP recording if active."""
-        self._runtime.stop_recording()
+        """Release recording, worker threads, and runtime resources; safe to repeat."""
+        if self._closed:
+            return
+        self._runtime.shutdown()
+        self._closed = True
+
+    def __enter__(self) -> Guardrail:
+        if self._closed:
+            raise RuntimeError("Cannot enter a closed Guardrail")
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
+        self.close()
 
     def __del__(self) -> None:
-        runtime = getattr(self, "_runtime", None)
-        if runtime is not None:
-            runtime.stop_recording()
+        # Explicit close/context management is preferred. Destruction must not
+        # emit unraisable exceptions for partially initialized instances.
+        with contextlib.suppress(Exception):
+            self.close()
 
     # -- internals ----------------------------------------------------------
 
@@ -652,7 +682,7 @@ class Guardrail:
             raise ValueError(
                 f"safe_action must be a vector, 'hold', or 'zero'; got {safe_action!r}"
             )
-        value = np.asarray(safe_action, dtype=np.float64).flatten()
+        value = _command_array(safe_action).flatten()
         if value.size != self._n_actions or not np.all(np.isfinite(value)):
             raise ValueError(f"safe_action must contain {self._n_actions} finite values")
         return "fixed", value.copy()
@@ -668,7 +698,14 @@ class Guardrail:
         registry = get_global_registry()
         required: set[str] = set()
         task_cfg = config.tasks.get(task)
-        boundary_names = list(task_cfg.boundaries) if task_cfg else list(config.boundaries)
+        boundary_names = list(
+            dict.fromkeys(
+                [
+                    *config.safety.always_active_list(),
+                    *(task_cfg.boundaries if task_cfg else config.boundaries),
+                ]
+            )
+        )
         for bname in boundary_names:
             container = config.boundaries.get(bname)
             if container is None:
@@ -679,8 +716,10 @@ class Guardrail:
                     continue
                 try:
                     fn = registry.get(cb_name)
-                except KeyError:
-                    continue
+                except KeyError as exc:
+                    raise ValueError(
+                        f"Boundary {bname!r} references unknown callback {cb_name!r}"
+                    ) from exc
                 node_params = set(node.params or {})
                 for p in inspect.signature(fn).parameters.values():
                     if p.kind in (p.VAR_POSITIONAL, p.VAR_KEYWORD):
@@ -707,11 +746,13 @@ class Guardrail:
             elif key.startswith("observation.images.") or key.startswith("images."):
                 images[key.rsplit(".", 1)[-1]] = value
             elif key == "joints":
-                joint_pos = np.asarray(value, dtype=np.float64).flatten()
+                joint_pos = _command_array(value).flatten()
             elif key == "ee_pose":
-                ee_pose = np.asarray(value, dtype=np.float64).flatten()[:7]
+                ee_pose = _command_array(value).flatten()
+                if ee_pose.size != 7 or not np.all(np.isfinite(ee_pose)):
+                    raise ValueError("ee_pose must contain 7 finite values")
             elif not key.endswith(".pos"):
-                channels[key] = np.asarray(value, dtype=np.float64).flatten()
+                channels[key] = _command_array(value).flatten()
 
         if joint_pos is None and any(k.endswith(".pos") for k in inputs):
             missing = [f"{n}.pos" for n in self._joint_names if f"{n}.pos" not in inputs]
@@ -784,14 +825,14 @@ class Guardrail:
                 count=self._n_actions,
             )
         else:
-            target = np.asarray(raw, dtype=np.float64).flatten()
+            target = _command_array(raw).flatten()
         if target.size != self._n_actions or not np.all(np.isfinite(target)):
             raise ValueError(f"action must contain {self._n_actions} finite values")
         if mappable and not self._command_space:
             target = target * self._scale_in[: target.shape[0]]
 
         metadata = {
-            "raw_action": dict(raw) if is_dict else np.asarray(raw).copy(),
+            "raw_action": dict(raw) if is_dict else _command_array(raw).copy(),
             "action_layout": [dict(item) for item in self._action_layout],
             "action_segments": self._split_action(target),
         }
@@ -837,6 +878,13 @@ class Guardrail:
         return np.zeros_like(positions)
 
 
+def _command_array(value: Any) -> np.ndarray:
+    """Copy tensors to CPU without retaining autograd; leave NumPy inputs cheap."""
+    if hasattr(value, "detach"):
+        value = value.detach().cpu().double().numpy()
+    return np.asarray(value, dtype=np.float64)
+
+
 def _segment_size(segment: dict[str, Any]) -> int | None:
     """Resolve one action_layout segment's width: ``keys`` length, an explicit
     ``size``, or a typed default (``ee_pose`` → 7, ``scalar`` → 1)."""
@@ -873,4 +921,5 @@ def guardrail(
         safe_action=safe_action,
         quiet=True,
     )
-    return rail(inputs)
+    with rail:
+        return rail(inputs)

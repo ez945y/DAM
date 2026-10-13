@@ -15,6 +15,7 @@ guard pipeline before it reaches the robot.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import sys
 import time
@@ -210,18 +211,14 @@ class GuardrailProcessorStep(_Base):  # type: ignore[valid-type,misc]
         return self._guard
 
     def action(self, action: dict[str, Any]) -> dict[str, Any]:
-        guard = self._ensure_guard()
-
         obs: dict[str, Any] | None = None
         if self._current_transition is not None:
             obs = self._current_transition.get("observation")
 
         if obs is None:
-            logger.warning(
-                "GuardrailProcessorStep: no observation in transition, "
-                "passing action through unguarded"
-            )
-            return action
+            raise ValueError("GuardrailProcessorStep requires an observation to validate actions")
+
+        guard = self._ensure_guard()
 
         # First cycle has no prior command to clamp against; echo the current
         # pose as the action so the guard establishes a baseline (hold).
@@ -262,15 +259,23 @@ class GuardrailProcessorStep(_Base):  # type: ignore[valid-type,misc]
             "hold_first_cycle": self._hold_first_cycle,
         }
 
+    def close(self) -> None:
+        """Close the current session; the next action lazily starts a new one."""
+        self.reset()
+
     def reset(self) -> None:
         self._print_summary()
+        if self._guard is not None:
+            self._guard.close()
         self._guard = None
         self._stats = _RecordingStats()
+        self._printer = _EdgePrinter()
         self._summary_printed = False
         self._has_guarded_cycle = False
 
     def __del__(self) -> None:
-        self._print_summary()
+        with contextlib.suppress(Exception):
+            self.close()
 
 
 def make_safe_processors(

@@ -500,13 +500,14 @@ class TestGuardrailProcessorStep:
         assert isinstance(result["action"], dict)
         assert step._guard is not None
 
-    def test_passthrough_without_obs(self, stackfile: str) -> None:
+    def test_missing_obs_fails_closed(self, stackfile: str) -> None:
         from dam.processor import GuardrailProcessorStep
 
         step = GuardrailProcessorStep(stackfile, joint_names=_JOINT_NAMES, degrees_mode=False)
         action = {f"{n}.pos": 0.5 for n in _JOINT_NAMES}
-        result = step(_transition(None, action))
-        assert result["action"] == action
+        with pytest.raises(ValueError, match="requires an observation"):
+            step(_transition(None, action))
+        assert step._guard is None
 
     def test_reset_clears_guard(self, stackfile: str) -> None:
         from dam.processor import GuardrailProcessorStep
@@ -835,3 +836,191 @@ def test_invalid_validated_output_is_not_returned(stackfile, monkeypatch, positi
         )
         with pytest.raises(ValueError, match="Validated command must contain"):
             guard({"action": np.zeros(6), "joints": np.zeros(6)})
+
+
+def test_context_manager_closes_runtime_even_on_exception(stackfile):
+    rail = Guardrail(stackfile, joint_names=_JOINT_NAMES, quiet=True)
+    with pytest.raises(RuntimeError, match="client failed"), rail:
+        raise RuntimeError("client failed")
+    assert rail.runtime._shutdown_complete
+    rail.close()
+    with pytest.raises(RuntimeError, match="closed"):
+        rail({"action": np.zeros(6), "joints": np.zeros(6)})
+
+
+def test_guardrail_loads_configuration_once(stackfile, monkeypatch):
+    from dam.config.loader import StackfileLoader
+
+    original = StackfileLoader.load
+    loads = []
+
+    def load(path):
+        loads.append(path)
+        return original(path)
+
+    monkeypatch.setattr(StackfileLoader, "load", load)
+    with Guardrail(stackfile, joint_names=_JOINT_NAMES, quiet=True):
+        assert len(loads) == 1
+
+
+def test_one_liner_closes_on_bad_input(stackfile, monkeypatch):
+    from dam.runtime.guard_runtime import GuardRuntime
+
+    original = GuardRuntime.shutdown
+    closed = []
+
+    def shutdown(runtime):
+        original(runtime)
+        closed.append(runtime)
+
+    monkeypatch.setattr(GuardRuntime, "shutdown", shutdown)
+    with pytest.raises(KeyError, match="action"):
+        guardrail({}, stackfile, joint_names=_JOINT_NAMES)
+    assert len(closed) == 1
+    assert closed[0]._shutdown_complete
+
+
+def test_constructor_start_failure_cleans_runtime(stackfile, monkeypatch):
+    from dam.runtime.guard_runtime import GuardRuntime
+
+    runtimes = []
+
+    def fail(runtime):
+        runtimes.append(runtime)
+        raise RuntimeError("recording failed")
+
+    monkeypatch.setattr(GuardRuntime, "start_recording", fail)
+    with pytest.raises(RuntimeError, match="recording failed"):
+        Guardrail(stackfile, joint_names=_JOINT_NAMES, quiet=True)
+    assert runtimes[0]._shutdown_complete
+
+
+def test_requires_grad_tensor_roundtrip(stackfile):
+    torch = pytest.importorskip("torch")
+    with Guardrail(stackfile, joint_names=_JOINT_NAMES, degrees_mode=False, quiet=True) as rail:
+        result = rail(
+            {
+                "action": torch.ones(6, requires_grad=True) * 0.1,
+                "joints": torch.zeros(6, requires_grad=True),
+            }
+        )
+        assert result.dtype == torch.float32
+        assert not result.requires_grad
+        torch.testing.assert_close(result, torch.full((6,), 0.1))
+
+
+@pytest.mark.parametrize("dtype_name", ["bfloat16", "float64"])
+def test_tensor_dtype_roundtrip(stackfile, dtype_name):
+    torch = pytest.importorskip("torch")
+    dtype = getattr(torch, dtype_name)
+    with Guardrail(stackfile, joint_names=_JOINT_NAMES, degrees_mode=False, quiet=True) as rail:
+        result = rail(
+            {"action": torch.zeros(6, dtype=dtype), "joints": torch.zeros(6, dtype=dtype)}
+        )
+        assert result.dtype == dtype
+
+
+def test_sdk_close_can_retry_after_worker_timeout(stackfile, monkeypatch):
+    rail = Guardrail(stackfile, joint_names=_JOINT_NAMES, quiet=True)
+    original = rail.runtime._stop_slow_lane
+
+    def fail():
+        raise TimeoutError("worker busy")
+
+    monkeypatch.setattr(rail.runtime, "_stop_slow_lane", fail)
+    with pytest.raises(TimeoutError):
+        rail.close()
+    assert not rail.runtime._shutdown_complete
+    monkeypatch.setattr(rail.runtime, "_stop_slow_lane", original)
+    rail.close()
+    assert rail.runtime._shutdown_complete
+
+
+def test_processor_reset_explicitly_closes_guard(stackfile):
+    from dam.processor import GuardrailProcessorStep
+
+    step = GuardrailProcessorStep(stackfile, joint_names=_JOINT_NAMES, quiet=True)
+    rail = step._ensure_guard()
+    step.reset()
+    assert rail.runtime._shutdown_complete
+    assert step._guard is None
+
+
+def test_ee_pose_is_validated_and_copied(stackfile):
+    with Guardrail(stackfile, joint_names=_JOINT_NAMES, quiet=True) as rail:
+        pose = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
+        rail.set_ee_pose(pose)
+        pose[:] = np.nan
+        assert np.all(np.isfinite(rail._last_ee_pose))
+        with pytest.raises(ValueError, match="7 finite"):
+            rail.set_ee_pose([1, 2])
+
+
+def test_installed_package_version_uses_distribution_name(monkeypatch):
+    monkeypatch.setattr(Path, "exists", lambda _: False)
+    names = []
+
+    def version(name):
+        names.append(name)
+        return "0.7.0"
+
+    monkeypatch.setattr(dam, "_package_version", version)
+    assert dam._resolve_version() == "0.7.0"
+    assert names == ["robot-dam"]
+
+
+def test_list_input_returns_list(stackfile):
+    with Guardrail(stackfile, joint_names=_JOINT_NAMES, quiet=True) as rail:
+        result = rail({"action": [0.0] * 6, "joints": [0.0] * 6})
+        assert isinstance(result, list)
+        assert len(result) == 6
+
+
+def test_integer_tensor_is_rejected_before_validation(stackfile):
+    torch = pytest.importorskip("torch")
+    with Guardrail(stackfile, joint_names=_JOINT_NAMES, quiet=True) as rail:
+        with pytest.raises(TypeError, match="floating-point"):
+            rail({"action": torch.zeros(6, dtype=torch.int64), "joints": np.zeros(6)})
+        assert rail._prev_time is None
+
+
+def test_task_error_is_actionable_before_runtime_construction(stackfile, monkeypatch):
+    from dam.runtime.guard_runtime import GuardRuntime
+
+    def fail(*args, **kwargs):
+        pytest.fail("runtime should not be built for an invalid task")
+
+    monkeypatch.setattr(GuardRuntime, "_from_config", fail)
+    with pytest.raises(ValueError, match="available tasks"):
+        Guardrail(stackfile, joint_names=_JOINT_NAMES, task="missing", quiet=True)
+
+
+def test_always_active_observations_are_in_sdk_contract(stackfile):
+    import yaml
+
+    from dam.registry.callback import get_global_registry
+
+    name = "_sdk_always_active_sensor"
+    registry = get_global_registry()
+    if name not in registry.list_all():
+
+        @dam.callback(name, layer="L1")
+        def check_sensor(*, extra_sensor):
+            return True
+
+    data = yaml.safe_load(Path(stackfile).read_text())
+    data["boundaries"]["always"] = {"layer": "L1", "type": "single", "nodes": [{"callback": name}]}
+    data["safety"]["always_active"] = ["always"]
+    Path(stackfile).write_text(yaml.safe_dump(data))
+    with Guardrail(stackfile, joint_names=_JOINT_NAMES, quiet=True) as rail:
+        assert "extra_sensor" in rail.required_obs_keys
+        with pytest.raises(KeyError, match="extra_sensor"):
+            rail({"action": np.zeros(6), "joints": np.zeros(6)})
+
+
+def test_input_error_does_not_break_next_cycle(stackfile):
+    with Guardrail(stackfile, joint_names=_JOINT_NAMES, quiet=True) as rail:
+        with pytest.raises(ValueError):
+            rail({"action": [0.0], "joints": np.zeros(6)})
+        result = rail({"action": np.zeros(6), "joints": np.zeros(6)})
+        np.testing.assert_allclose(result, np.zeros(6))

@@ -126,6 +126,26 @@ def forward_only(*, base_pose, action, solvers, dt=0.1):
 - The return value mirrors the `action` you passed (list/ndarray/tensor, or a
   `{key: value}` dict). Pass `quiet=True` to suppress the contract print.
 
+Use a context manager for a session so background workers and recording resources
+are released even if your control loop raises:
+
+```python
+with dam.Guardrail("jetbot.yaml", safe_action=[0.0, 0.0]) as rail:
+    safe_cmd = rail({"base_pose": [x, y, yaw], "action": [v, omega]})
+    results = rail.last_results
+```
+
+`close()` is idempotent. A closed instance cannot validate more actions; create a
+new instance for the next session. The one-shot `dam.guardrail()` helper closes
+its instance on success or failure. `GuardrailProcessorStep.reset()` and
+`close()` release the current session; the next action starts a new one lazily.
+A processor transition without an observation raises `ValueError`.
+
+Floating-point PyTorch inputs are detached and converted for validation; the
+returned action preserves the input tensor's dtype and device, without autograd
+history. Integer action tensors are rejected to prevent truncating corrections.
+`set_ee_pose()` requires exactly seven finite values and stores a copy.
+
 ### `dam.guardrail()` — one-liner
 
 ```python

@@ -1262,7 +1262,6 @@ class GuardRuntime:
         """
         if self._shutdown_complete:
             return
-        self._shutdown_complete = True
         self._running = False
         self._stop_slow_lane()
         if hasattr(self, "_engine") and self._engine is not None:
@@ -1303,6 +1302,8 @@ class GuardRuntime:
             except Exception as exc:
                 logger.debug("GuardRuntime: loopback shutdown failed: %s", exc)
 
+        self._shutdown_complete = True
+
     # ── Risk computation ────────────────────────────────────────────────────
 
     def _compute_risk(self) -> RiskLevel:
@@ -1314,7 +1315,7 @@ class GuardRuntime:
             return RiskLevel.ELEVATED
         return RiskLevel.NORMAL
 
-    # ── Class constructors ─────────────────────────────────────────────
+    # ── Class constructors ─────────────────────────────────────────────────
 
     @classmethod
     def from_stackfile(cls, path: str) -> GuardRuntime:
