@@ -159,6 +159,8 @@ Run `dam callbacks` to list them all:
 
 ## Documentation
 
+[Future features and stability roadmap](docs/roadmap.md) — priorities, acceptance criteria, and follow-up work.
+
 | Goal | Start here |
 |------|------------|
 | Learn DAM step by step | [Learn DAM](https://ez945y.github.io/DAM/learn/) |

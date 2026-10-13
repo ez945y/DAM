@@ -94,6 +94,7 @@ nav:
   - Contributing:
     - Guide: contributing.md
     - Documentation Workplan: documentation-workplan.md
+    - Roadmap: roadmap.md
 
 plugins:
   - search:
