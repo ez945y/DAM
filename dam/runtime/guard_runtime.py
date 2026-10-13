@@ -264,6 +264,8 @@ class GuardRuntime:
     def start_task(self, name: str) -> None:
         if name not in self._task_config:
             raise KeyError(f"Task '{name}' not found. Available: {list(self._task_config.keys())}")
+        # Join the old evaluator before mutating the task state it reads.
+        self._stop_slow_lane()
         self._active_task = name
         self._active_containers = []
         self._active_container_names = []
@@ -513,7 +515,7 @@ class GuardRuntime:
 
         verdict = self._slow_lane.latest_verdict()
         if verdict is not None:
-            age_ms = (now_m - verdict.produced_at) * 1000.0
+            age_ms = verdict.age_s(now_m) * 1000.0
             for r in verdict.results:
                 meta = {**r.metadata, "slow_lane": True, "verdict_age_ms": age_ms}
                 if r.decision == GuardDecision.CLAMP:
@@ -529,7 +531,9 @@ class GuardRuntime:
                 else:
                     extra.append(_dc.replace(r, metadata=meta))
 
-        age_s = self._slow_lane.verdict_age_s(now_m)
+        age_s = (
+            verdict.age_s(now_m) if verdict is not None else self._slow_lane.verdict_age_s(now_m)
+        )
         if age_s is not None and age_s * 1000.0 > float(cfg.max_staleness_ms):
             reason = (
                 f"slow-lane verdict stale: {age_s * 1000.0:.0f} ms "
@@ -544,13 +548,13 @@ class GuardRuntime:
         return extra or None
 
     def stop_task(self) -> None:
+        self._stop_slow_lane()
         self._active_task = None
         self._active_containers = []
         self._active_container_names = []
         self._node_start_times = {}
         self._slow_stages = None
         self._slow_active_names = []
-        self._stop_slow_lane()
         self._ctx_sm.reset_stack()
         self.stop_recording()
 

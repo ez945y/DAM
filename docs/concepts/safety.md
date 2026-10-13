@@ -132,6 +132,18 @@ If the Rust extension is not compiled, the same guard semantics run in Python
 with more timing variability. Validate latency on your hardware before relying
 on the Python path.
 
+### Asynchronous Guard Freshness
+
+Slow-lane freshness is measured from snapshot publication, including queue and
+evaluation time. A late PASS is not treated as fresh merely because its
+computation just finished. Evaluation exceptions and malformed results publish
+FAULT immediately instead of retaining an earlier PASS.
+
+Task switching waits for the previous evaluator to stop before changing task
+state. If stopping times out, the operation raises and retains the worker
+reference and current task state. Retry after the evaluator has exited; a new
+worker must not overlap the old one.
+
 ### Hot-Reload
 
 Hot-reload supports boundary node `params` updates at the start of the next

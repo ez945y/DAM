@@ -13,8 +13,9 @@ Design (single-writer principle):
   worker can never fall behind unboundedly and the control loop never blocks.
 - Staleness is the synchronisation contract: the verdict carries the wall
   (monotonic) time it was produced and the snapshot it was based on; the
-  control loop degrades per ``slow_lane.stale_action`` when the verdict is
-  older than ``max_staleness_ms``.  There is no other cross-thread state.
+  control loop degrades per ``slow_lane.stale_action`` when the snapshot
+  underlying the verdict is older than ``max_staleness_ms``, including queue
+  and evaluation latency.
 
 ``Observation`` is a frozen dataclass that copies its arrays on construction,
 so sharing a snapshot across threads needs no further synchronisation.
@@ -23,6 +24,7 @@ so sharing a snapshot across threads needs no further synchronisation.
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 from collections.abc import Callable
@@ -62,6 +64,12 @@ class SlowVerdict:
     basis_obs_timestamp: float = 0.0
     produced_at: float = 0.0  # time.monotonic()
     evaluation_ms: float = 0.0
+    basis_published_at: float | None = None
+
+    def age_s(self, now: float) -> float:
+        """Include queue and evaluation latency in the age of the evidence."""
+        basis = self.basis_published_at
+        return now - (self.produced_at if basis is None else min(basis, self.produced_at))
 
 
 class SlowLaneWorker:
@@ -79,7 +87,10 @@ class SlowLaneWorker:
         name: str = "dam-slow-lane",
     ) -> None:
         self._evaluate_fn = evaluate_fn
-        self._period_s = 1.0 / float(frequency_hz)
+        frequency = float(frequency_hz)
+        if not math.isfinite(frequency) or frequency <= 0:
+            raise ValueError("frequency_hz must be finite and positive")
+        self._period_s = 1.0 / frequency
         self._name = name
         # Latest-wins mailboxes. Plain attribute reassignment is atomic under
         # the GIL; readers take a local reference before dereferencing.
@@ -103,11 +114,11 @@ class SlowLaneWorker:
         return self._verdict
 
     def verdict_age_s(self, now: float) -> float | None:
-        """Seconds since the last verdict; falls back to time since start
-        (so a worker that never produced a verdict still goes stale)."""
+        """Age of the verdict's basis snapshot; falls back to time since start
+        so a worker that never produced a verdict still goes stale."""
         verdict = self._verdict
         if verdict is not None:
-            return now - verdict.produced_at
+            return verdict.age_s(now)
         if self._started_at is not None:
             return now - self._started_at
         return None
@@ -120,7 +131,15 @@ class SlowLaneWorker:
 
     def start(self) -> None:
         if self.running:
+            if self._stop.is_set():
+                raise RuntimeError("Slow-lane worker is still stopping")
             return
+        if self._thread is not None:
+            # A timed-out stop may finish after its caller returns. Do not
+            # replay that old task's mailbox when the worker is restarted.
+            self._snapshot = None
+        self._verdict = None
+        self._last_evaluated_cycle = -1
         self._stop.clear()
         self._started_at = time.monotonic()
         self._thread = threading.Thread(target=self._run, name=self._name, daemon=True)
@@ -131,7 +150,12 @@ class SlowLaneWorker:
         self._wakeup.set()
         if self._thread is not None:
             self._thread.join(timeout=timeout)
+            if self._thread.is_alive():
+                raise TimeoutError("Slow-lane worker did not stop before timeout")
             self._thread = None
+        self._snapshot = None
+        self._verdict = None
+        self._started_at = None
 
     # ── Worker loop ────────────────────────────────────────────────────────
 
@@ -149,12 +173,24 @@ class SlowLaneWorker:
 
             t0 = time.perf_counter()
             try:
-                results = self._evaluate_fn(snapshot)
-            except Exception:  # noqa: BLE001 — worker must never die silently mid-run
-                logger.exception("slow lane: evaluation failed; verdict not updated")
-                continue
+                from dam.types.result import GuardDecision, GuardResult
+
+                results = list(self._evaluate_fn(snapshot))
+                if any(
+                    not isinstance(r, GuardResult) or not isinstance(r.decision, GuardDecision)
+                    for r in results
+                ):
+                    raise TypeError("Slow-lane evaluator returned an invalid guard result")
+            except Exception as exc:  # noqa: BLE001 — failures must gate the next cycle
+                from dam.guard.layer import GuardLayer
+                from dam.types.result import GuardResult
+
+                logger.exception("slow lane: evaluation failed; publishing FAULT")
+                results = [GuardResult.fault(exc, "guard_code", "slow_lane_worker", GuardLayer.L0)]
             elapsed_ms = (time.perf_counter() - t0) * 1000.0
 
+            if self._stop.is_set():
+                return
             self._last_evaluated_cycle = snapshot.cycle_id
             self._verdict = SlowVerdict(
                 results=list(results),
@@ -162,6 +198,7 @@ class SlowLaneWorker:
                 basis_obs_timestamp=snapshot.obs.timestamp,
                 produced_at=time.monotonic(),
                 evaluation_ms=elapsed_ms,
+                basis_published_at=snapshot.published_at,
             )
             if elapsed_ms > self._period_s * 1000.0:
                 logger.warning(

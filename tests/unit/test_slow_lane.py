@@ -116,10 +116,11 @@ class TestSlowLaneWorker:
         try:
             worker.submit(_snapshot(cycle_id=1))
             assert _wait_until(lambda: 1 in calls)
-            assert worker.latest_verdict() is None  # failed run publishes nothing
-            worker.submit(_snapshot(cycle_id=2))
             assert _wait_until(lambda: worker.latest_verdict() is not None)
-            assert worker.latest_verdict().basis_cycle_id == 2
+            assert worker.latest_verdict().results[0].decision == GuardDecision.FAULT
+            worker.submit(_snapshot(cycle_id=2))
+            assert _wait_until(lambda: worker.latest_verdict().basis_cycle_id == 2)
+            assert worker.latest_verdict().results[0].decision == GuardDecision.PASS
         finally:
             worker.stop()
 
@@ -454,3 +455,110 @@ class TestTelemetryDecimation:
         obs = adapter.read()
         assert obs.metadata.get("telemetry_timestamp") is not None
         assert "hardware_status" in obs.metadata
+
+
+@pytest.mark.parametrize("frequency", [0, -1, float("nan"), float("inf")])
+def test_worker_rejects_invalid_frequency(frequency):
+    with pytest.raises(ValueError, match="finite and positive"):
+        SlowLaneWorker(lambda _: [], frequency_hz=frequency)
+
+
+def test_just_completed_verdict_on_old_snapshot_is_stale():
+    from dataclasses import replace
+
+    worker = SlowLaneWorker(
+        lambda _: [GuardResult.pass_result("ood", GuardLayer.L0)], frequency_hz=200
+    )
+    worker.submit(replace(_snapshot(), published_at=time.monotonic() - 10))
+    worker.start()
+    try:
+        assert _wait_until(lambda: worker.latest_verdict() is not None)
+        assert worker.verdict_age_s(time.monotonic()) >= 10
+        runtime = _gated_runtime(SlowLaneConfig(max_staleness_ms=100), worker)
+        results = runtime._slow_lane_extra_results(time.monotonic())
+        assert results[-1].guard_name == "slow_lane_watchdog"
+        assert results[-1].decision == GuardDecision.REJECT
+    finally:
+        worker.stop()
+
+
+@pytest.mark.parametrize("bad_result", [None, ["PASS"]])
+def test_malformed_evaluator_result_publishes_fault(bad_result):
+    worker = SlowLaneWorker(lambda _: bad_result, frequency_hz=200)
+    worker.start()
+    try:
+        worker.submit(_snapshot())
+        assert _wait_until(lambda: worker.latest_verdict() is not None)
+        assert worker.latest_verdict().results[0].decision == GuardDecision.FAULT
+        assert worker.running
+    finally:
+        worker.stop()
+
+
+def test_worker_stop_timeout_keeps_thread_and_prevents_overlapping_restart():
+    import threading
+
+    entered = threading.Event()
+    release = threading.Event()
+
+    def evaluate(snapshot):
+        entered.set()
+        assert release.wait(2)
+        return [GuardResult.pass_result("ood", GuardLayer.L0)]
+
+    worker = SlowLaneWorker(evaluate, frequency_hz=200)
+    worker.start()
+    try:
+        worker.submit(_snapshot())
+        assert entered.wait(1)
+        with pytest.raises(TimeoutError):
+            worker.stop(timeout=0)
+        assert worker.running
+        with pytest.raises(RuntimeError, match="still stopping"):
+            worker.start()
+        release.set()
+        assert _wait_until(lambda: not worker.running)
+        assert worker.latest_verdict() is None  # stopped evaluation must not publish
+    finally:
+        release.set()
+        worker.stop()
+
+
+def test_worker_restart_resets_verdict_and_cycle_identity():
+    worker = SlowLaneWorker(
+        lambda _: [GuardResult.pass_result("ood", GuardLayer.L0)], frequency_hz=200
+    )
+    worker.start()
+    worker.submit(_snapshot(1))
+    assert _wait_until(lambda: worker.latest_verdict() is not None)
+    worker.stop()
+    worker.start()
+    try:
+        assert worker.latest_verdict() is None
+        worker.submit(_snapshot(1))
+        assert _wait_until(lambda: worker.latest_verdict() is not None)
+        assert worker.latest_verdict().basis_cycle_id == 1
+    finally:
+        worker.stop()
+
+
+@pytest.mark.parametrize("operation", ["start", "stop"])
+def test_task_state_is_unchanged_when_old_worker_cannot_stop(operation):
+    runtime = _bare_runtime()
+    runtime._task_config = {"old": [], "new": []}
+    runtime._active_task = "old"
+    original_containers = runtime._active_containers
+
+    def fail_stop():
+        raise TimeoutError("still evaluating")
+
+    worker = SimpleNamespace(stop=fail_stop)
+    runtime._slow_lane = worker
+    with pytest.raises(TimeoutError):
+        if operation == "start":
+            runtime.start_task("new")
+        else:
+            runtime.stop_task()
+    assert runtime._active_task == "old"
+    assert runtime._active_containers is original_containers
+    assert runtime._slow_lane is worker
