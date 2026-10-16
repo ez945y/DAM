@@ -304,11 +304,14 @@ def aggregate(
     guard_layer: GuardLayer,
     action_in: ValidatedAction | None = None,
     clamp_aggregator: ClampAggregator = sequential_clamp_aggregator,
+    include_pass_constraints: bool = False,
 ) -> GuardResult:
     """Collapse per-boundary results into one GuardResult.
 
     Priority: FAULT > REJECT > CLAMP > PASS.  Reasons are concatenated when
     multiple results share the same winning decision.
+    ``include_pass_constraints`` is used by MotionGuard: its fusion strategy
+    receives every successful constraint and must retain PASS constraints.
     """
     faults = [r for r in results if r.decision == GuardDecision.FAULT]
     if faults:
@@ -346,10 +349,32 @@ def aggregate(
                     raise ValueError("CLAMP callback returned no valid action")
                 payload.validate_payload(shape)
                 shape = payload.target_joint_positions.shape
-            fused = clamp_aggregator(clamps, action_in)
+            fused = clamp_aggregator(results if include_pass_constraints else clamps, action_in)
             if not isinstance(fused, ValidatedAction):
                 raise ValueError("Clamp aggregator returned no valid action")
             fused.validate_payload(shape)
+            if include_pass_constraints:
+                from dam.guard.aggregators.motion_qp import METADATA_KEY, _coerce, validate_term
+
+                # Custom fusion strategies have the same final contract as
+                # the default QP. Never silently discard a passing constraint.
+                for contribution in results:
+                    if METADATA_KEY in contribution.metadata:
+                        validate_term(
+                            _coerce(contribution.metadata[METADATA_KEY]),
+                            fused.target_joint_positions,
+                        )
+                    elif contribution.decision == GuardDecision.PASS:
+                        raise ValueError(
+                            "Motion PASS needs constraint metadata when fusing a correction"
+                        )
+                    elif contribution.clamped_action is not None and (
+                        not np.array_equal(
+                            contribution.clamped_action.target_joint_positions,
+                            fused.target_joint_positions,
+                        )
+                    ):
+                        raise ValueError("Cannot verify fusion of an opaque motion CLAMP")
         except Exception as exc:
             metadata = _merge_metadata(clamps, all_results=results)
             # Fusion failed for the whole group. Callback-level CLAMP entries
@@ -424,6 +449,7 @@ def run_and_aggregate(
     guard_layer: GuardLayer,
     action_in: ValidatedAction | None = None,
     clamp_aggregator: ClampAggregator = sequential_clamp_aggregator,
+    include_pass_constraints: bool = False,
 ) -> tuple[list[CallbackResult], GuardResult]:
     """Run callbacks and immediately aggregate. Returns both for diagnostics."""
     results = run_callbacks(
@@ -437,6 +463,7 @@ def run_and_aggregate(
         guard_layer=guard_layer,
         action_in=action_in,
         clamp_aggregator=clamp_aggregator,
+        include_pass_constraints=include_pass_constraints,
     )
     return results, final
 

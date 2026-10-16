@@ -77,9 +77,20 @@ class TestReplayThroughGuards:
         assert rc == 1
         assert "no such file" in capsys.readouterr().err
 
-    def test_detects_divergence(self, tmp_path, capsys):
+    def test_detects_divergence(self, tmp_path, capsys, monkeypatch):
+        from dam.boundary.callbacks import hardware
+
+        # Replay comparison should not depend on live CPU load or a cached
+        # host-health sample left by another test.
+        monkeypatch.setattr(
+            hardware,
+            "collect_host_health",
+            lambda **kw: {"cpu_percent": 0.0, "memory_percent": 0.0},
+        )
         # cycle 0: in-limits, recorded PASS  -> replay PASS  (match)
-        # cycle 1: way out of joint limits, recorded PASS -> replay CLAMP (divergence)
+        # cycle 1: outside joint limits with synthetic observation at that same
+        # position. Position and velocity boxes conflict -> FAULT, reported
+        # as REJECT by the CLI's comparison categories (divergence).
         p = tmp_path / "s.mcap"
         _write_session(
             p,
@@ -92,8 +103,8 @@ class TestReplayThroughGuards:
         out = capsys.readouterr().out
         assert rc == 0
         assert "cycles compared : 2" in out
-        assert "divergences     : 1" in out
-        assert "PASS" in out and "CLAMP" in out
+        assert "divergences     : 1" in out, out
+        assert "PASS" in out and "REJECT" in out
         assert "reconstructed  :" in out
         assert "comparable     :" in out
         assert "degraded       :" in out

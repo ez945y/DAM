@@ -62,10 +62,35 @@ split back into per-boundary records. Custom callbacks must return `bool`,
 `(bool, reason)`, `CallbackResult`, or `GuardResult`; arbitrary truthy values
 are not accepted as passes.
 
-When multiple motion callbacks clamp an action, each must supply QP constraint
-metadata so fusion can account for every constraint. A single custom clamp
-can omit QP metadata. Generic cross-guard merging faults on incompatible command
-shapes, different proposal baselines, or corrections in opposite directions.
+When motion callbacks require a correction, the fusion input includes constraints
+from both PASS and CLAMP callbacks. Every participating callback must supply
+`motion_qp` metadata; a single standalone custom CLAMP can omit it. Missing
+constraint metadata during fusion produces FAULT. Built-in callbacks retain
+their box, linear, and EE-speed norm models even when the original command passes.
+
+The enforced fusion solver uses hard constraints. Infeasible limits, failed
+solves, malformed matrices, and a returned candidate outside any constraint
+produce FAULT instead of an executable compromise. `slack_weight` remains
+accepted for compatibility but no longer permits relaxed enforcement. The legacy
+standalone soft solver remains available for experiments.
+
+Candidate checks are pure evaluations of saved constraint data: callbacks are
+not invoked a second time. Position and normalized linear residuals allow an
+absolute `1e-7` tolerance; EE-speed norm residuals use `1e-7` in speed units.
+Linear rows are normalized by their largest absolute coefficient. Stage outputs
+feed subsequent stages, and the final merged command is checked again against
+the current motion constraints. Opaque L1/L2 results are bound to the exact
+position, velocity, and gripper command they accepted; a later unverified
+modification faults. Generic merging also faults on incompatible shapes,
+different proposal baselines, or opposing corrections.
+
+These checks establish consistency with the declared models, not exact nonlinear
+robot behavior. Workspace, keep-out, and orientation checks remain locally
+linearized. The EE-speed norm check can conservatively reject a candidate when
+the tangent QP fails to find a norm-feasible correction. Existing callbacks that
+skip a check due to missing model data contribute an empty constraint; that
+does not certify the skipped physical condition. Cached asynchronous PASS still
+describes its earlier snapshot, as documented below.
 
 ### Defense-in-Depth
 

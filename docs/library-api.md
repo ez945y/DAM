@@ -208,6 +208,29 @@ wait up to the worker stop timeout (currently two seconds) and raises
 `TimeoutError` if it is still running. A session can retry close after the
 callback exits; a one-shot call propagates that cleanup error.
 
+### Motion constraint fusion
+
+Motion corrections now preserve constraints that originally returned PASS.
+Every active L1 callback participating in a correction must supply
+`metadata["motion_qp"]` as a `QPTerm` (or equivalent mapping), on both PASS and
+CLAMP. A single standalone custom CLAMP can still omit the metadata. Opaque
+callbacks without a model cannot be combined with another motion correction;
+that case produces FAULT rather than rerunning a stateful callback.
+
+The enforced QP uses hard bounds and linear inequalities. An infeasible system,
+solver failure, malformed constraint, or candidate violating the saved models
+produces FAULT and selects the existing ENFORCE fallback. `slack_weight` is
+accepted for compatibility, but does not relax the enforced constraints.
+Custom `MotionGuard` fusion functions receive PASS and CLAMP results and must
+meet the same final constraint checks.
+
+Stages now pass their corrected candidate to the next stage. Before enforcement,
+the final command is checked again against the current motion models. Opaque
+L1/L2 checks accept only the exact command they checked; an unverified later
+change faults. Constraint checks do not call callbacks again. See the
+[safety model](concepts/safety.md) for numerical tolerance, linearization limits,
+and the meaning of checks skipped because model data is unavailable.
+
 ### Action segments & solvers
 
 When the action is a structured command (an EE pose, a base twist), declare its

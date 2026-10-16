@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any, cast
 import numpy as np
 
 from dam.guard.aggregator import aggregate_decisions
+from dam.guard.aggregators.motion_qp import bind_motion_evidence, validate_motion_evidence
 from dam.guard.pipeline import PER_BOUNDARY_KEY
 from dam.types.action import ValidatedAction
 from dam.types.enforcement import EnforcementMode
@@ -336,6 +337,24 @@ class ExecutionEngine:
                 all_results = [*all_results, *additional]
                 aggregated = aggregate_decisions(all_results)
 
+        if aggregated.decision in (GuardDecision.PASS, GuardDecision.CLAMP):
+            try:
+                final_candidate = (
+                    aggregated.clamped_action
+                    if aggregated.decision == GuardDecision.CLAMP
+                    else self._make_validated_action(action)
+                )
+                if final_candidate is None:
+                    raise ValueError("CLAMP produced no action")
+                if aggregated.decision == GuardDecision.CLAMP:
+                    final_candidate.validate_payload(action.target_joint_positions.shape)
+                validate_motion_evidence(all_results, final_candidate)
+            except Exception as exc:
+                aggregated = GuardResult.fault(
+                    exc, "guard_code", "final_constraints", aggregated.layer
+                )
+                all_results = [*all_results, aggregated]
+
         if aggregated.decision in (GuardDecision.REJECT, GuardDecision.FAULT):
             return self._handle_violation(action, all_results, aggregated, ctx)
 
@@ -540,6 +559,7 @@ class ExecutionEngine:
                         kwargs.update(node.constraint.params)
 
                 result = g.check(**_filter_kwargs(g.check, kwargs))
+                result = bind_motion_evidence(result, runtime_pool.get("action"))
                 _latency_ms = result.metadata.get("_latency_ms", 0.0)
                 self._metric_bus.push_guard(g.get_name(), g.get_layer().value, _latency_ms)
             except Exception as e:
@@ -602,6 +622,7 @@ class ExecutionEngine:
                 stage_results = self._run_stage_parallel(stage, runtime_pool, timeout_s)
             else:
                 stage_results = self._run_stage_sequential(stage, runtime_pool, timeout_s)
+            self._accumulate_phase_clamps(stage_results, runtime_pool)
             all_results.extend(stage_results)
         return all_results
 
@@ -635,6 +656,7 @@ class ExecutionEngine:
         result_name = boundary_name if boundary_name is not None else g.get_name()
 
         result = cast(GuardResult, g.check(**_filter_kwargs(g.check, kwargs)))
+        result = bind_motion_evidence(result, runtime_pool.get("action"))
 
         _latency_ms = result.metadata.get("_latency_ms", 0.0)
         self._metric_bus.push_guard(result_name, g.get_layer().value, _latency_ms)

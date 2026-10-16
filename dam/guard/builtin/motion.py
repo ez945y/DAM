@@ -68,5 +68,6 @@ class MotionGuard(Guard):
             guard_layer=self.get_layer(),
             action_in=None,
             clamp_aggregator=self._clamp_aggregator,
+            include_pass_constraints=True,
         )
         return final

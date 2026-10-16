@@ -1,8 +1,7 @@
 """L1 — Joint-space kinematics boundary callbacks.
 
 Physical invariants enforced every cycle via CLAMP, independent of task
-state.  All L1 callbacks produce ``CallbackResult.clamp(...)`` with QP
-constraint metadata; the QP aggregator fuses them into a single
+state. L1 callbacks retain QP constraint metadata on PASS and CLAMP; the QP aggregator fuses them into a single
 least-perturbing safe action.
 
 Callbacks:
@@ -69,7 +68,15 @@ def _halt_clamp(
         original_proposal=action,
         timestamp=action.timestamp,
     )
-    return CallbackResult.clamp(bname, halt, reason=reason, metadata=metadata or {})
+    return CallbackResult.clamp(
+        bname,
+        halt,
+        reason=reason,
+        metadata={
+            **(metadata or {}),
+            "motion_qp": QPTerm(upper=q.copy(), lower=q.copy()),
+        },
+    )
 
 
 def _cbf_clamp(
@@ -157,7 +164,7 @@ def _check_dim(n_joints: int, n_param: int, *, callback: str, param: str) -> Non
     description="Clamps the action's joint velocities to ±max_velocities (motor safety ceiling).",
     params={
         "max_velocities": "Per-joint max velocity. Radians/sec by default unless use_degrees is true.",
-        "slack_weight": "QP soft-constraint penalty. Higher values make violating this limit more expensive.",
+        "slack_weight": "Legacy tuning value; enforced motion constraints are hard and are never relaxed.",
         "use_degrees": "UI/loader hint: interpret max_velocities as deg/s. Normalised to rad/s once at load — runtime never sees this flag.",
     },
     unit_params=("max_velocities",),
@@ -181,7 +188,9 @@ def joint_velocity_limit(
     """
     bname = "joint_velocity_limit"
     if obs.joint_positions is None:
-        return CallbackResult.ok(bname, "no joint state to act on")
+        return CallbackResult.ok(
+            bname, "no joint state to act on", metadata={"motion_qp": QPTerm()}
+        )
 
     target_pos = np.asarray(action.target_joint_positions, dtype=np.float64)
     cur_pos = np.asarray(obs.joint_positions, dtype=np.float64)
@@ -209,6 +218,12 @@ def joint_velocity_limit(
     if v_max_1d.shape[0] == 1:
         v_max_1d = np.full(n, v_max_1d[0])
     v_max_1d = v_max_1d[:n]
+    span = v_max_1d * dt_safe
+    qp_meta = QPTerm(
+        upper=cur_pos[:n] + span,
+        lower=cur_pos[:n] - span,
+        slack_weight=float(slack_weight),
+    )
 
     # ── Velocity clamp (per-joint) ────────────────────────────────────────
     ratio = np.abs(velocities) / (np.abs(v_max_1d) + 1e-12)
@@ -216,6 +231,7 @@ def joint_velocity_limit(
     vel_clamped = max_ratio > 1.0
     if not vel_clamped:
         meta: dict[str, Any] = {
+            "motion_qp": qp_meta,
             "max_velocity": v_max_1d.tolist(),
             "current_velocity": velocities.tolist(),
             "scale_ratio": max_ratio,
@@ -241,12 +257,6 @@ def joint_velocity_limit(
         original_proposal=action,
         timestamp=action.timestamp,
     )
-    span = v_max_1d * dt_safe
-    qp_meta = QPTerm(
-        upper=cur_pos[:n] + span,
-        lower=cur_pos[:n] - span,
-        slack_weight=float(slack_weight),
-    )
     return CallbackResult.clamp(
         bname,
         clamped_action,
@@ -262,7 +272,7 @@ def joint_velocity_limit(
     description="Clamps the action's joint accelerations to ±max_acceleration (smoothing / jitter suppression).",
     params={
         "max_acceleration": "Per-joint max acceleration in rad/s².",
-        "slack_weight": "QP soft-constraint penalty. Higher values make violating this limit more expensive.",
+        "slack_weight": "Legacy tuning value; enforced motion constraints are hard and are never relaxed.",
         "use_degrees": "UI/loader hint: interpret max_acceleration as deg/s². Normalised to rad/s² once at load.",
     },
     unit_params=("max_acceleration",),
@@ -288,7 +298,9 @@ def joint_acceleration_limit(
     """
     bname = boundary_name
     if obs.joint_positions is None:
-        return CallbackResult.ok(bname, "no joint state to act on")
+        return CallbackResult.ok(
+            bname, "no joint state to act on", metadata={"motion_qp": QPTerm()}
+        )
 
     target_pos = np.asarray(action.target_joint_positions, dtype=np.float64)
     cur_pos = np.asarray(obs.joint_positions, dtype=np.float64)
@@ -358,6 +370,7 @@ def joint_acceleration_limit(
         return CallbackResult.ok(
             bname,
             metadata={
+                "motion_qp": QPTerm(),  # no active acceleration constraint without history
                 "max_acceleration": a_max.tolist(),
                 "current_velocity": velocities.tolist(),
                 "acceleration_basis": basis,
@@ -365,6 +378,13 @@ def joint_acceleration_limit(
             },
         )
 
+    v_lo = prev_v - a_max * dt_safe
+    v_hi = prev_v + a_max * dt_safe
+    qp_meta = QPTerm(
+        upper=anchor + np.maximum(v_lo, v_hi) * dt_safe,
+        lower=anchor + np.minimum(v_lo, v_hi) * dt_safe,
+        slack_weight=float(slack_weight),
+    )
     accel = (velocities - prev_v) / dt_safe
     over_accel = np.abs(accel) > a_max
     if not np.any(over_accel):
@@ -373,6 +393,7 @@ def joint_acceleration_limit(
         return CallbackResult.ok(
             bname,
             metadata={
+                "motion_qp": qp_meta,
                 "max_acceleration": a_max.tolist(),
                 "current_acceleration": accel.tolist(),
                 "current_velocity": velocities.tolist(),
@@ -408,18 +429,6 @@ def joint_acceleration_limit(
         original_proposal=action,
         timestamp=action.timestamp,
     )
-    # QPTerm: the acceleration limit constrains velocity to [prev_v - a_max*dt, prev_v + a_max*dt],
-    # which translates to a position box of [anchor + v_lo*dt, anchor + v_hi*dt]
-    # around the previous command (command domain).
-    v_lo = prev_v - a_max * dt_safe
-    v_hi = prev_v + a_max * dt_safe
-    span_lo = v_lo * dt_safe
-    span_hi = v_hi * dt_safe
-    qp_meta = QPTerm(
-        upper=anchor + np.maximum(span_lo, span_hi),
-        lower=anchor + np.minimum(span_lo, span_hi),
-        slack_weight=float(slack_weight),
-    )
     return CallbackResult.clamp(
         bname,
         clamped_action,
@@ -448,7 +457,7 @@ def joint_acceleration_limit(
     params={
         "upper": "Per-joint upper position limits. Radians by default unless use_degrees is true.",
         "lower": "Per-joint lower position limits. Radians by default unless use_degrees is true.",
-        "slack_weight": "QP soft-constraint penalty. Higher values make violating this limit more expensive.",
+        "slack_weight": "Legacy tuning value; enforced motion constraints are hard and are never relaxed.",
         "use_degrees": "UI/loader hint: interpret upper/lower as degrees. Normalised to radians once at load — runtime never sees this flag.",
     },
     unit_params=("upper", "lower"),
@@ -485,16 +494,18 @@ def joint_position_limits(
         _check_dim(n_joints, up.shape[0], callback=bname, param="upper")
 
     n = min(n_joints, lo.shape[0], up.shape[0])
+    qp_meta = QPTerm(upper=up[:n].copy(), lower=lo[:n].copy(), slack_weight=float(slack_weight))
     clipped = target.copy()
     clipped[:n] = np.clip(target[:n], lo[:n], up[:n])
 
     if np.array_equal(clipped, target):
         # PASS-path telemetry: surface the configured box + the target so
         # the cycle inspector shows headroom (how close target is to the
-        # box edges) without polluting the QP metadata namespace.
+        # box edges). Keep the constraint available for other corrections.
         return CallbackResult.ok(
             bname,
             metadata={
+                "motion_qp": qp_meta,
                 "upper": up[:n].tolist(),
                 "lower": lo[:n].tolist(),
                 "target": target[:n].tolist(),
@@ -514,9 +525,6 @@ def joint_position_limits(
         original_proposal=action,
         timestamp=action.timestamp,
     )
-    # Advertise the joint-position box for an optional QP aggregator (limits in
-    # radians, already unit-normalised above).
-    qp_meta = QPTerm(upper=up[:n].copy(), lower=lo[:n].copy(), slack_weight=float(slack_weight))
     return CallbackResult.clamp(
         bname,
         clamped,
@@ -532,7 +540,7 @@ def joint_position_limits(
     description="Clamps the end-effector linear velocity magnitude to max_ee_velocity (m/s). Protects environment/humans.",
     params={
         "max_ee_velocity": "Maximum EE linear speed in m/s.",
-        "slack_weight": "QP soft-constraint penalty. Higher values make violating this limit more expensive.",
+        "slack_weight": "Legacy tuning value; enforced motion constraints are hard and are never relaxed.",
     },
     internal_params=("slack_weight",),
 )
@@ -566,7 +574,7 @@ def ee_velocity_limit(
     """
     bname = "ee_velocity_limit"
     if obs.joint_positions is None:
-        return CallbackResult.ok(bname, "no joint state")
+        return CallbackResult.ok(bname, "no joint state", metadata={"motion_qp": QPTerm()})
 
     cur_pos = np.asarray(obs.joint_positions, dtype=np.float64)
     target_pos = np.asarray(action.target_joint_positions, dtype=np.float64)
@@ -576,7 +584,9 @@ def ee_velocity_limit(
     dt_safe = max(float(dt), 1e-6)
 
     if J_linear is None:
-        return CallbackResult.ok(bname, "no Jacobian; skip EE velocity check")
+        return CallbackResult.ok(
+            bname, "no Jacobian; skip EE velocity check", metadata={"motion_qp": QPTerm()}
+        )
 
     # ── Derive joint velocity ─────────────────────────────────────────────
     if action.target_joint_velocities is not None:
@@ -601,8 +611,24 @@ def ee_velocity_limit(
     v_ee = J_linear @ v_joint_model
     ee_speed = float(np.linalg.norm(v_ee))
     max_v = float(max_ee_velocity)
+    # The tangent half-space alone cannot constrain a coupled correction in a
+    # different direction. Keep the full norm model for pure final validation.
+    velocity_matrix = np.zeros((J_linear.shape[0], len(target_pos)))
+    velocity_matrix[:, jac_cols] = J_linear[:, : len(jac_cols)] / dt_safe
+    d = v_ee / (ee_speed + 1e-12)
+    A_row = d.reshape(1, -1) @ velocity_matrix
+    b_val = np.array([max_v + float(A_row[0, :n] @ cur_pos[:n])])
+    qp_meta = QPTerm(
+        A=A_row,
+        b=b_val,
+        slack_weight=float(slack_weight),
+        norm_A=velocity_matrix,
+        norm_b=velocity_matrix[:, :n] @ cur_pos[:n],
+        norm_limit=max_v,
+    )
 
     meta: dict[str, Any] = {
+        "motion_qp": qp_meta,
         "ee_velocity": v_ee.tolist(),
         "ee_speed": ee_speed,
         "max_ee_velocity": max_v,
@@ -638,12 +664,6 @@ def ee_velocity_limit(
     # 5 arm joints in the URDF + a gripper motor), so scatter the row into
     # observation width via the column map — unmodelled joints (gripper)
     # get a zero coefficient.
-    d = v_ee / (ee_speed + 1e-12)
-    dJ = (d @ J_linear) / dt_safe  # (n_jac,) row
-    A_row = np.zeros((1, n), dtype=np.float64)
-    A_row[0, jac_cols] = dJ[: len(jac_cols)]
-    b_val = np.array([max_v / dt_safe + float(A_row[0] @ cur_pos[:n])])
-    qp_meta = QPTerm(A=A_row, b=b_val, slack_weight=float(slack_weight))
     meta["motion_qp"] = qp_meta
     meta["_units"] = {**meta.get("_units", {}), **motion_qp_units(qp_meta)}
     return CallbackResult.clamp(bname, clamped_action, reason=reason, metadata=meta)
@@ -657,7 +677,7 @@ def ee_velocity_limit(
     params={
         "bounds": "Axis-aligned allowed EE box: [[xmin,xmax],[ymin,ymax],[zmin,zmax]] in metres.",
         "cbf_alpha": "CBF decay rate (0,∞). Higher → brake later, lower → brake earlier. Default 1.0.",
-        "slack_weight": "QP soft-constraint penalty. Higher values make violating this limit more expensive.",
+        "slack_weight": "Legacy tuning value; enforced motion constraints are hard and are never relaxed.",
     },
     internal_params=("slack_weight",),
 )
@@ -693,7 +713,10 @@ def workspace(
         return CallbackResult.ok(
             bname,
             "EE pose unavailable; skip workspace check",
-            metadata={"bounds": np.asarray(bounds, dtype=np.float64).tolist()},
+            metadata={
+                "motion_qp": QPTerm(),
+                "bounds": np.asarray(bounds, dtype=np.float64).tolist(),
+            },
         )
 
     b = np.asarray(bounds, dtype=np.float64)
@@ -706,7 +729,7 @@ def workspace(
         if inside:
             return CallbackResult.ok(
                 bname,
-                metadata={"bounds": b.tolist(), "ee_pos": ee_pos.tolist()},
+                metadata={"motion_qp": QPTerm(), "bounds": b.tolist(), "ee_pos": ee_pos.tolist()},
             )
         return _halt_clamp(
             bname,
@@ -734,6 +757,7 @@ def workspace(
         return CallbackResult.ok(
             bname,
             metadata={
+                "motion_qp": QPTerm(A=cbf_A, b=cbf_b, slack_weight=float(slack_weight)),
                 "bounds": b.tolist(),
                 "ee_pos": ee_pos.tolist(),
                 "cbf_margin_min": float(np.min(margin)),
@@ -771,7 +795,7 @@ def workspace(
     params={
         "spheres": "Keep-out spheres as [[cx,cy,cz,radius], ...] in metres.",
         "cbf_alpha": "CBF decay rate (0,∞). Higher → repel later, lower → repel earlier. Default 1.0.",
-        "slack_weight": "QP soft-constraint penalty.",
+        "slack_weight": "Legacy tuning value; enforced motion constraints are hard.",
     },
     internal_params=("slack_weight",),
 )
@@ -798,12 +822,16 @@ def keep_out_zone(
     """
     bname = "keep_out_zone"
     if not spheres:
-        return CallbackResult.ok(bname, "no keep-out zones configured")
+        return CallbackResult.ok(
+            bname, "no keep-out zones configured", metadata={"motion_qp": QPTerm()}
+        )
 
     if ee_pos is None:
         ee_pos = _resolve_ee_translation(obs, solvers=solvers, dynamics=dynamics)
     if ee_pos is None or obs.joint_positions is None:
-        return CallbackResult.ok(bname, "EE pose unavailable; skip keep-out check")
+        return CallbackResult.ok(
+            bname, "EE pose unavailable; skip keep-out check", metadata={"motion_qp": QPTerm()}
+        )
 
     q = np.asarray(obs.joint_positions, dtype=np.float64)
     target = np.asarray(action.target_joint_positions, dtype=np.float64)
@@ -821,7 +849,11 @@ def keep_out_zone(
         if violated_sphere is None:
             return CallbackResult.ok(
                 bname,
-                metadata={"ee_pos": ee_pos.tolist(), "n_spheres": len(spheres)},
+                metadata={
+                    "motion_qp": QPTerm(),
+                    "ee_pos": ee_pos.tolist(),
+                    "n_spheres": len(spheres),
+                },
             )
         return _halt_clamp(
             bname,
@@ -845,6 +877,7 @@ def keep_out_zone(
         return CallbackResult.ok(
             bname,
             metadata={
+                "motion_qp": QPTerm(A=cbf_A, b=cbf_b, slack_weight=float(slack_weight)),
                 "ee_pos": ee_pos.tolist(),
                 "n_spheres": len(spheres),
                 "cbf_margin_min": float(np.min(margin)),
@@ -882,7 +915,7 @@ def keep_out_zone(
         "reference_axis": "World-frame axis to align with. Defaults to [0,0,1] (up).",
         "tool_axis": "Tool-frame axis that should stay aligned. Defaults to [0,0,1].",
         "cbf_alpha": "CBF decay rate (0,∞). Higher → correct later, lower → correct earlier. Default 1.0.",
-        "slack_weight": "QP soft-constraint penalty.",
+        "slack_weight": "Legacy tuning value; enforced motion constraints are hard.",
     },
     internal_params=("slack_weight",),
 )
@@ -920,14 +953,16 @@ def orientation_limit(
     ref_norm = float(np.linalg.norm(ref))
     tool_norm = float(np.linalg.norm(tool))
     if ref_norm < 1e-12 or tool_norm < 1e-12:
-        return CallbackResult.ok(bname, "zero-length axis; skip")
+        return CallbackResult.ok(bname, "zero-length axis; skip", metadata={"motion_qp": QPTerm()})
     ref = ref / ref_norm
     tool = tool / tool_norm
 
     if ee_rot is None:
         ee_rot = _resolve_ee_rotation(obs, solvers=solvers, dynamics=dynamics)
     if ee_rot is None or obs.joint_positions is None:
-        return CallbackResult.ok(bname, "EE orientation unavailable; skip")
+        return CallbackResult.ok(
+            bname, "EE orientation unavailable; skip", metadata={"motion_qp": QPTerm()}
+        )
 
     R = np.asarray(ee_rot, dtype=np.float64)
     tool_world = R @ tool
@@ -942,7 +977,11 @@ def orientation_limit(
         if not violated:
             return CallbackResult.ok(
                 bname,
-                metadata={"tilt_deg": tilt_deg, "max_tilt_deg": max_tilt_deg},
+                metadata={
+                    "motion_qp": QPTerm(),
+                    "tilt_deg": tilt_deg,
+                    "max_tilt_deg": max_tilt_deg,
+                },
             )
         return _halt_clamp(
             bname,
@@ -968,6 +1007,7 @@ def orientation_limit(
         return CallbackResult.ok(
             bname,
             metadata={
+                "motion_qp": QPTerm(A=cbf_A, b=cbf_b, slack_weight=float(slack_weight)),
                 "tilt_deg": tilt_deg,
                 "max_tilt_deg": max_tilt_deg,
                 "cbf_margin_min": float(np.min(margin)),

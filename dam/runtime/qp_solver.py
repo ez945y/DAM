@@ -1,34 +1,13 @@
-"""Optional ProxSuite-based QP safety filter shared by L1 callbacks.
+"""ProxSuite helpers for motion constraints.
 
-Why this lives at runtime level (not as a Guard class)
-------------------------------------------------------
-Every L1 boundary already contributes constraints (``upper``, ``lower``,
-``max_velocity``, ``bounds``) via boundary node params — the merge_policy
-registry fuses them into one canonical pool.  Treating each constraint as
-a CBF candidate just means *swapping the L1 solver*: instead of independent
-box-clamps for each constraint, all of them feed into a single QP that
-finds the least-perturbing safe action.
+``solve_hard_constraints`` is the enforced MotionGuard fusion path. It projects
+onto box bounds and linear inequalities without slack; callers independently
+verify every constraint before returning an executable candidate.
 
-So no new ``QPSafetyGuard`` class.  L1's existing ``MotionGuard`` simply
-asks this module whether QP is available and dispatches when a boundary
-opts in via the ``qp_solver`` param.
-
-The QP
-------
-::
-
-    min  ½ ‖u − u_nom‖²  +  ½ Σ_i  λ_i · δ_i²
-    s.t. lower_i  −  δ_lo,i  ≤  u_i           (joint position lower, soft)
-         u_i  −  δ_up,i      ≤  upper_i        (joint position upper, soft)
-         q_i − v_max_i·dt − δ_vlo,i ≤ u_i      (velocity lower, soft)
-         u_i − δ_vup,i ≤ q_i + v_max_i·dt      (velocity upper, soft)
-         A_cbf · u − δ_cbf ≤ b_cbf              (workspace CBF, soft)
-         δ_*  ≥  0
-
-Position, velocity and workspace constraints each get independent slack
-variables so the optimiser can violate the least-critical constraint
-when the feasible region is empty.  ``slack_weight`` (merge: ``take_max``
-— stricter boundary wins) controls how aggressively each slack is penalised.
+``solve_box_with_slack`` is retained as a standalone experimental helper. Its
+soft limits can conflict and still produce a compromise, so it must not be
+used to establish enforced feasibility. CBF builders provide local linear
+models, not proofs about the exact nonlinear robot motion.
 """
 
 from __future__ import annotations
@@ -199,6 +178,50 @@ def available() -> bool:
     """True when ``proxsuite`` is importable.  Lets the caller decide whether
     to dispatch to the QP path or fall back to box-clamp."""
     return _PROXSUITE_AVAILABLE
+
+
+def solve_hard_constraints(
+    u_nom: np.ndarray,
+    *,
+    lower: np.ndarray,
+    upper: np.ndarray,
+    extra_A: np.ndarray | None = None,
+    extra_ub: np.ndarray | None = None,
+) -> np.ndarray | None:
+    """Project onto hard constraints. Infeasibility never becomes soft slack.
+
+    Callers validate shapes and independently verify the returned residuals.
+    The older soft solver remains available for standalone experiments.
+    """
+    if not _PROXSUITE_AVAILABLE:
+        return None
+    n = len(u_nom)
+    if n == 0:
+        return u_nom.copy()
+    if np.any(lower > upper):
+        return None
+    if extra_A is None:
+        return np.clip(u_nom, lower, upper)
+    C = np.vstack([np.eye(n), extra_A])
+    lo = np.concatenate([lower, np.full(len(extra_A), -np.inf)])
+    hi = np.concatenate([upper, extra_ub])
+    # Normalize rows so numerical tolerance has a stable joint-space scale.
+    scales = np.max(np.abs(C), axis=1, initial=0.0)
+    scales = np.where(scales > 0, scales, 1.0)
+    C = C / scales[:, None]
+    lo, hi = lo / scales, hi / scales
+    try:
+        qp = proxsuite.proxqp.dense.QP(n, 0, len(C))
+        qp.settings.eps_abs = 1e-9
+        qp.settings.eps_rel = 0.0
+        qp.init(H=np.eye(n), g=-u_nom, A=None, b=None, C=C, l=lo, u=hi)
+        qp.solve()
+        if qp.results.info.status != proxsuite.proxqp.QPSolverOutput.PROXQP_SOLVED:
+            return None
+        return np.asarray(qp.results.x, dtype=np.float64).copy()
+    except Exception:
+        logger.exception("Hard-constraint QP solve failed")
+        return None
 
 
 def solve_box_with_slack(
