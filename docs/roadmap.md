@@ -1,6 +1,6 @@
 # DAM 後續功能與穩定性規劃
 
-更新日期：2026-10-16。規劃以 `8b99129` 的 SDK 與 runtime 為基準；R01 已於 `caba57b`、R02 已於 `a18ce9c` 完成，其餘項目維持待辦。
+更新日期：2026-10-16。規劃以 `8b99129` 的 SDK 與 runtime 為基準；R01 已於 `caba57b`、R02 已於 `a18ce9c`、R03 已於 `6effe45` 完成，其餘項目維持待辦。
 
 下一階段優先補齊安全判定從輸入、非同步評估到輸出的完整流程，再改善 SDK 的設定、診斷與部署體驗。除明確標示完成者外，下列項目都是待辦建議，不代表已實作功能或發行承諾。先完成 P0 的可重現測試與修正，再擴充 API，避免新功能建立在不明確的執行語意上。
 
@@ -16,8 +16,9 @@
 | SDK 輸入體驗 | list 回傳 list、浮點 Tensor 轉換、必要觀測欄位提示、缺少 observation 時阻擋 | `8b99129` |
 | 非同步首次判定 | 首輪有期限等待或未就緒即拒絕；單次 helper 等待自己的判定；公開 readiness 與判定所屬週期；正常 runtime 控制迴圈在送出前套用慢速結果 | `caba57b` |
 | 合併約束完整性 | PASS 與 CLAMP 模型共同求解；不可行時 FAULT；分階段傳遞修正，最終候選再以模型核對且不重跑 callback | `a18ce9c` |
+| 非同步資料隔離 | 提交／結果複製、worker 專屬評估資源與任務／設定／階段版本核對 | `6effe45` |
 
-2026-10-16 R02 獨立工作目錄的 Python 非硬體回歸為 994 項通過（R01 為 968 項）；型別、提交檢查與嚴格文件建置通過。這些結果不涵蓋 GPU、實機或安全認證。
+2026-10-16 R03 獨立工作目錄的 Python 非硬體回歸為 1007 項通過（R02 為 994 項）；型別、提交檢查與嚴格文件建置通過。這些結果不涵蓋 GPU、實機或安全認證。
 
 ## 優先順序
 
@@ -25,7 +26,7 @@
 | --- | --- | --- | --- |
 | R01 | P0／已完成 | 首輪與單次呼叫的非同步判定語意 | 可區分當次與快取的慢速判定；缺少首次判定不再默默放行 |
 | R02 | P0／已完成 | 合併後完整約束驗證 | 合併納入 PASS 約束；最終命令破壞已驗證條件時回報 FAULT |
-| R03 | P0 | 非同步快照與評估狀態隔離 | 背景檢查讀到一致資料，不受後續修改干擾 |
+| R03 | P0／已完成 | 非同步快照與評估狀態隔離 | 提交時複製資料與評估狀態；舊任務、設定或階段的結果不得套用 |
 | R04 | P0 | Runtime 最終輸出與 fallback 契約 | 所有送出路徑都有一致的格式與有效值檢查 |
 | R05 | P1 | SDK 結構化結果與錯誤分類 | 不必讀私有欄位，就能判斷失敗原因與處理方式 |
 | R06 | P1 | 公開設定建構與預檢 API | 不接硬體即可確認設定、callback、solver 與輸入契約 |
@@ -97,13 +98,31 @@
 
 ### R03 非同步快照與狀態隔離
 
-Frozen dataclass 並不會自動讓其中的 NumPy 陣列、images 或 metadata 成為不可修改資料。需建立 buffer 所有權規則，並檢查 slow-lane 評估期間是否讀取到可變的 runtime 狀態。
+狀態：已完成，commit `6effe45`（2026-10-16）。
 
-建議採用明確複製或唯讀 buffer 策略，將 task、設定版本與輸入快照綁定；評估結果應攜帶相同版本。大型影像的複製成本需實測，再選擇安全的共享方式。
+先重現提交後修改陣列／影像／巢狀 metadata 會改變背景輸入，以及讀取端修改 verdict 會污染 worker 快取的問題。
 
-驗收條件：submit 後修改呼叫端陣列、影像或 metadata，不改變當次判定；任務切換與重載期間的舊版本結果不可套用到新版本；壓力測試能穩定重現並排除競態。
+完成行為：
 
-主要位置：`dam/runtime/slow_lane.py`、`dam/types/observation.py`、`dam/types/action.py`。
+- submit 複製完整 observation、action 與 original proposal；結果發布與讀取亦分別複製，避免呼叫端、callback 回傳物件與讀取端共享可變資料。
+- 在控制執行緒提交前擷取 task、boundary 節點、計時、歷史命令與設定。guard／solver／dynamics 於 worker 首次提交複製一份供該 worker 持有，背景評估不再查詢當下 runtime 狀態。
+- snapshot、verdict 與完成結果帶 `task_name`、`config_version`、`state_generation`。任務重啟／停止、boundary advance 或設定版本不同時，舊結果回報 `version_mismatch` REJECT；下一輪重新套用首次等待策略。
+- slow stage 改為依序執行，即使 stage 設為 parallel 亦然，避免已逾時的平行 callback 脫離 worker 的停止邊界。等待仍有期限；callback 未結束時 stop 仍可能逾時。
+- 輸入、資源或回傳結果無法複製時回報 FAULT，不退回共享可變物件。影像與模型複製時間納入判定年齡。
+
+驗證：獨立工作目錄（`69d5f1f` 加本次變更）執行 `.venv/bin/python -m pytest tests -m 'not hardware and not ros2' -q`，1007 passed；mypy 222 source files、Ruff、pre-commit hooks 與 `scripts/check_docs.py` 通過。13 項新增測試涵蓋完整輸入／結果隔離、提交與評估間的狀態修改、版本不符、任務重啟與階段切換、40 次連續競態交接、無法複製的資料、guard 狀態保留與平行 callback 停止。
+
+本機影像複製量測（macOS 26.5.2 arm64、Python 3.12.12；兩張 RGB uint8，10 次暖身後 100 次 `SlowLaneWorker.submit`，只量交接複製，非端到端 guard 延遲）：
+
+| 每路解析度 | p50 | p95 | p99 |
+| --- | --- | --- | --- |
+| 1280×720 | 0.594 ms | 1.552 ms | 1.775 ms |
+| 1920×1080 | 1.835 ms | 3.823 ms | 4.483 ms |
+| 3840×2160 | 7.356 ms | 12.395 ms | 19.044 ms |
+
+相容性與限制：這是複製所有權策略，不是任意 Python callback 的隔離沙箱。呼叫期間不得同時修改輸入；runtime／SDK 仍為單一呼叫者。自訂 deepcopy 須產生獨立物件；callback 的全域／closure／外部資源仍需自行同步。複製增加記憶體與提交延遲；首次模型複製不在上述量測內，`verdict_timeout_ms` 只限制複製完成後的等待。此輪沒有開放運行中熱重載；非本機平台、CUDA／MPS、native／GPU 模型複製與實機尚未驗證。
+
+主要位置：`dam/runtime/slow_lane.py`、`dam/runtime/guard_runtime.py`。同步更新 [SDK 文件](library-api.md) 與 [安全模型](concepts/safety.md)。
 
 ### R04 Runtime 輸出與 fallback 契約
 

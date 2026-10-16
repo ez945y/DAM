@@ -1,5 +1,13 @@
 # claude-progress.md — 進度日誌
 
+## 2026-10-16 — R03 slow-lane ownership and generation isolation
+
+- Completed `6effe45`: detached input/result buffers, submission-time runtime context, worker-owned guards/solvers, and task/configuration/state-generation verdict checks.
+- Slow stages execute sequentially so successful worker shutdown includes callback completion. Copy failures become FAULT; caller wait deadlines remain bounded, but copying and callback shutdown have separate costs.
+- Validation in an isolated checkout based on `69d5f1f`: 1007 Python tests, mypy (222 source files), Ruff, pre-commit and strict docs build passed. Image-copy measurements and platform limitations are recorded in `docs/roadmap.md`.
+- The hourly DAM automation was paused at the user's request. Next roadmap item: R04 final-output/fallback contract. Other chats' uncommitted editor, service and runtime changes were preserved and were not included in this verification.
+
+
 ## 當前已驗證狀態
 
 - **專案**: DAM (Detachable Action Monitor) v0.5.0
