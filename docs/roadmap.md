@@ -1,6 +1,6 @@
 # DAM 後續功能與穩定性規劃
 
-更新日期：2026-10-16。規劃以 `8b99129` 的 SDK 與 runtime 為基準；R01 已於 `caba57b` 完成，其餘項目維持待辦。
+更新日期：2026-10-16。規劃以 `8b99129` 的 SDK 與 runtime 為基準；R01 已於 `caba57b`、R02 已於 `a18ce9c` 完成，其餘項目維持待辦。
 
 下一階段優先補齊安全判定從輸入、非同步評估到輸出的完整流程，再改善 SDK 的設定、診斷與部署體驗。除明確標示完成者外，下列項目都是待辦建議，不代表已實作功能或發行承諾。先完成 P0 的可重現測試與修正，再擴充 API，避免新功能建立在不明確的執行語意上。
 
@@ -15,15 +15,16 @@
 | SDK 生命週期 | context manager、可重複 close、初始化失敗清理、單次呼叫清理、processor reset 清理 | `8b99129` |
 | SDK 輸入體驗 | list 回傳 list、浮點 Tensor 轉換、必要觀測欄位提示、缺少 observation 時阻擋 | `8b99129` |
 | 非同步首次判定 | 首輪有期限等待或未就緒即拒絕；單次 helper 等待自己的判定；公開 readiness 與判定所屬週期；正常 runtime 控制迴圈在送出前套用慢速結果 | `caba57b` |
+| 合併約束完整性 | PASS 與 CLAMP 模型共同求解；不可行時 FAULT；分階段傳遞修正，最終候選再以模型核對且不重跑 callback | `a18ce9c` |
 
-2026-10-16 Python 非硬體回歸為 968 項通過（前次基準為 935 項）；R01 最後針對性複驗為 70 項通過，型別、提交檢查與嚴格文件建置通過。這些結果不涵蓋 GPU、實機或安全認證。
+2026-10-16 R02 獨立工作目錄的 Python 非硬體回歸為 994 項通過（R01 為 968 項）；型別、提交檢查與嚴格文件建置通過。這些結果不涵蓋 GPU、實機或安全認證。
 
 ## 優先順序
 
 | 編號 | 優先級 | 開發項目 | 完成後的使用體驗 |
 | --- | --- | --- | --- |
 | R01 | P0／已完成 | 首輪與單次呼叫的非同步判定語意 | 可區分當次與快取的慢速判定；缺少首次判定不再默默放行 |
-| R02 | P0 | 合併後完整約束驗證 | 修正一條限制時，不會悄悄破壞另一條限制 |
+| R02 | P0／已完成 | 合併後完整約束驗證 | 合併納入 PASS 約束；最終命令破壞已驗證條件時回報 FAULT |
 | R03 | P0 | 非同步快照與評估狀態隔離 | 背景檢查讀到一致資料，不受後續修改干擾 |
 | R04 | P0 | Runtime 最終輸出與 fallback 契約 | 所有送出路徑都有一致的格式與有效值檢查 |
 | R05 | P1 | SDK 結構化結果與錯誤分類 | 不必讀私有欄位，就能判斷失敗原因與處理方式 |
@@ -67,13 +68,32 @@
 
 ### R02 合併後完整約束驗證
 
-目前 motion QP 合併以 CLAMP 貢獻為主。需要驗證原本回傳 PASS 的約束，是否可能被其他約束產生的修正破壞；單純選擇離原始命令較遠的修正，不能代表所有耦合約束都成立。
+狀態：已完成，commit `a18ce9c`（2026-10-16）。
 
-建議建立包含所有有效約束的合併流程，或對最終候選命令重新驗證。若採用重新驗證，必須分離純檢查與狀態提交，避免 callback 被呼叫兩次就改變計時、歷史值或計數。
+先重現三項問題：原本 PASS 的速度限制會被位置修正破壞、耦合約束未參與共同求解，以及互斥上下界被軟化為仍違規的命令。另修正分階段執行時，後一階段未收到前一階段修正命令的問題。
 
-驗收條件：涵蓋原本 PASS 後被修正破壞、互斥上下界、耦合關節、QP 無解與數值容差案例；最終結果需同時滿足有效約束，否則明確阻擋。
+完成行為：
 
-主要位置：`dam/guard/pipeline.py`、`dam/guard/aggregators/motion_qp.py`、`dam/runtime/execution_engine.py`。
+- 內建 L1 callback 在 PASS 與 CLAMP 時皆提供有效約束模型。MotionGuard 合併全部模型，以硬約束求解；無解、求解失敗、模型或結果無效時回報 FAULT。
+- 合併後與 runtime 最終候選均執行純模型核對，不重複呼叫 callback，因此不會因重驗而重複推進歷史或計數。末端速度另檢查完整向量範數，避免只滿足切平面卻超速。
+- 無模型的 L1／L2 結果綁定原先接受的完整命令；後續修正若改變它，無法證明仍符合原判定時回報 FAULT。單一無模型 CLAMP 仍可使用，但不能與不具足夠證據的其他修正任意合併。
+- 同週期的慢速結果參與最終候選驗證；舊週期快取仍依 R01 作為 gate，不改稱為當次命令的完整證明。
+- 線性約束先按每列最大係數正規化，再以 `1e-7` 容差檢查；不再截掉超出命令維度的約束欄位。離線 replay 測試固定主機健康輸入，避免實際主機負載影響預期決策。
+
+驗證紀錄（以 `5a8bbf2` 加本次變更的獨立工作目錄驗證，未混入其他進行中修改）：
+
+| 指令 | 結果 |
+| --- | --- |
+| `.venv/bin/python -m pytest tests -m 'not hardware and not ros2' -q` | 994 passed |
+| `.venv/bin/python -m mypy --config-file pyproject.toml dam tests` | 220 source files 通過 |
+| `.venv/bin/python scripts/check_docs.py` | 文件文字檢查與 MkDocs strict build 通過 |
+| `git commit` 的 pre-commit hooks | whitespace、檔案大小、Ruff lint／format、mypy 通過；無 Rust 變更，Rust hooks 跳過 |
+
+新增測試涵蓋原本 PASS 被破壞、可行耦合約束、互斥上下界、QP 無解／錯誤候選、非法維度與非有限值、數值容差與不同尺度、末端速度切平面漏檢、跨 L1／L2 修正、callback 只呼叫一次，以及同週期與快取慢速結果的區別。
+
+相容性：先前靠放鬆限制才能輸出的命令現在會 FAULT，ENFORCE 進入既有阻擋／fallback 流程；MONITOR 仍遵循原有觀測模式。`slack_weight` 欄位保留相容性，但 enforced motion fusion 不再放鬆限制。自訂 callback 若要支援後續修正，需提供可驗證模型。此輪保證的是已提供的有效模型；停用／缺資料而略過的檢查、局部線性化的物理誤差與舊週期快取不構成完整安全證明，fallback 輸出契約仍由 R04 處理。本機 macOS／Python 3.12 已驗證，其他 OS／Python 版本、CUDA／MPS 與實機未驗證。
+
+主要位置：`dam/boundary/callbacks/kinematics.py`、`dam/guard/pipeline.py`、`dam/guard/aggregators/motion_qp.py`、`dam/runtime/qp_solver.py`、`dam/runtime/execution_engine.py`。行為說明已同步至 [SDK 文件](library-api.md) 與 [安全模型](concepts/safety.md)。
 
 ### R03 非同步快照與狀態隔離
 
