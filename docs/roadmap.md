@@ -1,8 +1,8 @@
 # DAM 後續功能與穩定性規劃
 
-更新日期：2026-10-13。以 `8b99129` 的 SDK 與 runtime 為基準。
+更新日期：2026-10-16。規劃以 `8b99129` 的 SDK 與 runtime 為基準；R01 已於 `caba57b` 完成，其餘項目維持待辦。
 
-下一階段優先補齊安全判定從輸入、非同步評估到輸出的完整流程，再改善 SDK 的設定、診斷與部署體驗。下列項目都是待辦建議，不代表已實作功能或發行承諾。先完成 P0 的可重現測試與修正，再擴充 API，避免新功能建立在不明確的執行語意上。
+下一階段優先補齊安全判定從輸入、非同步評估到輸出的完整流程，再改善 SDK 的設定、診斷與部署體驗。除明確標示完成者外，下列項目都是待辦建議，不代表已實作功能或發行承諾。先完成 P0 的可重現測試與修正，再擴充 API，避免新功能建立在不明確的執行語意上。
 
 ## 已完成的基礎
 
@@ -14,14 +14,15 @@
 | 非同步判定 | 過期時間包含快照排隊與計算時間；例外回報 FAULT；停止逾時阻擋任務切換 | `09a1a6b` |
 | SDK 生命週期 | context manager、可重複 close、初始化失敗清理、單次呼叫清理、processor reset 清理 | `8b99129` |
 | SDK 輸入體驗 | list 回傳 list、浮點 Tensor 轉換、必要觀測欄位提示、缺少 observation 時阻擋 | `8b99129` |
+| 非同步首次判定 | 首輪有期限等待或未就緒即拒絕；單次 helper 等待自己的判定；公開 readiness 與判定所屬週期；正常 runtime 控制迴圈在送出前套用慢速結果 | `caba57b` |
 
-最近完整 Python 回歸為 935 項通過，最後 SDK 複驗為 75 項通過；型別與提交檢查通過。這些結果不涵蓋 GPU、實機或安全認證。
+2026-10-16 Python 非硬體回歸為 968 項通過（前次基準為 935 項）；R01 最後針對性複驗為 70 項通過，型別、提交檢查與嚴格文件建置通過。這些結果不涵蓋 GPU、實機或安全認證。
 
 ## 優先順序
 
 | 編號 | 優先級 | 開發項目 | 完成後的使用體驗 |
 | --- | --- | --- | --- |
-| R01 | P0 | 首輪與單次呼叫的非同步判定語意 | 使用者能知道目前動作是否已經過所有必要檢查 |
+| R01 | P0／已完成 | 首輪與單次呼叫的非同步判定語意 | 可區分當次與快取的慢速判定；缺少首次判定不再默默放行 |
 | R02 | P0 | 合併後完整約束驗證 | 修正一條限制時，不會悄悄破壞另一條限制 |
 | R03 | P0 | 非同步快照與評估狀態隔離 | 背景檢查讀到一致資料，不受後續修改干擾 |
 | R04 | P0 | Runtime 最終輸出與 fallback 契約 | 所有送出路徑都有一致的格式與有效值檢查 |
@@ -36,13 +37,33 @@
 
 ### R01 首輪與單次呼叫的非同步判定
 
-目前 slow lane 有首次判定前的寬限期，而 `dam.guardrail()` 每次建立並關閉新的 runtime。需優先用整合測試確認這兩者組合時，首輪命令是否可能在必要的慢速檢查完成前回傳。這是待驗證的整合風險，不應直接視為已確認的全部配置行為。
+狀態：已完成，commit `caba57b`（2026-10-16）。
 
-建議讓單次 API 完成必要檢查後才回傳；長期 session 則提供明確的「等待首次判定」策略與 readiness 狀態。等待須有期限，逾時回報可辨識的錯誤或阻擋結果。
+先以整合測試確認：啟用 slow lane 的 L2 callback 固定 REJECT 時，原有 session 首輪與 `dam.guardrail()` 均回傳原始命令；首輪 callback 拋錯也未參與當次決策。另發現正常 runtime `step()` 因關閉重複錄製等副作用而跳過慢速提交與判定，已一併修正。
 
-驗收條件：慢速 callback 固定 REJECT、尚未完成、超時與拋錯的首輪測試，都不得回傳被宣告為完整通過的命令；同步與非同步模式的差異須有文件與可檢查狀態。
+完成行為：
 
-主要位置：`dam/api.py`、`dam/runtime/slow_lane.py`、`dam/runtime/guard_runtime.py`。
+- `slow_lane.first_verdict` 預設 `wait`，以 `verdict_timeout_ms`（預設 500 ms）限制等待；`reject` 策略在首次判定尚未完成時立即拒絕。即使 `stale_action: warn`，也不再提供未檢查的首輪寬限。
+- `dam.guardrail()` 一律等待自己的慢速判定；長期 `Guardrail` 可用 `wait_for_slow=True` 每輪等待，預設則在取得首次判定後使用最新快取。等待取得的結果仍須符合 `max_staleness_ms`。
+- 快速 callback 只執行一次，慢速檢查接收快速修正後的候選命令；最終決策、風險記錄、歷史提交與正常控制迴圈的 sink 輸出都在慢速 gate 之後。
+- 公開 `slow_lane_status`（disabled／pending／ready／stale／bypassed），慢速結果附 `basis_cycle_id`、`verdict_age_ms` 與 `current_cycle_checked`。ready 只表示已有新鮮結果，REJECT／FAULT 也可為 ready，不代表安全通過。
+- 未就緒與等待逾時保留可辨識的 REJECT 結果；ENFORCE 使用既有 fallback，MONITOR 記錄但不攔截，LOG_ONLY 跳過檢查。
+
+驗證紀錄：
+
+| 指令 | 結果 |
+| --- | --- |
+| `.venv/bin/python -m pytest tests -m 'not hardware and not ros2' -q` | 968 passed |
+| `.venv/bin/python -m pytest tests/integration/test_slow_lane_readiness.py tests/unit/test_slow_lane.py -q` | 最後複驗 70 passed |
+| `.venv/bin/python -m mypy --config-file pyproject.toml dam tests` | 219 source files 通過 |
+| `.venv/bin/python scripts/check_docs.py` | 文件文字檢查與 MkDocs strict build 通過 |
+| `git commit` 的 pre-commit hooks | whitespace、檔案大小、Ruff lint／format、mypy 通過；無 Rust 變更，Rust hooks 跳過 |
+
+測試涵蓋固定 REJECT、pending、timeout、callback 例外、過期 PASS、首次等待與每輪等待、快取來源週期、任務重啟 readiness、MONITOR／LOG_ONLY、單次清理、快速 CLAMP 只評估一次與 runtime sink 前拒絕。
+
+相容性：未啟用 slow lane 的同步語意不變；啟用後首次呼叫預設可能增加等待時間，未就緒時不再放行。頻率與等待／過期期限必須是有限正值。Python callback 無法強制取消，等待逾時不等於 worker 已停止；`close()` 仍可額外等待停止期限並拋出 `TimeoutError`。此輪在本機 macOS／Python 3.12 驗證，未驗證其他 OS／Python 版本、CUDA／MPS 或實機。完整約束驗證、快照所有權與 fallback context 的完整輸出路徑仍屬 R02–R04。
+
+主要位置：`dam/api.py`、`dam/config/schema.py`、`dam/runtime/slow_lane.py`、`dam/runtime/guard_runtime.py`、`dam/runtime/execution_engine.py`、`dam/runtime/context.py`。行為說明已同步至 [SDK 文件](library-api.md) 與 [安全模型](concepts/safety.md)。
 
 ### R02 合併後完整約束驗證
 
