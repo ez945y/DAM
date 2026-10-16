@@ -139,6 +139,30 @@ evaluation time. A late PASS is not treated as fresh merely because its
 computation just finished. Evaluation exceptions and malformed results publish
 FAULT immediately instead of retaining an earlier PASS.
 
+The first asynchronous cycle has no unchecked grace period. By default it
+waits up to `slow_lane.verdict_timeout_ms` (500 ms) for its own verdict before
+the final enforcement decision. `first_verdict: reject` instead rejects while
+the first verdict is pending. Missing first evidence always rejects in ENFORCE
+mode, even with `stale_action: warn`. Waiting callers also reject stale evidence.
+Fast callbacks run once, and the slow check sees the fast candidate before
+state commit or sink output. Normal runtime `step()` enables this gate even
+though the outer step owns recording and state commits.
+
+The one-shot SDK helper always waits for its own slow verdict. Long-lived
+sessions use cached slow evidence after startup unless `wait_for_slow=True` is
+selected. Cached PASS does not establish that the current action was checked:
+inspect `basis_cycle_id` and `current_cycle_checked` on slow results. Public
+`slow_lane_status` reports availability and age, not safety. MONITOR records
+violations without blocking commands, and LOG_ONLY bypasses checks.
+
+A slow CLAMP is still escalated to REJECT; no asynchronous correction is applied
+to the fast candidate. Waiting does not resolve the separate constraint fusion,
+snapshot ownership, or fallback-output validation work in the
+[roadmap](../roadmap.md). In particular, fallback contexts retain their existing
+validation behavior; this change gates the normal proposal path. Evaluation
+deadlines cannot forcibly stop Python callbacks, so shutdown may separately
+time out and raise rather than report successful cleanup.
+
 Task switching waits for the previous evaluator to stop before changing task
 state. If stopping times out, the operation raises and retains the worker
 reference and current task state. Retry after the evaluator has exited; a new

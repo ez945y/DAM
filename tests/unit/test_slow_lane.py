@@ -3,6 +3,7 @@ telemetry decimation."""
 
 from __future__ import annotations
 
+import threading
 import time
 from types import SimpleNamespace
 
@@ -48,6 +49,29 @@ def _wait_until(predicate, timeout=2.0):
 
 
 class TestSlowLaneWorker:
+    def test_wait_requires_exact_cycle_and_stop_wakes_waiter(self):
+        worker = SlowLaneWorker(lambda s: [], frequency_hz=200)
+        worker.start()
+        worker.submit(_snapshot(1))
+        assert worker.wait_for_verdict(1, 1).basis_cycle_id == 1
+        assert worker.wait_for_verdict(2, 0.01) is None
+        done = threading.Event()
+        results = []
+
+        def wait():
+            results.append(worker.wait_for_verdict(2, 2))
+            done.set()
+
+        waiter = threading.Thread(target=wait)
+        waiter.start()
+        try:
+            worker.stop()
+            assert done.wait(1)
+            assert results == [None]
+        finally:
+            worker.stop()
+            waiter.join(2)
+
     def test_evaluates_latest_snapshot_and_publishes_verdict(self):
         seen: list[int] = []
 
@@ -272,7 +296,8 @@ class TestVerdictGating:
 
     def test_stale_verdict_rejects_by_default(self):
         cfg = SlowLaneConfig(max_staleness_ms=100.0)
-        rt = _gated_runtime(cfg, _StubWorker(None, age_s=1.0))
+        verdict = SlowVerdict(produced_at=time.monotonic() - 1.0)
+        rt = _gated_runtime(cfg, _StubWorker(verdict, age_s=1.0))
         extra = rt._slow_lane_extra_results(time.monotonic())
         assert extra is not None
         assert extra[-1].guard_name == "slow_lane_watchdog"
@@ -280,8 +305,16 @@ class TestVerdictGating:
 
     def test_stale_verdict_warn_mode_passes(self):
         cfg = SlowLaneConfig(max_staleness_ms=100.0, stale_action="warn")
-        rt = _gated_runtime(cfg, _StubWorker(None, age_s=1.0))
+        verdict = SlowVerdict(produced_at=time.monotonic() - 1.0)
+        rt = _gated_runtime(cfg, _StubWorker(verdict, age_s=1.0))
         assert rt._slow_lane_extra_results(time.monotonic()) is None
+
+    @pytest.mark.parametrize("stale_action", ["warn", "reject"])
+    def test_no_verdict_has_no_grace_period(self, stale_action):
+        rt = _gated_runtime(SlowLaneConfig(stale_action=stale_action), _StubWorker(None, 0.0))
+        result = rt._slow_lane_extra_results(time.monotonic())[0]
+        assert result.decision == GuardDecision.REJECT
+        assert result.metadata["slow_lane_state"] == "pending"
 
     def test_fresh_verdict_no_watchdog(self):
         cfg = SlowLaneConfig(max_staleness_ms=500.0)
@@ -380,6 +413,16 @@ class TestLaneSplitIntegration:
 
 
 class TestSlowLaneConfigSchema:
+    @pytest.mark.parametrize("field", ["task_hz", "max_staleness_ms", "verdict_timeout_ms"])
+    @pytest.mark.parametrize("value", [0, -1, float("nan"), float("inf")])
+    def test_deadlines_and_frequency_are_finite_positive(self, field, value):
+        with pytest.raises(ValueError):
+            SlowLaneConfig(**{field: value})
+
+    def test_first_verdict_policy_is_validated(self):
+        with pytest.raises(ValueError):
+            SlowLaneConfig(first_verdict="pass")
+
     def test_defaults(self):
         cfg = SlowLaneConfig()
         assert cfg.task_hz == 10.0

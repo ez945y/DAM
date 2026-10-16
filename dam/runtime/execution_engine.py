@@ -12,7 +12,7 @@ from __future__ import annotations
 import dataclasses
 import logging
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from typing import TYPE_CHECKING, Any, cast
@@ -273,6 +273,7 @@ class ExecutionEngine:
         ctx: ValidationContext,
         now: float | None = None,
         extra_results: list[GuardResult] | None = None,
+        post_checks: Callable[[ActionProposal | ValidatedAction], list[GuardResult]] | None = None,
     ) -> tuple[ValidatedAction | None, list[GuardResult]]:
         """Run the full guard pipeline.
 
@@ -318,6 +319,22 @@ class ExecutionEngine:
             r is aggregated for r in all_results
         ):
             all_results = [*all_results, aggregated]
+
+        # Collect asynchronous evidence before enforcement, risk accounting,
+        # and violation hooks. The fast callbacks run exactly once; the slow
+        # lane sees the fast candidate even when an older verdict rejected it.
+        if post_checks is not None:
+            candidate = (
+                aggregated.clamped_action
+                if aggregated.decision == GuardDecision.CLAMP
+                and aggregated.clamped_action is not None
+                and self._enforcement_mode == EnforcementMode.ENFORCE
+                else action
+            )
+            additional = post_checks(candidate)
+            if additional:
+                all_results = [*all_results, *additional]
+                aggregated = aggregate_decisions(all_results)
 
         if aggregated.decision in (GuardDecision.REJECT, GuardDecision.FAULT):
             return self._handle_violation(action, all_results, aggregated, ctx)

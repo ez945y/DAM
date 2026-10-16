@@ -155,6 +155,59 @@ safe_cmd = dam.guardrail({"base_pose": pose, "action": cmd}, "jetbot.yaml", safe
 Builds a `Guardrail` internally. Convenient but re-initializes every call — use
 `Guardrail` directly for repeated calls.
 
+### Slow-lane readiness and waiting
+
+Without `safety.slow_lane`, all configured checks run synchronously. With a
+slow lane, the first call now waits for its own slow verdict by default:
+
+```yaml
+safety:
+  slow_lane:
+    task_hz: 10
+    first_verdict: wait       # wait (default) or reject without waiting
+    verdict_timeout_ms: 500   # finite, positive deadline for each wait
+    max_staleness_ms: 500     # includes snapshot queue and evaluation time
+    stale_action: reject     # reject (default) or warn for subsequent cached verdicts
+```
+
+In ENFORCE mode, no first verdict means rejection, including when
+`stale_action: warn`. With `first_verdict: reject`, a session returns its
+`safe_action` while the background worker is still pending. With `wait`, a
+timeout returns `safe_action` and leaves a `slow_lane_readiness` REJECT in
+`last_results`, with `metadata["slow_lane_state"] == "timeout"`. Pending
+nonblocking calls use `"pending"`. A completed REJECT or FAULT also selects
+`safe_action`. Slow CLAMP results remain conservatively converted to REJECT.
+
+Later session calls normally use the latest slow verdict, which may describe an
+older command. Use `Guardrail(..., wait_for_slow=True)` to wait for each command's
+own verdict. `dam.guardrail()` always uses this behavior, even if the Stackfile
+specifies `first_verdict: reject`. A waited verdict must also satisfy
+`max_staleness_ms`, regardless of `stale_action`.
+
+```python
+with dam.Guardrail("safety.yaml", wait_for_slow=True) as rail:
+    command = rail({"joints": measured_joints, "action": proposed_joints})
+    print(rail.slow_lane_status)
+    for result in rail.last_results:
+        print(result.decision.name, result.reason, result.metadata)
+```
+
+`slow_lane_status` (also on `GuardRuntime`) contains `state`, `basis_cycle_id`,
+and `age_ms`. States are `disabled`, `pending`, `ready`, `stale`, and `bypassed`
+(LOG_ONLY). **Ready means evidence is available, not that the command passed.**
+Completed slow results include `basis_cycle_id`, `verdict_age_ms`, and
+`current_cycle_checked`; the last field distinguishes this command's evidence
+from a cached result. Status is a live snapshot and can change after a call;
+`last_results` records what that call used. Task restart resets readiness.
+
+MONITOR still returns the original command while recording rejection/fault;
+LOG_ONLY skips checks. Neither mode claims enforced safety. The wait deadline
+covers slow scheduling and evaluation, not construction, fast checks, or
+cleanup. Python cannot cancel a running callback: `close()` may additionally
+wait up to the worker stop timeout (currently two seconds) and raises
+`TimeoutError` if it is still running. A session can retry close after the
+callback exits; a one-shot call propagates that cleanup error.
+
 ### Action segments & solvers
 
 When the action is a structured command (an EE pose, a base twist), declare its

@@ -10,7 +10,8 @@ Design (single-writer principle):
   and publishes a :class:`SlowVerdict`.
 - Both hand-offs are latest-wins mailboxes: a single reference assignment
   (atomic under the GIL), no queues, no locks held across evaluation.  The
-  worker can never fall behind unboundedly and the control loop never blocks.
+  worker can never fall behind unboundedly. The caller may explicitly wait
+  for a verdict with a bounded deadline (by default on the first cycle).
 - Staleness is the synchronisation contract: the verdict carries the wall
   (monotonic) time it was produced and the snapshot it was based on; the
   control loop degrades per ``slow_lane.stale_action`` when the snapshot
@@ -44,7 +45,7 @@ class SlowSnapshot:
     """What the fast lane publishes after each cycle.
 
     ``action`` is the post-fast-lane (post-L1-clamp) action — slow-lane L2
-    guards therefore see what was actually commanded, preserving the
+    guards therefore see the candidate command before slow gating, preserving the
     "L2 sees phase-0 clamps" ordering contract at a lower cadence.
     """
 
@@ -101,6 +102,7 @@ class SlowLaneWorker:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._started_at: float | None = None
+        self._verdict_changed = threading.Condition()
 
     # ── Fast-lane API (called from the control loop thread) ───────────────
 
@@ -112,6 +114,25 @@ class SlowLaneWorker:
     def latest_verdict(self) -> SlowVerdict | None:
         """The most recent verdict, or None before the first evaluation."""
         return self._verdict
+
+    def wait_for_verdict(self, cycle_id: int, timeout: float) -> SlowVerdict | None:
+        """Wait at most ``timeout`` seconds for this exact snapshot's verdict.
+
+        The runtime is single-caller; an older verdict never satisfies a wait
+        for the current command. Evaluation holds no condition lock.
+        """
+        with self._verdict_changed:
+            self._verdict_changed.wait_for(
+                lambda: (
+                    self._stop.is_set()
+                    or (self._verdict is not None and self._verdict.basis_cycle_id == cycle_id)
+                ),
+                timeout=timeout,
+            )
+            verdict = self._verdict
+            if self._stop.is_set() or verdict is None or verdict.basis_cycle_id != cycle_id:
+                return None
+            return verdict
 
     def verdict_age_s(self, now: float) -> float | None:
         """Age of the verdict's basis snapshot; falls back to time since start
@@ -148,6 +169,8 @@ class SlowLaneWorker:
     def stop(self, timeout: float = 2.0) -> None:
         self._stop.set()
         self._wakeup.set()
+        with self._verdict_changed:
+            self._verdict_changed.notify_all()
         if self._thread is not None:
             self._thread.join(timeout=timeout)
             if self._thread.is_alive():
@@ -192,14 +215,16 @@ class SlowLaneWorker:
             if self._stop.is_set():
                 return
             self._last_evaluated_cycle = snapshot.cycle_id
-            self._verdict = SlowVerdict(
-                results=list(results),
-                basis_cycle_id=snapshot.cycle_id,
-                basis_obs_timestamp=snapshot.obs.timestamp,
-                produced_at=time.monotonic(),
-                evaluation_ms=elapsed_ms,
-                basis_published_at=snapshot.published_at,
-            )
+            with self._verdict_changed:
+                self._verdict = SlowVerdict(
+                    results=list(results),
+                    basis_cycle_id=snapshot.cycle_id,
+                    basis_obs_timestamp=snapshot.obs.timestamp,
+                    produced_at=time.monotonic(),
+                    evaluation_ms=elapsed_ms,
+                    basis_published_at=snapshot.published_at,
+                )
+                self._verdict_changed.notify_all()
             if elapsed_ms > self._period_s * 1000.0:
                 logger.warning(
                     "slow lane: evaluation took %.1f ms > period %.1f ms; "

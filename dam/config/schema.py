@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -104,19 +104,16 @@ class SlowLaneConfig(BaseModel):
     on a worker thread at ``task_hz`` against the latest post-fast-lane
     snapshot and publish a verdict the control loop consumes as a gate.  A
     verdict older than ``max_staleness_ms`` triggers ``stale_action``.
+    The first verdict uses a bounded wait by default; ``first_verdict=reject``
+    rejects pending cycles immediately instead. There is no unchecked grace.
     """
 
     model_config = ConfigDict(extra="forbid")
-    task_hz: float = 10.0  # async task/OOD lane evaluation rate
-    max_staleness_ms: float = 500.0
+    task_hz: float = Field(default=10.0, gt=0, allow_inf_nan=False)
+    max_staleness_ms: float = Field(default=500.0, gt=0, allow_inf_nan=False)
     stale_action: str = "reject"  # reject (trigger fallback) | warn (log only)
-
-    @field_validator("task_hz")
-    @classmethod
-    def freq_positive(cls, v: float) -> float:
-        if v <= 0:
-            raise ValueError("slow_lane.task_hz must be positive")
-        return v
+    first_verdict: Literal["wait", "reject"] = "wait"
+    verdict_timeout_ms: float = Field(default=500.0, gt=0, allow_inf_nan=False)
 
     @field_validator("stale_action")
     @classmethod

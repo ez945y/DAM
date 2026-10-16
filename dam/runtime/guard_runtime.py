@@ -459,7 +459,8 @@ class GuardRuntime:
 
         Stage order preserves the layer contract (L0 before L2); the action
         in the snapshot is post-fast-lane, so L2 sees post-L1 clamps.  No
-        enforcement side effects here — verdicts gate the *next* fast cycles.
+        enforcement side effects here — verdicts gate waiting callers and
+        subsequent fast cycles.
         """
         slow_containers = [
             self._boundary_containers[n]
@@ -492,7 +493,30 @@ class GuardRuntime:
             stages=self._slow_stages,
         )
 
-    def _slow_lane_extra_results(self, now: float | None) -> list[GuardResult] | None:
+    @property
+    def slow_lane_status(self) -> dict[str, Any]:
+        """Current evidence readiness, not a claim that a command passed.
+
+        A ready verdict can contain REJECT or FAULT and can describe an older
+        cycle. Use per-result ``basis_cycle_id`` to identify its input.
+        """
+        if self._enforcement_mode == EnforcementMode.LOG_ONLY:
+            return {"state": "bypassed", "basis_cycle_id": None, "age_ms": None}
+        if self._slow_lane is None or not self._slow_stages or self._slow_lane_config is None:
+            return {"state": "disabled", "basis_cycle_id": None, "age_ms": None}
+        verdict = self._slow_lane.latest_verdict()
+        if verdict is None:
+            return {"state": "pending", "basis_cycle_id": None, "age_ms": None}
+        age_ms = verdict.age_s(time.monotonic()) * 1000.0
+        return {
+            "state": "ready" if age_ms <= self._slow_lane_config.max_staleness_ms else "stale",
+            "basis_cycle_id": verdict.basis_cycle_id,
+            "age_ms": age_ms,
+        }
+
+    def _slow_lane_extra_results(
+        self, now: float | None, *, require_fresh: bool = False
+    ) -> list[GuardResult] | None:
         """Latest slow verdict as GuardResults for this fast cycle's aggregate.
 
         - REJECT/FAULT/PASS results join as-is (REJECT latches until a newer
@@ -500,8 +524,10 @@ class GuardRuntime:
         - CLAMP is converted to REJECT: a clamped action computed against an
           older cycle cannot be applied to the current one; refusing is the
           conservative direction.
-        - A verdict older than ``max_staleness_ms`` (or no verdict at all
-          after that grace period) triggers ``stale_action``.
+        - No verdict always produces an explicit pending REJECT. There is no
+          first-cycle grace period, even with ``stale_action=warn``.
+        - A verdict older than ``max_staleness_ms`` triggers ``stale_action``;
+          a call waiting for its own verdict always requires fresh evidence.
         """
         if self._slow_lane is None or not self._slow_stages:
             return None
@@ -514,38 +540,83 @@ class GuardRuntime:
         extra: list[GuardResult] = []
 
         verdict = self._slow_lane.latest_verdict()
-        if verdict is not None:
-            age_ms = verdict.age_s(now_m) * 1000.0
-            for r in verdict.results:
-                meta = {**r.metadata, "slow_lane": True, "verdict_age_ms": age_ms}
-                if r.decision == GuardDecision.CLAMP:
-                    extra.append(
-                        _dc.replace(
-                            r,
-                            decision=GuardDecision.REJECT,
-                            clamped_action=None,
-                            reason=f"slow-lane clamp escalated to reject (stale basis): {r.reason}",
-                            metadata=meta,
-                        )
+        if verdict is None:
+            return [self._slow_lane_unavailable("pending")]
+        age_ms = verdict.age_s(now_m) * 1000.0
+        for r in verdict.results:
+            meta = {
+                **r.metadata,
+                "slow_lane": True,
+                "verdict_age_ms": age_ms,
+                "basis_cycle_id": verdict.basis_cycle_id,
+                "current_cycle_checked": verdict.basis_cycle_id == self._cycle_id,
+            }
+            if r.decision == GuardDecision.CLAMP:
+                extra.append(
+                    _dc.replace(
+                        r,
+                        decision=GuardDecision.REJECT,
+                        clamped_action=None,
+                        reason=f"slow-lane clamp escalated to reject: {r.reason}",
+                        metadata=meta,
                     )
-                else:
-                    extra.append(_dc.replace(r, metadata=meta))
+                )
+            else:
+                extra.append(_dc.replace(r, metadata=meta))
 
-        age_s = (
-            verdict.age_s(now_m) if verdict is not None else self._slow_lane.verdict_age_s(now_m)
-        )
-        if age_s is not None and age_s * 1000.0 > float(cfg.max_staleness_ms):
+        if age_ms > float(cfg.max_staleness_ms):
             reason = (
-                f"slow-lane verdict stale: {age_s * 1000.0:.0f} ms "
+                f"slow-lane verdict stale: {age_ms:.0f} ms "
                 f"> max_staleness_ms={cfg.max_staleness_ms:.0f}"
             )
-            if cfg.stale_action == "reject":
+            if require_fresh or cfg.stale_action == "reject":
                 extra.append(GuardResult.reject("slow_lane_watchdog", GuardLayer.L0, reason=reason))
             elif now_m - self._slow_stale_warned_at > 5.0:
                 self._slow_stale_warned_at = now_m
                 logger.warning("%s (stale_action=warn)", reason)
 
         return extra or None
+
+    @staticmethod
+    def _slow_lane_unavailable(state: str) -> GuardResult:
+        result = GuardResult.reject(
+            "slow_lane_readiness", GuardLayer.L0, reason=f"slow-lane verdict {state}"
+        )
+        result.metadata.update(slow_lane=True, slow_lane_state=state, current_cycle_checked=False)
+        return result
+
+    def _submit_slow_lane(
+        self,
+        obs: Observation,
+        candidate: ActionProposal | ValidatedAction,
+        trace_id: str,
+        *,
+        wait_for_slow: bool,
+    ) -> list[GuardResult]:
+        from dam.runtime.slow_lane import SlowSnapshot
+
+        worker = self._slow_lane
+        cfg = self._slow_lane_config
+        assert worker is not None and cfg is not None
+        must_wait = wait_for_slow or (
+            worker.latest_verdict() is None and cfg.first_verdict == "wait"
+        )
+        worker.submit(
+            SlowSnapshot(
+                obs=obs,
+                action=candidate,
+                trace_id=trace_id,
+                cycle_id=self._cycle_id,
+                published_at=time.monotonic(),
+            )
+        )
+        if must_wait:
+            verdict = worker.wait_for_verdict(self._cycle_id, cfg.verdict_timeout_ms / 1000.0)
+            if verdict is None:
+                return [self._slow_lane_unavailable("timeout")]
+        # Read the real clock after waiting; the cycle's start time would make
+        # a late verdict appear fresh (or even have a negative age).
+        return self._slow_lane_extra_results(None, require_fresh=must_wait) or []
 
     def stop_task(self) -> None:
         self._stop_slow_lane()
@@ -676,6 +747,8 @@ class GuardRuntime:
         commit_state: bool = True,
         advance_cycle: bool = True,
         emit_side_effects: bool = True,
+        wait_for_slow: bool = False,
+        evaluate_slow_lane: bool | None = None,
     ) -> tuple[ValidatedAction | None, list[GuardResult]]:
         """Returns (validated_action, guard_results).
 
@@ -687,6 +760,11 @@ class GuardRuntime:
         If loopback recording is active, the cycle is also submitted to
         the MCAP writer — so ``validate()``-only callers (e.g.
         ``Guardrail``) get guard event logging for free.
+
+        ``wait_for_slow`` requires this cycle's slow verdict within the configured
+        deadline. Otherwise only the first verdict uses ``first_verdict``.
+        ``evaluate_slow_lane`` defaults to ``emit_side_effects``; NormalContext
+        enables it explicitly because step() owns recording and state commits.
         """
         if advance_cycle:
             pending = self._hot_reload.consume_pending()
@@ -712,29 +790,18 @@ class GuardRuntime:
             dynamics=self._select_dynamics(),
             config_pool=self._hot_reload.config_pool,
         )
-        # Slow-lane gating: the latest async verdict (L0/L2) joins this
-        # cycle's aggregate; staleness degrades per slow_lane.stale_action.
-        extra_results = self._slow_lane_extra_results(now) if emit_side_effects else None
+        post_checks = None
+        run_slow = emit_side_effects if evaluate_slow_lane is None else evaluate_slow_lane
+        if run_slow and self._slow_lane is not None and self._slow_stages:
+
+            def post_checks(candidate: ActionProposal | ValidatedAction) -> list[GuardResult]:
+                return self._submit_slow_lane(obs, candidate, trace_id, wait_for_slow=wait_for_slow)
+
         validated, results = self._engine.validate(
-            obs, action, trace_id, ctx, now=now, extra_results=extra_results
+            obs, action, trace_id, ctx, now=now, post_checks=post_checks
         )
         if commit_state:
             self._remember_validated_action(validated)
-
-        # Publish the post-fast-lane state for the slow lane: L2 evaluates
-        # what was actually commanded (post-L1 clamps), at its own cadence.
-        if emit_side_effects and self._slow_lane is not None and self._slow_stages:
-            from dam.runtime.slow_lane import SlowSnapshot
-
-            self._slow_lane.submit(
-                SlowSnapshot(
-                    obs=obs,
-                    action=validated if validated is not None else action,
-                    trace_id=trace_id,
-                    cycle_id=self._cycle_id,
-                    published_at=time.monotonic(),
-                )
-            )
 
         if emit_side_effects and self._telemetry.loopback is not None:
             self._telemetry.submit_loopback(

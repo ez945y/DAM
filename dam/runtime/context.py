@@ -190,6 +190,7 @@ class NormalContext(StepContext):
             commit_state=False,
             advance_cycle=False,
             emit_side_effects=False,
+            evaluate_slow_lane=True,
         )
         return StepResult(action=validated, guard_results=list(results))
 

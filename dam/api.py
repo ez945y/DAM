@@ -412,6 +412,11 @@ class Guardrail:
       * ``"zero"`` — a zero command.
 
     Not thread-safe — one instance per control loop.
+
+    With a slow lane, the first call follows ``slow_lane.first_verdict``
+    (bounded wait by default). Set ``wait_for_slow=True`` to require this
+    command's fresh slow verdict on every call. Otherwise later calls use
+    the latest verdict; inspect ``last_results`` and ``slow_lane_status``.
     """
 
     def __init__(
@@ -424,6 +429,7 @@ class Guardrail:
         solvers: Mapping[str, Any] | None = None,
         safe_action: Any = "hold",
         quiet: bool = False,
+        wait_for_slow: bool = False,
     ) -> None:
         _register_builtins()
 
@@ -432,6 +438,7 @@ class Guardrail:
         from dam.runtime.guard_runtime import GuardRuntime
 
         self._closed = True
+        self._wait_for_slow = wait_for_slow
         config = StackfileLoader.load(stackfile)
         if not config.tasks:
             raise ValueError("Guardrail requires at least one task in the Stackfile")
@@ -562,7 +569,9 @@ class Guardrail:
         action = self._build_action(raw_action, action_is_dict, pos_style, mappable)
         trace_id = str(uuid.uuid4())
 
-        validated, results = self._runtime.validate(obs, action, trace_id, now=now)
+        validated, results = self._runtime.validate(
+            obs, action, trace_id, now=now, wait_for_slow=self._wait_for_slow
+        )
         self._last_results = results
 
         if validated is not None:
@@ -630,6 +639,11 @@ class Guardrail:
     def last_results(self) -> list[GuardResult]:
         """Guard results from the most recent :meth:`__call__`."""
         return list(self._last_results)
+
+    @property
+    def slow_lane_status(self) -> dict[str, Any]:
+        """Readiness of the latest slow evidence; inspect last_results for decisions."""
+        return self._runtime.slow_lane_status
 
     @property
     def action_layout(self) -> list[dict[str, Any]]:
@@ -911,6 +925,11 @@ def guardrail(
 
     Convenience one-liner — builds a :class:`Guardrail` internally. For repeated
     calls use ``Guardrail`` directly to amortise setup.
+
+    Always waits for this command's slow-lane verdict when enabled, bounded by
+    ``slow_lane.verdict_timeout_ms``. In ENFORCE mode, timeout/reject/fault
+    returns ``safe_action``. Cleanup can additionally wait for the worker;
+    an unresponsive worker raises TimeoutError from close().
     """
     rail = Guardrail(
         stackfile,
@@ -920,6 +939,7 @@ def guardrail(
         solvers=solvers,
         safe_action=safe_action,
         quiet=True,
+        wait_for_slow=True,
     )
     with rail:
         return rail(inputs)
