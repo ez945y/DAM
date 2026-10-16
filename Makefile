@@ -14,15 +14,15 @@
 #   make ci-import         ← build Rust + import
 #   make ci-stackfile     ← validate stackfile
 #
-.PHONY: setup setup-lerobot ros dev build run docs docs-check test test-py test-rs test-ui test-one lint format typecheck check build-rs clean help dam validate record ci-lint ci-syntax ci-import ci-stackfile _kill_port
+.PHONY: setup setup-lerobot ros dev build run docs docs-check test test-py test-rs test-ui test-one lint format typecheck check build-rs clean help dam callbacks validate record ci-lint ci-syntax ci-import ci-stackfile
+
+# Module invocation keeps project commands usable after a checkout is moved,
+# even when generated console-script shebangs still contain the old path.
+PYTHON ?= .venv/bin/python
 
 # Ensure scripts are executable before every target that uses them
 _chmod:
 	@chmod +x scripts/setup.sh scripts/run.sh scripts/run_prod.sh scripts/test.sh
-
-_kill_port:
-	@echo "Checking for processes on ports 8080 and 3000..."
-	@lsof -ti:8080 -ti:3000 | sort -u | xargs kill -9 2>/dev/null || true
 
 setup: _chmod   ## First-time setup: venv + Rust + npm + pre-commit hooks + build frontend
 	@bash scripts/setup.sh
@@ -45,30 +45,30 @@ build-rs: _chmod   ## Rebuild Rust extension only (dam_rs via maturin)
 	@bash scripts/setup.sh --rust-only
 
 setup-precommit:   ## Install and setup pre-commit hooks
-	@uv pip install pre-commit --python .venv/bin/python
-	@.venv/bin/pre-commit install
+	@uv pip install pre-commit --python "$(PYTHON)"
+	@"$(PYTHON)" -m pre_commit install
 
 # macOS: prefer venv's bundled ffmpeg dylibs over Homebrew to silence
 # "Class AVFAudioReceiver is implemented in both …" ObjC duplicate warnings.
 _AV_DYLIB_DIR := $(shell ls -d .venv/lib/python*/site-packages/av/.dylibs 2>/dev/null | head -1)
 _DYLD_PREFIX   := $(if $(_AV_DYLIB_DIR),DYLD_LIBRARY_PATH="$(_AV_DYLIB_DIR):$$DYLD_LIBRARY_PATH" ,)
 
-dev: _chmod _kill_port  ## Dev mode: hot-reload backend + Next.js dev server
+dev: _chmod  ## Dev mode: hot-reload backend + Next.js dev server
 	@$(_DYLD_PREFIX)BACKEND_SCRIPT=scripts/dam_host.py bash scripts/run.sh
 
-run: _chmod _kill_port  ## Production mode: start backend + existing frontend build
+run: _chmod  ## Production mode: start backend + existing frontend build
 	@$(_DYLD_PREFIX)bash scripts/run_prod.sh
 
 record: _chmod  ## Safe recording with DAM guards (edit examples/stackfiles/safety.yaml, or pass ARGS)
-	@.venv/bin/python scripts/record.py $(ARGS)
+	@"$(PYTHON)" scripts/record.py $(ARGS)
 
 docs:   ## Preview documentation locally at http://127.0.0.1:8002/DAM/
 	@export PATH="$$HOME/.local/bin:$$HOME/.cargo/bin:/opt/homebrew/bin:$$PATH"; \
-	 uv pip install --python .venv/bin/python mkdocs mkdocs-material pymdown-extensions --quiet
-	@.venv/bin/mkdocs serve --dev-addr 127.0.0.1:8002
+	 uv pip install --python "$(PYTHON)" mkdocs mkdocs-material pymdown-extensions --quiet
+	@"$(PYTHON)" -m mkdocs serve --dev-addr 127.0.0.1:8002
 
 docs-check:   ## Run documentation quality checks (strict MkDocs + onboarding patterns)
-	@python scripts/check_docs.py
+	@"$(PYTHON)" scripts/check_docs.py
 
 test: _chmod   ## Run all tests + linters (Python, Rust, frontend)
 	@bash scripts/test.sh
@@ -83,21 +83,21 @@ test-ui: _chmod   ## Frontend tests only (jest --ci)
 	@bash scripts/test.sh --frontend
 
 test-one:   ## Run a single test file: make test-one FILE=tests/unit/test_guards.py
-	@.venv/bin/python -m pytest $(FILE) -x -v
+	@"$(PYTHON)" -m pytest $(FILE) -x -v
 
 lint: _chmod   ## Linters only (ruff check, mypy, cargo clippy) — no auto-fix
 	@bash scripts/test.sh --lint
 
 typecheck:   ## Run mypy only (fast type-check without ruff/tests)
-	@.venv/bin/mypy --config-file pyproject.toml dam tests
+	@"$(PYTHON)" -m mypy --config-file pyproject.toml dam tests
 
 check:   ## Run all pre-commit hooks on all files (one-shot CI gate)
-	@.venv/bin/pre-commit run --all-files
+	@"$(PYTHON)" -m pre_commit run --all-files
 
 format:   ## Auto-format Python (ruff) + Rust (cargo fmt) + trailing whitespace
 	@echo "Formatting Python..."
-	@.venv/bin/ruff format dam/ tests/ scripts/
-	@.venv/bin/ruff check --fix dam/ tests/ scripts/ || true
+	@"$(PYTHON)" -m ruff format dam/ tests/ scripts/
+	@"$(PYTHON)" -m ruff check --fix dam/ tests/ scripts/ || true
 	@if command -v cargo >/dev/null 2>&1 && [ -d dam-rust ]; then \
 		echo "Formatting Rust..."; \
 		cargo fmt --all --manifest-path dam-rust/Cargo.toml; \
@@ -116,24 +116,24 @@ help:   ## Show this help message
 	@echo ""
 
 dam:   ## Run the dam CLI (e.g. make dam ARGS="inspect" or ARGS="callbacks")
-	@.venv/bin/dam $(ARGS)
+	@"$(PYTHON)" -m dam.cli $(ARGS)
 
-callbacks:  ## List all 18 built-in boundary callbacks
-	@.venv/bin/dam callbacks
+callbacks:  ## List built-in boundary callbacks
+	@"$(PYTHON)" -m dam.cli callbacks
 
 validate:   ## Validate all example Stackfiles (the CI stackfile gate)
-	@.venv/bin/dam validate examples/stackfiles/*.yaml
+	@"$(PYTHON)" -m dam.cli validate examples/stackfiles/*.yaml
 
 # CI targets (mirrors GitHub Actions)
 ci-lint: _chmod
 	@bash scripts/test.sh --lint
 
 ci-syntax:
-	@python -c "import ast; import glob; [ast.parse(open(f).read()) for f in glob.glob('dam/**/*.py', recursive=True)]"
+	@"$(PYTHON)" -c "import ast; import glob; [ast.parse(open(f).read()) for f in glob.glob('dam/**/*.py', recursive=True)]"
 
 ci-import: _chmod
 	@bash scripts/setup.sh --rust-only
-	@python -c "import dam; print('OK')"
+	@"$(PYTHON)" -c "import dam; print('OK')"
 
 ci-stackfile: _chmod
-	@.venv/bin/dam validate examples/stackfiles/*.yaml
+	@"$(PYTHON)" -m dam.cli validate examples/stackfiles/*.yaml

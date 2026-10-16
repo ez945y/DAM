@@ -1141,21 +1141,33 @@ export default function GuardPage() {
 
   // ── Stackfile library (shared with the Config page via a hook) ─────────
   const lib = useStackfileLibrary()
+  const loadedGuardStateRef = useRef('')
+  const loadedYamlRef = useRef('')
 
   const applyStackfileYaml = useCallback((content: string) => {
-    if (!content) return
+    loadedYamlRef.current = content
     const parsed = migrateConfig(parseConfigFromYaml(content)) as Partial<DamConfig>
-    if (parsed.tasks && parsed.tasks.length > 0) setTasks(parsed.tasks)
-    if (parsed.boundaries && parsed.boundaries.length > 0) setBoundaries(parsed.boundaries)
-    if (parsed.guardsEnabled) setGuardsEnabled(parsed.guardsEnabled)
-    if (parsed.fallbacks) setFallbacks(parsed.fallbacks)
-    if (parsed.guardRouting) setGuardRouting(parsed.guardRouting)
+    const next = { ...defaultConfig(), ...parsed }
+    const nextTasks = parsed.tasks ?? []
+    const nextBoundaries = parsed.boundaries ?? []
+    const nextFallbacks = parsed.fallbacks ?? []
+    const nextRouting = parsed.guardRouting ?? {}
+    setTasks(nextTasks)
+    setBoundaries(nextBoundaries)
+    setGuardsEnabled(next.guardsEnabled)
+    setFallbacks(nextFallbacks)
+    setGuardRouting(nextRouting)
+    loadedGuardStateRef.current = JSON.stringify([
+      nextTasks, nextBoundaries, next.guardsEnabled, nextFallbacks, nextRouting,
+    ])
     // Keep the localStorage working copy in sync so the YAML preview and
     // autosave (which merge from it) reflect the loaded stackfile.
     try {
-      const rawCfg = localStorage.getItem('dam_config_v1')
-      const base: DamConfig = rawCfg ? { ...defaultConfig(), ...JSON.parse(rawCfg) } : defaultConfig()
-      localStorage.setItem('dam_config_v1', JSON.stringify({ ...base, ...parsed }))
+      localStorage.setItem('dam_config_v1', JSON.stringify({
+        ...next, tasks: nextTasks, boundaries: nextBoundaries,
+        fallbacks: nextFallbacks, guardRouting: nextRouting,
+      }))
+      localStorage.setItem('dam_yaml_v1', content)
     } catch { /* ignore */ }
   }, [])
 
@@ -1286,6 +1298,9 @@ export default function GuardPage() {
 
   // Auto-save to localStorage + disk (debounced)
   useEffect(() => {
+    if (!lib.ready || lib.busy) return
+    const guardState = JSON.stringify([tasks, boundaries, guardsEnabled, fallbacks, guardRouting])
+    if (guardState === loadedGuardStateRef.current) return
     const t = setTimeout(async () => {
       try {
         const rawCfg = globalThis.window !== undefined ? localStorage.getItem('dam_config_v1') : null
@@ -1293,7 +1308,7 @@ export default function GuardPage() {
         cfg.tasks = tasks
         cfg.boundaries = boundaries
         cfg.guardsEnabled = guardsEnabled
-        cfg.fallbacks = fallbacks.length > 0 ? fallbacks : cfg.fallbacks
+        cfg.fallbacks = fallbacks
         cfg.guardRouting = guardRouting
 
         const yaml = generateYaml(cfg)
@@ -1302,13 +1317,15 @@ export default function GuardPage() {
 
         // Persist to the active stackfile target (live or a library config).
         await lib.save(yaml)
+        loadedGuardStateRef.current = guardState
+        loadedYamlRef.current = yaml
 
         setSaved(true)
         setTimeout(() => setSaved(false), 1200)
       } catch {}
     }, 500)
     return () => clearTimeout(t)
-  }, [tasks, boundaries, guardsEnabled, fallbacks, guardRouting, lib])
+  }, [tasks, boundaries, guardsEnabled, fallbacks, guardRouting, lib.save, lib.ready, lib.busy])
 
   const updateTask = (t: TaskDef) => setTasks(prev => prev.map(x => x.id === t.id ? t : x))
 
@@ -1329,7 +1346,7 @@ export default function GuardPage() {
     cfg.tasks = tasks
     cfg.boundaries = boundaries
     cfg.guardsEnabled = guardsEnabled
-    cfg.fallbacks = fallbacks.length > 0 ? fallbacks : cfg.fallbacks
+    cfg.fallbacks = fallbacks
     cfg.guardRouting = guardRouting
     const blob = new Blob([JSON.stringify(cfg, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
@@ -1357,13 +1374,16 @@ export default function GuardPage() {
   }
 
   const yamlPreview = (() => {
+    if (loadedYamlRef.current && loadedGuardStateRef.current === JSON.stringify([
+      tasks, boundaries, guardsEnabled, fallbacks, guardRouting,
+    ])) return loadedYamlRef.current
     try {
       const rawCfg = globalThis.window !== undefined ? localStorage.getItem('dam_config_v1') : null
       const cfg: DamConfig = rawCfg ? { ...defaultConfig(), ...JSON.parse(rawCfg) } : defaultConfig()
       cfg.tasks = tasks
       cfg.boundaries = boundaries
       cfg.guardsEnabled = guardsEnabled
-      cfg.fallbacks = fallbacks.length > 0 ? fallbacks : cfg.fallbacks
+      cfg.fallbacks = fallbacks
       cfg.guardRouting = guardRouting
       return generateYaml(cfg)
     } catch {
@@ -1381,12 +1401,11 @@ export default function GuardPage() {
       cfg.tasks = tasks
       cfg.boundaries = boundaries
       cfg.guardsEnabled = guardsEnabled
-      cfg.fallbacks = fallbacks.length > 0 ? fallbacks : cfg.fallbacks
+      cfg.fallbacks = fallbacks
       cfg.guardRouting = guardRouting
       localStorage.setItem('dam_config_v1', JSON.stringify(cfg))
 
-      const fullYaml = generateYaml(cfg)
-      await api.restart(cfg.adapter, fullYaml)
+      await api.restart(cfg.adapter, yamlPreview)
       setRestartOk(true)
       setTimeout(() => setRestartOk(false), 3000)
     } catch (e) {
@@ -1405,7 +1424,7 @@ export default function GuardPage() {
       restartError={restartError}
       saved={saved}
       yaml={yamlPreview}
-      onApply={handleApplyRestart}
+      onApply={lib.ready && !lib.busy ? handleApplyRestart : undefined}
       onImport={() => importRef.current?.click()}
       onExport={handleExport}
     >

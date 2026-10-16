@@ -80,9 +80,20 @@ export function StackfileLibraryBar({
           </p>
         )}
         {lib.error && (
-          <p className="flex items-center gap-1 text-dam-red text-[10px]">
-            <AlertCircle size={10} /> {lib.error}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className="flex items-center gap-1 text-dam-red text-[10px]">
+              <AlertCircle size={10} /> {lib.error}
+            </p>
+            {!lib.ready && (
+              <button
+                onClick={() => lib.switchTarget(lib.target, onLoaded)}
+                disabled={off}
+                className="text-xs text-dam-blue disabled:opacity-50"
+              >
+                Retry load
+              </button>
+            )}
+          </div>
         )}
         {lib.ok && (
           <p className="flex items-center gap-1 text-dam-green text-[10px]">

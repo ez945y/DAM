@@ -138,6 +138,28 @@ class TestDoctor:
 
 
 class TestInspect:
+    @pytest.mark.parametrize("mode", ["enforce", "monitor", "log_only"])
+    @pytest.mark.parametrize("global_rules", ["safe_joints", ["safe_joints"]])
+    def test_inspect_shows_mode_and_combined_boundaries(self, tmp_path, capsys, mode, global_rules):
+        from pathlib import Path
+
+        import yaml
+
+        config = yaml.safe_load(Path("examples/stackfiles/minimal.yaml").read_text())
+        config["safety"].update(enforcement_mode=mode, always_active=global_rules)
+        config["tasks"]["global_only"] = {"boundaries": []}
+        stack = tmp_path / "stack.yaml"
+        stack.write_text(yaml.safe_dump(config))
+
+        assert main(["inspect", str(stack)]) == 0
+        output = capsys.readouterr().out
+        assert f"mode={mode}" in output
+        assert "always_active: ['safe_joints']" in output
+        combined = "configured boundaries (including always_active): ['safe_joints']"
+        # Both a task with a duplicate rule and a task without its own rules
+        # must show the global boundary exactly once.
+        assert output.count(combined) == 2
+
     def test_inspect_valid(self, capsys):
         rc = main(["inspect", VALID_STACK])
         out = capsys.readouterr().out

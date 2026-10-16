@@ -8,10 +8,12 @@ twist ``[v, omega]``. Obs and action are *different spaces*, so there is no 5-D
 vector to assemble: you register a solver + a callback, build a Guardrail from a
 stackfile, then feed it one dict per cycle and get a validated command back.
 
-Run:  python examples/mobile_base_guardrail.py
+Run from the checkout root: .venv/bin/python -m examples.mobile_base_guardrail
 """
 
 from __future__ import annotations
+
+from pathlib import Path
 
 import numpy as np
 
@@ -48,16 +50,18 @@ class _Ackermann:
 
 def main() -> None:
     # 2. Build the guard from a stackfile. On reject, stop the base.
-    rail = dam.Guardrail("examples/stackfiles/jetbot_lane_safety.yaml", safe_action=[0.0, 0.0])
-
-    # 3. Each control cycle: hand it a dict, get a validated [v, omega] back.
-    pose = [0.0, 0.0, 0.0]
-    for step, command in enumerate([[0.6, 0.0], [0.6, 0.2], [-5.0, 0.0], [0.4, -0.1]]):
-        safe = rail({"base_pose": pose, "action": np.asarray(command)})
-        decision = rail.last_results[0].decision.name if rail.last_results else "PASS"
-        print(f"step {step}: cmd={command} -> safe={np.round(safe, 3).tolist()} [{decision}]")
-        # advance the (fake) base with the validated command
-        pose = list(_Ackermann(0.12).rollout(pose, safe, DT))
+    stackfile = Path(__file__).parent / "stackfiles" / "jetbot_lane_safety.yaml"
+    with dam.Guardrail(str(stackfile), task="default", safe_action=[0.0, 0.0]) as rail:
+        # 3. Each control cycle: hand it a dict, get a validated [v, omega] back.
+        pose = [0.0, 0.0, 0.0]
+        for step, command in enumerate([[0.6, 0.0], [0.6, 0.2], [-5.0, 0.0], [0.4, -0.1]]):
+            safe = rail({"base_pose": pose, "action": np.asarray(command)})
+            decision = max(
+                (result.decision for result in rail.last_results), default=dam.GuardDecision.PASS
+            ).name
+            print(f"step {step}: cmd={command} -> safe={np.round(safe, 3).tolist()} [{decision}]")
+            # Advance the (fake) base with the validated command.
+            pose = list(_Ackermann(0.12).rollout(pose, safe, DT))
 
 
 if __name__ == "__main__":

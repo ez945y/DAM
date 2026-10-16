@@ -704,7 +704,7 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]; const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
+    if (!trimmed || trimmed.startsWith('#') || trimmed === '{}') continue;
     if (line.startsWith('boundaries:')) { section = 'boundaries'; continue }
     if (line.startsWith('tasks:')) { section = 'tasks'; continue }
     if (line.startsWith('fallbacks:')) { section = 'fallbacks'; continue }
@@ -772,9 +772,9 @@ export function parseConfigFromYaml(yaml: string): Partial<DamConfig> {
       }
     }
   }
-  if (boundaries.length > 0) result.boundaries = boundaries
-  if (tasks.length > 0) result.tasks = tasks
-  if (fallbacks.length > 0) result.fallbacks = fallbacks
+  if (/^boundaries:/m.test(yaml)) result.boundaries = boundaries
+  if (/^tasks:/m.test(yaml)) result.tasks = tasks
+  if (/^fallbacks:/m.test(yaml)) result.fallbacks = fallbacks
 
   // Parse cameras from BOTH formats:
   // 1. Legacy nested: cameras: { top: { type: opencv, ... } }

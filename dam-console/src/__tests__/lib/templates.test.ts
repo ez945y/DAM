@@ -5,6 +5,18 @@ import {
   parseConfigFromYaml,
 } from '@/lib/templates'
 
+describe('empty YAML sections', () => {
+  it.each([
+    'boundaries: {}\ntasks: {}\nfallbacks: {}\n',
+    'boundaries:\n  {}\ntasks:\n  {}\nfallbacks:\n  {}\n',
+  ])('keeps explicit empty sections when merging parsed config: %s', yaml => {
+    const merged = { ...defaultConfig('quick_start'), ...parseConfigFromYaml(yaml) }
+    expect(merged.boundaries).toEqual([])
+    expect(merged.tasks).toEqual([])
+    expect(merged.fallbacks).toEqual([])
+  })
+})
+
 describe('TEMPLATES', () => {
   it('has 4 presets', () => {
     expect(TEMPLATES).toHaveLength(4)

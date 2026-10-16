@@ -18,33 +18,14 @@ ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 info() { echo -e "${BLUE}[run]${NC} $*"; return 0; }
-ok()   { echo -e "${GREEN}[run] ✓${NC} $*"; return 0; }
 die()  { echo -e "${RED}[run] ✗${NC} $*" >&2; exit 1; }
-
-wait_for_http() {
-    local name="$1" url="$2" pid="$3" log_file="${4:-}"
-    local attempt
-    for attempt in $(seq 1 50); do
-        if ! kill -0 "$pid" 2>/dev/null; then
-            [[ -n "$log_file" && -f "$log_file" ]] && tail -30 "$log_file" >&2
-            die "${name} exited before it became reachable at ${url}."
-        fi
-        if curl -fsS "$url" >/dev/null 2>&1; then
-            ok "${name} ready at ${url}"
-            return 0
-        fi
-        sleep 0.1
-    done
-    [[ -n "$log_file" && -f "$log_file" ]] && tail -30 "$log_file" >&2
-    die "${name} did not become reachable at ${url}."
-}
 
 cd "$ROOT"
 
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
 # Bring cargo, uv, and node/npm into PATH if not already present.
-_NVM_BIN="$HOME/.nvm/versions/node/$(ls "$HOME/.nvm/versions/node" 2>/dev/null | sort -V | tail -1)/bin"
+_NVM_BIN="$HOME/.nvm/versions/node/$(ls "$HOME/.nvm/versions/node" 2>/dev/null | sort -V | tail -1 || true)/bin"
 for _dir in "$_NVM_BIN" "$HOME/.local/bin" "$HOME/.cargo/bin" "/usr/local/bin" "/opt/homebrew/bin"; do
     [[ -d "$_dir" ]] && export PATH="$_dir:$PATH"
 done
@@ -54,6 +35,10 @@ done
     || die ".venv not found.  Run: make setup"
 [[ -f .venv/bin/python ]] \
     || die ".venv is missing a Python binary.  Run: make setup"
+command -v curl >/dev/null 2>&1 || die "curl is required for service readiness checks."
+.venv/bin/python scripts/check_ports.py 8080 3000
+[[ -f dam-console/.next/standalone/server.js ]] \
+    || die "Frontend not built. Run: make build"
 if ! .venv/bin/python -c "import dam_rs; w=dam_rs.McapWriter(); assert hasattr(dam_rs, 'ImageHub'); assert hasattr(w, 'attach_image_hub'); assert hasattr(w, 'stop')" 2>/dev/null; then
     .venv/bin/python -c "import dam_rs; w=dam_rs.McapWriter(); print(dam_rs.__file__); print('ImageHub', hasattr(dam_rs, 'ImageHub')); print('attach_image_hub', hasattr(w, 'attach_image_hub')); print('stop', hasattr(w, 'stop'))" 2>&1 || true
     die "dam_rs is stale or incomplete. Run: make build-rs"
@@ -75,55 +60,28 @@ if [[ ! -f "$STACKFILE" ]]; then
         die "Default stackfile ${DEMO_STACKFILE} not found."
     fi
 fi
-
-
-
-# ── Graceful shutdown ──────────────────────────────────────────────────────────
-_child_pids=()
-_shutdown_done=0
-_shutdown() {
-    if [[ "${_shutdown_done}" == "1" ]]; then
-        return 0
-    fi
-    _shutdown_done=1
-    echo ""
-    info "Shutting down…"
-    for pid in "${_child_pids[@]:-}"; do
-        kill "$pid" 2>/dev/null || true
-    done
-    wait 2>/dev/null || true
-    info "All services stopped."
-    return 0
-}
-_shutdown_and_exit() {
-    _shutdown
-    exit 0
-}
-trap _shutdown_and_exit INT TERM
-trap _shutdown EXIT
+mkdir -p "$ROOT/logs"
+SERVICE_LOG_DIR="$(mktemp -d "$ROOT/logs/run.XXXXXX")"
+BACKEND_RUN_LOG="$SERVICE_LOG_DIR/backend.log"
+FRONTEND_RUN_LOG="$SERVICE_LOG_DIR/frontend.log"
+source "$SCRIPT_DIR/service_helpers.sh"
+info "Service logs: ${SERVICE_LOG_DIR}"
 
 # ── Start backend (Fast background startup) ──────────────────────────────────
 info "Starting backend (scripts/dam_host.py) on :8080…"
-.venv/bin/python scripts/dam_host.py &
-_child_pids+=($!)
+.venv/bin/python -u scripts/dam_host.py > "$BACKEND_RUN_LOG" 2>&1 &
 BACKEND_PID=$!
-wait_for_http "Backend API" "http://127.0.0.1:8080/api/control/status" "$BACKEND_PID"
-
-FRONTEND_RUN_LOG="/tmp/dam-frontend-run.log"
-
-# ── Ensure frontend is built ──────────────────────────────────────────────────
-if [[ ! -d dam-console/.next/standalone ]]; then
-    die "Frontend not built. Run: make build"
-fi
+register_service "$BACKEND_PID" "Backend API" "$BACKEND_RUN_LOG"
+wait_for_http "Backend API" "http://127.0.0.1:8080/api/control/status" "$BACKEND_RUN_LOG"
 
 # ── Start production frontend ──────────────────────────────────────────────────
 info "Starting frontend (Next.js standalone) on :3000…"
 info "  run log → ${FRONTEND_RUN_LOG}"
 # standalone mode requires `node .next/standalone/server.js`
-(cd dam-console && PORT=3000 HOSTNAME=127.0.0.1 node .next/standalone/server.js > "$FRONTEND_RUN_LOG" 2>&1) &
+(cd dam-console && exec env PORT=3000 HOSTNAME=127.0.0.1 node .next/standalone/server.js) > "$FRONTEND_RUN_LOG" 2>&1 &
 FRONTEND_PID=$!
-_child_pids+=("$FRONTEND_PID")
-wait_for_http "Frontend console" "http://127.0.0.1:3000/" "$FRONTEND_PID" "$FRONTEND_RUN_LOG"
+register_service "$FRONTEND_PID" "Frontend console" "$FRONTEND_RUN_LOG"
+wait_for_http "Frontend console" "http://127.0.0.1:3000/" "$FRONTEND_RUN_LOG"
 
 # ── Ready banner ───────────────────────────────────────────────────────────────
 echo ""
@@ -136,4 +94,4 @@ echo -e "${GREEN}${BOLD}━━━━━━━━━━━━━━━━━━�
 echo -e "  Press ${YELLOW}Ctrl+C${NC} to stop all services."
 echo ""
 
-wait
+monitor_services

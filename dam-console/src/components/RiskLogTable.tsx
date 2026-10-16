@@ -596,9 +596,9 @@ function FailureTypeBadge({ type }: { type?: string | null }) {
 export function RiskLogTable() {
   const [isMounted, setIsMounted] = useState(false);
   const searchParams = useSearchParams();
-  const targetCycleId = searchParams
-    ? Number(searchParams.get("cycle_id") ?? "") || null
-    : null;
+  const cycleParam = searchParams?.get("cycle_id");
+  const parsedCycleId = cycleParam != null && cycleParam.trim() !== "" ? Number(cycleParam) : NaN;
+  const targetCycleId = Number.isInteger(parsedCycleId) && parsedCycleId >= 0 ? parsedCycleId : null;
 
   useEffect(() => {
     setIsMounted(true);
@@ -606,6 +606,7 @@ export function RiskLogTable() {
 
   const [events, setEvents] = useState<RiskEvent[]>([]);
   const [loading, setLoading] = useState(false);
+  const requestIdRef = useRef(0);
   const [source, setSource] = useState<"live" | "mcap">("live");
   const [mcapSessions, setMcapSessions] = useState<McapSessionSummary[]>([]);
   const [selectedMcap, setSelectedMcap] = useState("");
@@ -664,6 +665,7 @@ export function RiskLogTable() {
   };
 
   const load = async (isBackground = false) => {
+    const requestId = ++requestIdRef.current;
     if (!isBackground) setLoading(true);
     try {
       if (source === "mcap" && !selectedMcap) {
@@ -680,11 +682,11 @@ export function RiskLogTable() {
         source === "mcap" && selectedMcap
           ? await api.getRiskLogFromMcap(selectedMcap, params)
           : await api.getRiskLog(params);
-      setEvents(evRes.events);
+      if (requestId === requestIdRef.current) setEvents(evRes.events);
     } catch {
       /* ignore */
     } finally {
-      if (!isBackground) setLoading(false);
+      if (requestId === requestIdRef.current) setLoading(false);
     }
   };
 
@@ -732,6 +734,7 @@ export function RiskLogTable() {
   }, [targetCycleId]);
 
   useEffect(() => {
+    setEvents([]);
     load();
 
     const handleUpdate = () => {
@@ -746,6 +749,9 @@ export function RiskLogTable() {
     globalThis.addEventListener("focus", handleFocus);
 
     return () => {
+      // A response for the previous filters or recording must not replace
+      // the current view, even if it arrives after a newer request.
+      requestIdRef.current += 1;
       globalThis.removeEventListener("dam-system-update", handleUpdate);
       globalThis.removeEventListener("dam-risk-update", handleUpdate);
       globalThis.removeEventListener("focus", handleFocus);
@@ -754,13 +760,17 @@ export function RiskLogTable() {
   }, [filters, source, selectedMcap]);
 
   const handleClear = async () => {
+    const requestId = ++requestIdRef.current;
     try {
       await api.clearRiskLog();
+      if (requestId !== requestIdRef.current) return;
       setEvents([]);
       setExpandedAnchorIds(new Set());
       setExpandedEventIds(new Set());
     } catch {
       /* ignore */
+    } finally {
+      if (requestId === requestIdRef.current) setLoading(false);
     }
   };
 
@@ -812,7 +822,7 @@ export function RiskLogTable() {
 
   // Auto-expand + scroll to target cycle when URL param is set.
   useEffect(() => {
-    if (!targetCycleId || didAutoExpand.current || events.length === 0) return;
+    if (targetCycleId === null || didAutoExpand.current || events.length === 0) return;
     const ev = events.find((e) => e.cycle_id === targetCycleId);
     if (!ev) return;
     setExpandedEventIds((prev) => new Set(prev).add(ev.event_id));

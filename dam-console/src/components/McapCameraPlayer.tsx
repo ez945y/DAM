@@ -126,44 +126,50 @@ function LiveCameraCell({
 }) {
   const imgRef = useRef<HTMLImageElement>(null)
   const prevUrlRef = useRef('')
-  const [hasFrame, setHasFrame] = useState(() => !!gLiveImages[cam])
+  const [hasFrame, setHasFrame] = useState(false)
 
   // Listen for dam-live-frame events and update img.src directly — bypasses
   // React state entirely so image updates never trigger a page re-render.
   useEffect(() => {
-    const onFrame = (e: Event) => {
-      if ((e as CustomEvent).detail !== cam) return
+    setHasFrame(false)
+    imgRef.current?.removeAttribute('src')
+    const updateFrame = () => {
       const blob = gLiveImages[cam]
       if (!blob) return
-      if (!hasFrame) setHasFrame(true)
       const url = URL.createObjectURL(blob)
       if (imgRef.current) imgRef.current.src = url
+      setHasFrame(true)
       const prev = prevUrlRef.current
       if (prev) URL.revokeObjectURL(prev)
       prevUrlRef.current = url
     }
+    const onFrame = (e: Event) => {
+      if ((e as CustomEvent).detail === cam) updateFrame()
+    }
     globalThis.addEventListener('dam-live-frame', onFrame)
+    updateFrame()
     return () => {
       globalThis.removeEventListener('dam-live-frame', onFrame)
       if (prevUrlRef.current) URL.revokeObjectURL(prevUrlRef.current)
+      prevUrlRef.current = ''
     }
-  }, [cam, hasFrame])
+  }, [cam])
 
   return (
     <div className="relative bg-black flex items-center justify-center h-full w-full overflow-hidden">
-      {!hasFrame ? (
+      {!hasFrame && (
         <div className="flex flex-col items-center gap-1 text-dam-muted/40">
           <Radio size={20} className="animate-pulse" />
           <span className="text-[10px]">Waiting for frames…</span>
         </div>
-      ) : (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          ref={imgRef}
-          alt={`${cam} live`}
-          className="max-w-full max-h-full object-contain relative z-10"
-        />
       )}
+      {/* Keep the image mounted so the first received frame can set its src. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        ref={imgRef}
+        alt={`${cam} live`}
+        className={`max-w-full max-h-full object-contain relative z-10 ${hasFrame ? '' : 'hidden'}`}
+      />
       {(label || cam) && (
         <div className="absolute top-1.5 left-1.5 bg-black/60 text-white text-[9px] font-mono px-1.5 py-0.5 rounded z-20 flex items-center gap-1">
           <Radio size={7} className="animate-pulse text-red-400" />
@@ -176,79 +182,61 @@ function LiveCameraCell({
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export function McapCameraPlayer({
+export function McapCameraPlayer(props: McapCameraPlayerProps) {
+  // Session-specific state (including cached images) must never cross files.
+  return <SessionCameraPlayer key={JSON.stringify([props.filename, props.cameras, !!props.liveMode])} {...props} />
+}
+
+function SessionCameraPlayer({
   filename,
   cameras,
   currentTimestampNs,
   liveMode = false,
 }: McapCameraPlayerProps) {
-  const [selectedCam, setSelectedCam] = useState<string | null>(null)
+  const [selectedCam, setSelectedCam] = useState<string | null>(cameras[0] ?? null)
   // frames indexed by camera name
   const [framesMap, setFramesMap] = useState<Record<string, McapFrame[]>>({})
   const [loadingCams, setLoadingCams] = useState<Set<string>>(new Set())
   const [frameIdx, setFrameIdx] = useState(0)
   const [playing, setPlaying] = useState(false)
-  const [gridMode, setGridMode] = useState(false)
-  const [hasInitialized, setHasInitialized] = useState(false)
+  const [gridMode, setGridMode] = useState(cameras.length > 1)
   const playIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const skipInitialSessionSyncRef = useRef(false)
   // Stable ref to framesMap so loadCam doesn't need it as a closure dep
   const framesMapRef = useRef(framesMap)
-  useEffect(() => { framesMapRef.current = framesMap }, [framesMap])
-  const cameraKey = cameras.join('\0')
+  const pendingCamsRef = useRef(new Set<string>())
+  const generationRef = useRef(0)
 
   useEffect(() => {
-    if (playIntervalRef.current) {
-      clearInterval(playIntervalRef.current)
-      playIntervalRef.current = null
+    generationRef.current += 1
+    return () => {
+      generationRef.current += 1
+      pendingCamsRef.current.clear()
     }
-    const sessionCameras = cameraKey ? cameraKey.split('\0') : []
-    const initialCam = sessionCameras[0] ?? null
-    const initialGridMode = sessionCameras.length > 1
-    framesMapRef.current = {}
-    setFramesMap({})
-    setLoadingCams(new Set())
-    setFrameIdx(0)
-    setPlaying(false)
-    setSelectedCam(initialCam)
-    setGridMode(initialGridMode)
-    setHasInitialized(sessionCameras.length > 0)
-    skipInitialSessionSyncRef.current = true
-  }, [filename, cameraKey])
-
-  // When live mode is enabled, stop playback
-  useEffect(() => {
-    if (liveMode) {
-      setPlaying(false)
-    }
-  }, [liveMode])
-
-  // Auto-select first camera; enable grid when >1 camera
-  useEffect(() => {
-    if (cameras.length > 0 && !hasInitialized) {
-      setSelectedCam(cameras[0])
-      if (cameras.length > 1) {
-        setGridMode(true)
-      }
-      setHasInitialized(true)
-    }
-  }, [cameras, hasInitialized])
+  }, [])
 
   // Load frame list for a camera (lazy, cached in framesMap).
   // Uses framesMapRef so this callback stays stable across frame loads,
   // preventing the load useEffect from firing on every camera state update.
   const loadCam = useCallback((cam: string) => {
     if (liveMode) return
-    if (framesMapRef.current[cam] !== undefined) return
+    if (framesMapRef.current[cam] !== undefined || pendingCamsRef.current.has(cam)) return
+    const generation = generationRef.current
+    pendingCamsRef.current.add(cam)
     setLoadingCams(prev => new Set([...prev, cam]))
     api.listMcapFrames(filename, cam)
       .then(data => {
-        setFramesMap(prev => ({ ...prev, [cam]: data.frames ?? [] }))
+        if (generation !== generationRef.current) return
+        framesMapRef.current = { ...framesMapRef.current, [cam]: data.frames ?? [] }
+        setFramesMap(framesMapRef.current)
       })
       .catch(() => {
-        setFramesMap(prev => ({ ...prev, [cam]: [] }))
+        if (generation !== generationRef.current) return
+        framesMapRef.current = { ...framesMapRef.current, [cam]: [] }
+        setFramesMap(framesMapRef.current)
       })
       .finally(() => {
+        if (generation !== generationRef.current) return
+        pendingCamsRef.current.delete(cam)
         setLoadingCams(prev => { const s = new Set(prev); s.delete(cam); return s })
       })
   }, [filename, liveMode])  // removed framesMap dep — use framesMapRef instead
@@ -265,12 +253,11 @@ export function McapCameraPlayer({
 
   // Sync frameIdx to cycle timestamp (use first available camera's frame list)
   useEffect(() => {
-    if (liveMode || currentTimestampNs == null) return
+    if (liveMode) return
     const refFrames = selectedCam ? framesMap[selectedCam] : Object.values(framesMap)[0]
     if (!refFrames || refFrames.length === 0) return
-    if (skipInitialSessionSyncRef.current) {
-      skipInitialSessionSyncRef.current = false
-      setFrameIdx(0)
+    if (currentTimestampNs == null) {
+      setFrameIdx(prev => Math.min(prev, refFrames.length - 1))
       return
     }
     setFrameIdx(nearestFrameIdx(refFrames, currentTimestampNs))
@@ -500,7 +487,7 @@ export function McapCameraPlayer({
           // ── Single camera view ────────────────────────────────────────────
           <div className="h-full bg-black">
             {liveMode ? (
-              <LiveCameraCell cam={selectedCam ?? currentCams[0]} />
+              <LiveCameraCell key={selectedCam ?? currentCams[0]} cam={selectedCam ?? currentCams[0]} />
             ) : selectedCam && ((framesMap[selectedCam]?.length ?? 0) > 0 || (loadingCams.has(selectedCam) && currentTimestampNs != null)) ? (
               <CameraCell
                 filename={filename}

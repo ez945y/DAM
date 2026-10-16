@@ -54,6 +54,7 @@ export default function ConfigPage() {
   const [restartError, setRestartError] = useState<string | null>(null)
   const [restartOk, setRestartOk] = useState(false)
   const jsonInputRef = useRef<HTMLInputElement>(null)
+  const loadedConfigRef = useRef<DamConfig | null>(null)
 
   // ── Load saved config from localStorage after mount (post-hydration, client-only)
   useEffect(() => {
@@ -78,11 +79,13 @@ export default function ConfigPage() {
   const lib = useStackfileLibrary()
 
   const applyLoadedYaml = useCallback((content: string) => {
-    setYaml(content)
-    setLastSavedYaml(content) // don't echo it straight back on the next autosave
+    const next = { ...defaultConfig(), ...parseConfigFromYaml(content) }
+    loadedConfigRef.current = next
+    const loadedYaml = content || generateYaml(next)
+    setYaml(loadedYaml)
+    setLastSavedYaml(loadedYaml) // don't echo it straight back on the next autosave
     setYamlDirty(false)
-    const parsed = parseConfigFromYaml(content)
-    if (Object.keys(parsed).length > 0) setCfg(prev => ({ ...prev, ...parsed }))
+    setCfg(next)
   }, [])
 
   const saveToBackend = useCallback(async (content: string) => {
@@ -93,15 +96,16 @@ export default function ConfigPage() {
     } catch (err) {
       console.error('Failed to save config:', err)
     }
-  }, [lastSavedYaml, lib])
+  }, [lastSavedYaml, lib.save])
 
   useEffect(() => {
+    if (!lib.ready || lib.busy) return
     try { localStorage.setItem(YAML_STORAGE_KEY, yaml) } catch { /* ignore */ }
     const t = setTimeout(() => {
       saveToBackend(yaml)
     }, 800)
     return () => clearTimeout(t)
-  }, [yaml, saveToBackend])
+  }, [yaml, saveToBackend, lib.ready, lib.busy])
 
   const [usbDevices, setUsbDevices] = useState<UsbDeviceInfo[]>([])
   const [usbScanning, setUsbScanning] = useState(false)
@@ -120,7 +124,9 @@ export default function ConfigPage() {
   }, [refreshPresets])
 
   useEffect(() => {
-    if (!yamlDirty) {
+    // Hydrating the form must not regenerate a loaded file: the editor does
+    // not represent every YAML field, comment or advanced configuration.
+    if (!yamlDirty && cfg !== loadedConfigRef.current) {
       setYaml(generateYaml(cfg))
     }
   }, [cfg, yamlDirty])
@@ -312,7 +318,7 @@ export default function ConfigPage() {
       saved={saved}
       yaml={yaml}
       onYamlChange={handleYamlEdit}
-      onApply={handleApplyRestart}
+      onApply={lib.ready && !lib.busy ? handleApplyRestart : undefined}
       onImport={() => jsonInputRef.current?.click()}
       onExport={handleExportJson}
     >

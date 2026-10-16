@@ -28,7 +28,7 @@ export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 # This handles environments where these tools are installed but not on the
 # default non-login shell PATH (conda, nvm, homebrew, etc.).
 # Prepend in low→high priority order (last entry wins).
-_NVM_BIN="$HOME/.nvm/versions/node/$(ls "$HOME/.nvm/versions/node" 2>/dev/null | sort -V | tail -1)/bin"
+_NVM_BIN="$HOME/.nvm/versions/node/$(ls "$HOME/.nvm/versions/node" 2>/dev/null | sort -V | tail -1 || true)/bin"
 for _dir in "$_NVM_BIN" "$HOME/.local/bin" "$HOME/.cargo/bin" "/usr/local/bin" "/opt/homebrew/bin"; do
     [[ -d "$_dir" ]] && export PATH="$_dir:$PATH"
 done
@@ -38,6 +38,13 @@ done
     || die ".venv not found.  Run: make setup"
 [[ -f .venv/bin/python ]] \
     || die ".venv is missing a Python binary.  Run: make setup"
+command -v curl >/dev/null 2>&1 || die "curl is required for service readiness checks."
+if [[ -d dam-console/node_modules ]]; then
+    command -v npm >/dev/null 2>&1 || die "npm not found. Install Node.js before starting the console."
+fi
+_ports=(8080)
+[[ ! -d dam-console/node_modules ]] || _ports+=(3000)
+.venv/bin/python scripts/check_ports.py "${_ports[@]}"
 if ! .venv/bin/python -c "import dam_rs; w=dam_rs.McapWriter(); assert hasattr(dam_rs, 'ImageHub'); assert hasattr(w, 'attach_image_hub'); assert hasattr(w, 'stop')" 2>/dev/null; then
     echo -e "${RED}[dev] dam_rs import error:${NC}" >&2
     .venv/bin/python -c "import dam_rs; w=dam_rs.McapWriter(); print(dam_rs.__file__); print('ImageHub', hasattr(dam_rs, 'ImageHub')); print('attach_image_hub', hasattr(w, 'attach_image_hub')); print('stop', hasattr(w, 'stop'))" 2>&1 || true
@@ -58,64 +65,36 @@ if [[ ! -f "$STACKFILE" ]]; then
     fi
 fi
 
-# ── Graceful shutdown ─────────────────────────────────────────────────────────
-_child_pids=()
-_shutdown_done=0
-_shutdown() {
-    if [[ "${_shutdown_done}" == "1" ]]; then
-        return 0
-    fi
-    _shutdown_done=1
-    echo ""
-    info "Shutting down…"
-    for pid in "${_child_pids[@]:-}"; do
-        kill "$pid" 2>/dev/null || true
-    done
-    wait 2>/dev/null || true
-    info "All services stopped."
-    return 0
-}
-_shutdown_and_exit() {
-    _shutdown
-    exit 0
-}
-trap _shutdown_and_exit INT TERM
-trap _shutdown EXIT
+# Keep separate logs for each invocation; failures print their recent output.
+mkdir -p "$ROOT/logs"
+SERVICE_LOG_DIR="$(mktemp -d "$ROOT/logs/dev.XXXXXX")"
+BACKEND_RUN_LOG="$SERVICE_LOG_DIR/backend.log"
+FRONTEND_RUN_LOG="$SERVICE_LOG_DIR/frontend.log"
+source "$SCRIPT_DIR/service_helpers.sh"
+info "Service logs: ${SERVICE_LOG_DIR}"
 
 # Dynamic backend script selection (default to Universal Host)
 BACKEND_BIN="${BACKEND_SCRIPT:-scripts/dam_host.py}"
 
 info "Starting backend (${BACKEND_BIN}) on :8080 …"
-.venv/bin/python "$BACKEND_BIN" &
-_child_pids+=($!)
+.venv/bin/python -u "$BACKEND_BIN" > "$BACKEND_RUN_LOG" 2>&1 &
 BACKEND_PID=$!
+register_service "$BACKEND_PID" "Backend API" "$BACKEND_RUN_LOG"
 
 # ── Frontend (parallel startup) ───────────────────────────────────────────────
 if [[ -d dam-console/node_modules ]]; then
     info "Starting frontend (Next.js) on :3000 …"
-    (cd dam-console && HOST=127.0.0.1 PORT=3000 npm run dev > /dev/null 2>&1) &
-    _child_pids+=($!)
+    (cd dam-console && exec npm run dev -- --hostname 127.0.0.1 --port 3000) > "$FRONTEND_RUN_LOG" 2>&1 &
+    register_service "$!" "Frontend console" "$FRONTEND_RUN_LOG"
 else
     echo -e "${YELLOW}[dev] !${NC} dam-console/node_modules not found — skipping frontend."
     echo -e "      Run ${GREEN}make setup${NC} to install it."
 fi
 
-# Poll in background for health (just for banner confirmation)
-{
-    READY=false
-    for i in $(seq 1 30); do
-        if .venv/bin/python -c \
-            "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/control/status')" \
-            2>/dev/null; then
-            READY=true
-            break
-        fi
-        sleep 1
-    done
-    if ! $READY; then
-        echo -e "${RED}[dev] Warning: Backend is taking long to respond...${NC}"
-    fi
-} &
+wait_for_http "Backend API" "http://127.0.0.1:8080/api/control/status" "$BACKEND_RUN_LOG"
+if [[ -d dam-console/node_modules ]]; then
+    wait_for_http "Frontend console" "http://127.0.0.1:3000/" "$FRONTEND_RUN_LOG"
+fi
 
 # ── Ready banner ──────────────────────────────────────────────────────────────
 echo ""
@@ -130,4 +109,4 @@ echo -e "${GREEN}${BOLD}━━━━━━━━━━━━━━━━━━�
 echo -e "  Press ${YELLOW}Ctrl+C${NC} to stop all services."
 echo ""
 
-wait
+monitor_services

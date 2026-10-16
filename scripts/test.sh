@@ -43,7 +43,7 @@ export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
 
 # Bring cargo, uv, and node/npm into PATH if not already present.
-_NVM_BIN="$HOME/.nvm/versions/node/$(ls "$HOME/.nvm/versions/node" 2>/dev/null | sort -V | tail -1)/bin"
+_NVM_BIN="$HOME/.nvm/versions/node/$(ls "$HOME/.nvm/versions/node" 2>/dev/null | sort -V | tail -1 || true)/bin"
 for _dir in "$_NVM_BIN" "$HOME/.local/bin" "$HOME/.cargo/bin" "/usr/local/bin" "/opt/homebrew/bin"; do
     [[ -d "$_dir" ]] && export PATH="$_dir:$PATH"
 done
@@ -63,7 +63,9 @@ for arg in "$@"; do
 done
 
 # ── Preflight ──────────────────────────────────────────────────────────────────
-[[ -d .venv ]] || { echo -e "${RED}ERROR:${NC} .venv not found.  Run: make setup" >&2; exit 1; }
+if $RUN_PYTHON || $RUN_LINT; then
+    [[ -x .venv/bin/python ]] || { echo -e "${RED}ERROR:${NC} Project Python not found. Run: make setup" >&2; exit 1; }
+fi
 
 PY=".venv/bin/python"
 FAILURES=()
@@ -84,7 +86,7 @@ run_step() {
 # ── Linters ────────────────────────────────────────────────────────────────────
 if $RUN_LINT; then
     section "Linters"
-    run_step "pre-commit" .venv/bin/pre-commit run --all-files
+    run_step "pre-commit" "$PY" -m pre_commit run --all-files
 fi
 
 # ── Python tests ───────────────────────────────────────────────────────────────
@@ -108,24 +110,26 @@ if $RUN_RUST; then
         section "Rust"
         run_step "cargo test" bash -c "cd dam-rust && cargo test --workspace"
     else
-        echo -e "${YELLOW}[test] !${NC} cargo not found — skipping Rust tests"
+        fail "Rust tests could not run: cargo not found. Install the Rust toolchain."
+        FAILURES+=("Rust tests unavailable (cargo missing)")
     fi
 fi
 
 # ── Frontend tests ─────────────────────────────────────────────────────────────
 if $RUN_FRONTEND; then
-    if [[ -d dam-console/node_modules ]]; then
+    if [[ -d dam-console/node_modules ]] && command -v npm >/dev/null 2>&1; then
         section "Frontend (Jest)"
         run_step "jest" bash -c "cd dam-console && npm run test:ci"
     else
-        echo -e "${YELLOW}[test] !${NC} dam-console/node_modules not found — skipping frontend tests"
+        fail "Frontend tests could not run: npm or dam-console/node_modules missing. Run: make setup"
+        FAILURES+=("Frontend tests unavailable (dependencies missing)")
     fi
 fi
 
 # ── Summary ────────────────────────────────────────────────────────────────────
 echo ""
 if [[ ${#FAILURES[@]} -eq 0 ]]; then
-    echo -e "${GREEN}${BOLD}All checks passed.${NC}"
+    echo -e "${GREEN}${BOLD}All requested checks passed.${NC}"
     exit 0
 else
     echo -e "${RED}${BOLD}${#FAILURES[@]} check(s) failed:${NC}"

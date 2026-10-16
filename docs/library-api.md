@@ -112,7 +112,10 @@ def forward_only(*, base_pose, action, solvers, dt=0.1):
     return bool(x_next >= 0.0)
 ```
 
-- Auto-detects `joint_names` and `degrees_mode` from `hardware` / the preset.
+- Resolves `joint_names` from `hardware` / the preset. `degrees_mode` comes from
+  the motor interface's `source.degrees_mode`, then `hardware.degrees_mode`,
+  and defaults to `True`; presets do not declare units. Explicit constructor
+  arguments override these settings.
 - The input dict is checked against the contract: a missing required obs group,
   or one whose key collides with a reserved runtime key, raises immediately.
 - Actions and explicit fallback vectors must have exactly the configured command
@@ -288,7 +291,10 @@ from dam import GuardrailProcessorStep
 robot_action_processor.steps.insert(0, GuardrailProcessorStep("safety.yaml"))
 ```
 
-Drop-in `RobotActionProcessorStep` subclass. Lazy init — the guard is created on the first call, not at import time. Falls back to a no-op if LeRobot is not installed.
+Drop-in `RobotActionProcessorStep` subclass. Lazy init — the guard is created on
+the first action, not at import time. LeRobot is required for its processor
+pipeline; for a standalone loop, use `dam.Guardrail` directly. An importable
+class alone does not verify that the LeRobot integration is available.
 
 ---
 

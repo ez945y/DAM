@@ -1,5 +1,29 @@
 # session-handoff.md — 會話交接摘要
 
+## 2026-10-16 — Safety Studio hardening checkpoint (stopped at user request)
+
+- User requested staged wrap-up and stop. All three delegated agents have stopped; no further feature work or new validation is running. Changes remain uncommitted in the shared workspace; unrelated work is preserved.
+- Implemented local draft persistence/restoration including incomplete boundary JSON and raw declarations, storage failure/corruption messages, stale async-response guards, and keep-out sphere add/remove. Compile results, switch tokens and frame confirmation are not restored.
+- Authoring now rejects proven no-op/degenerate geometry, malformed action/joint declarations, boolean joint bounds, non-finite original values, ignored degree flags, and conflicts after degree normalization. Partially unresolved language requests produce no actionable component.
+- Switching now reports saved/active configuration read/validation errors while retaining acknowledged receipts. Applied changes superseded by another runtime/configuration are not written back to disk. Hashing rejects non-finite values before Pydantic JSON serialization can turn them into null.
+- Replay cases require complete requested range/assertion coverage; malformed stored cases are isolated and reported, ID/filename consistency is checked, and UI refresh/save races and non-JSON errors are handled.
+- Verification completed this round: initial unit baseline 1052 passed; root switching tests 30 passed (11 new); delegated authoring tests 95 passed (34 new), targeted ruff and mypy clean; delegated replay Python tests 23 passed, ruff/format clean; Console targeted Jest 18 passed and production-source TypeScript passed. Replay original 2 UI tests and source TypeScript passed before 6 additional tests were added; those 6 new tests were NOT run.
+- This checkpoint is not a full integration acceptance. No full post-change suite, production build, browser verification or hardware verification was performed. Root switching independent QA, latest replay Python mypy, final docs-check and full cross-component review remain pending because of the stop request. Do not reuse the previous round's 1143/152 counts as validation of this checkpoint.
+- Known review follow-up: historical applied-but-superseded rows retain a truthful backend message, but the UI's generic "Active but not saved" badge may need wording adjusted to avoid implying current activation. No edit was made after identifying this during wrap-up.
+- Documentation: switching failure behavior updated in docs/safety-studio.md; remaining authoring/draft/replay documentation alignment is pending. Resume from this checkpoint only on user request.
+
+## 2026-10-16 — Safety Studio and safety plan workflow
+
+- Implemented all six requested core workflows: additive baseline/scene/task/mode plans, static wiring diagnostics and conflict checks, reviewed configuration switching with runtime receipts/rollback, complete-cycle A/B replay plus executable regression cases, projected 3D workspace/keep-out editing, and bounded Chinese/English quantitative rule drafts.
+- New entry: Console sidebar → Safety Studio (`/safety`); Comparison contains Safety A/B comparison & regression cases. Compiled plans can be saved exclusively to the existing Stackfile library. Sample saved plan: `demo-precision`; sample Stackfiles: `comparison-roomy`, `comparison-precise`; sample MCAP: `session_safety_comparison_demo.mcap`. No existing library names were overwritten.
+- Switch previews bind active hash/version/task/lifecycle epoch and saved-file identity. Hot reload receives a control-cycle acknowledgement before persistence; failures retain old configuration. Stop/start invalidates queued and preparing changes, with commit-time checks. Structural changes save only while idle/stopped and require the existing reload/start workflow. Baseline boundaries cannot be removed or changed through a switch.
+- Replay evaluates every available cycle, retains FAULT, rejects missing history, snapshots configs and recording hashes, and isolates acceleration callback caches from live runtime and other candidates. Demo: 5 compared cycles, 2 differences, regression PASS. No hardware actuation was performed.
+- Validation: current checkout Python unit/integration/safety/property suite **1143 passed**; frontend **152 tests / 19 suites passed**; production Next.js build and TypeScript passed; targeted Python mypy/ruff/format and `make docs-check` passed. Production build retains a pre-existing upload-asset/NFT tracing warning. Concurrent unrelated workspace changes were preserved and not reverted or committed by this task.
+- Browser verification: imported example, compiled declarations, generated a Chinese quantitative rule, composed mode/scene, inspected 3D editor and confirmed missing FK disables preview. A subsequent browser session could not fetch cross-origin API data despite reachable API; A/B and regression behavior was verified through tests and the executable demo. Temporary verification servers on 13000/18080 were stopped.
+- Limits: authoring checks declarations, not sensor health. Native frame must be declared; moving frames/transforms and spatial speed-zone callbacks are not implemented. Language drafts use an explicit local grammar, leaving ambiguous/conditional clauses unresolved. Replay cannot reconstruct phase transitions, absent images/host health/watchdog age or arbitrary custom callback history; slow guards run synchronously offline with timing limitations displayed. No real-robot verification.
+- Guides: `docs/safety-studio.md`, `docs/safety-comparison.md`; reusable example: `examples/safety_plans/precision.json`; runnable demo: `.venv/bin/python -m examples.safety_comparison_demo`.
+
+
 ## 2026-10-16 — R03 slow-lane ownership and generation isolation
 
 - Completed `6effe45`: detached input/result buffers, submission-time runtime context, worker-owned guards/solvers, and task/configuration/state-generation verdict checks.
@@ -7,6 +31,58 @@
 - Validation in an isolated checkout based on `69d5f1f`: 1007 Python tests, mypy (222 source files), Ruff, pre-commit and strict docs build passed. Image-copy measurements and platform limitations are recorded in `docs/roadmap.md`.
 - The hourly DAM automation was paused at the user's request. Next roadmap item: R04 final-output/fallback contract. Other chats' uncommitted editor, service and runtime changes were preserved and were not included in this verification.
 
+
+## 2026-10-16 — 錄製資料與 Risk Log 靜態使用情境檢查
+
+使用者再次要求不要編譯或運行代碼。本輪仍未執行程式、測試、linter、服務、影像播放或實際刪除資料；只修改檔案並做人工靜態審查與 `git diff --check`。
+
+修改 `McapCameraPlayer.tsx`、`McapSessionList.tsx`、`app/mcap-viewer/page.tsx`、`RiskLogTable.tsx`：修正跨錄製檔的過期影像／週期資料、首幀 live image、初始影像時間對齊、ID 0、刪除提示與部分成功處理，以及 Risk Log 舊請求覆蓋新篩選結果。後端永久刪除行為不變，本輪沒有呼叫任何服務 API。使用流程文件補充刪除行為。
+
+新增 `src/__tests__/components/` 下的 `McapCameraPlayer.test.tsx`、`McapSessionList.test.tsx`、`McapViewer.test.tsx`、`RiskLogTable.test.tsx` 共 11 個回歸案例。允許執行後，先驗證這四個檔案，再視結果擴大前端測試。所有執行結果目前未知，亦未執行型別檢查。保留其他現有／進行中的變更，沒有提交。
+
+---
+
+## 2026-10-16 — 啟動與驗證流程續修（僅靜態審查）
+
+使用者在本聊天再次確認「沿用限制，只做靜態修改與審查」。本輪沒有執行專案程式、測試、編譯、linter 或服務；只閱讀／修改檔案、人工比對與 `git diff --check`。先前的 918 passed 不涵蓋本輪變更。
+
+- `scripts/service_helpers.sh` 統一 dev/run 的 readiness、服務存活監測、錯誤日誌與關閉流程。ready banner 放在 HTTP 檢查通過之後；curl 有連線與回應 timeout，`DAM_STARTUP_TIMEOUT` 可設定 1–3600 秒。任何服務意外退出都回報並結束本次啟動。
+- 每次啟動保留獨立的 `logs/dev.*`／`logs/run.*` 目錄與 backend/frontend 日誌；錯誤顯示尾端內容。以 Bash job control 建立本次服務的 process groups，關閉時先 TERM、等 10 秒再清理剩餘子程序；此流程尚待 macOS Bash 3.2 與 Linux 實測。
+- dev 明確使用 Next.js `--hostname 127.0.0.1 --port 3000`，避免依賴未必生效的 HOST 環境變數；readiness 與埠檢查目標一致。
+- `scripts/test.sh` 缺少所選套件的依賴時回傳失敗，成功訊息限定於 requested checks；只跑 Rust／frontend 不再要求 Python venv。run/setup/test 的 NVM 探測允許目錄不存在，不因 `pipefail` 提前離開。
+- 新增 `tests/unit/test_service_helpers.py`，補充 `tests/unit/test_local_helpers.py`：ready／timeout、意外退出、子程序清理、無子程序關閉、無效 timeout、缺少 frontend 依賴與 Rust-only 無 venv。這些案例皆未執行。
+
+下一步需使用者允許執行後，先驗證兩個 helper 測試檔、shell syntax 與文件檢查，再評估隔離服務的生命週期驗證；不要直接啟動本地 `.dam_stackfile.yaml` 對應的真實 host。其他聊天進行中的 frontend／safety／runtime 修改未介入。
+
+---
+
+## 2026-10-16 — Stackfile 使用流程靜態檢查（禁止執行）
+
+使用者明確要求先不要編譯或運行代碼；此限制仍有效。本輪未執行測試、linter、服務或實機操作，只做檔案閱讀／修改、人工差異審查與 `git diff --check`。
+
+修正範圍：`useStackfileLibrary` 的載入完成閘門、讀取失敗顯示與重試、過期目標 save callback 防護、刪除前讀取 Live；Config/Guard 載入時不自動重寫 YAML、切換空設定清除舊規則；parser 的空 mapping；新增 `POST /api/stackfiles/{name}` 以 exclusive file creation 防止 New 同名覆寫，保留 PUT 儲存行為並檢查 YAML body 型別。
+
+待允許執行後驗證：`tests/unit/test_stackfile_library.py`，前端 `StackfileEditors.test.tsx`、`useStackfileLibrary.test.ts`、`api.test.ts`、`templates.test.ts`，再依結果決定是否擴大檢查。這些回歸案例已寫入，尚未執行，不能視為通過。使用流程文件已同步。其他進行中的 safety/runtime/sidebar 等檔案不屬於本輪修改，未回復或提交。
+
+---
+
+## 2026-10-16 — 操作摩擦點優化
+
+已將 Make 的 Python CLI／驗證工具改為 module invocation；可直接用 `make dam ARGS="inspect"`、`make validate`、`make docs-check`，不依賴舊 console-script 路徑。`init.sh` 固定使用專案 Python 並可從其他目錄呼叫。dev/run 不再 kill 佔用 ports 的程序，會先回報；production 缺 frontend build 時不啟動 backend。
+
+`dam inspect` 新增 enforcement mode、全域規則與各 task 合併後的設定清單。agent 舊說明改為 skill 入口，修正文檔落差；mobile-base 範例改以 context manager 清理資源並聚合顯示最嚴格 decision。執行範例使用 `.venv/bin/python -m examples.mobile_base_guardrail`。
+
+驗證：33 targeted tests、918 unit tests、9/9 example Stackfiles、docs-check、ruff、shell syntax 與 skill validator 通過；離線範例 PASS/REJECT 正常。初始 replay/QP baseline 失敗已在其他進行中變更更新後消失，本輪沒有修改那些 guard/QP 或 replay-test 檔案。未啟動實機或 backend/frontend；port 檢查使用獨立測試 listener 驗證不會終止既有服務。
+
+---
+
+## 2026-10-16 — DAM agent skill
+
+已新增 `skills/dam-agent/SKILL.md`、`agents/openai.yaml` 與 `references/project-map.md`，並於 README 提供入口。技能以現行 schema/API/tests 為查證基準，涵蓋設定、整合、核心維護與實機事故的唯讀取證；避免照搬舊 LLM prompt。已透過 symlink 安裝到 `~/.codex/skills/dam-agent`，可用 `$dam-agent` 呼叫。
+
+驗證：skill validator、文件檢查、離線 PASS/CLAMP 範例、來源路徑檢查與 minimal Stackfile validate/inspect 通過；本輪 unit baseline 為 886 passed。CLI wrapper 有舊 interpreter 路徑，已使用 `.venv/bin/python -m dam.cli` 繞過並於技能記錄處理方式。無實機驗證。工作期間出現其他進行中的 guard/QP 修改，本交付未修改或回復那些檔案，baseline 結果不代表對那些後續改動的驗收。
+
+---
 
 > 最後更新: 2026-06-14 (Guardrail dict-in API + 0.7.0 收尾)
 

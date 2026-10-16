@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useState, Suspense, useCallback } from "react";
+import React, { useEffect, useState, Suspense, useCallback, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import type {
@@ -21,7 +21,7 @@ import {
   AlertTriangle,
   ShieldAlert,
   Clock,
-  Archive,
+  Trash2,
 } from "lucide-react";
 
 // ── Session list card ─────────────────────────────────────────────────────────
@@ -51,8 +51,7 @@ function SessionCard({
   });
 
   return (
-    <button
-      onClick={onClick}
+    <div
       className={[
         "w-full text-left p-3 rounded-lg border transition-all duration-150 space-y-2",
         selected
@@ -95,9 +94,9 @@ function SessionCard({
           className={`shrink-0 mt-0.5 ${selected ? "text-dam-blue" : "text-dam-muted"}`}
         />
         <div className="flex-1 min-w-0">
-          <p className="font-mono text-[11px] font-semibold text-dam-text truncate">
+          <button type="button" onClick={onClick} className="font-mono text-[11px] font-semibold text-dam-text truncate text-left w-full hover:text-dam-blue">
             {session.filename}
-          </p>
+          </button>
         </div>
       </div>
 
@@ -115,7 +114,7 @@ function SessionCard({
           </span>
         )}
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -219,7 +218,7 @@ function SessionHeader({
                 disabled={deleting}
                 className="text-[10px] font-bold text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 px-2 py-1 rounded transition-colors"
               >
-                {deleting ? "…" : "Move"}
+                {deleting ? "…" : "Delete permanently"}
               </button>
               <button
                 onClick={handleDeleteCancel}
@@ -233,14 +232,19 @@ function SessionHeader({
             <button
               onClick={handleDeleteClick}
               className="flex items-center justify-center p-1 text-dam-muted hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/50 rounded transition-colors"
-              title="Move to _trash"
+              title="Delete session permanently"
             >
-              <Archive size={12} />
+              <Trash2 size={12} />
             </button>
           )}
         </div>
       </div>
 
+      {deleteConfirm && (
+        <p className="text-[11px] text-red-400">
+          This permanently deletes the recording and camera frames. It cannot be undone.
+        </p>
+      )}
       {deleteError && (
         <div className="flex items-center gap-2 text-[11px] text-red-400 bg-red-500/10 border border-red-500/20 rounded px-3 py-1.5">
           <ShieldAlert size={11} className="shrink-0" />
@@ -277,6 +281,9 @@ function McapViewerContent() {
   const [selectedCycleId, setSelectedCycleId] = useState<number | null>(
     searchParams.get("cycle_id") ? Number(searchParams.get("cycle_id")) : null,
   );
+  const requestedCycleRef = useRef(selectedCycleId);
+  const selectedFilenameRef = useRef(selectedFilename);
+  selectedFilenameRef.current = selectedFilename;
 
   // Loaded session data
   const [sessions, setSessions] = useState<McapSessionSummary[]>([]);
@@ -305,40 +312,30 @@ function McapViewerContent() {
   }, []);
 
   const selectSession = useCallback(
-    (filename: string) => {
+    (filename: string, requestedCycleId: number | null = null) => {
       setSelectedFilename(filename);
-
-      // Ultimate zero-flicker: if we have the list in cache, pre-select the first cycle immediately
+      requestedCycleRef.current = requestedCycleId;
       const cached = cyclesCache[filename];
-      if (cached && cached.length > 0) {
-        // If NO cycle_id in URL, use first cached one
-        const urlCycleId = searchParams.get("cycle_id");
-        if (
-          urlCycleId &&
-          cached.some((c) => c.cycle_id === Number(urlCycleId))
-        ) {
-          setSelectedCycleId(Number(urlCycleId));
-        } else {
-          setSelectedCycleId(cached[0].cycle_id);
-        }
-      } else {
-        setSelectedCycleId(null);
-      }
+      setCycles(cached ?? []);
+      setSelectedCycleId(
+        requestedCycleId ?? cached?.[0]?.cycle_id ?? null,
+      );
 
       const url = new URL(window.location.href);
       url.searchParams.set("filename", filename);
-      // ONLY delete cycle_id if we are manually switching to a session that didn't have one
-      // If we're entering via URL, keep it!
-      if (!searchParams.get("cycle_id")) {
+      if (requestedCycleId === null) {
         url.searchParams.delete("cycle_id");
+      } else {
+        url.searchParams.set("cycle_id", String(requestedCycleId));
       }
       router.replace(url.pathname + url.search, { scroll: false });
     },
-    [router, cyclesCache, searchParams],
+    [router, cyclesCache],
   );
 
   const selectCycle = useCallback(
     (cycleId: number) => {
+      requestedCycleRef.current = cycleId;
       setSelectedCycleId(cycleId);
       const url = new URL(window.location.href);
       url.searchParams.set("cycle_id", String(cycleId));
@@ -361,9 +358,9 @@ function McapViewerContent() {
         );
 
         setSelectedFilename((prev) => {
-          if (prev) return prev;
+          if (prev && list.some((s) => s.filename === prev)) return prev;
           const urlFile = searchParams.get("filename");
-          return list.length > 0 ? (urlFile ?? list[0].filename) : null;
+          return list.find((s) => s.filename === urlFile)?.filename ?? list[0]?.filename ?? null;
         });
 
         setDetailMap((prev) => {
@@ -444,7 +441,8 @@ function McapViewerContent() {
         return next;
       });
 
-      if (selectedFilename && removed.has(selectedFilename)) {
+      if (selectedFilenameRef.current && removed.has(selectedFilenameRef.current)) {
+        requestedCycleRef.current = null;
         setSelectedFilename(null);
         setSelectedCycleId(null);
         setCycles([]);
@@ -452,7 +450,7 @@ function McapViewerContent() {
       }
       loadSessions();
     },
-    [loadSessions, router, selectedFilename],
+    [loadSessions, router],
   );
 
   const archiveSelectedSessions = useCallback(() => {
@@ -470,12 +468,13 @@ function McapViewerContent() {
     setError(null);
     try {
       const result = await api.archiveMcapSessions(filenames);
+      const deleted = result.archived.map((entry) => entry.filename);
+      if (deleted.length > 0) handleArchived(deleted);
       if (result.failed.length > 0) {
-        throw new Error(`Failed to archive: ${result.failed.join(", ")}`);
+        throw new Error(`Failed to delete: ${result.failed.join(", ")}`);
       }
-      handleArchived(filenames);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to archive sessions");
+      setError(e instanceof Error ? e.message : "Failed to delete sessions");
     } finally {
       setArchiving(false);
     }
@@ -515,8 +514,7 @@ function McapViewerContent() {
       .findMcapSession(id)
       .then((res) => {
         if (res.found && res.filename) {
-          selectSession(res.filename);
-          setSelectedCycleId(id);
+          selectSession(res.filename, id);
         }
       })
       .catch(() => {})
@@ -533,7 +531,9 @@ function McapViewerContent() {
     const existing = cyclesCache[selectedFilename] || [];
     const lastId = existing.at(-1)?.cycle_id;
 
-    if (!lastId) setCyclesLoading(true);
+    setCycles(existing);
+    setSelectedCycleId(requestedCycleRef.current ?? existing[0]?.cycle_id ?? null);
+    setCyclesLoading(lastId == null);
 
     api
       .listMcapCycles(selectedFilename, lastId)
@@ -542,32 +542,30 @@ function McapViewerContent() {
         const newCycles = data?.cycles ?? [];
 
         // Merge with existing cache
-        const updatedList = lastId ? [...existing, ...newCycles] : newCycles;
+        const updatedList = lastId != null ? [...existing, ...newCycles] : newCycles;
         setCycles(updatedList);
-        if (newCycles.length > 0 || !lastId) {
+        if (newCycles.length > 0 || lastId == null) {
           setCyclesCache((prev) => ({
             ...prev,
             [selectedFilename]: updatedList,
           }));
         }
 
-        const urlCycleId = searchParams.get("cycle_id");
+        const requestedCycleId = requestedCycleRef.current;
         let targetId: number | null = null;
 
-        if (urlCycleId) {
-          const id = Number(urlCycleId);
+        if (requestedCycleId != null) {
+          const id = requestedCycleId;
           if (updatedList.some((c) => c.cycle_id === id)) {
             targetId = id;
           }
         }
 
-        if (targetId === null && updatedList.length > 0 && !selectedCycleId) {
+        if (targetId === null && updatedList.length > 0) {
           targetId = updatedList[0].cycle_id;
         }
 
-        if (targetId !== null) {
-          setSelectedCycleId(targetId);
-        }
+        setSelectedCycleId(targetId);
       })
       .catch((e) => {
         if (!cancelled)
@@ -585,6 +583,7 @@ function McapViewerContent() {
   const selectedDetail = selectedFilename
     ? (detailMap[selectedFilename] ?? null)
     : null;
+  const selectedSession = sessions.find((s) => s.filename === selectedFilename);
   const cameras = selectedDetail?.stats.cameras ?? [];
   const selectedCycle = cycles.find((c) => c.cycle_id === selectedCycleId);
 
@@ -621,14 +620,14 @@ function McapViewerContent() {
               onClick={archiveSelectedSessions}
               disabled={selectedForArchive.size === 0 || archiving}
               className="inline-flex items-center gap-1 rounded border border-dam-border px-1.5 py-0.5 text-[10px] text-dam-muted hover:text-dam-text hover:border-dam-blue/40 disabled:opacity-40 disabled:cursor-not-allowed"
-              title="Move selected sessions to _trash"
+              title="Delete selected sessions permanently"
             >
               {archiving ? (
                 <Loader2 size={10} className="animate-spin" />
               ) : (
-                <Archive size={10} />
+                <Trash2 size={10} />
               )}
-              Move
+              Delete selected
             </button>
           </div>
           <label className="flex items-center gap-2 px-1 text-[10px] text-dam-muted">
@@ -734,9 +733,9 @@ function McapViewerContent() {
                       type="button"
                       disabled
                       className="flex items-center justify-center p-1 text-dam-muted border border-transparent rounded disabled:opacity-40 disabled:cursor-not-allowed"
-                      title="Move to _trash"
+                      title="Delete session permanently"
                     >
-                      <Archive size={12} />
+                      <Trash2 size={12} />
                     </button>
                   </div>
                 </div>
@@ -787,11 +786,10 @@ function McapViewerContent() {
             </>
           ) : (
             <>
-              {selectedDetail ? (
+              {selectedDetail && selectedSession ? (
                 <SessionHeader
-                  session={
-                    sessions.find((s) => s.filename === selectedFilename)!
-                  }
+                  key={selectedFilename}
+                  session={selectedSession}
                   detail={selectedDetail}
                   onArchived={handleArchived}
                 />

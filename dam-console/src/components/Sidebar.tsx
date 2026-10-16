@@ -23,6 +23,7 @@ const NAV = [
   { href: '/mcap-viewer', label: 'MCAP Sessions', icon: Film, section: 'Monitor' },
   { href: '/replay', label: 'Comparison', icon: RotateCcw, section: 'Monitor' },
   { href: '/experiments', label: 'Experiments', icon: FlaskConical, section: 'Monitor' },
+  { href: '/safety', label: 'Safety Studio', icon: ShieldCheck, section: 'Setup' },
   { href: '/config', label: 'Config', icon: Settings, section: 'Setup' },
   { href: '/guard', label: 'Guard', icon: ShieldCheck, section: 'Setup' },
 ]

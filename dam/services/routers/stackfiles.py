@@ -67,11 +67,26 @@ def create_stackfiles_router() -> APIRouter:
             raise HTTPException(404, f"stackfile not found: {name}")
         return PlainTextResponse(p.read_text())
 
+    @router.post("/{name}", status_code=201, responses={409: {"description": "Already exists"}})
+    def create_stackfile(name: str, body: Annotated[dict[str, Any], Body()]) -> Any:
+        yaml_content = body.get("yaml", "")
+        if not isinstance(yaml_content, str) or not yaml_content.strip():
+            raise HTTPException(400, "yaml must be a non-empty string")
+        p = _entry_path(name)
+        try:
+            # Exclusive creation also protects against another browser creating
+            # the same name after the library list was fetched.
+            with p.open("x", encoding="utf-8") as handle:
+                handle.write(yaml_content)
+        except FileExistsError:
+            raise HTTPException(409, f"stackfile already exists: {name}") from None
+        return {"name": _safe_name(name), "created": True}
+
     @router.put("/{name}", responses={400: {"description": "yaml required"}})
     def put_stackfile(name: str, body: Annotated[dict[str, Any], Body()]) -> Any:
         yaml_content = body.get("yaml", "")
-        if not yaml_content:
-            raise HTTPException(400, "yaml is required")
+        if not isinstance(yaml_content, str) or not yaml_content.strip():
+            raise HTTPException(400, "yaml must be a non-empty string")
         p = _entry_path(name)
         existed = p.is_file()
         p.write_text(yaml_content)

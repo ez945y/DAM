@@ -268,6 +268,7 @@ class GuardRuntime:
     def start_task(self, name: str) -> None:
         if name not in self._task_config:
             raise KeyError(f"Task '{name}' not found. Available: {list(self._task_config.keys())}")
+        self._hot_reload.cancel_task_switch()
         # Join the old evaluator before mutating the task state it reads.
         self._stop_slow_lane()
         self._slow_state_generation += 1
@@ -676,6 +677,7 @@ class GuardRuntime:
         return self._slow_lane_extra_results(None, require_fresh=must_wait) or []
 
     def stop_task(self) -> None:
+        self._hot_reload.cancel_task_switch()
         self._stop_slow_lane()
         self._slow_state_generation += 1
         self._active_task = None
@@ -722,9 +724,21 @@ class GuardRuntime:
 
     # ── 3G: Hot Reload ─────────────────────────────────────────────────────
 
-    def apply_pending_reload(self, new_config: StackfileConfig) -> None:
+    def apply_pending_reload(
+        self,
+        new_config: StackfileConfig,
+        *,
+        expected_version: int | None = None,
+        expected_task: str | None = None,
+        expected_epoch: int | None = None,
+    ) -> str:
         """Store a new config for thread-safe application at the next cycle boundary."""
-        self._hot_reload.queue_reload(new_config)
+        return self._hot_reload.queue_reload(
+            new_config,
+            expected_version=expected_version,
+            expected_task=expected_task,
+            expected_epoch=expected_epoch,
+        )
 
     @staticmethod
     def _build_config_pool(new_config: StackfileConfig) -> dict[str, Any]:
@@ -740,21 +754,17 @@ class GuardRuntime:
         """
         import copy
 
+        from dam.config.config_diff import config_structure
         from dam.runtime._stackfile_builder import _build_boundary_node, _make_container
 
         try:
+            prepared_epoch = self._hot_reload.task_epoch
+            self._hot_reload.check_expected_state(self._active_task)
             previous = getattr(self, "_reload_config", None)
             if previous is None:
                 raise ValueError("Hot reload requires a runtime built from a Stackfile")
 
-            def structure(config: StackfileConfig) -> dict[str, Any]:
-                data = config.model_dump()
-                for boundary in data["boundaries"].values():
-                    for node in boundary["nodes"]:
-                        node.pop("params", None)
-                return data
-
-            if structure(previous) != structure(new_config):
+            if config_structure(previous) != config_structure(new_config):
                 raise ValueError("Structural Stackfile changes require restarting the runtime")
             if self._slow_lane is not None:
                 raise ValueError("Stop the slow-lane worker before reloading safety parameters")
@@ -774,7 +784,23 @@ class GuardRuntime:
                 precompute_injection(prepared, candidate_pool)
                 prepared_guards.append((guard, prepared))
             saved_config = new_config.model_copy(deep=True)
-        except Exception:
+            # Commit only prepared values. Preserve node timers and motion history:
+            # updating a limit must not grant fresh hardware grace or reset a phase.
+            with self._hot_reload.lock:
+                self._hot_reload.check_expected_state(self._active_task)
+                if prepared_epoch != self._hot_reload.task_epoch:
+                    raise ValueError("Task lifecycle changed while preparing the switch")
+                self._boundary_containers = containers
+                self._active_containers = active_containers
+                self._hot_reload._config_pool = candidate_pool
+                for guard, prepared in prepared_guards:
+                    guard._static_kwargs = prepared._static_kwargs
+                    guard._runtime_keys = prepared._runtime_keys
+                self._reload_config = saved_config
+                self._hot_reload._config_version += 1
+                self._hot_reload.finish_reload(True, "Applied at a control-cycle boundary")
+        except Exception as exc:
+            self._hot_reload.finish_reload(False, str(exc))
             logger.error(
                 "GuardRuntime: config swap REJECTED; keeping previous config (v%d)",
                 self._hot_reload.config_version,
@@ -782,16 +808,6 @@ class GuardRuntime:
             )
             return
 
-        # Commit only prepared values. Preserve node timers and motion history:
-        # updating a limit must not grant fresh hardware grace or reset a phase.
-        self._boundary_containers = containers
-        self._active_containers = active_containers
-        self._hot_reload._config_pool = candidate_pool
-        for guard, prepared in prepared_guards:
-            guard._static_kwargs = prepared._static_kwargs
-            guard._runtime_keys = prepared._runtime_keys
-        self._reload_config = saved_config
-        self._hot_reload._config_version += 1
         logger.info("GuardRuntime: config swap committed (v%d)", self._config_version)
 
     # ── Core validate (thin wrapper → ExecutionEngine) ───────────────────────

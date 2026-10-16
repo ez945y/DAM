@@ -1,0 +1,4 @@
+interface:
+  display_name: "DAM Agent"
+  short_description: "Configure, integrate, and diagnose DAM robot guards"
+  default_prompt: "Use $dam-agent to inspect this DAM project and implement the requested Stackfile or Guardrail integration with offline validation."

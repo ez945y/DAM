@@ -216,6 +216,11 @@ export const api = {
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     return res.text()
   },
+  createStackfile: (name: string, yaml: string) =>
+    apiFetch<{ name: string; created: boolean }>(`/stackfiles/${encodeURIComponent(name)}`, {
+      method: 'POST',
+      body: JSON.stringify({ yaml }),
+    }),
   saveStackfile: (name: string, yaml: string) =>
     apiFetch<{ name: string; created: boolean }>(`/stackfiles/${encodeURIComponent(name)}`, {
       method: 'PUT',

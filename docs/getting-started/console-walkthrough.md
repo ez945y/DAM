@@ -40,6 +40,19 @@ Use this pattern:
 
 If the event names a boundary, search the Stackfile for that boundary name first.
 
+## Edit Saved Configurations
+
+The Configuration and Guard pages share a Stackfile selector. Loading a file does
+not automatically rewrite it; automatic saving starts after loading succeeds and
+you make an edit. A load error leaves the current file unchanged. Use **Retry
+load** if the initial load fails, or select another file to try switching again.
+
+Use **New** to create a library entry. An existing name is rejected without
+overwriting its contents. The API distinguishes exclusive creation
+(`POST /api/stackfiles/{name}`, returning `409` for an existing name) from saving
+(`PUT /api/stackfiles/{name}`). **Apply & Restart** applies the selected content to
+the live system.
+
 ## Check Latency
 
 The cycle latency panel tells you whether DAM is staying inside its time budget.
@@ -63,6 +76,11 @@ When a reject, fault, or repeated clamp needs investigation:
 4. Inspect the cycle, guard result, action, observation, and nearby image context if available.
 
 If no MCAP session appears, check the Stackfile `loopback:` section and confirm `backend: mcap`.
+
+Deleting a session permanently removes its recording and camera frames from disk;
+it does not move the file to a trash folder. The console asks for confirmation.
+If a batch deletion only partly succeeds, deleted sessions disappear from the list
+and the failed sessions remain selected so you can retry.
 
 ## Next Step
 

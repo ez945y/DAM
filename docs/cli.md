@@ -5,6 +5,12 @@ will run, list available callbacks, or run a bounded headless demo without the
 web console. After `make setup`, prefer `.venv/bin/dam ...` unless your virtual
 environment is already active.
 
+For source checkouts, `make dam ARGS="inspect"` uses the project's Python
+directly. If a console script reports an old interpreter path after moving the
+checkout, use `.venv/bin/python -m dam.cli inspect`; no environment activation
+is needed. Use `make dam PYTHON=/path/to/python ARGS="inspect"` to select
+another prepared interpreter for the CLI.
+
 ```text
 dam <command> [options]
 
@@ -40,7 +46,7 @@ For repository examples, prefer explicit paths and task names:
 ### Via make
 
 The venv must be active for a bare `dam`; otherwise use the Make wrappers
-(they call `.venv/bin/dam` directly, no activation needed):
+(they call `.venv/bin/python -m dam.cli`, no activation needed):
 
 ```bash
 make dam ARGS="inspect"                 # any subcommand
@@ -109,7 +115,7 @@ violations or clamps occurred.
 dam replay data/robot/sessions/session-001.mcap --limit 20
 ```
 
-Requires the optional `mcap` dependency (`pip install 'dam[torch]'`).
+Requires `mcap`, which is included in the `robot-dam` core dependencies.
 
 ## `dam doctor`
 
@@ -125,9 +131,11 @@ dam doctor
 
 ## `dam inspect`
 
-Loads a Stackfile and prints the resolved graph — safety settings, active
+Loads a Stackfile and prints the resolved configuration — enforcement mode, safety settings, configured
 guards, every boundary (layer, container type, callback, fallback, param
-keys), tasks, and the fallback escalation chain. Pure config read; no
+keys), tasks, global `always_active` rules, each task's combined boundary list,
+and the fallback escalation chain. The combined list describes configuration;
+it does not prove callbacks are registered or hardware is ready. Pure config read; no
 hardware, registry, or runtime is started.
 
 ```bash

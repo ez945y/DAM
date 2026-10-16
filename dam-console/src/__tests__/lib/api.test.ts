@@ -14,6 +14,15 @@ function ok(data: unknown, status = 200) {
 describe('api', () => {
   beforeEach(() => mockFetch.mockReset())
 
+  it('uses POST for exclusive stackfile creation', async () => {
+    mockFetch.mockReturnValue(ok({ name: 'new-config', created: true }, 201))
+    await api.createStackfile('new-config', 'version: "1"')
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/stackfiles/new-config'),
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ yaml: 'version: "1"' }) }),
+    )
+  })
+
   describe('getRiskLog', () => {
     it('calls /api/risk-log', async () => {
       mockFetch.mockReturnValue(ok({ events: [], count: 0 }))

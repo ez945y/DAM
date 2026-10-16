@@ -525,7 +525,12 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
 
     safety = config.safety
     print(f"stack   : {args.stack}  (version {config.version})")
-    print(f"safety  : control_hz={safety.control_hz} no_task_behavior={safety.no_task_behavior}")
+    print(
+        f"safety  : mode={safety.enforcement_mode.value} control_hz={safety.control_hz} "
+        f"no_task_behavior={safety.no_task_behavior}"
+    )
+    always_active = safety.always_active_list()
+    print(f"always_active: {always_active}")
     print(f"guards  : {_format_guards(config.guards) or '—'}")
 
     print(f"\nboundaries ({len(config.boundaries)}):")
@@ -542,6 +547,8 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
     print(f"\ntasks ({len(config.tasks)}):")
     for name, task in config.tasks.items():
         print(f"  {name}: {list(task.boundaries)}")
+        active = list(dict.fromkeys([*always_active, *task.boundaries]))
+        print(f"    configured boundaries (including always_active): {active}")
 
     print(f"\nfallbacks ({len(config.fallbacks)}):")
     for name, fb in config.fallbacks.items():

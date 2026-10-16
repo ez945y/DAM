@@ -93,6 +93,9 @@ def create_app(services: ServiceContainer | None = None) -> Any:
         create_system_router,
         create_telemetry_router,
     )
+    from dam.services.routers.safety_authoring import create_safety_authoring_router
+    from dam.services.routers.safety_comparison import create_safety_comparison_router
+    from dam.services.routers.safety_switching import create_safety_switching_router
 
     app = FastAPI(
         title="DAM Console API",
@@ -152,5 +155,8 @@ def create_app(services: ServiceContainer | None = None) -> Any:
     app.include_router(create_experiments_router())
     app.include_router(create_stackfiles_router())
     app.include_router(create_replay_router(services.mcap_sessions))
+    app.include_router(create_safety_authoring_router())
+    app.include_router(create_safety_comparison_router(services.mcap_sessions))
+    app.include_router(create_safety_switching_router(services.control))
 
     return app

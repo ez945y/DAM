@@ -59,7 +59,7 @@ need_cmd() {
 }
 
 # Bring common tool dirs into PATH for non-login shells.
-_NVM_BIN="$HOME/.nvm/versions/node/$(ls "$HOME/.nvm/versions/node" 2>/dev/null | sort -V | tail -1)/bin"
+_NVM_BIN="$HOME/.nvm/versions/node/$(ls "$HOME/.nvm/versions/node" 2>/dev/null | sort -V | tail -1 || true)/bin"
 for _dir in "$_NVM_BIN" "$HOME/.local/bin" "$HOME/.cargo/bin" "/usr/local/bin" "/opt/homebrew/bin"; do
     [[ -d "$_dir" ]] && export PATH="$_dir:$PATH"
 done

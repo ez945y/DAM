@@ -126,7 +126,7 @@ The recorded dataset contains **only safe actions** — your policy trains on da
 | **L2** Task Execution | Does this make sense for the task? | Gripper sequence, progress enforcement |
 | **L3** Hardware Monitoring | Is the hardware healthy? | Temperature, current, voltage, heartbeat |
 
-L0 and L1 run **in parallel**. The final decision is the **most restrictive** outcome across all active layers.
+The runtime builds ordered stages from the active boundaries. Guards may run in parallel within a stage; an optional slow lane evaluates selected checks asynchronously. In enforce mode, the most restrictive outcome governs the command, including rejection or fault handling.
 
 ### Stackfile Configuration
 
@@ -158,6 +158,8 @@ Run `dam callbacks` to list them all:
 ---
 
 ## Documentation
+
+[Agent skill](skills/dam-agent/SKILL.md) — DAM-specific instructions for Stackfile configuration, Guardrail integration, runtime development, and read-only incident triage. To use with Codex, copy `skills/dam-agent` into `~/.codex/skills/` and invoke `$dam-agent` from your DAM checkout.
 
 [Future features and stability roadmap](docs/roadmap.md) — priorities, acceptance criteria, and follow-up work.
 

@@ -1,6 +1,7 @@
 'use client'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { PageShell } from '@/components/PageShell'
+import { SafetyComparisonPanel } from '@/components/SafetyComparisonPanel'
 import { api } from '@/lib/api'
 import type { McapSessionSummary } from '@/lib/api'
 import { Play, Square, Loader2, AlertTriangle, Wrench, CheckCircle2, BarChart3 } from 'lucide-react'
@@ -644,6 +645,7 @@ export default function ReplayPage() {
       title="Stackfile Comparison"
       subtitle="Recompute recorded cycles against a stackfile — see which guards would decide differently and what to tune"
     >
+      <SafetyComparisonPanel />
       <ReplayContent />
     </PageShell>
   )

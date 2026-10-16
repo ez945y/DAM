@@ -1,0 +1,38 @@
+{
+  "name": "demo-precision",
+  "base_yaml": "version: '1'\nhardware:\n  joint_names:\n  - demo_joint\n  degrees_mode: false\nguards:\n- L1: motion\nboundaries:\n  joint_range:\n    layer: L1\n    type: single\n    nodes:\n    - callback: joint_position_limits\n      params:\n        lower:\n        - -2.0\n        upper:\n        - 2.0\ntasks:\n  comparison_demo:\n    boundaries:\n    - joint_range\nsafety:\n  control_hz: 30\n  enforcement_mode: enforce\n",
+  "task": "comparison_demo",
+  "contract": {
+    "observation_keys": [
+      "joints"
+    ],
+    "action_units": [
+      "rad"
+    ]
+  },
+  "components": [
+    {
+      "name": "precision-mode",
+      "kind": "mode",
+      "boundaries": {
+        "precision_range": {
+          "type": "single",
+          "layer": "L1",
+          "nodes": [
+            {
+              "callback": "joint_position_limits",
+              "params": {
+                "lower": [
+                  -0.5
+                ],
+                "upper": [
+                  0.5
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

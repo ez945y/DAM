@@ -84,6 +84,8 @@ nav:
     - Experiments: experiments.md
   - Console:
     - Overview: console.md
+    - Safety Studio: safety-studio.md
+    - Safety Comparison: safety-comparison.md
     - API Reference: services-api.md
   - Release Notes:
     - v0.7.0: release-notes-0.7.0.md
