@@ -208,6 +208,37 @@ wait up to the worker stop timeout (currently two seconds) and raises
 `TimeoutError` if it is still running. A session can retry close after the
 callback exits; a one-shot call propagates that cleanup error.
 
+### Slow-lane data ownership
+
+Submission copies observation and action buffers, including images, channels,
+nested metadata and the original proposal. The worker receives the task,
+active boundary nodes, timers, command history and configuration captured on the
+control thread. Do not mutate inputs during a call; after submission returns,
+later caller changes do not affect that evaluation. Reading or modifying a
+returned verdict does not modify the worker's cached result.
+
+Completed results and ready/stale `slow_lane_status` include `task_name`,
+`config_version` and `state_generation`. Task restart/stop and boundary advance
+invalidate older generations; a mismatched verdict produces a
+`slow_lane_readiness` REJECT with `slow_lane_state: version_mismatch`, and the
+next call applies the first-verdict waiting policy again. This does not enable
+live configuration reload while a slow worker runs.
+
+Slow guards and solver/dynamics objects get private copies once per worker
+lifetime, on first submission. A resource or metadata value that cannot be deep
+copied produces a `slow_lane_snapshot` FAULT instead of using shared state.
+Custom Python objects must implement independent deep copies; callbacks must
+synchronize any mutable globals, closure state or external resources themselves.
+The runtime and SDK remain single-caller APIs.
+
+Slow stages run sequentially, even when their stage requests parallel execution,
+so a timed-out callback cannot outlive a successfully stopped worker. The waiting
+caller still has its configured deadline; Python callbacks cannot be forcibly
+cancelled. Copying runs on the submitting thread and adds latency and memory
+cost, especially for images and the initial model copy. Snapshot age includes
+this cost; `verdict_timeout_ms` bounds the wait after copying, not total call time.
+Measure with your actual images/models before choosing a control frequency.
+
 ### Motion constraint fusion
 
 Motion corrections now preserve constraints that originally returned PASS.

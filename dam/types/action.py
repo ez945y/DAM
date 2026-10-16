@@ -10,6 +10,9 @@ import numpy as np
 class ActionProposal:
     """Raw action emitted by a policy before any safety validation.
 
+    Frozen fields do not make nested arrays or metadata immutable. The slow-lane
+    submission boundary creates independent copies before background evaluation.
+
     Fields
     ------
     target_joint_positions  Desired joint angles [rad], shape (n_joints,). Always required.

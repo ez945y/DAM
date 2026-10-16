@@ -181,9 +181,9 @@ inspect `basis_cycle_id` and `current_cycle_checked` on slow results. Public
 violations without blocking commands, and LOG_ONLY bypasses checks.
 
 A slow CLAMP is still escalated to REJECT; no asynchronous correction is applied
-to the fast candidate. Waiting does not resolve the separate constraint fusion,
-snapshot ownership, or fallback-output validation work in the
-[roadmap](../roadmap.md). In particular, fallback contexts retain their existing
+to the fast candidate. Waiting alone does not certify the final output: constraint
+fusion and snapshot isolation have their own checks, and fallback-output
+validation remains pending in the [roadmap](../roadmap.md). In particular, fallback contexts retain their existing
 validation behavior; this change gates the normal proposal path. Evaluation
 deadlines cannot forcibly stop Python callbacks, so shutdown may separately
 time out and raise rather than report successful cleanup.
@@ -192,6 +192,28 @@ Task switching waits for the previous evaluator to stop before changing task
 state. If stopping times out, the operation raises and retains the worker
 reference and current task state. Retry after the evaluator has exited; a new
 worker must not overlap the old one.
+
+### Asynchronous snapshot isolation
+
+The slow lane owns copies of submitted observation/action data and its guard and
+solver state. Per-cycle boundary nodes, timers, history and configuration are
+captured before publication; the worker does not look up live runtime state
+while evaluating. Verdicts carry task/configuration/generation identity and are
+copied on publication and read. A verdict from a previous task, configuration or
+boundary phase is rejected, even if its timestamp is fresh.
+
+This is ownership isolation, not a sandbox for arbitrary callback code. Custom
+callbacks and deep-copy implementations must not retain unsynchronized mutable
+external state. Uncopyable payloads/resources fault; the runtime does not fall
+back to sharing them. Inputs must remain stable during submission. Sequential
+slow-stage execution ensures a successful worker stop also means its callbacks
+have returned; timeout still cannot cancel a Python callback.
+
+Image copying and initial guard/model duplication consume time and memory.
+Copies are included in evidence age, but occur before the verdict waiting
+interval. This implementation does not promise zero-copy transfer or a bound on
+arbitrary user-defined copy operations. GPU/native resource copy semantics need
+platform-specific validation.
 
 ### Hot-Reload
 

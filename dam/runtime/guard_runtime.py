@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import copy
 import logging
 import time
 import uuid
@@ -28,6 +29,7 @@ if TYPE_CHECKING:
     from dam.boundary.container import BoundaryContainer
     from dam.config.schema import StackfileConfig
     from dam.guard.base import Guard
+    from dam.runtime.slow_lane import SlowSnapshot, SlowVerdict
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +108,8 @@ class GuardRuntime:
         self._slow_stages: list[Any] | None = None
         self._slow_active_names: list[str] = []
         self._slow_stale_warned_at: float = 0.0
+        self._slow_state_generation = 0
+        self._slow_resources: tuple[Any, Any, Any] | None = None
         self._frame_hub = frame_hub
         # Real camera shapes populated by the runner during verify(); reused
         # by start_task to warm up policy / guard PyTorch graphs at the actual
@@ -266,6 +270,7 @@ class GuardRuntime:
             raise KeyError(f"Task '{name}' not found. Available: {list(self._task_config.keys())}")
         # Join the old evaluator before mutating the task state it reads.
         self._stop_slow_lane()
+        self._slow_state_generation += 1
         self._active_task = name
         self._active_containers = []
         self._active_container_names = []
@@ -453,8 +458,9 @@ class GuardRuntime:
         if self._slow_lane is not None:
             self._slow_lane.stop()
             self._slow_lane = None
+        self._slow_resources = None
 
-    def _evaluate_slow_lane(self, snapshot: Any) -> list[GuardResult]:
+    def _evaluate_slow_lane(self, snapshot: SlowSnapshot) -> list[GuardResult]:
         """Run the slow-lane stage list against a snapshot (worker thread).
 
         Stage order preserves the layer contract (L0 before L2); the action
@@ -462,35 +468,67 @@ class GuardRuntime:
         enforcement side effects here — verdicts gate waiting callers and
         subsequent fast cycles.
         """
-        slow_containers = [
-            self._boundary_containers[n]
-            for n in self._slow_active_names
-            if n in self._boundary_containers
-        ]
-        ctx = ValidationContext(
-            cycle_id=snapshot.cycle_id,
-            guards=self._guards,
-            stages=self._slow_stages,
-            active_containers=slow_containers,
-            active_container_names=list(self._slow_active_names),
-            boundary_containers=self._boundary_containers,
-            node_start_times=dict(self._node_start_times),
-            active_task=self._active_task,
-            solvers=self._solvers,
-            risk_controller=self._risk_controller,
-            sink=None,  # slow lane never touches actuation
-            runtime=self,
-            prev_validated_positions=self._prev_validated_positions,
-            prev_validated_velocities=self._prev_validated_velocities,
-            dynamics=self._select_dynamics(),
-            config_pool=self._hot_reload.config_pool,
-        )
+        ctx = snapshot.context
+        if not isinstance(ctx, ValidationContext):
+            raise ValueError("Slow snapshot is missing its evaluation context")
         return self._engine.run_guard_checks(
             snapshot.obs,
             snapshot.action,
             snapshot.trace_id,
             ctx,
-            stages=self._slow_stages,
+            stages=ctx.stages,
+        )
+
+    def _capture_slow_context(self) -> ValidationContext:
+        """Detach control state before publication; keep evaluators worker-owned.
+
+        Native/model resources are copied once per worker lifetime. Copy failure
+        is a FAULT, never permission to share an unsafe resource across lanes.
+        Custom callbacks remain responsible for globals/closures they capture.
+        """
+        if self._slow_resources is None:
+            stages, solvers, dynamics = copy.deepcopy(
+                (self._slow_stages, self._solvers, self._select_dynamics())
+            )
+            # A timed-out parallel future can outlive the worker and mutate a
+            # later evaluation. Sequential slow stages keep all callback work
+            # within the worker's join boundary (caller deadlines still apply).
+            for stage in stages or []:
+                stage.parallel = False
+            self._slow_resources = stages, solvers, dynamics
+        stages, solvers, dynamics = self._slow_resources
+        names = list(self._slow_active_names)
+        containers, starts, positions, velocities, config = copy.deepcopy(
+            (
+                {n: self._boundary_containers[n] for n in names if n in self._boundary_containers},
+                self._node_start_times,
+                self._prev_validated_positions,
+                self._prev_validated_velocities,
+                self._hot_reload.config_pool,
+            )
+        )
+        return ValidationContext(
+            cycle_id=self._cycle_id,
+            guards=[],
+            stages=stages,
+            active_containers=list(containers.values()),
+            active_container_names=names,
+            boundary_containers=containers,
+            node_start_times=starts,
+            active_task=self._active_task,
+            solvers=solvers,
+            risk_controller=self._risk_controller,  # unused by run_guard_checks
+            prev_validated_positions=positions,
+            prev_validated_velocities=velocities,
+            dynamics=dynamics,
+            config_pool=config,
+        )
+
+    def _slow_verdict_matches(self, verdict: SlowVerdict) -> bool:
+        return (
+            verdict.task_name == self._active_task
+            and verdict.config_version == self._hot_reload.config_version
+            and verdict.state_generation == self._slow_state_generation
         )
 
     @property
@@ -505,13 +543,16 @@ class GuardRuntime:
         if self._slow_lane is None or not self._slow_stages or self._slow_lane_config is None:
             return {"state": "disabled", "basis_cycle_id": None, "age_ms": None}
         verdict = self._slow_lane.latest_verdict()
-        if verdict is None:
+        if verdict is None or not self._slow_verdict_matches(verdict):
             return {"state": "pending", "basis_cycle_id": None, "age_ms": None}
         age_ms = verdict.age_s(time.monotonic()) * 1000.0
         return {
             "state": "ready" if age_ms <= self._slow_lane_config.max_staleness_ms else "stale",
             "basis_cycle_id": verdict.basis_cycle_id,
             "age_ms": age_ms,
+            "task_name": verdict.task_name,
+            "config_version": verdict.config_version,
+            "state_generation": verdict.state_generation,
         }
 
     def _slow_lane_extra_results(
@@ -542,6 +583,8 @@ class GuardRuntime:
         verdict = self._slow_lane.latest_verdict()
         if verdict is None:
             return [self._slow_lane_unavailable("pending")]
+        if not self._slow_verdict_matches(verdict):
+            return [self._slow_lane_unavailable("version_mismatch")]
         age_ms = verdict.age_s(now_m) * 1000.0
         for r in verdict.results:
             meta = {
@@ -549,6 +592,9 @@ class GuardRuntime:
                 "slow_lane": True,
                 "verdict_age_ms": age_ms,
                 "basis_cycle_id": verdict.basis_cycle_id,
+                "task_name": verdict.task_name,
+                "config_version": verdict.config_version,
+                "state_generation": verdict.state_generation,
                 "current_cycle_checked": verdict.basis_cycle_id == self._cycle_id,
             }
             if r.decision == GuardDecision.CLAMP:
@@ -598,18 +644,29 @@ class GuardRuntime:
         worker = self._slow_lane
         cfg = self._slow_lane_config
         assert worker is not None and cfg is not None
+        verdict = worker.latest_verdict()
         must_wait = wait_for_slow or (
-            worker.latest_verdict() is None and cfg.first_verdict == "wait"
+            (verdict is None or not self._slow_verdict_matches(verdict))
+            and cfg.first_verdict == "wait"
         )
-        worker.submit(
-            SlowSnapshot(
-                obs=obs,
-                action=candidate,
-                trace_id=trace_id,
-                cycle_id=self._cycle_id,
-                published_at=time.monotonic(),
+        try:
+            published_at = time.monotonic()  # include context and buffer-copy time
+            context = self._capture_slow_context()
+            worker.submit(
+                SlowSnapshot(
+                    obs=obs,
+                    action=candidate,
+                    trace_id=trace_id,
+                    cycle_id=self._cycle_id,
+                    published_at=published_at,
+                    task_name=self._active_task,
+                    config_version=self._hot_reload.config_version,
+                    state_generation=self._slow_state_generation,
+                    context=context,
+                )
             )
-        )
+        except Exception as exc:
+            return [GuardResult.fault(exc, "guard_code", "slow_lane_snapshot", GuardLayer.L0)]
         if must_wait:
             verdict = worker.wait_for_verdict(self._cycle_id, cfg.verdict_timeout_ms / 1000.0)
             if verdict is None:
@@ -620,6 +677,7 @@ class GuardRuntime:
 
     def stop_task(self) -> None:
         self._stop_slow_lane()
+        self._slow_state_generation += 1
         self._active_task = None
         self._active_containers = []
         self._active_container_names = []
@@ -643,6 +701,7 @@ class GuardRuntime:
             container = self._boundary_containers[name]
             container._runtime_boundary_name = name
             container.advance()
+            self._slow_state_generation += 1
             self._node_start_times[name] = time.monotonic()
 
     def pause_task(self) -> None:

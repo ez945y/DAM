@@ -370,7 +370,7 @@ class ExecutionEngine:
     def run_guard_checks(
         self,
         obs: Observation,
-        action: ActionProposal,
+        action: ActionProposal | ValidatedAction,
         trace_id: str,
         ctx: ValidationContext,
         *,
@@ -389,7 +389,7 @@ class ExecutionEngine:
     def _build_runtime_pool(
         self,
         obs: Observation,
-        action: ActionProposal,
+        action: ActionProposal | ValidatedAction,
         trace_id: str,
         ctx: ValidationContext,
         now: float | None,

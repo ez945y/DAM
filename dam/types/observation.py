@@ -11,6 +11,9 @@ import numpy as np
 class Observation:
     """Snapshot of robot state at a single point in time.
 
+    Frozen fields do not make nested arrays or metadata immutable. The slow-lane
+    submission boundary creates independent copies before background evaluation.
+
     Fields
     ------
     timestamp           Monotonic time in seconds (time.monotonic()).

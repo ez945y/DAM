@@ -18,18 +18,20 @@ Design (single-writer principle):
   underlying the verdict is older than ``max_staleness_ms``, including queue
   and evaluation latency.
 
-``Observation`` is a frozen dataclass that copies its arrays on construction,
-so sharing a snapshot across threads needs no further synchronisation.
+Frozen dataclasses do not freeze nested buffers. Submission detaches observation
+and action data (including images and metadata); verdict publication and reads
+also detach mutable result data. Callers own inputs until submit() returns.
 """
 
 from __future__ import annotations
 
+import copy
 import logging
 import math
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -54,6 +56,12 @@ class SlowSnapshot:
     trace_id: str
     cycle_id: int
     published_at: float  # time.monotonic()
+    task_name: str | None = None
+    config_version: int = 0
+    state_generation: int = 0
+    # Runtime-owned context, already detached on the control thread. Ownership
+    # transfers to the worker; guards/solvers inside it belong to this worker.
+    context: Any = None
 
 
 @dataclass(frozen=True)
@@ -66,6 +74,9 @@ class SlowVerdict:
     produced_at: float = 0.0  # time.monotonic()
     evaluation_ms: float = 0.0
     basis_published_at: float | None = None
+    task_name: str | None = None
+    config_version: int = 0
+    state_generation: int = 0
 
     def age_s(self, now: float) -> float:
         """Include queue and evaluation latency in the age of the evidence."""
@@ -97,7 +108,7 @@ class SlowLaneWorker:
         # the GIL; readers take a local reference before dereferencing.
         self._snapshot: SlowSnapshot | None = None
         self._verdict: SlowVerdict | None = None
-        self._last_evaluated_cycle: int = -1
+        self._last_evaluated_key: tuple[Any, ...] | None = None
         self._wakeup = threading.Event()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -107,13 +118,18 @@ class SlowLaneWorker:
     # ── Fast-lane API (called from the control loop thread) ───────────────
 
     def submit(self, snapshot: SlowSnapshot) -> None:
-        """Publish the latest snapshot (latest-wins, never blocks)."""
-        self._snapshot = snapshot
+        """Copy input buffers, then publish (latest-wins, no evaluator wait).
+
+        The caller must not mutate inputs during copying. Copy failures leave
+        the mailbox unchanged and propagate so the runtime can report FAULT.
+        """
+        obs, action = copy.deepcopy((snapshot.obs, snapshot.action))
+        self._snapshot = replace(snapshot, obs=obs, action=action)
         self._wakeup.set()
 
     def latest_verdict(self) -> SlowVerdict | None:
         """The most recent verdict, or None before the first evaluation."""
-        return self._verdict
+        return copy.deepcopy(self._verdict)
 
     def wait_for_verdict(self, cycle_id: int, timeout: float) -> SlowVerdict | None:
         """Wait at most ``timeout`` seconds for this exact snapshot's verdict.
@@ -132,7 +148,7 @@ class SlowLaneWorker:
             verdict = self._verdict
             if self._stop.is_set() or verdict is None or verdict.basis_cycle_id != cycle_id:
                 return None
-            return verdict
+            return copy.deepcopy(verdict)
 
     def verdict_age_s(self, now: float) -> float | None:
         """Age of the verdict's basis snapshot; falls back to time since start
@@ -160,7 +176,7 @@ class SlowLaneWorker:
             # replay that old task's mailbox when the worker is restarted.
             self._snapshot = None
         self._verdict = None
-        self._last_evaluated_cycle = -1
+        self._last_evaluated_key = None
         self._stop.clear()
         self._started_at = time.monotonic()
         self._thread = threading.Thread(target=self._run, name=self._name, daemon=True)
@@ -191,7 +207,15 @@ class SlowLaneWorker:
                 return
 
             snapshot = self._snapshot  # local ref — stable for this iteration
-            if snapshot is None or snapshot.cycle_id == self._last_evaluated_cycle:
+            if snapshot is None:
+                continue
+            key = (
+                snapshot.cycle_id,
+                snapshot.task_name,
+                snapshot.config_version,
+                snapshot.state_generation,
+            )
+            if key == self._last_evaluated_key:
                 continue  # nothing new — don't re-score identical state
 
             t0 = time.perf_counter()
@@ -204,6 +228,7 @@ class SlowLaneWorker:
                     for r in results
                 ):
                     raise TypeError("Slow-lane evaluator returned an invalid guard result")
+                results = copy.deepcopy(results)
             except Exception as exc:  # noqa: BLE001 — failures must gate the next cycle
                 from dam.guard.layer import GuardLayer
                 from dam.types.result import GuardResult
@@ -214,7 +239,7 @@ class SlowLaneWorker:
 
             if self._stop.is_set():
                 return
-            self._last_evaluated_cycle = snapshot.cycle_id
+            self._last_evaluated_key = key
             with self._verdict_changed:
                 self._verdict = SlowVerdict(
                     results=list(results),
@@ -223,6 +248,9 @@ class SlowLaneWorker:
                     produced_at=time.monotonic(),
                     evaluation_ms=elapsed_ms,
                     basis_published_at=snapshot.published_at,
+                    task_name=snapshot.task_name,
+                    config_version=snapshot.config_version,
+                    state_generation=snapshot.state_generation,
                 )
                 self._verdict_changed.notify_all()
             if elapsed_ms > self._period_s * 1000.0:
