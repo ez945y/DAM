@@ -9,9 +9,9 @@ use std::fs::File;
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crossbeam::channel::{bounded, RecvTimeoutError, Sender, TrySendError};
 use mcap::records::MessageHeader;
@@ -224,8 +224,12 @@ struct ImageHubAttachment {
     cursor: u64,
 }
 
+type WorkerCompletion = Arc<(Mutex<Option<Result<(), String>>>, Condvar)>;
+
 pub struct McapWriter {
     sender: Sender<WorkItem>,
+    completion: WorkerCompletion,
+    worker: Mutex<Option<thread::JoinHandle<()>>>,
     sequence: Arc<AtomicU64>,
     started: Arc<AtomicBool>,
     stop_requested: Arc<AtomicBool>,
@@ -250,14 +254,25 @@ impl McapWriter {
         let stop_requested_for_py = Arc::clone(&stop_requested);
         let image_hub_for_worker = Arc::clone(&image_hub);
 
-        thread::spawn(move || {
-            if let Err(e) = run_worker(rx, stop_requested, image_hub_for_worker) {
-                log::error!("McapWriter worker failed: {}", e);
-            }
-        });
+        let completion: WorkerCompletion = Arc::new((Mutex::new(None), Condvar::new()));
+        let worker_completion = Arc::clone(&completion);
+        let worker = thread::Builder::new()
+            .name("dam-mcap-writer".into())
+            .spawn(move || {
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    run_worker(rx, image_hub_for_worker)
+                }))
+                .unwrap_or_else(|_| Err("McapWriter worker panicked".into()));
+                let (state, changed) = &*worker_completion;
+                *state.lock().expect("completion lock poisoned") = Some(result);
+                changed.notify_all();
+            })
+            .map_err(|e| format!("Cannot start MCAP worker: {e}"))?;
 
         Ok(Self {
             sender: tx,
+            completion,
+            worker: Mutex::new(Some(worker)),
             sequence: sequence_for_py,
             started: started_for_py,
             stop_requested: stop_requested_for_py,
@@ -266,6 +281,10 @@ impl McapWriter {
     }
 
     pub fn start(&self, path: impl AsRef<Path>) -> Result<(), String> {
+        self.check_health()?;
+        if self.stop_requested.load(Ordering::SeqCst) {
+            return Err("McapWriter is closed; create a new writer".into());
+        }
         if self.started.load(Ordering::SeqCst) {
             return Ok(()); // Already started
         }
@@ -277,6 +296,7 @@ impl McapWriter {
     }
 
     pub fn write_cycle(&self, record: CycleRecordData) -> Result<u64, String> {
+        self.check_health()?;
         if !self.started.load(Ordering::SeqCst) || self.stop_requested.load(Ordering::SeqCst) {
             return Err("McapWriter not started".to_string());
         }
@@ -291,16 +311,56 @@ impl McapWriter {
         Ok(seq)
     }
 
-    pub fn stop(&self) {
-        self.stop_at(f64::INFINITY);
+    pub fn last_error(&self) -> Option<String> {
+        let state = self.completion.0.lock().expect("completion lock poisoned");
+        state
+            .as_ref()
+            .and_then(|result| result.as_ref().err().cloned())
     }
 
-    pub fn stop_at(&self, stop_timestamp: f64) {
-        if !self.started.swap(false, Ordering::SeqCst) {
-            return;
+    fn check_health(&self) -> Result<(), String> {
+        self.last_error().map_or(Ok(()), Err)
+    }
+
+    pub fn stop(&self) -> Result<(), String> {
+        self.stop_at(f64::INFINITY, Duration::from_secs(15))
+    }
+
+    /// Drain queued records, finish the footer and join within one deadline.
+    /// A timeout keeps the worker handle so a subsequent stop can retry.
+    pub fn stop_at(&self, stop_timestamp: f64, timeout: Duration) -> Result<(), String> {
+        let deadline = Instant::now()
+            .checked_add(timeout)
+            .ok_or("Invalid stop timeout")?;
+        self.stop_requested.store(true, Ordering::SeqCst);
+        self.started.store(false, Ordering::SeqCst);
+        let (state, changed) = &*self.completion;
+        if state.lock().expect("completion lock poisoned").is_none() {
+            let seq = self.sequence.fetch_add(1, Ordering::SeqCst);
+            // A disconnected receiver can mean a worker error; inspect completion below.
+            if let Err(crossbeam::channel::SendTimeoutError::Timeout(_)) = self.sender.send_timeout(
+                WorkItem::Stop(seq, stop_timestamp),
+                deadline.saturating_duration_since(Instant::now()),
+            ) {
+                return Err("McapWriter stop timed out".into());
+            }
         }
-        let seq = self.sequence.fetch_add(1, Ordering::SeqCst);
-        let _ = self.sender.send(WorkItem::Stop(seq, stop_timestamp));
+        let guard = state.lock().expect("completion lock poisoned");
+        let (guard, _) = changed
+            .wait_timeout_while(
+                guard,
+                deadline.saturating_duration_since(Instant::now()),
+                |result| result.is_none(),
+            )
+            .expect("completion lock poisoned");
+        let result = guard.clone().ok_or("McapWriter stop timed out")?;
+        drop(guard);
+        if let Some(worker) = self.worker.lock().expect("worker lock poisoned").take() {
+            worker
+                .join()
+                .map_err(|_| "McapWriter worker panicked".to_string())?;
+        }
+        result
     }
 
     pub fn attach_image_hub(
@@ -324,21 +384,17 @@ impl McapWriter {
 
 impl Drop for McapWriter {
     fn drop(&mut self) {
-        self.stop();
+        let _ = self.stop();
     }
 }
 
 fn run_worker(
     rx: crossbeam::channel::Receiver<WorkItem>,
-    stop_requested: Arc<AtomicBool>,
     image_hub: Arc<Mutex<Option<ImageHubAttachment>>>,
 ) -> Result<(), String> {
     let mut mcap: Option<McapWriterInner<BufWriter<File>>> = None;
 
     loop {
-        if stop_requested.load(Ordering::SeqCst) {
-            break;
-        }
         match rx.recv_timeout(Duration::from_millis(50)) {
             Ok(WorkItem::Start(path)) => {
                 log::info!("McapWriter: starting file {:?}", path);
@@ -350,39 +406,28 @@ fn run_worker(
                     .profile("dam".to_string())
                     .library("dam-loopback-writer/1.0".to_string());
 
-                match McapWriterInner::with_options(writer, opts) {
-                    Ok(w) => mcap = Some(w),
-                    Err(e) => {
-                        log::error!("Failed to create MCAP writer: {}", e);
-                        mcap = None;
-                    }
-                }
+                mcap = Some(
+                    McapWriterInner::with_options(writer, opts)
+                        .map_err(|e| format!("Failed to create MCAP writer: {e}"))?,
+                );
             }
             Ok(WorkItem::Cycle(seq, record)) => {
-                if stop_requested.load(Ordering::SeqCst) {
-                    break;
-                }
                 if let Some(ref mut m) = mcap {
                     let record = enrich_record_with_images(*record, &image_hub);
-                    if let Err(e) = process_cycle(m, seq, &record) {
-                        log::error!("Failed to process cycle {}: {}", record.cycle_id, e);
-                    }
-                    if let Err(e) = m.flush() {
-                        log::error!("Failed to flush: {}", e);
-                    }
+                    process_cycle(m, seq, &record)
+                        .map_err(|e| format!("Failed to process cycle {}: {e}", record.cycle_id))?;
+                    m.flush().map_err(|e| format!("Failed to flush: {e}"))?;
                 } else {
-                    log::warn!("McapWriter: received cycle but file not started");
+                    return Err("McapWriter received cycle before file creation".into());
                 }
             }
             Ok(WorkItem::Stop(seq, stop_timestamp)) => {
                 if let Some(ref mut m) = mcap {
                     let images = drain_images_until(&image_hub, stop_timestamp);
-                    if let Err(e) = write_images(m, seq, &images) {
-                        log::error!("Failed to flush stop images: {}", e);
-                    }
-                    if let Err(e) = m.flush() {
-                        log::error!("Failed to flush stop: {}", e);
-                    }
+                    write_images(m, seq, &images)
+                        .map_err(|e| format!("Failed to flush stop images: {e}"))?;
+                    m.flush()
+                        .map_err(|e| format!("Failed to flush stop: {e}"))?;
                 }
                 break;
             }

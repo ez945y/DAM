@@ -651,13 +651,40 @@ impl McapWriter {
     }
 
     /// Stop writing and close the MCAP file after draining images up to stop_timestamp.
-    #[pyo3(signature = (stop_timestamp=None))]
-    fn stop(&self, stop_timestamp: Option<f64>) {
-        if let Some(stop_timestamp) = stop_timestamp {
-            self.inner.stop_at(stop_timestamp);
-        } else {
-            self.inner.stop();
+    #[pyo3(signature = (stop_timestamp=None, timeout=15.0))]
+    fn stop(&self, py: Python<'_>, stop_timestamp: Option<f64>, timeout: f64) -> PyResult<()> {
+        if !timeout.is_finite() || timeout <= 0.0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "timeout must be finite and positive",
+            ));
         }
+        let duration = std::time::Duration::try_from_secs_f64(timeout)
+            .map_err(|_| pyo3::exceptions::PyValueError::new_err("timeout is out of range"))?;
+        if std::time::Instant::now().checked_add(duration).is_none() {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "timeout is out of range",
+            ));
+        }
+        if stop_timestamp.is_some_and(|timestamp| !timestamp.is_finite()) {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "stop_timestamp must be finite",
+            ));
+        }
+        py.allow_threads(|| {
+            self.inner
+                .stop_at(stop_timestamp.unwrap_or(f64::INFINITY), duration)
+        })
+        .map_err(|error| {
+            if error.contains("timed out") {
+                pyo3::exceptions::PyTimeoutError::new_err(error)
+            } else {
+                pyo3::exceptions::PyIOError::new_err(error)
+            }
+        })
+    }
+
+    fn last_error(&self) -> Option<String> {
+        self.inner.last_error()
     }
 
     /// Get the current sequence counter.

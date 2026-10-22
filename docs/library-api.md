@@ -659,3 +659,22 @@ Then reference `fallback: my_recovery` on boundary nodes.
 ## CLI
 
 The `dam run` CLI subcommand is a thin shell over `dam.run()` — same behaviour, exit 1 on `EMERGENCY`.
+
+
+## Diagnostic snapshots and recording failures
+
+`rail.diagnostics()` returns a detached, JSON-compatible mapping containing the session/version,
+latest consumed guard decisions and per-layer latencies, complete SDK-call latency, slow verdict
+age/readiness, rolling clamp/reject rates, process RSS/thread/file-descriptor counts, last evaluation
+exception and recording status. Read it outside the control deadline: resource inspection performs
+OS queries. Counts cover the entire process. Slow-guard timings belong to the consumed verdict's
+basis cycle, not necessarily the current cycle. `last_error` describes an exception; a guard FAULT
+is instead visible in `guards`. Reset clears per-session diagnostic history.
+
+Recording submissions acknowledge queue acceptance, not durable storage. Background open/write/
+flush failures become visible through recording diagnostics, the next submission, or `close()`.
+Queue overflow raises instead of silently losing a cycle. Successful close drains queued records,
+writes the MCAP footer and joins the writer; it does not claim an OS-level fsync/power-loss guarantee.
+A close timeout preserves the writer for cleanup retry. A completed I/O failure releases its worker
+and remains an error; retry cleanup/reset after correcting storage before resuming the session.
+The writer is terminal after close; a new session constructs a new writer.

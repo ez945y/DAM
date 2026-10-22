@@ -1,5 +1,13 @@
 # claude-progress.md — 進度日誌
 
+## 2026-10-22 — L5 candidate ready for measured acceptance (not complete)
+
+- Added public diagnostics with detached guard/layer timings, call duration, slow evidence, risk rates, process resources and errors. Reproduced 3 recording defects before fixing Rust worker error propagation, bounded drain/footer/join, timeout retry, and Python/SDK recording exceptions. Partial close now blocks evaluation until recovery.
+- Final Python suite 1332 passed in 25.10s; Rust workspace tests and full pre-commit passed (final close guard checked again by commit hooks). Diagnostic/recording probes passed; short probes explicitly report incomplete. L4 locked non-root Linux container smoke also passed.
+- New scripts/acceptance/runtime_stability.py provides fixed 50 Hz fast/hybrid 10,000-cycle runs, 1,000 lifecycle iterations including two actual recordings each, and 8-hour hybrid soak with raw timing triples and minute RSS/FD/thread samples. Probes cannot count as acceptance. Host Apple M4 / macOS arm64 / Python 3.12.
+- Next run benchmark, lifecycle, then actual 8-hour soak. Do not edit core or the measurement script during qualifying runs; fingerprints are recorded. L5 is NOT complete; L6 and final candidate remain. No hardware/release/automation.
+- Environment note: first maturin develop selected inherited Conda base rather than project venv; that installed the candidate Rust extension into base. Verification initially loaded old project binary and failed as expected; fixed by building a wheel and explicitly installing via uv --python .venv/bin/python. Final suite uses verified new project extension. Do not count earlier mixed-environment runs.
+
 ## 2026-10-22 — L4 accepted; L5 diagnostics and stability next
 
 - Candidate 1c48e89: locked native CI 39768887284 passed all four macOS arm64/Ubuntu x86_64 Python 3.11/3.12 jobs; Sonar Code Analysis passed. Full artifacts: logs/acceptance-l4/native-ci-locked. Clean local locked macOS Python 3.12 install, pip check and installed smoke passed; source preset tests 16 passed and commit hooks/docs-check passed.

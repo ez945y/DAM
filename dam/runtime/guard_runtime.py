@@ -1492,10 +1492,7 @@ class GuardRuntime:
                         logger.debug("GuardRuntime: sink disconnect failed: %s", exc)
 
         if self._telemetry.loopback is not None:
-            try:
-                self._telemetry.loopback.shutdown()
-            except Exception as exc:
-                logger.debug("GuardRuntime: loopback shutdown failed: %s", exc)
+            self._telemetry.loopback.shutdown()
 
         self._shutdown_complete = True
 

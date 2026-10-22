@@ -36,7 +36,7 @@ from dam.errors import (
     _classify,
 )
 from dam.types.action import action_segment_size
-from dam.types.evaluation import GuardrailEvaluation
+from dam.types.evaluation import GuardrailEvaluation, _json_value
 from dam.types.result import GuardDecision
 from dam.types.session import ReloadReceipt, SessionStatus
 
@@ -525,6 +525,8 @@ class Guardrail:
         self._prev_positions: np.ndarray | None = None
         self._prev_time: float | None = None
         self._last_results: list[GuardResult] = []
+        self._last_evaluation_ms: float | None = None
+        self._last_error: dict[str, str] | None = None
         self._last_ee_pose: np.ndarray | None = None
 
         if not quiet:
@@ -539,6 +541,18 @@ class Guardrail:
     @_classify(ExecutionError)
     def evaluate(self, inputs: dict[str, Any]) -> GuardrailEvaluation:
         """Evaluate once and return command, decision and captured evidence."""
+        started = time.perf_counter()
+        try:
+            result = self._evaluate(inputs)
+            self._last_error = None
+            return result
+        except Exception as exc:
+            self._last_error = {"type": type(exc).__name__, "message": str(exc)}
+            raise
+        finally:
+            self._last_evaluation_ms = (time.perf_counter() - started) * 1000.0
+
+    def _evaluate(self, inputs: dict[str, Any]) -> GuardrailEvaluation:
         if self._closed or self._recovery_required:
             raise SessionClosedError(
                 "Guardrail is closed or awaiting recovery; call reset() to open a fresh session"
@@ -640,6 +654,64 @@ class Guardrail:
             cycle_id=cycle_id,
             verdict_age_ms=max(ages) if ages else None,
         )
+
+    def diagnostics(self) -> dict[str, Any]:
+        """Detached JSON-compatible evidence; call outside the control deadline.
+
+        Resource counts cover the entire process, not just this session. Slow
+        guard timings describe the consumed verdict's basis cycle. This does
+        not make Guardrail safe for concurrent evaluate/reset/close calls.
+        """
+        import threading
+
+        import psutil  # type: ignore[import-untyped]
+
+        runtime = getattr(self, "_reset_origin", self._runtime)
+        process = psutil.Process()
+        resources = {
+            "rss_bytes": process.memory_info().rss,
+            "process_threads": process.num_threads(),
+            "file_descriptors": process.num_fds() if hasattr(process, "num_fds") else None,
+            "dam_python_workers": [
+                thread.name for thread in threading.enumerate() if thread.name.startswith("dam-")
+            ],
+        }
+        risk = dict(runtime._risk_controller.stats())
+        window = risk["window_size"]
+        risk["reject_rate"] = risk["reject_count"] / window if window else 0.0
+        risk["clamp_rate"] = risk["clamp_count"] / window if window else 0.0
+        guards = []
+        layers: dict[str, float] = {}
+        for result in self._last_results:
+            latency = float(result.metadata.get("_latency_ms", 0.0))
+            layer = result.layer.name
+            layers[layer] = layers.get(layer, 0.0) + latency
+            guards.append(
+                {
+                    "name": result.guard_name,
+                    "layer": layer,
+                    "decision": result.decision.name,
+                    "reason": result.reason,
+                    "latency_ms": latency,
+                    "metadata": copy.deepcopy(result.metadata),
+                }
+            )
+        snapshot = {
+            "captured_at_monotonic": time.monotonic(),
+            "session": self.session_status.to_dict(),
+            "slow_lane": copy.deepcopy(runtime.slow_lane_status),
+            "timings_ms": {"evaluate": self._last_evaluation_ms, "layers": layers},
+            "guards": guards,
+            "risk": risk,
+            "resources": resources,
+            "last_error": copy.deepcopy(self._last_error),
+            "recording": (
+                copy.deepcopy(runtime._telemetry.loopback.status)
+                if runtime._telemetry.loopback is not None
+                else None
+            ),
+        }
+        return dict(_json_value(snapshot))
 
     def describe(self, stackfile: str = "") -> str:
         """Human-readable contract: which obs keys and action this guard expects."""
@@ -801,6 +873,9 @@ class Guardrail:
         """Release recording, worker threads, and runtime resources; safe to repeat."""
         if self._closed:
             return
+        # Cleanup can stop only some resources before failing. Never allow
+        # another evaluation against that partially closed runtime.
+        self._recovery_required = True
         self._runtime.shutdown()
         self._closed = True
         self._recovery_required = False
