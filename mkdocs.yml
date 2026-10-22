@@ -107,6 +107,8 @@ nav:
     - L3 Acceptance Report: acceptance-l3.md
     - L4 Acceptance Report: acceptance-l4.md
     - L5 Acceptance Report: acceptance-l5.md
+    - L6 Acceptance Report: acceptance-l6.md
+    - SDK Examples: sdk-examples.md
 
 plugins:
   - search:

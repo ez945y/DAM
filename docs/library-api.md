@@ -91,17 +91,11 @@ keys are also folded into the `obs` object for builtin guards (`joints` /
 ### `dam.Guardrail` — stateful
 
 ```python
-rail = dam.Guardrail("jetbot.yaml", safe_action=[0.0, 0.0])
-# Prints its contract on construction:
-#   [Guardrail] jetbot.yaml · task=default
-#     requires obs: base_pose
-#     action:       [v, omega]  (command space)
-#     on reject:    [0. 0.]
-
-safe_cmd = rail({"base_pose": [x, y, yaw], "action": [v, omega]})
-
-for r in rail.last_results:           # inspect what happened
-    print(r.decision, r.guard_name, r.reason)
+with dam.Guardrail("jetbot.yaml", safe_action=[0.0, 0.0]) as rail:
+    result = rail.evaluate({"base_pose": [x, y, yaw], "action": [v, omega]})
+    safe_cmd = result.command
+    for guard_result in result.guard_results:
+        print(guard_result.decision, guard_result.guard_name, guard_result.reason)
 ```
 
 A callback declares the observation groups it needs by name — the runtime
@@ -143,7 +137,7 @@ with dam.Guardrail("jetbot.yaml", safe_action=[0.0, 0.0]) as rail:
 ```
 
 `close()` is idempotent. A closed instance cannot validate more actions; create a
-new instance for the next session. The one-shot `dam.guardrail()` helper closes
+new instance or call `reset()` for the next session. The one-shot `dam.guardrail()` helper closes
 its instance on success or failure. `GuardrailProcessorStep.reset()` and
 `close()` release the current session; the next action starts a new one lazily.
 A processor transition without an observation raises `ValueError`.
@@ -622,6 +616,8 @@ hardware:
 Register a boundary callback function:
 
 ```python
+from dam.guard.pipeline import CallbackResult
+
 @dam.callback("my_check")
 def my_check(*, obs, action, my_param=1.0):
     if obs.joint_positions[0] > my_param:

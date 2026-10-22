@@ -55,10 +55,11 @@ def main() -> None:
         # 3. Each control cycle: hand it a dict, get a validated [v, omega] back.
         pose = [0.0, 0.0, 0.0]
         for step, command in enumerate([[0.6, 0.0], [0.6, 0.2], [-5.0, 0.0], [0.4, -0.1]]):
-            safe = rail({"base_pose": pose, "action": np.asarray(command)})
-            decision = max(
-                (result.decision for result in rail.last_results), default=dam.GuardDecision.PASS
-            ).name
+            result = rail.evaluate({"base_pose": pose, "action": np.asarray(command)})
+            safe, decision = result.command, result.decision.name
+            expected = dam.GuardDecision.REJECT if step == 2 else dam.GuardDecision.PASS
+            assert result.decision == expected
+            np.testing.assert_allclose(safe, [0, 0] if step == 2 else command)
             print(f"step {step}: cmd={command} -> safe={np.round(safe, 3).tolist()} [{decision}]")
             # Advance the (fake) base with the validated command.
             pose = list(_Ackermann(0.12).rollout(pose, safe, DT))

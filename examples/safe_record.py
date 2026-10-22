@@ -1,131 +1,66 @@
-#!/usr/bin/env python3
-"""DAM + LeRobot safe recording — three integration levels.
+"""Three public integration levels, with disposable MCAP recordings.
 
-Demonstrates how to safety-guard actions during IL (Imitation Learning)
-data collection.  No hardware required — run this example directly:
-
-    python examples/safe_record.py
-
-Three API levels, from simplest to most powerful:
-  Level 1: dam.guardrail()           — one-liner, stateless
-  Level 2: dam.Guardrail             — stateful, best performance
-  Level 3: dam.GuardrailProcessorStep — native lerobot pipeline integration
+Run: python -m examples.safe_record
+Uses synthetic radians and temporary files; no hardware is opened.
 """
 
-import numpy as np
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+import yaml
 
 import dam
 
-# Shared config
-STACKFILE = "examples/stackfiles/safety.yaml"
-_JOINTS = [
-    "shoulder_pan",
-    "shoulder_lift",
-    "elbow_flex",
-    "wrist_flex",
-    "wrist_roll",
-    "gripper",
-]
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Level 1: dam.guardrail() — one-liner for notebooks and scripts
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-print("=" * 60)
-print("Level 1: dam.guardrail() — one-liner")
-print("=" * 60)
+def main() -> None:
+    with TemporaryDirectory(prefix="dam-safe-record-") as directory:
+        config = {
+            "hardware": {"joint_names": ["a", "b"], "degrees_mode": False},
+            "boundaries": {
+                "range": {
+                    "layer": "L1",
+                    "type": "single",
+                    "nodes": [
+                        {
+                            "callback": "joint_position_limits",
+                            "params": {"lower": [-1, -1], "upper": [1, 1]},
+                        }
+                    ],
+                }
+            },
+            "tasks": {"record": {"boundaries": ["range"]}},
+            "loopback": {"output_dir": str(Path(directory) / "recordings")},
+        }
+        inputs = {"joints": [0.25, 0.25], "action": [2, 0.5]}
+        # One-shot: constructs and closes a session on this call.
+        assert dam.guardrail(inputs, config, task="record") == [1, 0.5]
+        # Reused session: preserves history across a bounded control loop.
+        with dam.Guardrail(config, task="record", quiet=True) as rail:
+            for _ in range(3):
+                result = rail.evaluate(inputs)
+                assert result.decision == dam.GuardDecision.CLAMP
+                assert result.command == [1, 0.5]
+        # LeRobot transition: first cycle holds observation, later cycles clamp.
+        path = Path(directory) / "stack.yaml"
+        path.write_text(yaml.safe_dump(config))
+        processor = dam.GuardrailProcessorStep(str(path), task="record", quiet=True)
+        transition = {
+            "observation": {"a.pos": 0.25, "b.pos": 0.25},
+            "action": {"a.pos": 2.0, "b.pos": 0.5},
+            "reward": None,
+            "done": None,
+            "truncated": None,
+            "info": None,
+            "complementary_data": None,
+        }
+        try:
+            assert processor(transition)["action"] == {"a.pos": 0.25, "b.pos": 0.25}
+            assert processor(transition)["action"] == {"a.pos": 1.0, "b.pos": 0.5}
+        finally:
+            processor.close()
+        assert len(list((Path(directory) / "recordings").glob("*.mcap"))) == 3
+        print("One-shot, session and processor completed; all three recordings closed.")
 
-# ndarray format (radians, degrees_mode=False). The input dict carries the
-# observation (`joints`) plus the command to validate (`action`).
-obs = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
-safe_action = np.array([0.04, -0.03, 0.02, 0.01, -0.02, 0.0])
-result = dam.guardrail(
-    {"joints": obs, "action": safe_action},
-    STACKFILE,
-    degrees_mode=False,
-    joint_names=_JOINTS,
-)
-print(f"  Safe input:    {safe_action}")
-print(f"  Output:        {result}")
-print(f"  Unchanged:     {np.allclose(result, safe_action)}")
-
-dangerous_action = np.array([3.0, -3.0, 0.02, 0.01, -0.02, 0.0])
-result = dam.guardrail(
-    {"joints": obs, "action": dangerous_action},
-    STACKFILE,
-    degrees_mode=False,
-    joint_names=_JOINTS,
-)
-print(f"\n  Dangerous input: {dangerous_action}")
-print(f"  Clamped output:  {result}")
-print("  (clamped by velocity limit — can't jump 3 rad in one step)")
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Level 2: dam.Guardrail — stateful guard for recording loops
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-print("\n" + "=" * 60)
-print("Level 2: dam.Guardrail — stateful guard")
-print("=" * 60)
-
-# Guardrail auto-detects joint_names and degrees_mode from the preset, and
-# prints the obs/action contract it expects on construction.
-guard = dam.Guardrail(STACKFILE, task="record")
-
-print("\n  Simulating 10-step recording loop (dict format, degrees):")
-position = 30.0  # start at 30°
-for step in range(10):
-    obs_dict = {f"{n}.pos": 0.0 for n in _JOINTS}
-    obs_dict["shoulder_pan.pos"] = position
-    obs_dict["gripper.pos"] = 50.0
-    # Teleop wants to move +3° per step (may be too fast for the velocity limit)
-    action_dict = {f"{n}.pos": 0.0 for n in _JOINTS}
-    action_dict["shoulder_pan.pos"] = position + 3.0
-    action_dict["gripper.pos"] = 50.0
-
-    safe_dict = guard({**obs_dict, "action": action_dict})
-    actual_move = safe_dict["shoulder_pan.pos"] - position
-    was_clamped = any(r.decision.name == "CLAMP" for r in guard.last_results)
-    tag = "CLAMP" if was_clamped else "PASS "
-    print(
-        f"    Step {step:2d}: {tag}  target=+3.0°  actual=+{actual_move:.2f}°  "
-        f"pos={safe_dict['shoulder_pan.pos']:.1f}°"
-    )
-    position = safe_dict["shoulder_pan.pos"]
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Level 3: GuardrailProcessorStep — lerobot pipeline integration
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-print("\n" + "=" * 60)
-print("Level 3: GuardrailProcessorStep — lerobot integration")
-print("=" * 60)
-
-from dam import GuardrailProcessorStep
-
-step_proc = GuardrailProcessorStep(STACKFILE, task="record")
-print(f"  Lazy guard (not initialized yet): {step_proc._guard is None}")
-
-transition = {
-    "observation": {f"{n}.pos": 0.0 for n in _JOINTS} | {"shoulder_pan.pos": 50.0},
-    "action": {f"{n}.pos": 0.0 for n in _JOINTS} | {"shoulder_pan.pos": 52.0},
-    "reward": None,
-    "done": None,
-    "truncated": None,
-    "info": None,
-    "complementary_data": None,
-}
-result_transition = step_proc(transition)
-print(f"  After first call, guard initialized: {step_proc._guard is not None}")
-print(f"  Action output: shoulder_pan={result_transition['action']['shoulder_pan.pos']:.1f}°")
-
-print("\n  ── Integration with lerobot-record ──")
-print("  Add ONE line to your recording setup:")
-print()
-print("    from lerobot.processor.factory import make_default_processors")
-print("    from dam import GuardrailProcessorStep")
-print()
-print("    teleop, robot_action, obs = make_default_processors()")
-print('    robot_action.steps.insert(0, GuardrailProcessorStep("safety.yaml"))')
-
-print("\n" + "=" * 60)
-print("All examples completed successfully!")
-print("=" * 60)
+if __name__ == "__main__":
+    main()

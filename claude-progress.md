@@ -1,5 +1,12 @@
 # claude-progress.md — 進度日誌
 
+## 2026-10-22 — L5 benchmark/lifecycle passed; actual 8-hour soak running
+
+- Tool fix 3fbd303 passed Sonar. CLI no longer accepts output paths; it creates exclusive folders below fixed logs/acceptance-l5. Core+tool source fingerprint is 48ade239b7e55a15cb2cbc9bae1ea6aa759f0b8a0be0b93e875bd6a44f6f3b98. Do not modify dam/**/*.py, the loaded Rust extension, or runtime_stability.py while measuring.
+- 10,000 fast and 10,000 hybrid cycles passed: p99 2.414/3.085 ms, both deadline violation rates 0.0001 (0.01%). Evidence logs/acceptance-l5/run-9z4hnses. 1,000 lifecycle iterations with two MCAP files each passed; FD 3->3, process threads 1->1, no DAM Python workers. Evidence run-5xvq20az.
+- ACTUAL SOAK RUNNING: exec session 41544, Python PID 52122, started 2026-10-22 11:58:33 UTC (04:58:33 PDT), expected complete after 19:58:36 UTC (12:58:36 PDT). Folder logs/acceptance-l5/run-65t1g_2s; raw .bin + minute .samples.jsonl; final .json still running. Logs acceptance-l5-soak-qualified.log. caffeinate keeps host awake for this process only. Do not mark L5 complete before actual output/exit status and RSS/FD gates.
+- L6 independent preparation: 11 reviewed offline programs passed in clean macOS Python 3.11 and 3.12; seven public SDK cases included. Fixed private API/cleanup/false demonstration claims, truthful Jetbot CLAMP reporting, and skill fallback guidance. New examples smoke CI step ready; awaiting commit/native CI. No core changes since measurements began. No hardware/release/automation.
+
 ## 2026-10-22 — Measurement tool confinement; first run interrupted
 
 - 938d119 started benchmark in logs/acceptance-l5/candidate (exec session 87698, Python PID 50913). Sonar identified unrestricted output paths, so this process was intentionally interrupted before lifecycle/soak. Preserve it as interrupted evidence, not qualifying acceptance.
