@@ -19,7 +19,8 @@ Processor 摘要亦修正只有 FAULT 卻顯示全部通過，以及以 guard �
 ## 固定量測方式與待驗收項目
 
 使用 `python -m scripts.acceptance.runtime_stability`，模式為 `benchmark`、`lifecycle`、`soak`，
-必須指定 `--output`。固定 50 Hz、p99 ≤ 10 ms、整輪 20 ms 超期率 ≤ 0.1%，沒有調寬參數。
+必須指定 `--output`，且解析後路徑只能位於本 checkout 的 `logs/acceptance-l5/`；
+拒絕跨目錄／符號連結逃逸與覆寫既有同名結果。固定 50 Hz、p99 ≤ 10 ms、整輪 20 ms 超期率 ≤ 0.1%，沒有調寬參數。
 `--probe` 只檢查工具能運作，報告一定標示 incomplete，不能代替驗收。
 
 - benchmark：6 軸 joint position，固定 PASS／CLAMP 輸入；同步 fast 與 10 Hz slow worker hybrid
@@ -36,5 +37,7 @@ Processor 摘要亦修正只有 FAULT 卻顯示全部通過，以及以 guard �
 測量主機為 Apple M4／macOS arm64／Python 3.12。關閉部分失敗後 session 進入 recovery_required，
 不允許使用已部分停止的 runtime 繼續評估。
 
-工具 probes 已執行並如預期標為 incomplete。正式 benchmark／lifecycle／soak 結果待補。
+工具 probes 已執行並如預期標為 incomplete。第一輪 benchmark 在外部檢查發現輸出目錄未限縮後主動中斷，未進入 lifecycle／8 小時階段；
+紀錄保留於 `logs/acceptance-l5/candidate/interrupted.json`。目錄防護 5 個回歸通過。
+正式 benchmark／lifecycle／soak 結果待重新執行後補上。
 原始紀錄保存於 `logs/acceptance-l5*`。

@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import psutil
+import psutil  # type: ignore[import-untyped]
 
 import dam
 
@@ -271,12 +271,27 @@ def lifecycle(output: Path, iterations: int, probe: bool) -> dict[str, Any]:
     return info
 
 
+def output_directory(value: str) -> Path:
+    """Confine CLI writes to this checkout's acceptance evidence directory."""
+    root = Path(__file__).resolve().parents[2] / "logs" / "acceptance-l5"
+    candidate = Path(value).resolve()
+    if not candidate.is_relative_to(root):
+        raise argparse.ArgumentTypeError(f"Output must be inside {root}")
+    return candidate
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("benchmark", "lifecycle", "soak"))
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--output", type=output_directory, required=True)
     parser.add_argument("--probe", action="store_true")
     args = parser.parse_args()
+    names = ("fast", "hybrid") if args.mode == "benchmark" else (args.mode,)
+    for name in names:
+        if any(args.output.glob(f"{name}.*")):
+            parser.error(
+                f"Existing {name} evidence must not be overwritten; choose a fresh output folder"
+            )
     args.output.mkdir(parents=True, exist_ok=True)
     if args.mode == "lifecycle":
         reports = [lifecycle(args.output / "lifecycle", 10 if args.probe else 1000, args.probe)]

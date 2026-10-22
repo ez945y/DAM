@@ -1,5 +1,11 @@
 # claude-progress.md — 進度日誌
 
+## 2026-10-22 — Measurement tool confinement; first run interrupted
+
+- 938d119 started benchmark in logs/acceptance-l5/candidate (exec session 87698, Python PID 50913). Sonar identified unrestricted output paths, so this process was intentionally interrupted before lifecycle/soak. Preserve it as interrupted evidence, not qualifying acceptance.
+- Output now must resolve inside this checkout's logs/acceptance-l5; traversal/symlink escapes and overwriting existing results are rejected. Five tool regressions passed. Await fresh Sonar check before restarting into a new evidence folder.
+- L6 independent preparation: seven public SDK cases run locally, older examples being updated to public API and explicit cleanup; uncommitted example changes are not yet accepted. Core remains 938d119; the measurement tool changed, so old measurement evidence will not be reused.
+
 ## 2026-10-22 — L5 candidate ready for measured acceptance (not complete)
 
 - Added public diagnostics with detached guard/layer timings, call duration, slow evidence, risk rates, process resources and errors. Reproduced 3 recording defects before fixing Rust worker error propagation, bounded drain/footer/join, timeout retry, and Python/SDK recording exceptions. Partial close now blocks evaluation until recovery.
