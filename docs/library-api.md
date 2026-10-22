@@ -335,6 +335,8 @@ field locations. Ordinary construction does not silently invoke this extra check
 `dam.GuardrailEvaluation`. `rail(inputs)` continues to return only the command.
 The detailed result includes `command`, `decision`, `guard_results`, `fallback`,
 `config_version`, `task`, `cycle_id`, `verdict_age_ms` and `output_status`.
+The cycle ID is the completed runtime cycle, matching session status, current-cycle slow evidence
+and the MCAP cycle record; it is not a separate zero-based SDK call counter.
 `output_status="returned"` means a command was returned to the caller; the SDK
 has no sink and does not report device delivery. REJECT/FAULT can include a valid
 fallback command. MONITOR may report REJECT while returning the original finite

@@ -610,10 +610,10 @@ class Guardrail:
         except Exception as exc:
             raise InputContractError(str(exc)) from exc
 
-        cycle_id = self._runtime._cycle_id
         validated, results = self._runtime.validate(
             obs, action, trace_id, now=now, wait_for_slow=self._wait_for_slow
         )
+        cycle_id = self._runtime._cycle_id
         self._last_results = results
 
         if validated is not None:

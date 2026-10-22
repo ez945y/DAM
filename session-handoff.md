@@ -1,5 +1,12 @@
 # session-handoff.md — 會話交接摘要
 
+## 2026-10-22 — Cycle identity correction; long run must restart
+
+- STOPPED previous soak exec session 41544 / PID 52122 with SIGINT (exit 130) after about 5 minutes. It is not running and did not pass 8 hours. Interrupted evidence retained in logs/acceptance-l5/run-65t1g_2s/interrupted.json.
+- Found SDK evaluation cycle_id sampled before runtime increment; first SDK result 0 disagreed with session/slow verdict/MCAP 1. Added public cross-surface regression (failed before fix), then sample the completed runtime cycle. Full Python now 1337 passed in 25.31s. No deadlines/guards relaxed.
+- L6 preparation committed as da520bc: 11 clean-install offline examples locally passed on macOS Python 3.11/3.12; final Jetbot correction additionally passed. Native example CI awaits next push. Skill validator and docs-check passed.
+- Next commit/push this correction, rerun all benchmark/lifecycle/actual 8h gates into new automatic folders. Old 3fbd303 measurements remain prior-candidate baseline only. After core freeze, only docs/examples may change; final whole-project checks remain required. No hardware/release/automation.
+
 ## 2026-10-22 — L5 benchmark/lifecycle passed; actual 8-hour soak running
 
 - Tool fix 3fbd303 passed Sonar. CLI no longer accepts output paths; it creates exclusive folders below fixed logs/acceptance-l5. Core+tool source fingerprint is 48ade239b7e55a15cb2cbc9bae1ea6aa759f0b8a0be0b93e875bd6a44f6f3b98. Do not modify dam/**/*.py, the loaded Rust extension, or runtime_stability.py while measuring.

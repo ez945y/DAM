@@ -187,3 +187,30 @@ def test_processor_summary_never_calls_fault_only_session_clean():
     assert "2 faults" in text
     assert "50.0% of cycles" in text
     assert "broken (2)" in text
+
+
+def test_public_cycle_id_matches_slow_evidence_session_and_recording(config, tmp_path):
+    import msgpack
+    from mcap.reader import make_reader
+
+    add_task_check(config, lambda: True, slow=True)
+    config["safety"]["slow_lane"]["verdict_timeout_ms"] = 500
+    config["loopback"] = {"output_dir": str(tmp_path)}
+    identities = []
+    with dam.Guardrail(config, wait_for_slow=True, quiet=True) as rail:
+        for _ in range(2):
+            result = rail.evaluate({"joints": [0], "action": [0.5]})
+            identities.append(result.cycle_id)
+            assert result.cycle_id == rail.session_status.cycle_id
+            slow = [r for r in result.guard_results if r.metadata.get("slow_lane")]
+            assert slow and all(r.metadata["basis_cycle_id"] == result.cycle_id for r in slow)
+            assert rail.diagnostics()["session"]["cycle_id"] == result.cycle_id
+            rail.reset()
+    recorded = []
+    for path in tmp_path.glob("*.mcap"):
+        with path.open("rb") as handle:
+            for _, channel, message in make_reader(handle).iter_messages():
+                if channel.topic == "/dam/cycle":
+                    recorded.append(msgpack.unpackb(message.data, raw=False)["cycle_id"])
+    assert sorted(recorded) == identities
+    assert identities[1] > identities[0]

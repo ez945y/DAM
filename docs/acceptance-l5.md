@@ -10,7 +10,7 @@
   Rust worker 現在保留錯誤，close 有有界等待、完成 footer 並 join；逾時保留 worker 供重試。
   Python 不再吞掉錄製／關閉／佇列溢位錯誤，公開 SDK 保留分類與 cause；新 session 可恢復。
 - 診斷、callback timeout、solver fault、磁碟寫入失敗、recording close timeout 與恢復均有測試。
-  全套非硬體 Python **1333 passed in 25.63s**。Rust workspace 測試通過；既有忽略項目不算通過。
+  全套非硬體 Python **1337 passed in 25.31s**。Rust workspace 測試通過；既有忽略項目不算通過。
 - 本輪修正後使用明確的 `.venv` interpreter 安裝 Rust wheel，避免 shell 的 Conda 設定選錯環境。
 
 Processor 摘要亦修正只有 FAULT 卻顯示全部通過，以及以 guard 事件數計算週期比例造成超過 100%
@@ -61,5 +61,8 @@ CLI 不接受輸出路徑，根目錄拒絕符號連結逃逸，也不覆寫既�
 DAM Python worker 最後為空；RSS 71,172,096 → 77,529,088 bytes。這不是 8 小時記憶體門檻的替代。
 每次完成兩個 MCAP 檔並清除臨時資料；報告 `logs/acceptance-l5/run-5xvq20az/lifecycle.json`。
 
-8 小時 hybrid soak 於 **2026-10-22 11:58:33 UTC** 啟動，暖身後正式計時。
-證據目錄 `logs/acceptance-l5/run-65t1g_2s/`，尚在執行，未宣告通過。
+8 小時 hybrid soak 於 **2026-10-22 11:58:33 UTC** 啟動，但在約 5 分鐘後主動中斷：
+交叉檢查發現 SDK cycle_id 比 runtime／慢速判定／MCAP 少 1。
+重現測試先以 0 != 1 失敗，修正取值時機後完整 1337 測試通過，且跨 reset、慢速 verdict、
+session／diagnostics 與錄製的週期 ID 一致。舊 soak 目錄 `logs/acceptance-l5/run-65t1g_2s/`
+保留 interrupted 記錄；這些 benchmark／lifecycle 為前一候選基線，最終量測將全數重跑。
