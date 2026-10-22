@@ -40,6 +40,7 @@ from dam.types.evaluation import GuardrailEvaluation
 from dam.types.observation import Observation
 from dam.types.result import GuardDecision, GuardResult
 from dam.types.risk import CycleResult, RiskLevel
+from dam.types.session import ReloadReceipt, SessionStatus
 
 
 def _resolve_version() -> str:
@@ -94,6 +95,8 @@ __all__ = [
     "PreflightReport",
     "PreflightIssue",
     "StackfileConfig",
+    "ReloadReceipt",
+    "SessionStatus",
     "DamError",
     "ConfigurationError",
     "InputContractError",

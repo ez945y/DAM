@@ -160,6 +160,8 @@ SDK 已有輸入檢查，但直接使用 runtime、自訂 guard、fallback conte
 
 ### R07 重載回報與 session 切換
 
+2026-10-22 已交付公開 reload receipt、SessionStatus、reset／switch_task，通過 [L3 驗收](acceptance-l3.md)。
+
 目前只支援節點 `params` 重載；結構變更，以及 slow lane 運行中的重載，會被拒絕。先提供公開的 accepted／applied／rejected 狀態、原因與版本，再考慮擴充可重載範圍。
 
 建議新增正式 task 切換與 session reset 介面，明確定義哪些歷史、計時、錄製與 worker 狀態會保留。非同步熱更新應先完成 R03 的版本隔離。

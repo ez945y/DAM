@@ -1456,6 +1456,7 @@ class GuardRuntime:
         """
         if self._shutdown_complete:
             return
+        self._hot_reload.cancel_all("Runtime closed before application")
         self._running = False
         self._stop_slow_lane()
         if hasattr(self, "_engine") and self._engine is not None:

@@ -251,6 +251,45 @@ Payload validation does not establish
 that an arbitrary custom fallback is physically safe or satisfies every geometric
 constraint; deployment still needs a suitable action and fallback contract.
 
+### Reload receipts and session lifecycle
+
+`rail.request_reload(configuration, expected_version=...)` queues a parameter-only
+change and returns `ReloadReceipt(status="pending")`. `accepted` means pending or
+applied; it does not mean applied. The next `evaluate()`/call reaches the runtime
+cycle boundary. Read `rail.reload_receipt(receipt.id)` for `applied` or `rejected`,
+the reason, and applied configuration version. These are the same runtime receipts
+used by Console. No evaluation means the request stays pending; no background
+thread is created to apply it.
+
+Structural changes and reload while a slow worker is active are rejected by the
+existing runtime contract, preserving the previous configuration. Expected version,
+task and lifecycle generation are bound at submission. A second pending request
+is refused, not substituted. Invalid schema raises ConfigurationError. Unknown or
+evicted receipt IDs raise InputContractError; the latest 100 receipts are retained.
+
+`rail.session_status` returns a detached SessionStatus with state, task, configuration
+version, state generation and monotonic cycle ID. `reset(task=...)` and
+`switch_task(name)` rebuild from the last **applied** configuration. Their contract is:
+
+| State | Reset/task switch behavior |
+| --- | --- |
+| Open | Close old resources, reject pending updates, then build a fresh session |
+| Closed | Explicit reset reopens a fresh session; repeated close remains harmless |
+| Worker cleanup timeout or rebuild failure | State becomes recovery_required; evaluation is blocked until reset succeeds |
+| Unknown task | Reject before closing; current session remains usable |
+
+Reset clears guard/container state, risk history, command/velocity history,
+observation timing, EE pose override and last results. It retains applied configuration
+version, completed recording files and bounded reload receipts; cycle IDs remain
+monotonic and state generation increases. Recording starts a new session if configured.
+Configured solver instances are rebuilt; caller-provided solver objects remain caller-owned
+and are reused. No replacement worker is created until old cleanup succeeds.
+
+Reset failure retains the last applied configuration/version and receipts for retry.
+Methods are not thread-safe: serialize evaluation, reload, reset and close on one
+control thread. The offline example `python -m examples.guardrail_session` demonstrates
+pending/applied receipts and reset without hardware.
+
 ### Configuration objects and static preflight
 
 `Guardrail` and `guardrail` accept a string/Path filename, a mapping, or a public

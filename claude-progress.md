@@ -1,5 +1,12 @@
 # claude-progress.md — 進度日誌
 
+## 2026-10-22 — L3/R07 accepted; L4 environment audit
+
+- L2 committed as c20955e. L3 exposes reload receipts backed by the same manager as Console, session status, reset and task switch. Pending is not applied; structural/stale updates reject without changing the active configuration.
+- Reset closes old resources before replacement, clears per-session state, preserves last applied version, monotonic cycle ordering and bounded receipts, and cancels pending updates. Cleanup/rebuild failure blocks evaluation until recovery; retries preserve configuration and receipt evidence.
+- Verification: full non-hardware Python 1317 passed in 29.14s; focused session 11 passed; mypy/Ruff/format passed; offline session example and docs-check passed. Full pre-commit rerun before commit (prior hook detected concurrent documentation edits despite no mypy errors).
+- L4 audit: host macOS arm64 with Python 3.12, uv and Docker available; Docker daemon Linux aarch64. Python 3.11 and Linux x86_64 execution remain to verify. No hardware/automations. L4–L6 incomplete.
+
 ## 2026-10-22 — L2/R06 accepted; L3 next
 
 - L1 committed as e31e837. L2 adds mapping/Path/StackfileConfig construction and public static preflight reports with field-level issues, callback requirements, solver reference/factory, command layout/units and fallback checks.

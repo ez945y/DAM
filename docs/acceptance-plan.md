@@ -79,8 +79,8 @@ R04–R10；R01–R03 作為必須保持通過的回歸基礎。本文件定義�
 | --- | --- | --- | --- |
 | L1／R05 | 公開詳細結果 API、錯誤分類、序列化範例 | 只靠公開 API 可辨識 decision、fallback、原因、設定版本、判定年齡與送出結果；與現有結果一致；設定／輸入／關閉／逾時／執行錯誤可區分且保留例外鏈 | [完成：證據](acceptance-l1.md) |
 | L2／R06 | 公開 mapping／設定物件建構與無硬體預檢 | 與檔案建構結果相同；檢查 callback、solver、layout、單位及 fallback；錯誤定位欄位；測試證明不連硬體、不啟 worker、不寫錄製資料 | [完成：證據](acceptance-l2.md) |
-| L3／R07 | 公開重載回報、task 切換及 reset 契約 | accepted／applied／rejected 可查；失敗不混用版本；重複 close／reset、逾時、回復與歷史保留有測試；Console 與 SDK 使用一致語意 | 進行中：沿用既有重載收據，補公開 session 契約 |
-| L4／R08 | 乾淨安裝、wheel 與依賴驗證矩陣、CI 報告 | 每個宣告支援組合皆可安裝、import、載入 Rust、執行離線範例；來源 checkout 不掩蓋缺少的 wheel 資料 | L1–L3；待開始 |
+| L3／R07 | 公開重載回報、task 切換及 reset 契約 | accepted／applied／rejected 可查；失敗不混用版本；重複 close／reset、逾時、回復與歷史保留有測試；Console 與 SDK 使用一致語意 | [完成：證據](acceptance-l3.md) |
+| L4／R08 | 乾淨安裝、wheel 與依賴驗證矩陣、CI 報告 | 每個宣告支援組合皆可安裝、import、載入 Rust、執行離線範例；來源 checkout 不掩蓋缺少的 wheel 資料 | 進行中：盤點平台與乾淨安裝 |
 | L5／R09 | 診斷快照、效能報告、長時間與故障注入工具 | 下列固定條件的延遲、資源、恢復門檻通過；原始量測可重現 | S2、L3、L4；待開始 |
 | L6／R10 | NumPy、PyTorch、mobile base、arm、processor、錄製與恢復範例 | 每個官方離線範例在 CI 執行；僅用公開 API；結束後清理資源；指南與實作一致，舊 API 文件移至明確歷史說明，不新增相容 shim | L1–L5；待開始 |
 

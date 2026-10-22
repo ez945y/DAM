@@ -103,6 +103,7 @@ nav:
     - S3 Acceptance Report: acceptance-s3.md
     - L1 Acceptance Report: acceptance-l1.md
     - L2 Acceptance Report: acceptance-l2.md
+    - L3 Acceptance Report: acceptance-l3.md
 
 plugins:
   - search:

@@ -38,6 +38,7 @@ from dam.errors import (
 from dam.types.action import action_segment_size
 from dam.types.evaluation import GuardrailEvaluation
 from dam.types.result import GuardDecision
+from dam.types.session import ReloadReceipt, SessionStatus
 
 if TYPE_CHECKING:
     from dam.runner.base import BaseRunner
@@ -451,6 +452,7 @@ class Guardrail:
         from dam.runtime.guard_runtime import GuardRuntime
 
         self._closed = True
+        self._recovery_required = False
         self._wait_for_slow = wait_for_slow
         config = load_configuration(stackfile)
         if not config.tasks:
@@ -483,6 +485,7 @@ class Guardrail:
         self._degrees_mode: bool = degrees_mode
         self._action_layout: list[dict[str, Any]] = _resolve_action_layout(config)
         self._solvers: dict[str, Any] = dict(solvers or {})
+        self._provided_solvers: dict[str, Any] = dict(solvers or {})
         self._n_joints: int = len(joint_names)
 
         # Action space derived from action_layout (or the joints when no layout
@@ -536,9 +539,9 @@ class Guardrail:
     @_classify(ExecutionError)
     def evaluate(self, inputs: dict[str, Any]) -> GuardrailEvaluation:
         """Evaluate once and return command, decision and captured evidence."""
-        if self._closed:
+        if self._closed or self._recovery_required:
             raise SessionClosedError(
-                "Guardrail is closed; create a new instance for another session"
+                "Guardrail is closed or awaiting recovery; call reset() to open a fresh session"
             )
         try:
             if not isinstance(inputs, dict):
@@ -703,6 +706,96 @@ class Guardrail:
         """The underlying :class:`GuardRuntime` (advanced use)."""
         return self._runtime
 
+    @property
+    def session_status(self) -> SessionStatus:
+        state = (
+            "recovery_required"
+            if self._recovery_required
+            else ("closed" if self._closed else "open")
+        )
+        runtime = getattr(self, "_reset_origin", self._runtime)
+        return SessionStatus(
+            state,
+            self._task,
+            runtime._hot_reload.config_version,
+            runtime._slow_state_generation,
+            runtime._cycle_id,
+        )
+
+    @_classify(ExecutionError)
+    def request_reload(
+        self, configuration: ConfigurationSource, *, expected_version: int | None = None
+    ) -> ReloadReceipt:
+        """Queue a parameter-only update; evaluate() applies it at a cycle boundary."""
+        if self._closed or self._recovery_required:
+            raise SessionClosedError("Cannot reload a closed or recovering Guardrail")
+        try:
+            config = load_configuration(configuration)
+        except Exception as exc:
+            raise ConfigurationError(str(exc)) from exc
+        manager = self._runtime._hot_reload
+        request_id = self._runtime.apply_pending_reload(
+            config,
+            expected_version=manager.config_version
+            if expected_version is None
+            else expected_version,
+            expected_task=self._task,
+            expected_epoch=manager.task_epoch,
+        )
+        return self.reload_receipt(request_id)
+
+    def reload_receipt(self, request_id: str) -> ReloadReceipt:
+        """Read a detached receipt, including after close/reset; last 100 are retained."""
+        runtime = getattr(self, "_reset_origin", self._runtime)
+        row = runtime._hot_reload.reload_receipt(request_id)
+        if row is None:
+            raise InputContractError(f"Unknown or expired reload receipt {request_id!r}")
+        return ReloadReceipt(row["id"], row["status"], row["message"], row.get("config_version"))
+
+    @_classify(ExecutionError)
+    def reset(self, *, task: str | None = None) -> SessionStatus:
+        """Rebuild from the last applied config, clearing all per-session history.
+
+        Close old resources before constructing new ones. On failure, evaluation
+        remains unavailable until reset succeeds. Completed recordings and
+        bounded reload receipts are retained; pending reloads are rejected.
+        """
+        old_runtime = getattr(self, "_reset_origin", self._runtime)
+        old_task = self._task
+        config = old_runtime._reload_config.model_copy(deep=True)
+        target = self._task if task is None else task
+        if target not in config.tasks:
+            raise ConfigurationError(f"Unknown task {target!r}; available: {sorted(config.tasks)}")
+        options: dict[str, Any] = {
+            "task": target,
+            "joint_names": list(self._joint_names),
+            "degrees_mode": self._degrees_mode,
+            "solvers": dict(self._provided_solvers),
+            "safe_action": "hold"
+            if self._safe_action_mode == "hold"
+            else self._safe_action_value.copy(),
+            "quiet": True,
+            "wait_for_slow": self._wait_for_slow,
+        }
+        self._recovery_required = True
+        self._reset_origin = old_runtime
+        try:
+            self.close()
+            Guardrail.__init__(self, config, **options)
+            self._runtime._hot_reload.inherit_history(old_runtime._hot_reload)
+            self._runtime._cycle_id = old_runtime._cycle_id
+            self._runtime._slow_state_generation = old_runtime._slow_state_generation + 1
+        except Exception:
+            self._recovery_required = True
+            self._task = old_task
+            raise
+        del self._reset_origin
+        return self.session_status
+
+    def switch_task(self, task: str) -> SessionStatus:
+        """Start a fresh session for task, using reset's cleanup/history contract."""
+        return self.reset(task=task)
+
     @_classify(ExecutionError)
     def close(self) -> None:
         """Release recording, worker threads, and runtime resources; safe to repeat."""
@@ -710,9 +803,10 @@ class Guardrail:
             return
         self._runtime.shutdown()
         self._closed = True
+        self._recovery_required = False
 
     def __enter__(self) -> Guardrail:
-        if self._closed:
+        if self._closed or self._recovery_required:
             raise SessionClosedError("Cannot enter a closed Guardrail")
         return self
 
