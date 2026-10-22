@@ -23,7 +23,9 @@ class GuardResult:
     layer: GuardLayer
     reason: str = ""
     clamped_action: ValidatedAction | None = None
-    fault_source: str | None = None  # "environment", "guard_code", "timeout"
+    # Examples: environment, guard_code, timeout, input_contract,
+    # output_contract, policy, context_lifecycle, context, fallback, sink.
+    fault_source: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     event_class: str | None = None  # None → derived from layer at MCAP write time
 

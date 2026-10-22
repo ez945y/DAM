@@ -1,5 +1,56 @@
 # session-handoff.md — 會話交接摘要
 
+## 2026-10-22 — S1–S3 short-term acceptance complete
+
+- S1, S2 and S3 accepted; reports in docs/acceptance-s1.md, docs/acceptance-s2.md and docs/acceptance-s3.md. Full plan remains incomplete: L1–L6 next.
+- Same candidate: Python 1276 passed; Rust workspace exit 0 (one existing ignored doc-test explicitly excluded); frontend 20 suites/167 passed; production build and TypeScript passed; full pre-commit including mypy and Rust clippy passed; new untracked Python Ruff/format passed; docs-check and diff whitespace passed. 384 source SHA-256 fingerprints unchanged across final verification.
+- Jest async/duplicate-package warnings fixed. Remaining build warnings: stale Browserslist data and dynamic upload-asset NFT tracing; standalone packaging/platform matrix remains L4 scope.
+- No services or hardware running from acceptance work, no automations resumed. Evidence logs under logs/acceptance-s*. Next: L1/R05 structured public results and classified errors.
+
+## 2026-10-22 — S2 accepted; S3 candidate verification in progress
+
+- Final fixed-source Python suite: 1276 passed in 71.08s, exit 0; logs/acceptance-s2-python-final.log. Source hashes: logs/acceptance-candidate-source.json. Earlier failing/intermediate runs are not final evidence.
+- Completed R04 output/fallback paths, including explicit SDK command-space fallback; Hold/Retreat/SlowDown reject non-joint layouts; Retreat missing/invalid prerequisites fault instead of returning to normal or inventing zero targets; SlowDown without history suppresses output and rejects invalid scale.
+- S1 and S2 reports: docs/acceptance-s1.md, docs/acceptance-s2.md. Plan marks S1/S2 complete, S3 in progress. Rust workspace tests passed; docs-check passed before final report update. Full pre-commit rerun is active, frontend full tests/build follow sequentially.
+- Prior full-suite Watchdog and frontend timeout failures occurred under heavy host load. Deadlines/assertions were not relaxed; fixed-source Python suite now passes all tests.
+- No hardware connected, no automation resumed. Changes remain uncommitted. L1–L6 are not complete; continue S3 then L1 per plan.
+
+## 2026-10-22 — S2 R04 implementation, full acceptance in progress
+
+- Reproduced NaN commands reaching fake sinks in enforce/monitor/log_only. Implemented shared proposal/final payload validation and declared command dimension checks; layout takes priority over observation joints. Moved existing segment-size resolver to shared action types.
+- Final fallback output is checked before dispatch. Policy/context/fallback/sink errors are retained in cycle results; sink failure does not commit command history. Added output_status to CycleResult and telemetry. Physical emergency-stop errors remain visible with a terminal no-send context.
+- Context entry runs immediately but new context step is deferred until next cycle to prevent callback duplication. SlowDown preserves timestamp and gripper. Documentation updated with data validity versus safety-enforcement semantics and transport acceptance limits.
+- Added 52 R04 tests (latest count pending final verification). Targeted earlier runs: 40, then 48 R04 cases passed; 87 focused monitor/guard/R04/watchdog tests passed; 62 engine/output cases passed before final shape-snapshot refinement. Do not sum repeated runs.
+- Initial full run: 1146 passed / 5 failed before maxfail. Three old monitor tests used NaN to represent a safety violation; changed them to finite disallowed commands, preserving monitor pass-through assertions. Fixed an over-broad audit-original validation that rejected legitimate standalone gripper corrections. Watchdog ping timing failed under heavy host load but passed isolated; deadline unchanged.
+- Full Python validation and pre-commit are running; Rust workspace build/test is running. No S2/S3 completion claim yet. Evidence logs: logs/acceptance-s2-python.log, logs/acceptance-s3-precommit.log. Redundant standalone full mypy was cancelled; pre-commit runs the same check. No changes committed.
+
+## 2026-10-22 — S1 completed; continuing to S2
+
+- Executed isolated browser/API acceptance using disposable files and offline runtime, with no sink or host-control routes. Added reproducible `tests/acceptance/safety_server.py`.
+- Browser found nullable API declarations rejected by local-draft restore. Aligned TypeScript/validator with backend null fields; added regression. Browser refresh now restores the original pending JSON correctly.
+- Browser verified saved plan, compile/export, duplicate refusal, hot reload and rollback receipts, real MCAP A/B (5 cycles / 2 differences), regression PASS and deliberate FAIL (2 mismatches). See `docs/acceptance-s1.md` for item-by-item evidence and local screenshots.
+- Verification: baseline 1102 unit; targeted backend/helper 180; frontend 167 / 20 suites; production build and TypeScript passed. Temporary servers stopped and temporary data removed; evidence retained in logs/acceptance-s1.
+- S1 accepted using combined browser, API and component/fault-injection tests. S2 R04 begins next; overall plan remains incomplete. Changes are not yet committed.
+
+## 2026-10-22 — Acceptance and delivery plan established
+
+- User requested short- and long-term acceptance criteria and deliverables through completion. Added `docs/acceptance-plan.md` and linked it from roadmap and documentation navigation.
+- Short term: S1 isolated browser/API workflow acceptance, S2 R04 final-output/fallback contract, S3 complete candidate validation. Long term: L1–L6 map to R05–R10 with public SDK, preflight, lifecycle, install matrix, diagnostics/soak and executable examples.
+- Defined evidence requirements, defect gates, platform and numerical performance/resource targets, and distinct offline-software versus device-deployment completion. Targets are prospective, not achieved claims; untested platforms remain unverified.
+- Planning artifact is complete; implementation milestones remain pending as shown in the plan. Next execution item is S1 browser/API acceptance using temporary data and fake runtime/sink. Automation remains paused; no hardware actuation is authorized by this plan.
+- Validation: docs-check (strict documentation build) passed. No runtime code changed in this planning unit; prior test counts are retained only as dated baseline evidence.
+
+## 2026-10-22 — Safety Studio offline acceptance follow-up
+
+- User lifted the execution restriction and authorized choosing the next work item. Resumed Safety Studio hardening follow-up; hourly automation remains paused.
+- Checkout started clean at `b238cff`; the previous checkpoint changes were already committed. This round changes only the historical switch label and documentation, with no runtime behavior changes.
+- Replaced misleading historical "Active but not saved" with "Applied change was not saved". Reviewed receipt retention and superseded-configuration persistence paths against existing storage/lifecycle regressions.
+- Documented local draft restoration, incomplete edits, storage failure/retry and damaged-draft replacement behavior; fresh compile/preview/frame confirmation requirements; all-or-nothing language drafting; strict regression range coverage and malformed-case isolation.
+- Fresh verification: Python unit suite 1102 passed; integration/safety/property suite 91 passed (hardware excluded); frontend 166 tests / 20 suites passed, including previously unrun replay and editor tests. Production build (after label edit) and its TypeScript check passed. Targeted mypy on six safety service/router files, targeted Ruff, docs-check and git diff --check passed. Frontend tests preceded the text-only label edit; no behavior was changed afterward.
+- Offline demo: 5 cycles, 2 differences, regression pass (2 assertions). No sample installation or library overwrite.
+- Remaining limits: no new browser end-to-end or real-hardware verification, no Rust verification this round. Build retains upload-asset/NFT tracing and outdated Browserslist warnings; Jest reports generated standalone package-name collision and an existing async act warning despite passing. No claim of hardware safety or complete end-to-end acceptance.
+- Changes remain uncommitted. R04 final-output/fallback contract remains a separate next work item.
+
 ## 2026-10-16 — Safety Studio hardening checkpoint (stopped at user request)
 
 - User requested staged wrap-up and stop. All three delegated agents have stopped; no further feature work or new validation is running. Changes remain uncommitted in the shared workspace; unrelated work is preserved.

@@ -45,6 +45,15 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _require_joint_position_layout(runtime: GuardRuntime) -> None:
+    pool = getattr(getattr(runtime, "_hot_reload", None), "config_pool", {})
+    layout = pool.get("action_layout") or []
+    if layout:
+        keys = [key for segment in layout for key in segment.get("keys", [])]
+        if not keys or keys != list(pool.get("joint_names") or []):
+            raise ValueError("joint-position fallback requires a joint-position action layout")
+
+
 def _hold_action_from(positions: list[float] | np.ndarray) -> ValidatedAction:
     """Build a ValidatedAction that re-sends the given joint positions and
     commands zero velocity. Used by HoldPosition / Retreat / SlowDown."""
@@ -75,8 +84,9 @@ class EmergencyStopContext(StepContext):
         if sink is not None and hasattr(sink, "emergency_stop"):
             try:
                 sink.emergency_stop()
-            except Exception as e:  # noqa: BLE001 — best-effort, never propagate from e-stop
+            except Exception as e:
                 logger.error("EmergencyStop: sink.emergency_stop() raised: %s", e)
+                raise
         logger.critical(
             "EMERGENCY STOP entered | trigger=%s reason=%s",
             getattr(trigger, "guard_name", None),
@@ -112,12 +122,13 @@ class HoldPositionContext(StepContext):
         self._snapshot: list[float] | None = None
 
     def on_enter(self, runtime: GuardRuntime, trigger: GuardResult | None = None) -> None:
+        _require_joint_position_layout(runtime)
         prev = getattr(runtime, "_prev_validated_positions", None)
         self._snapshot = list(prev) if prev else None
         if self._snapshot is None:
             logger.warning(
                 "HoldPosition entered with no prev_validated_positions — "
-                "will not command sink until policy produces one"
+                "output remains suppressed until the context is reset"
             )
 
     def step(
@@ -203,7 +214,9 @@ class SlowDownContext(StepContext):
         scale: float = 0.5,
         hysteresis_seconds: float | None = None,
     ) -> None:
-        self._scale = max(0.0, min(1.0, float(scale)))
+        self._scale = float(scale)
+        if not np.isfinite(self._scale) or not 0 <= self._scale <= 1:
+            raise ValueError("slow_down scale must be finite and in [0, 1]")
         # None → inherit from trigger.metadata["required_frames"] on enter.
         # The triggering boundary already declares how many frames a violation
         # must persist to count; reuse that as the symmetric exit debounce.
@@ -214,6 +227,7 @@ class SlowDownContext(StepContext):
         self._effective_hysteresis: int = 1
 
     def on_enter(self, runtime: GuardRuntime, trigger: GuardResult | None = None) -> None:
+        _require_joint_position_layout(runtime)
         self._trigger_name = trigger.guard_name if trigger is not None else None
         self._healthy_streak = 0
         self._last_results = []
@@ -260,7 +274,7 @@ class SlowDownContext(StepContext):
 
         prev = getattr(runtime, "_prev_validated_positions", None)
         if prev is None:
-            return StepResult(action=validated, guard_results=results)
+            return StepResult(action=None, guard_results=results)
 
         prev_arr = np.asarray(prev, dtype=np.float64)
         target = np.asarray(validated.target_joint_positions, dtype=np.float64)
@@ -273,6 +287,8 @@ class SlowDownContext(StepContext):
                 if validated.target_joint_velocities is not None
                 else None
             ),
+            timestamp=validated.timestamp,
+            gripper_action=validated.gripper_action,
             was_clamped=True,
             original_proposal=validated.original_proposal,
         )
@@ -341,7 +357,7 @@ class RetreatContext(StepContext):
         duration_seconds: float = _DEFAULT_DURATION_SECONDS,
         arrival_tol: float = _DEFAULT_ARRIVAL_TOL_RAD,
     ) -> None:
-        self._target_positions = target_positions  # configured externally; None = zeros
+        self._target_positions = target_positions
         self._duration_seconds = max(0.0, float(duration_seconds))
         self._arrival_tol = float(arrival_tol)
         self._plan: np.ndarray | None = None
@@ -349,18 +365,18 @@ class RetreatContext(StepContext):
         self._target: np.ndarray | None = None
 
     def on_enter(self, runtime: GuardRuntime, trigger: GuardResult | None = None) -> None:
+        _require_joint_position_layout(runtime)
         prev = getattr(runtime, "_prev_validated_positions", None)
         if prev is None or len(prev) == 0:
-            logger.warning("Retreat entered with no prev_validated_positions — cannot plan")
-            self._plan = None
-            self._target = None
-            self._idx = 0
-            return
+            raise ValueError("retreat requires a previously accepted position")
         start = np.asarray(prev, dtype=np.float64)
-        if self._target_positions is None or len(self._target_positions) != len(start):
-            target = np.zeros_like(start)
-        else:
-            target = np.asarray(self._target_positions, dtype=np.float64)
+        if self._target_positions is None:
+            raise ValueError("retreat requires explicit target_positions")
+        target = np.asarray(self._target_positions, dtype=np.float64)
+        if start.ndim != 1 or target.shape != start.shape:
+            raise ValueError("retreat target_positions must match the position shape")
+        if not np.all(np.isfinite(start)) or not np.all(np.isfinite(target)):
+            raise ValueError("retreat positions must be finite")
         # Derive cycle count from configured duration + runtime control rate.
         hz = float(getattr(runtime, "_control_frequency_hz", 50.0))
         steps = max(1, int(round(self._duration_seconds * hz)))
@@ -406,7 +422,7 @@ class RetreatContext(StepContext):
 
     def is_done(self, obs: Observation, runtime: GuardRuntime) -> bool:
         if self._plan is None or self._target is None:
-            return True  # nothing to do; let runtime restore Normal
+            return False
         if self._idx >= len(self._plan):
             return True
         prev = getattr(runtime, "_prev_validated_positions", None)

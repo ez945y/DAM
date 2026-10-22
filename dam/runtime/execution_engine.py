@@ -21,8 +21,9 @@ import numpy as np
 
 from dam.guard.aggregator import aggregate_decisions
 from dam.guard.aggregators.motion_qp import bind_motion_evidence, validate_motion_evidence
+from dam.guard.layer import GuardLayer
 from dam.guard.pipeline import PER_BOUNDARY_KEY
-from dam.types.action import ValidatedAction
+from dam.types.action import ValidatedAction, declared_command_shape
 from dam.types.enforcement import EnforcementMode
 from dam.types.result import GuardDecision, GuardResult
 
@@ -290,6 +291,38 @@ class ExecutionEngine:
                 effect. Runtime Context state machine then picks a fallback
                 based on the rejecting boundary's ``node.fallback``.
         """
+        # Data validity is mandatory even when safety enforcement is disabled.
+        try:
+            expected_shape = declared_command_shape(getattr(ctx, "config_pool", None))
+            action.validate_payload(expected_shape)
+            expected_shape = expected_shape or action.target_joint_positions.shape
+        except Exception as exc:
+            fault = GuardResult.fault(exc, "input_contract", "input_contract", GuardLayer.L1)
+            ctx.risk_controller.record(was_clamped=False, was_rejected=True)
+            return None, [fault]
+
+        validated, results = self._validate_checked(
+            obs, action, trace_id, ctx, now, extra_results, post_checks
+        )
+        if validated is not None:
+            try:
+                validated.validate_payload(expected_shape)
+            except Exception as exc:
+                fault = GuardResult.fault(exc, "output_contract", "output_contract", GuardLayer.L1)
+                ctx.risk_controller.record(was_clamped=False, was_rejected=True)
+                return None, [*results, fault]
+        return validated, results
+
+    def _validate_checked(
+        self,
+        obs: Observation,
+        action: ActionProposal,
+        trace_id: str,
+        ctx: ValidationContext,
+        now: float | None = None,
+        extra_results: list[GuardResult] | None = None,
+        post_checks: Callable[[ActionProposal | ValidatedAction], list[GuardResult]] | None = None,
+    ) -> tuple[ValidatedAction | None, list[GuardResult]]:
         if self._enforcement_mode == EnforcementMode.LOG_ONLY:
             ctx.risk_controller.record(was_clamped=False, was_rejected=False)
             return self._make_validated_action(action), []

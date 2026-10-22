@@ -97,6 +97,10 @@ nav:
     - Guide: contributing.md
     - Documentation Workplan: documentation-workplan.md
     - Roadmap: roadmap.md
+    - Acceptance and Delivery: acceptance-plan.md
+    - S1 Acceptance Report: acceptance-s1.md
+    - S2 Acceptance Report: acceptance-s2.md
+    - S3 Acceptance Report: acceptance-s3.md
 
 plugins:
   - search:

@@ -26,6 +26,8 @@ from typing import TYPE_CHECKING, Any, overload
 
 import numpy as np
 
+from dam.types.action import action_segment_size
+
 if TYPE_CHECKING:
     from dam.runner.base import BaseRunner
     from dam.types.result import GuardResult
@@ -474,7 +476,7 @@ class Guardrail:
 
         # Action space derived from action_layout (or the joints when no layout
         # is given). "command space" = the action is not the joint vector →
-        # never deg<->rad scaled, reject falls back to a stop command.
+        # never deg<->rad scaled, requires an explicit reject command.
         self._action_keys: list[str] | None = None
         self._n_actions: int = self._n_joints
         self._command_space: bool = False
@@ -686,10 +688,11 @@ class Guardrail:
     def _resolve_safe_action(self, safe_action: Any) -> tuple[str, np.ndarray]:
         if isinstance(safe_action, str):
             if safe_action == "hold":
-                # Holding the last command is unsafe for a velocity base, so a
-                # command-space guard stops instead.
                 if self._command_space:
-                    return "fixed", np.zeros(self._n_actions, dtype=np.float64)
+                    raise ValueError(
+                        "command-space actions require an explicit safe_action vector or 'zero'; "
+                        "'hold' requires joint-position commands"
+                    )
                 return "hold", np.zeros(self._n_actions, dtype=np.float64)
             if safe_action == "zero":
                 return "fixed", np.zeros(self._n_actions, dtype=np.float64)
@@ -806,7 +809,7 @@ class Guardrail:
                 keys.extend(str(k) for k in seg_keys)
             else:
                 fully_keyed = False
-            size += _segment_size(segment) or 0
+            size += action_segment_size(segment) or 0
         if not self._action_layout or size == 0:
             self._n_actions = self._n_joints
             self._action_keys = list(self._joint_names)
@@ -857,7 +860,7 @@ class Guardrail:
         cursor = 0
         for index, segment in enumerate(self._action_layout):
             name = str(segment.get("name") or f"segment_{index}")
-            size = _segment_size(segment)
+            size = action_segment_size(segment)
             if size is None:
                 continue
             segments[name] = arr[cursor : cursor + size].copy()
@@ -897,18 +900,6 @@ def _command_array(value: Any) -> np.ndarray:
     if hasattr(value, "detach"):
         value = value.detach().cpu().double().numpy()
     return np.asarray(value, dtype=np.float64)
-
-
-def _segment_size(segment: dict[str, Any]) -> int | None:
-    """Resolve one action_layout segment's width: ``keys`` length, an explicit
-    ``size``, or a typed default (``ee_pose`` → 7, ``scalar`` → 1)."""
-    seg_keys = segment.get("keys")
-    if isinstance(seg_keys, (list, tuple)):
-        return len(seg_keys)
-    declared = segment.get("size") or segment.get("dim") or segment.get("dimensions")
-    if declared is not None:
-        return int(declared)
-    return {"ee_pose": 7, "scalar": 1}.get(str(segment.get("type", "")).lower())
 
 
 def guardrail(

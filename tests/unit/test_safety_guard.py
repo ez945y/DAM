@@ -231,7 +231,13 @@ class TestGuardrail:
                 boundaries: []
             """)
         )
-        guard = Guardrail(str(path), joint_names=_JOINT_NAMES, degrees_mode=False, quiet=True)
+        guard = Guardrail(
+            str(path),
+            joint_names=_JOINT_NAMES,
+            degrees_mode=False,
+            safe_action=[0.5, 0, 0, 0, 0, 0, 1],
+            quiet=True,
+        )
         assert guard.action_layout == [{"name": "arm", "type": "ee_pose", "solver": "kinematics"}]
 
 
@@ -321,7 +327,13 @@ class TestEEActionLayout:
             """)
         )
 
-        guard = Guardrail(str(path), joint_names=_JOINT_NAMES, degrees_mode=False, quiet=True)
+        guard = Guardrail(
+            str(path),
+            joint_names=_JOINT_NAMES,
+            degrees_mode=False,
+            safe_action=[0.5, 0, 0, 0, 0, 0, 1],
+            quiet=True,
+        )
         action = np.array([0.5, 0, 0, 0, 0, 0, 1.0])
         result = _call(guard, action, np.zeros(6))
         np.testing.assert_allclose(result, action)
@@ -372,7 +384,13 @@ class TestEEActionLayout:
             """)
         )
 
-        guard = Guardrail(str(path), joint_names=_JOINT_NAMES, degrees_mode=False, quiet=True)
+        guard = Guardrail(
+            str(path),
+            joint_names=_JOINT_NAMES,
+            degrees_mode=False,
+            safe_action=[0.5, 0, 0, 0, 0, 0, 1, 0.25],
+            quiet=True,
+        )
         action = np.array([0.5, 0, 0, 0, 0, 0, 1.0, 0.25])
         result = _call(guard, action, np.zeros(6))
         np.testing.assert_allclose(result, action)
@@ -753,6 +771,11 @@ class TestDecoupledMobileBase:
     def test_contract_lists_base_pose(self, tmp_path: Path) -> None:
         guard = self._guard(tmp_path)
         assert guard.required_obs_keys == {"base_pose"}
+
+    def test_command_space_requires_explicit_fallback(self, tmp_path: Path) -> None:
+        self._register_callback()
+        with pytest.raises(ValueError, match="explicit safe_action"):
+            Guardrail(self._stackfile(tmp_path), quiet=True)
 
     def test_safe_command_passes_through(self, tmp_path: Path) -> None:
         guard = self._guard(tmp_path)

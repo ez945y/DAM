@@ -126,6 +126,8 @@ def forward_only(*, base_pose, action, solvers, dt=0.1):
 - `safe_action` on reject: an explicit vector (e.g. `[0, 0]` to stop a base),
   `"hold"` (default — re-issue the current joint positions, safe for a
   position-controlled arm), or `"zero"`.
+  Non-joint command layouts require an explicit vector or `"zero"`; the default
+  `"hold"` raises instead of inventing an all-zero fallback for an unknown command.
 - The return value mirrors the `action` you passed (list/ndarray/tensor, or a
   `{key: value}` dict). Pass `quiet=True` to suppress the contract print.
 
@@ -203,13 +205,49 @@ Completed slow results include `basis_cycle_id`, `verdict_age_ms`, and
 from a cached result. Status is a live snapshot and can change after a call;
 `last_results` records what that call used. Task restart resets readiness.
 
-MONITOR still returns the original command while recording rejection/fault;
-LOG_ONLY skips checks. Neither mode claims enforced safety. The wait deadline
+For well-formed commands, MONITOR returns the original command while recording
+safety rejection/fault; LOG_ONLY skips safety checks. Both still enforce command
+payload validity. Neither mode claims enforced safety. The wait deadline
 covers slow scheduling and evaluation, not construction, fast checks, or
 cleanup. Python cannot cancel a running callback: `close()` may additionally
 wait up to the worker stop timeout (currently two seconds) and raises
 `TimeoutError` if it is still running. A session can retry close after the
 callback exits; a one-shot call propagates that cleanup error.
+
+### Runtime output and fallback contract
+
+`GuardRuntime.validate()` rejects malformed proposals with an `input_contract`
+FAULT in every mode, including MONITOR and LOG_ONLY. Before dispatch, `step()`
+checks every final action, including custom contexts and fallback outputs:
+nonempty finite 1-D positions, the declared command width, matching finite
+optional velocities, finite nonnegative timestamp, and optional gripper in [0, 1].
+Command layout takes priority over observation joint count. With no declared
+width, the final command must match the proposal when one exists; direct runtimes
+without a proposal or declared width can only check intrinsic payload validity.
+
+`CycleResult.output_status` is `sent` only after the sink method returns normally;
+this is transport acceptance, not physical motion feedback. Other values are
+`suppressed`, `failed`, `not_configured`, and the default `not_attempted` for
+externally constructed results. A sink exception clears the returned validated
+action and records a sink FAULT; command history is committed only after accepted
+dispatch. Policy, context lifecycle, fallback and final-output failures are
+reported in cycle guard results. ENFORCE enters a terminal emergency-stop context
+on execution faults; MONITOR/LOG_ONLY suppress malformed output without adding
+safety fallback actuation. Failure of the physical stop hook is recorded and the
+runtime remains in a terminal don't-send state; this does not prove hardware stopped.
+
+On a fallback transition, entry hooks run immediately, while the new context's
+step begins next cycle. The transition cycle sends no command, avoiding duplicate
+callback evaluation. Hold without a prior valid command remains suppressed;
+Retreat requires a prior accepted position and explicit finite `target_positions`
+of the same shape. Missing or invalid prerequisites produce a fallback FAULT and
+terminal suppression; no implicit zero target or return to normal operation is used.
+HoldPosition, Retreat and SlowDown reject non-joint command layouts. SlowDown
+suppresses output without a previous accepted position, requires a finite scale
+in `[0, 1]`, and preserves the validated timestamp and gripper command.
+Payload validation does not establish
+that an arbitrary custom fallback is physically safe or satisfies every geometric
+constraint; deployment still needs a suitable action and fallback contract.
 
 ### Slow-lane data ownership
 

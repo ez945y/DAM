@@ -226,3 +226,27 @@ test('reports draft saving separately from plan library saving and active read e
   expect(screen.getByText(/Active configuration error: Active YAML invalid/)).toBeInTheDocument()
   expect(screen.getByText(/Switch history error: History unreadable/)).toBeInTheDocument()
 })
+
+
+test('restores a library response with nullable declarations and pending JSON edits', async () => {
+  mocked.list.mockResolvedValue({ plans: [{ name: 'api-plan' }] })
+  mocked.load.mockResolvedValue({
+    name: 'api-plan', base_yaml: 'version: "1"', task: 'default',
+    contract: { observation_keys: ['joints'], frame: null, action_units: null, joint_names: null },
+    components: [{ name: 'limits', kind: 'mode', boundaries: {
+      limit: { layer: 'L1', type: 'single', nodes: [{ callback: 'joint_velocity_limit', params: { max_velocities: 1 } }] },
+    } }],
+  })
+  const first = render(<SafetyStudio />)
+  await within(screen.getByLabelText('Saved plans')).findByRole('option', { name: 'api-plan' })
+  fireEvent.change(screen.getByLabelText('Saved plans'), { target: { value: 'api-plan' } })
+  await waitFor(() => expect(screen.getByLabelText('Plan name')).toHaveValue('api-plan'))
+  fireEvent.change(screen.getByLabelText('Boundary JSON limits'), { target: { value: '{"unfinished":' } })
+  first.unmount()
+  render(<SafetyStudio />)
+  expect(await screen.findByText(/Restored local draft, including pending edits/)).toBeInTheDocument()
+  expect(screen.getByLabelText('Plan name')).toHaveValue('api-plan')
+  expect(screen.getByLabelText('Boundary JSON limits')).toHaveValue('{"unfinished":')
+  expect(screen.getByRole('button', { name: 'Compile & check' })).toBeDisabled()
+  expect(screen.queryByText(/Local draft could not be restored/)).not.toBeInTheDocument()
+})

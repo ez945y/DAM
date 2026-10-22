@@ -17,9 +17,10 @@ from dam.injection.static import precompute_injection
 from dam.runtime.context import (
     ContextEvent,
     NormalContext,
+    StepResult,
 )
 from dam.runtime.execution_engine import ExecutionEngine, ValidationContext, _filter_kwargs
-from dam.types.action import ActionProposal, ValidatedAction
+from dam.types.action import ActionProposal, ValidatedAction, declared_command_shape
 from dam.types.enforcement import EnforcementMode
 from dam.types.observation import Observation
 from dam.types.result import GuardDecision, GuardResult
@@ -1203,90 +1204,140 @@ class GuardRuntime:
             metadata=extra_metadata,
         )
 
-        # ── Context state machine: auto-escalate then pop done contexts ──
-        # Only active in ENFORCE mode — monitor / log_only must observe without
-        # intervening in the action stream.
-        state_machine_on = self._enforcement_mode == EnforcementMode.ENFORCE
-        if state_machine_on:
-            # Auto-escalation: if current Context's timer fired AND it isn't
-            # resolving (trigger still violating), push the escalate_to target.
-            # Runs before pop so a stuck Context graduates to something stricter
-            # rather than yielding back down.
-            if not isinstance(self._ctx_sm.active_context, NormalContext):
-                elapsed = t_start - self._ctx_sm.active_context_since
-                if self._ctx_sm.active_context.should_escalate(elapsed):
-                    target_name = self._ctx_sm.active_context.escalate_to
-                    if target_name:
-                        target = self._ctx_sm.make_context_from_fallback_name(target_name)
-                        if (
-                            target is not None
-                            and target.severity > self._ctx_sm.active_context.severity
-                        ):
-                            self._ctx_sm.push_context(target, self, trigger=None, event="escalate")
+        action: ActionProposal | None = None
+        validated: ValidatedAction | None = None
+        guard_results: list[GuardResult] = []
+        t_ctx = t_policy = time.monotonic()
+        failure_stage = "context_lifecycle"
+        cycle_fault = False
+        try:
+            # ── Context state machine: auto-escalate then pop done contexts ──
+            # Only active in ENFORCE mode — monitor / log_only must observe without
+            # intervening in the action stream.
+            state_machine_on = self._enforcement_mode == EnforcementMode.ENFORCE
+            if state_machine_on:
+                # Auto-escalation: if current Context's timer fired AND it isn't
+                # resolving (trigger still violating), push the escalate_to target.
+                # Runs before pop so a stuck Context graduates to something stricter
+                # rather than yielding back down.
+                if not isinstance(self._ctx_sm.active_context, NormalContext):
+                    elapsed = t_start - self._ctx_sm.active_context_since
+                    if self._ctx_sm.active_context.should_escalate(elapsed):
+                        target_name = self._ctx_sm.active_context.escalate_to
+                        if target_name:
+                            target = self._ctx_sm.make_context_from_fallback_name(target_name)
+                            if (
+                                target is not None
+                                and target.severity > self._ctx_sm.active_context.severity
+                            ):
+                                self._ctx_sm.push_context(
+                                    target, self, trigger=None, event="escalate"
+                                )
 
-            # Pop cascading: if a popped Context's predecessor is also done,
-            # keep popping. Limit iterations to stack depth as a safety net.
-            for _ in range(self._ctx_sm.stack_depth):
-                if isinstance(self._ctx_sm.active_context, NormalContext):
-                    break
-                if not self._ctx_sm.active_context.is_done(obs, self):
-                    break
-                self._ctx_sm.pop_context()
+                # Pop cascading: if a popped Context's predecessor is also done,
+                # keep popping. Limit iterations to stack depth as a safety net.
+                for _ in range(self._ctx_sm.stack_depth):
+                    if isinstance(self._ctx_sm.active_context, NormalContext):
+                        break
+                    if not self._ctx_sm.active_context.is_done(obs, self):
+                        break
+                    self._ctx_sm.pop_context()
 
-        t_ctx = time.monotonic()
+            t_ctx = time.monotonic()
 
-        # ── Action proposal (skipped when active Context doesn't need it) ──
-        action: ActionProposal | None = (
-            self._policy.predict(obs) if self._ctx_sm.active_context.requires_proposal else None
-        )
-        t_policy = time.monotonic()
+            # ── Action proposal (skipped when active Context doesn't need it) ──
+            failure_stage = "policy"
+            action = (
+                self._policy.predict(obs) if self._ctx_sm.active_context.requires_proposal else None
+            )
+            t_policy = time.monotonic()
 
-        # ── Run the active Context's step ──
-        step_result = self._ctx_sm.active_context.step(
-            obs, self, proposal=action, trace_id=trace_id, now=t_start
-        )
-        guard_results = step_result.guard_results
-        guard_results.extend(
-            self._run_context_hardware_monitors(obs, trace_id, guard_results, now=t_start)
-        )
+            # ── Run the active Context's step ──
+            failure_stage = "context"
+            step_result = self._ctx_sm.active_context.step(
+                obs, self, proposal=action, trace_id=trace_id, now=t_start
+            )
+            guard_results = step_result.guard_results
+            guard_results.extend(
+                self._run_context_hardware_monitors(obs, trace_id, guard_results, now=t_start)
+            )
 
-        # ── Check for reject/fault → push higher-severity Context if any ──
-        # Suppressed in non-ENFORCE modes — monitor must not intervene.
-        rejected = self._ctx_sm.find_worst_reject(guard_results) if state_machine_on else None
-        if rejected is not None:
-            new_ctx = self._ctx_sm.pick_context_for(rejected, self._boundary_containers)
-            if new_ctx is not None and new_ctx.severity > self._ctx_sm.active_context.severity:
-                event = (
-                    "preempt"
-                    if not isinstance(self._ctx_sm.active_context, NormalContext)
-                    else "enter"
+            # ── Check for reject/fault → push higher-severity Context if any ──
+            # Suppressed in non-ENFORCE modes — monitor must not intervene.
+            rejected = self._ctx_sm.find_worst_reject(guard_results) if state_machine_on else None
+            if rejected is not None:
+                new_ctx = self._ctx_sm.pick_context_for(rejected, self._boundary_containers)
+                if new_ctx is not None and new_ctx.severity > self._ctx_sm.active_context.severity:
+                    event = (
+                        "preempt"
+                        if not isinstance(self._ctx_sm.active_context, NormalContext)
+                        else "enter"
+                    )
+                    failure_stage = "fallback"
+                    self._ctx_sm.push_context(new_ctx, self, trigger=rejected, event=event)
+                    # Entry hooks (including emergency stop) run now. Evaluate the
+                    # new context next cycle, without running callbacks twice.
+                    step_result = StepResult(action=None)
+
+            validated = step_result.action
+        except Exception as exc:
+            if failure_stage == "context_lifecycle":
+                t_ctx = t_policy = time.monotonic()
+            elif failure_stage == "policy":
+                t_policy = time.monotonic()
+            guard_results.append(
+                GuardResult.fault(exc, failure_stage, failure_stage, GuardLayer.L1)
+            )
+            validated = None
+            cycle_fault = True
+
+        # All paths converge here, including custom and bypass contexts.
+        if validated is not None:
+            try:
+                shape = declared_command_shape(self._hot_reload.config_pool)
+                if shape is None and action is not None:
+                    shape = action.target_joint_positions.shape
+                validated.validate_payload(shape)
+            except Exception as exc:
+                guard_results.append(
+                    GuardResult.fault(exc, "output_contract", "output_contract", GuardLayer.L1)
                 )
-                self._ctx_sm.push_context(new_ctx, self, trigger=rejected, event=event)
-                # Re-step in the new Context this cycle so the sink gets a
-                # fallback action immediately rather than a silent cycle.
-                if new_ctx.requires_proposal and action is None:
-                    action = self._policy.predict(obs)
-                step_result = new_ctx.step(
-                    obs, self, proposal=action, trace_id=trace_id, now=t_start
-                )
-                # guard_results stays as the original chassis output — the
-                # re-step's results (if any) would duplicate or differ from
-                # what the cycle truly decided. Logging prefers the trigger.
-
-        validated = step_result.action
+                validated = None
+                cycle_fault = True
         t_validate = time.monotonic()
 
-        # Track the final action this cycle will send. NormalContext already
-        # passes through validate(); fallback contexts may post-process that
-        # output or generate their own waypoint, so commit the final action here.
-        self._remember_validated_action(validated)
-
+        output_status = "suppressed" if validated is None else "not_configured"
         if validated is not None and self._sink is not None:
-            # Use apply() (ActionAdapter ABC). write() is a deprecated alias on legacy sinks.
-            if hasattr(self._sink, "apply"):
-                self._sink.apply(validated)
+            try:
+                if hasattr(self._sink, "apply"):
+                    self._sink.apply(validated)
+                else:
+                    self._sink.write(validated)
+            except Exception as exc:
+                guard_results.append(GuardResult.fault(exc, "sink", "sink", GuardLayer.L3))
+                validated = None
+                cycle_fault = True
+                output_status = "failed"
             else:
-                self._sink.write(validated)  # backward-compat for non-ABC sinks
+                output_status = "sent"
+                # Commit only after the sink accepted the command.
+                self._remember_validated_action(validated)
+        if cycle_fault:
+            self._risk_controller.record(was_clamped=False, was_rejected=True)
+            if self._enforcement_mode == EnforcementMode.ENFORCE:
+                from dam.runtime.builtin_contexts import EmergencyStopContext
+
+                if not isinstance(self._ctx_sm.active_context, EmergencyStopContext):
+                    try:
+                        self._ctx_sm.push_context(
+                            EmergencyStopContext(), self, trigger=guard_results[-1], event="preempt"
+                        )
+                    except Exception as exc:
+                        guard_results.append(
+                            GuardResult.fault(exc, "sink", "emergency_stop", GuardLayer.L3)
+                        )
+                        # ContextStateMachine retains the terminal state even
+                        # when the physical stop hook fails.
         t_sink = time.monotonic()
 
         t_bus = time.monotonic()
@@ -1364,6 +1415,7 @@ class GuardRuntime:
         return CycleResult(
             cycle_id=self._cycle_id - 1,
             trace_id=trace_id,
+            output_status=output_status,
             validated_action=validated,
             original_proposal=action,
             was_clamped=validated.was_clamped if validated is not None else False,

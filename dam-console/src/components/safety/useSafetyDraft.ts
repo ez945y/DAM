@@ -41,9 +41,9 @@ function plan(value: unknown): value is SafetyPlan {
   if (!object(value) || typeof value.name !== 'string' || typeof value.task !== 'string' || typeof value.base_yaml !== 'string' || !Array.isArray(value.components) || !value.components.every(component)) return false
   const contract = value.contract
   return contract === undefined || (object(contract) && strings(contract.observation_keys)
-    && (contract.frame === undefined || typeof contract.frame === 'string')
-    && (contract.action_units === undefined || strings(contract.action_units))
-    && (contract.joint_names === undefined || strings(contract.joint_names)))
+    && (contract.frame == null || typeof contract.frame === 'string')
+    && (contract.action_units == null || strings(contract.action_units))
+    && (contract.joint_names == null || strings(contract.joint_names)))
 }
 function generatedDraft(value: unknown): value is DraftResult | null {
   return value === null || (object(value) && Array.isArray(value.components) && value.components.every(component)

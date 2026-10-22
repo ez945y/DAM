@@ -1,5 +1,8 @@
 # DAM 後續功能與穩定性規劃
 
+2026-10-22 補充：[分階段驗收與交付計畫](acceptance-plan.md) 定義 Safety Studio
+收尾、R04–R10 的交付內容、驗收門檻與最終完成條件；功能狀態仍以下列證據為準。
+
 更新日期：2026-10-16。規劃以 `8b99129` 的 SDK 與 runtime 為基準；R01 已於 `caba57b`、R02 已於 `a18ce9c`、R03 已於 `6effe45` 完成，其餘項目維持待辦。
 
 下一階段優先補齊安全判定從輸入、非同步評估到輸出的完整流程，再改善 SDK 的設定、診斷與部署體驗。除明確標示完成者外，下列項目都是待辦建議，不代表已實作功能或發行承諾。先完成 P0 的可重現測試與修正，再擴充 API，避免新功能建立在不明確的執行語意上。
@@ -125,6 +128,9 @@
 主要位置：`dam/runtime/slow_lane.py`、`dam/runtime/guard_runtime.py`。同步更新 [SDK 文件](library-api.md) 與 [安全模型](concepts/safety.md)。
 
 ### R04 Runtime 輸出與 fallback 契約
+
+2026-10-22：已完成 [S2 行為驗收](acceptance-s2.md)，Python 非硬體全套 1276 通過；
+S3 同候選版完整檢查進行中。以下原始範圍由該報告逐路徑對應。
 
 SDK 已有輸入檢查，但直接使用 runtime、自訂 guard、fallback context 與 sink 的路徑仍需一致的端到端契約。應盤點原始 action、修正 action、hold、retreat 與 emergency-stop 的輸出路徑。
 

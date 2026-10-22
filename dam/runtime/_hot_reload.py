@@ -185,7 +185,9 @@ class HotReloadManager:
         # (which owns the physical description). Used to align the observation
         # vector with the URDF dynamics model by name during FK.
         preset = _resolve_preset(new_config)
-        if preset and preset.joint_names:
+        if new_config.hardware and new_config.hardware.joint_names:
+            pool["joint_names"] = list(new_config.hardware.joint_names)
+        elif preset and preset.joint_names:
             pool["joint_names"] = list(preset.joint_names)
         if new_config.hardware and new_config.hardware.action_layout:
             pool["action_layout"] = [dict(item) for item in new_config.hardware.action_layout]
@@ -193,6 +195,8 @@ class HotReloadManager:
             pool["action_layout"] = [dict(item) for item in preset.action_layout]
 
         _STRUCTURAL = {
+            "joint_names",
+            "action_layout",
             "layer",
             "type",
             "callback",
