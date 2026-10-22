@@ -144,7 +144,7 @@ SDK 已有輸入檢查，但直接使用 runtime、自訂 guard、fallback conte
 
 ### R05 結構化結果與錯誤分類
 
-保留目前 callable 回傳命令的介面，另設計 opt-in 詳細結果 API。結果可包含命令、PASS／CLAMP／REJECT／FAULT、fallback、boundary、原因、設定版本與判定資料年齡。此 API 尚未實作，名稱需在設計時確認。
+2026-10-22 已交付 `Guardrail.evaluate()` 與公開 `GuardrailEvaluation`，包含命令、PASS／CLAMP／REJECT／FAULT、fallback、boundary、原因、設定版本與實際消費判定年齡；callable 保留回傳命令。見 [L1 驗收](acceptance-l1.md)。
 
 錯誤分類至少區分設定錯誤、輸入契約錯誤、已關閉 session、背景 worker 逾時與執行失敗；保留原始例外鏈。
 

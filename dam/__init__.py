@@ -20,12 +20,21 @@ from dam.api import (
     run,
 )
 from dam.decorators import callback, fallback, guard, solver_factory
+from dam.errors import (
+    ConfigurationError,
+    DamError,
+    ExecutionError,
+    InputContractError,
+    OperationTimeoutError,
+    SessionClosedError,
+)
 from dam.guard.aggregator import aggregate_decisions
 from dam.guard.base import Guard
 from dam.guard.layer import GuardLayer
 from dam.runner.base import BaseRunner as Runner
 from dam.runner.base import RunnerStatus
 from dam.types.action import ActionProposal, ValidatedAction
+from dam.types.evaluation import GuardrailEvaluation
 from dam.types.observation import Observation
 from dam.types.result import GuardDecision, GuardResult
 from dam.types.risk import CycleResult, RiskLevel
@@ -78,6 +87,13 @@ __all__ = [
     "register_host_telemetry_interface",
     "RunSummary",
     "Guardrail",
+    "GuardrailEvaluation",
+    "DamError",
+    "ConfigurationError",
+    "InputContractError",
+    "SessionClosedError",
+    "OperationTimeoutError",
+    "ExecutionError",
     "GuardrailProcessorStep",
     "Runner",
     "RunnerStatus",

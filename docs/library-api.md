@@ -12,6 +12,7 @@ dam.build_runner(stack, *, ros2_node)       -> Runner
 # Guardrail (no hardware loop needed) — dict in, validated command out
 dam.guardrail(inputs, stackfile, *, ...)        -> ndarray | dict
 dam.Guardrail(stackfile, *, task, safe_action)  -> callable guard
+rail.evaluate(inputs)                         -> GuardrailEvaluation
 dam.GuardrailProcessorStep(stackfile, *, ...)   -> LeRobot processor step
 
 # Registration decorators
@@ -32,7 +33,8 @@ dam.RunnerStatus    # IDLE / STARTING / RUNNING / PAUSED / STOPPING / STOPPED / 
 dam.SensorAdapter   # optional base class for read interfaces
 dam.ActionAdapter   # optional base class for write interfaces
 dam.GuardResult     # per-guard evaluation outcome
-dam.GuardDecision   # PASS / CLAMP / REJECT
+dam.GuardDecision   # PASS / CLAMP / REJECT / FAULT
+dam.GuardrailEvaluation  # returned command + captured decision evidence
 dam.Observation     # sensor state snapshot
 dam.ActionProposal  # proposed action from policy
 dam.ValidatedAction # action after guard processing
@@ -248,6 +250,51 @@ in `[0, 1]`, and preserves the validated timestamp and gripper command.
 Payload validation does not establish
 that an arbitrary custom fallback is physically safe or satisfies every geometric
 constraint; deployment still needs a suitable action and fallback contract.
+
+### Detailed evaluation and classified errors
+
+`rail.evaluate(inputs)` executes the same validation once and returns a
+`dam.GuardrailEvaluation`. `rail(inputs)` continues to return only the command.
+The detailed result includes `command`, `decision`, `guard_results`, `fallback`,
+`config_version`, `task`, `cycle_id`, `verdict_age_ms` and `output_status`.
+`output_status="returned"` means a command was returned to the caller; the SDK
+has no sink and does not report device delivery. REJECT/FAULT can include a valid
+fallback command. MONITOR may report REJECT while returning the original finite
+command; `fallback` then remains None.
+
+The result's guard evidence is copied from this evaluation. `verdict_age_ms` is
+the oldest slow verdict actually used, not a later worker snapshot; individual
+basis cycles and versions remain in guard-result metadata. It is None when no
+aged verdict was used. `to_dict()` / `to_json()` serialize command arrays/tensors,
+decisions, reasons and metadata. Non-finite diagnostic metadata is represented as
+text; returned commands must already satisfy the finite-value contract.
+
+```python
+with dam.Guardrail("safety.yaml", quiet=True) as rail:
+    result = rail.evaluate({"joints": measured, "action": proposed})
+    print(result.decision.name, result.fallback, result.config_version)
+    print(result.to_json())
+    command = result.command
+```
+
+Public exception categories all derive from `dam.DamError`:
+
+| Exception | Meaning |
+| --- | --- |
+| `ConfigurationError` | Construction/configuration failed |
+| `InputContractError` | Missing, malformed or incompatible call inputs |
+| `SessionClosedError` | Evaluation/entry attempted after close |
+| `OperationTimeoutError` | An operation or worker cleanup exceeded its deadline |
+| `ExecutionError` | Runtime execution or output conversion failed outside a guard result |
+
+Wrapped failures preserve the original exception in `__cause__`. Guard rejection,
+guard FAULT and a bounded slow-verdict wait that selects fallback remain evaluation
+results; they are not converted into thrown execution errors. `close()` remains
+retryable after a worker timeout. Input errors leave the session usable.
+Applications should catch these categories instead of relying on underlying
+file-loader, KeyError or dtype exceptions. The executable offline example is
+`python -m examples.guardrail_evaluation`; it creates only temporary configuration
+and does not connect to hardware.
 
 ### Slow-lane data ownership
 

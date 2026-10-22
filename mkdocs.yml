@@ -101,6 +101,7 @@ nav:
     - S1 Acceptance Report: acceptance-s1.md
     - S2 Acceptance Report: acceptance-s2.md
     - S3 Acceptance Report: acceptance-s3.md
+    - L1 Acceptance Report: acceptance-l1.md
 
 plugins:
   - search:

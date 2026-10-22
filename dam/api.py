@@ -16,6 +16,7 @@ the functions so ``import dam`` stays cheap.
 from __future__ import annotations
 
 import contextlib
+import copy
 import logging
 import time
 import uuid
@@ -26,7 +27,16 @@ from typing import TYPE_CHECKING, Any, overload
 
 import numpy as np
 
+from dam.errors import (
+    ConfigurationError,
+    ExecutionError,
+    InputContractError,
+    SessionClosedError,
+    _classify,
+)
 from dam.types.action import action_segment_size
+from dam.types.evaluation import GuardrailEvaluation
+from dam.types.result import GuardDecision
 
 if TYPE_CHECKING:
     from dam.runner.base import BaseRunner
@@ -421,6 +431,7 @@ class Guardrail:
     the latest verdict; inspect ``last_results`` and ``slow_lane_status``.
     """
 
+    @_classify(ConfigurationError)
     def __init__(
         self,
         stackfile: str,
@@ -519,58 +530,70 @@ class Guardrail:
     # -- public interface ---------------------------------------------------
 
     def __call__(self, inputs: dict[str, Any]) -> Any:
-        """Validate ``inputs["action"]`` against the observation groups in
-        ``inputs``; return the safe command in the same form it arrived."""
+        """Evaluate once; return the command in the input's representation."""
+        return self.evaluate(inputs).command
+
+    @_classify(ExecutionError)
+    def evaluate(self, inputs: dict[str, Any]) -> GuardrailEvaluation:
+        """Evaluate once and return command, decision and captured evidence."""
         if self._closed:
-            raise RuntimeError("Guardrail is closed; create a new instance for another session")
-        if not isinstance(inputs, dict):
-            raise TypeError(
-                "Guardrail expects a dict with an 'action' key plus observation "
-                f"groups, got {type(inputs).__name__}."
+            raise SessionClosedError(
+                "Guardrail is closed; create a new instance for another session"
             )
-        if any(not isinstance(key, str) for key in inputs):
-            raise TypeError("Guardrail input keys must be strings")
-        if "action" not in inputs:
-            raise KeyError("Guardrail input is missing the required 'action' key.")
+        try:
+            if not isinstance(inputs, dict):
+                raise TypeError(
+                    "Guardrail expects a dict with an 'action' key plus observation "
+                    f"groups, got {type(inputs).__name__}."
+                )
+            if any(not isinstance(key, str) for key in inputs):
+                raise TypeError("Guardrail input keys must be strings")
+            if "action" not in inputs:
+                raise KeyError("Guardrail input is missing the required 'action' key.")
 
-        # Fail fast on a missing required observation group or a reserved-key
-        # collision — silent fallbacks hide safety-relevant mistakes.
-        provided = set(inputs) - {"action"}
-        missing = self._required_obs - provided
-        if missing:
-            raise KeyError(
-                f"Guardrail missing observation group(s) {sorted(missing)}; "
-                f"received {sorted(provided)}. Required: {sorted(self._required_obs)}."
-            )
-        clashes = provided & _RESERVED_POOL_KEYS
-        if clashes:
-            raise KeyError(
-                f"Observation key(s) {sorted(clashes)} collide with reserved runtime "
-                "keys — rename them."
-            )
+            # Fail fast on a missing required observation group or a reserved-key
+            # collision — silent fallbacks hide safety-relevant mistakes.
+            provided = set(inputs) - {"action"}
+            missing = self._required_obs - provided
+            if missing:
+                raise KeyError(
+                    f"Guardrail missing observation group(s) {sorted(missing)}; "
+                    f"received {sorted(provided)}. Required: {sorted(self._required_obs)}."
+                )
+            clashes = provided & _RESERVED_POOL_KEYS
+            if clashes:
+                raise KeyError(
+                    f"Observation key(s) {sorted(clashes)} collide with reserved runtime "
+                    "keys — rename them."
+                )
 
-        raw_action = inputs["action"]
-        action_is_dict = isinstance(raw_action, dict)
-        action_is_tensor = not action_is_dict and hasattr(raw_action, "detach")
-        tensor_device = raw_action.device if action_is_tensor else None
-        tensor_dtype = raw_action.dtype if action_is_tensor else None
-        if action_is_tensor and not raw_action.is_floating_point():
-            raise TypeError("Action tensors must use a floating-point dtype")
-        # lerobot dicts key the command as ``<joint>.pos``; bare ``<key>`` else.
-        pos_style = action_is_dict and any(str(k).endswith(".pos") for k in raw_action)
+            raw_action = inputs["action"]
+            action_is_dict = isinstance(raw_action, dict)
+            action_is_tensor = not action_is_dict and hasattr(raw_action, "detach")
+            tensor_device = raw_action.device if action_is_tensor else None
+            tensor_dtype = raw_action.dtype if action_is_tensor else None
+            if action_is_tensor and not raw_action.is_floating_point():
+                raise TypeError("Action tensors must use a floating-point dtype")
+            # lerobot dicts key the command as ``<joint>.pos``; bare ``<key>`` else.
+            pos_style = action_is_dict and any(str(k).endswith(".pos") for k in raw_action)
 
-        now = time.monotonic()
-        if self._prev_time is not None:
-            actual_dt = max(now - self._prev_time, 1e-6)
-            self._runtime._hot_reload.config_pool["dt"] = actual_dt
+            now = time.monotonic()
+            if self._prev_time is not None:
+                actual_dt = max(now - self._prev_time, 1e-6)
+                self._runtime._hot_reload.config_pool["dt"] = actual_dt
 
-        mappable = self._action_mappable(raw_action, action_is_dict, pos_style)
-        if not mappable:
-            raise ValueError("Action dict must contain every key in a fully keyed action_layout")
-        obs = self._build_observation(inputs, now)
-        action = self._build_action(raw_action, action_is_dict, pos_style, mappable)
-        trace_id = str(uuid.uuid4())
+            mappable = self._action_mappable(raw_action, action_is_dict, pos_style)
+            if not mappable:
+                raise ValueError(
+                    "Action dict must contain every key in a fully keyed action_layout"
+                )
+            obs = self._build_observation(inputs, now)
+            action = self._build_action(raw_action, action_is_dict, pos_style, mappable)
+            trace_id = str(uuid.uuid4())
+        except Exception as exc:
+            raise InputContractError(str(exc)) from exc
 
+        cycle_id = self._runtime._cycle_id
         validated, results = self._runtime.validate(
             obs, action, trace_id, now=now, wait_for_slow=self._wait_for_slow
         )
@@ -596,7 +619,24 @@ class Guardrail:
             out = out.tolist()
         self._prev_positions = obs.joint_positions.copy()
         self._prev_time = now
-        return out
+        decision = max((r.decision for r in results), default=GuardDecision.PASS)
+        if validated is not None and validated.was_clamped:
+            decision = max(decision, GuardDecision.CLAMP)
+        ages = [
+            float(r.metadata["verdict_age_ms"])
+            for r in results
+            if r.metadata.get("slow_lane") and r.metadata.get("verdict_age_ms") is not None
+        ]
+        return GuardrailEvaluation(
+            command=out,
+            decision=decision,
+            guard_results=tuple(copy.deepcopy(results)),
+            fallback=self._safe_action_mode if validated is None else None,
+            config_version=self._runtime._hot_reload.config_version,
+            task=self._task,
+            cycle_id=cycle_id,
+            verdict_age_ms=max(ages) if ages else None,
+        )
 
     def describe(self, stackfile: str = "") -> str:
         """Human-readable contract: which obs keys and action this guard expects."""
@@ -617,6 +657,7 @@ class Guardrail:
             ]
         )
 
+    @_classify(InputContractError)
     def set_ee_pose(self, ee_pose: Any) -> None:
         """Set the end-effector pose for the next cycle so EE-space guards
         (workspace_bounds, keep_out_zone, ee_velocity_limit) can run.
@@ -662,6 +703,7 @@ class Guardrail:
         """The underlying :class:`GuardRuntime` (advanced use)."""
         return self._runtime
 
+    @_classify(ExecutionError)
     def close(self) -> None:
         """Release recording, worker threads, and runtime resources; safe to repeat."""
         if self._closed:
@@ -671,7 +713,7 @@ class Guardrail:
 
     def __enter__(self) -> Guardrail:
         if self._closed:
-            raise RuntimeError("Cannot enter a closed Guardrail")
+            raise SessionClosedError("Cannot enter a closed Guardrail")
         return self
 
     def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:

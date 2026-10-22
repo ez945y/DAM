@@ -1,5 +1,12 @@
 # claude-progress.md — 進度日誌
 
+## 2026-10-22 — L1/R05 accepted; L2 next
+
+- S1–S3 committed as 03e3e16. L1 adds public Guardrail.evaluate / GuardrailEvaluation, detached per-call evidence, decision/fallback/config version/cycle/consumed verdict age, and JSON serialization. SDK reports returned, never device-sent.
+- Public DamError categories distinguish configuration, input, closed session, timeout and execution failures with original cause chains. Guard rejection/FAULT remain results with fallback. Callable retains command-only return.
+- L1 verification: Python full non-hardware suite 1287 passed in 34.69s; targeted earlier 86 passed; full pre-commit passed; docs-check passed; executable offline example passed. Reports: docs/acceptance-l1.md; logs/acceptance-l1-*.
+- No Console/Rust changes in L1, no hardware/automation. Continue L2 mapping/config construction and static no-resource preflight. L2–L6 incomplete.
+
 ## 2026-10-22 — S1–S3 short-term acceptance complete
 
 - S1, S2 and S3 accepted; reports in docs/acceptance-s1.md, docs/acceptance-s2.md and docs/acceptance-s3.md. Full plan remains incomplete: L1–L6 next.
