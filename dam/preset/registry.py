@@ -42,11 +42,12 @@ logger = logging.getLogger(__name__)
 
 # dam/preset/registry.py → parents[2] is the repo root.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+_PRESETS_FILENAME = "presets.yaml"
 _PACKAGED_ASSETS = Path(__file__).resolve().parents[1] / "_data" / "assets"
 BUNDLED_PATH = (
-    _PACKAGED_ASSETS / "presets.yaml"
-    if (_PACKAGED_ASSETS / "presets.yaml").is_file()
-    else _REPO_ROOT / "assets" / "presets.yaml"
+    _PACKAGED_ASSETS / _PRESETS_FILENAME
+    if (_PACKAGED_ASSETS / _PRESETS_FILENAME).is_file()
+    else _REPO_ROOT / "assets" / _PRESETS_FILENAME
 )
 
 
@@ -54,9 +55,9 @@ def _user_path() -> Path:
     """Preset registry path — re-resolved so tests can override it."""
     data_root = os.environ.get("DAM_DATA_ROOT")
     if data_root:
-        return Path(data_root) / "presets.yaml"
+        return Path(data_root) / _PRESETS_FILENAME
     if BUNDLED_PATH.parent == _PACKAGED_ASSETS:
-        return Path.home() / ".local" / "share" / "dam" / "presets.yaml"
+        return Path.home() / ".local" / "share" / "dam" / _PRESETS_FILENAME
     return BUNDLED_PATH
 
 

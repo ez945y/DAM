@@ -9,6 +9,8 @@
 | macOS arm64／3.12.12 | 新建 venv，完整相依安裝，pip check 通過 | CPU 與 MPS 通過 | 本機原生驗證 |
 | Linux x86_64／3.11.17 | Docker amd64 完整建置／安裝通過 | CPU 通過 | 在 arm64 主機模擬，不能當成效能證據 |
 | Linux x86_64／3.12.15 | Docker amd64 完整建置／安裝通過 | CPU 通過 | 同上 |
+| macOS arm64／3.11.9、3.12.10 | 原生 CI 完整建置／安裝通過 | CPU 通過 | CI 39766957720 |
+| Linux x86_64／3.11.17、3.12.15 | 原生 CI 完整建置／安裝通過 | CPU 通過 | CI 39766957720 |
 | Linux arm64 | 既有 release 建置目標 | 本輪未驗證 | 實驗性執行目標 |
 | Windows x86_64 | 既有 release 建置目標 | 本輪未驗證 | 實驗性執行目標 |
 | Python 3.13 及後續版本 | 安裝 metadata 未限制上界 | 本輪未驗證 | 非已驗證組合 |
@@ -40,7 +42,7 @@ Python wheel 包含 `dam/_data/assets/presets.yaml` 和 SO101 URDF；seed asset 
 Debian/Ubuntu 的完整安裝包含 LeRobot，其 evdev 相依可能從來源編譯，需要
 `build-essential` 與 `linux-libc-dev`；OpenCV 需要 `libgl1`／`libglib2.0-0`。
 驗證 Dockerfile 明確安裝這些前提。首次乾淨 Linux 安裝因缺 Linux input headers 失敗，
-補齊後重跑；沒有移除相依或使用 --no-deps 取得通過。
+補齊後重跑；沒有移除相依。鎖定驗收先安裝完整相依，再安裝候選 wheels 並以 pip check 檢查完整性。
 
 `scripts/acceptance/Dockerfile.install` 從本次 Rust 來源建立 wheel，再在獨立 Python
 image 安裝 Python 與 Rust wheels；執行目錄是 `/tmp`。Linux CPU 驗證使用 CPU torch
