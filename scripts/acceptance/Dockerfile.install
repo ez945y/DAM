@@ -1,0 +1,20 @@
+ARG PYTHON_VERSION=3.11
+FROM rust:1.93-slim-bookworm AS rust-wheel
+RUN apt-get update && apt-get install -y --no-install-recommends python3-venv python3-dev build-essential && rm -rf /var/lib/apt/lists/*
+RUN python3 -m venv /build-env && /build-env/bin/pip install 'maturin>=1,<2'
+COPY dam-rust /src
+WORKDIR /src/dam-py
+RUN /build-env/bin/maturin build --release --out /wheels -i /build-env/bin/python
+
+FROM scratch AS wheels
+COPY --from=rust-wheel /wheels/ /
+
+FROM python:${PYTHON_VERSION}-slim-bookworm AS installed
+RUN apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 build-essential linux-libc-dev && rm -rf /var/lib/apt/lists/*
+RUN pip install uv
+COPY --from=rust-wheel /wheels/ /wheels/
+COPY robot_dam-*.whl /wheels/
+RUN uv pip install --system --torch-backend cpu /wheels/*.whl
+COPY installed_smoke.py /checks/installed_smoke.py
+WORKDIR /tmp
+CMD ["python", "-I", "/checks/installed_smoke.py"]

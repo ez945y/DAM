@@ -5,6 +5,9 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["dam"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"assets" = "dam/_data/assets"
+
 [project]
 name = "robot-dam"
 version = "0.7.0"

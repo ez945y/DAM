@@ -1,5 +1,13 @@
 # claude-progress.md — 進度日誌
 
+## 2026-10-22 — L4 local install matrix passed; native CI pending
+
+- L3 committed as 468830a. Found and fixed missing preset/URDF wheel resources and cwd-dependent seed asset paths; installed overrides now default outside package files.
+- Clean wheel installs passed on macOS arm64 Python 3.11.14 and 3.12.12 (CPU and MPS), and Linux x86_64 Python 3.11.17/3.12.15 under Docker amd64 emulation (CPU, offline run). Tested origin isolation, Rust, packaged URDF FK, dtype/device/requires-grad, overflow and public SDK lifecycle. All dependencies installed; native uv pip check passed.
+- Linux first failed because LeRobot/evdev needed input headers; Dockerfile now declares build-essential/linux-libc-dev plus OpenCV system libs. Windows/Linux arm64/CUDA/newer Python remain explicit experimental/unverified targets.
+- Full Python 1319 passed in 31.55s; full pre-commit and docs-check passed. Evidence: docs/acceptance-l4.md, docs/installation-matrix.md, logs/acceptance-l4-*.
+- New installed.yml CI covers native Ubuntu/macOS Python 3.11/3.12. L4 remains pending until CI executes. Next create draft PR for these checks; no release, hardware or automations.
+
 ## 2026-10-22 — L3/R07 accepted; L4 environment audit
 
 - L2 committed as c20955e. L3 exposes reload receipts backed by the same manager as Console, session status, reset and task switch. Pending is not applied; structural/stale updates reject without changing the active configuration.

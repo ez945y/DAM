@@ -1,0 +1,61 @@
+name: Installed SDK acceptance
+
+on:
+  pull_request:
+    branches: [main, dev]
+  push:
+    branches: [main, dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  installed:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+        python: ['3.11', '3.12']
+    env:
+      RUSTUP_TOOLCHAIN: '1.93.0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Linux system prerequisites
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y build-essential linux-libc-dev libgl1 libglib2.0-0
+      - name: Build candidate wheels
+        shell: bash
+        run: |
+          rustup toolchain install 1.93.0 --profile minimal
+          python -m pip install uv maturin
+          uv build --wheel --out-dir wheelhouse
+          maturin build --release --manifest-path dam-rust/dam-py/Cargo.toml --out wheelhouse -i python
+      - name: Install into a new environment
+        shell: bash
+        run: |
+          uv venv --python "$(command -v python)" "$RUNNER_TEMP/dam-installed"
+          if [ "$RUNNER_OS" = Linux ]; then
+            uv pip install --python "$RUNNER_TEMP/dam-installed/bin/python" --torch-backend cpu wheelhouse/*.whl
+          else
+            uv pip install --python "$RUNNER_TEMP/dam-installed/bin/python" wheelhouse/*.whl
+          fi
+          uv pip check --python "$RUNNER_TEMP/dam-installed/bin/python"
+          uv pip freeze --python "$RUNNER_TEMP/dam-installed/bin/python" > installed-requirements.txt
+      - name: Execute outside source checkout
+        shell: bash
+        run: |
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/dam-installed/bin/python" -I "$GITHUB_WORKSPACE/scripts/acceptance/installed_smoke.py" 2>&1 | tee "$GITHUB_WORKSPACE/installed-smoke.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: installed-${{ matrix.os }}-${{ matrix.python }}
+          path: |
+            installed-smoke.log
+            installed-requirements.txt

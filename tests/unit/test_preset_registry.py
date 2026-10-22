@@ -50,6 +50,31 @@ def test_get_preset_normalizes_hyphens(isolated_user_path):
     assert p.name == "so101_follower"
 
 
+def test_bundled_asset_is_independent_of_working_directory(
+    isolated_user_path, tmp_path, monkeypatch
+):
+    from pathlib import Path
+
+    monkeypatch.chdir(tmp_path)
+    asset = Path(get_preset("so101_follower").asset_path())
+    assert asset.is_absolute() and asset.is_file()
+    entry = next(item for item in list_preset_entries() if item["name"] == "so101_follower")
+    assert entry["asset"]["path"] == "assets/so101_new_calib.urdf"
+
+
+def test_installed_registry_writes_to_user_data_not_package(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    import dam.preset.registry as registry
+
+    assets = tmp_path / "site-packages" / "dam" / "_data" / "assets"
+    monkeypatch.setattr(registry, "_PACKAGED_ASSETS", assets)
+    monkeypatch.setattr(registry, "BUNDLED_PATH", assets / "presets.yaml")
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "home"))
+    monkeypatch.delenv("DAM_DATA_ROOT", raising=False)
+    assert registry._user_path() == tmp_path / "home" / ".local" / "share" / "dam" / "presets.yaml"
+
+
 def test_get_preset_unknown_raises_key_error(isolated_user_path):
     with pytest.raises(KeyError, match="Unknown robot preset"):
         get_preset("nonexistent_robot")

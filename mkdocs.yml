@@ -59,6 +59,7 @@ nav:
     - Console Walkthrough: getting-started/console-walkthrough.md
     - Hardware Readiness: getting-started/hardware-readiness.md
     - Installation: installation.md
+    - Installation Matrix: installation-matrix.md
     - Troubleshooting: getting-started/troubleshooting.md
     - Stackfile Guide: quick-stack.md
     - CLI: cli.md
@@ -104,6 +105,7 @@ nav:
     - L1 Acceptance Report: acceptance-l1.md
     - L2 Acceptance Report: acceptance-l2.md
     - L3 Acceptance Report: acceptance-l3.md
+    - L4 Acceptance Report: acceptance-l4.md
 
 plugins:
   - search:
