@@ -152,6 +152,8 @@ SDK 已有輸入檢查，但直接使用 runtime、自訂 guard、fallback conte
 
 ### R06 公開設定建構與預檢
 
+2026-10-22 已交付 mapping／StackfileConfig 建構與 `dam.preflight()`，通過 [L2 驗收](acceptance-l2.md)。
+
 提供公開的設定物件或 mapping 建構入口，避免 SDK 使用者依賴 `_from_config` 等私有方法。提供不建立硬體連線的預檢，回報 callback／solver 缺失、action layout、必要觀測欄位、單位與 fallback 契約。
 
 驗收條件：檔案與設定物件建構結果一致；預檢不啟動 worker、不寫錄製檔、不移動機器人；錯誤能指出設定欄位及可用選項。

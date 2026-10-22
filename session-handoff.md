@@ -1,5 +1,12 @@
 # session-handoff.md — 會話交接摘要
 
+## 2026-10-22 — L2/R06 accepted; L3 next
+
+- L1 committed as e31e837. L2 adds mapping/Path/StackfileConfig construction and public static preflight reports with field-level issues, callback requirements, solver reference/factory, command layout/units and fallback checks.
+- Preflight tests prove no runtime, solver, user callback/fallback constructor, worker or recorder creation. It reads configuration/presets only; unspecified command units are explicit warnings, not inferred. Construction copies caller configuration.
+- Verification: 1306 full non-hardware Python passed in 39.47s; final focused preflight 19 passed after a mypy-only variable rename; full pre-commit and docs-check passed; offline public example passed. Evidence: docs/acceptance-l2.md and logs/acceptance-l2-*.
+- Continue L3 public reload receipts, task switching and reset semantics. L3–L6 incomplete; no hardware or automations activated.
+
 ## 2026-10-22 — L1/R05 accepted; L2 next
 
 - S1–S3 committed as 03e3e16. L1 adds public Guardrail.evaluate / GuardrailEvaluation, detached per-call evidence, decision/fallback/config version/cycle/consumed verdict age, and JSON serialization. SDK reports returned, never device-sent.

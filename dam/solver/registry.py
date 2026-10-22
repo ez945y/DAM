@@ -114,6 +114,10 @@ class SolverRegistry:
     def entries(self) -> dict[str, SolverEntry]:
         return dict(self._instances)
 
+    def factory_capabilities(self) -> dict[str, tuple[str, ...]]:
+        """Inspect available factory types without constructing a solver."""
+        return {name: capabilities for name, (_, capabilities) in self._factories.items()}
+
 
 def _invoke_factory(factory: SolverFactory, params: dict[str, Any]) -> Any:
     """Call a solver factory, injecting only the keyword params it declares.

@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any, overload
 
 import numpy as np
 
+from dam.config.preflight import ConfigurationSource, load_configuration
 from dam.errors import (
     ConfigurationError,
     ExecutionError,
@@ -434,7 +435,7 @@ class Guardrail:
     @_classify(ConfigurationError)
     def __init__(
         self,
-        stackfile: str,
+        stackfile: ConfigurationSource,
         *,
         task: str | None = None,
         joint_names: list[str] | None = None,
@@ -446,13 +447,12 @@ class Guardrail:
     ) -> None:
         _register_builtins()
 
-        from dam.config.loader import StackfileLoader
         from dam.preset.registry import get_preset
         from dam.runtime.guard_runtime import GuardRuntime
 
         self._closed = True
         self._wait_for_slow = wait_for_slow
-        config = StackfileLoader.load(stackfile)
+        config = load_configuration(stackfile)
         if not config.tasks:
             raise ValueError("Guardrail requires at least one task in the Stackfile")
         if task is None:
@@ -525,7 +525,7 @@ class Guardrail:
         self._last_ee_pose: np.ndarray | None = None
 
         if not quiet:
-            print(self.describe(stackfile))
+            print(self.describe(str(stackfile) if isinstance(stackfile, (str, Path)) else ""))
 
     # -- public interface ---------------------------------------------------
 
@@ -946,7 +946,7 @@ def _command_array(value: Any) -> np.ndarray:
 
 def guardrail(
     inputs: dict[str, Any],
-    stackfile: str = "safety.yaml",
+    stackfile: ConfigurationSource = "safety.yaml",
     *,
     task: str | None = None,
     joint_names: list[str] | None = None,

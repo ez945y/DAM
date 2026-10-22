@@ -251,6 +251,51 @@ Payload validation does not establish
 that an arbitrary custom fallback is physically safe or satisfies every geometric
 constraint; deployment still needs a suitable action and fallback contract.
 
+### Configuration objects and static preflight
+
+`Guardrail` and `guardrail` accept a string/Path filename, a mapping, or a public
+`dam.StackfileConfig`. Mapping/model inputs are validated and copied; subsequent
+caller mutation does not change the session. File construction keeps the same
+behavior. Use `dam.preflight(source, task=..., safe_action=...)` before construction
+when you need a static report without allocating runtime resources.
+
+```python
+configuration = {
+    "hardware": {"joint_names": ["a", "b"], "degrees_mode": False},
+    "guards": [],
+    "tasks": {"default": {"boundaries": []}},
+}
+report = dam.preflight(configuration)
+report.raise_for_errors()
+with dam.Guardrail(configuration, quiet=True) as rail:
+    command = rail({"joints": [0, 0], "action": [0.1, 0.2]})
+```
+
+This minimal example demonstrates construction, not a safety envelope. The
+executable version is `python -m examples.guardrail_preflight`.
+
+`PreflightReport.valid` means no static errors were found. `issues` contains
+`PreflightIssue(field, message, severity)`; `to_dict()` exposes the report.
+The report includes the selected task, required callback observation groups,
+joint names, command size/layout, command-space flag and joint units. A joint
+command still requires complete joint observations, supplied as `joints` or
+per-joint position keys, even if no callback declares a `joints` parameter.
+
+Preflight checks schema fields, active callback names, solver factory/reference
+availability, layout keys/dimensions, declared units, explicit SDK fallback and
+configured/referenced fallback contexts. Non-joint segment `units` can list one
+unit per coordinate. Missing command units produce a visible warning; they are
+not inferred from names and a valid report does not establish their semantics.
+Joint degree/radian defaults match construction.
+
+Preflight may read configuration/preset files and register builtins, but never
+constructs a runtime or solver, invokes a user callback/fallback constructor,
+connects hardware, starts workers, or writes recordings. It cannot establish
+whether a solver will initialize, an asset/dependency is available at deployment,
+a callback is correct, or a fallback is physically safe. Callers should review
+warnings as well as `valid`; `raise_for_errors()` raises ConfigurationError with
+field locations. Ordinary construction does not silently invoke this extra check.
+
 ### Detailed evaluation and classified errors
 
 `rail.evaluate(inputs)` executes the same validation once and returns a

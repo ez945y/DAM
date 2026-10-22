@@ -19,6 +19,8 @@ from dam.api import (
     register_write_interface,
     run,
 )
+from dam.config.preflight import PreflightIssue, PreflightReport, preflight
+from dam.config.schema import StackfileConfig
 from dam.decorators import callback, fallback, guard, solver_factory
 from dam.errors import (
     ConfigurationError,
@@ -88,6 +90,10 @@ __all__ = [
     "RunSummary",
     "Guardrail",
     "GuardrailEvaluation",
+    "preflight",
+    "PreflightReport",
+    "PreflightIssue",
+    "StackfileConfig",
     "DamError",
     "ConfigurationError",
     "InputContractError",
