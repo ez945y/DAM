@@ -20,6 +20,7 @@ import tempfile
 import threading
 import time
 from collections import Counter
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -87,6 +88,8 @@ def source_fingerprint() -> str:
 def metadata(config: dict[str, Any]) -> dict[str, Any]:
     return {
         "source_sha256": source_fingerprint(),
+        "started_at_utc": datetime.now(UTC).isoformat(),
+        "pid": psutil.Process().pid,
         "platform": platform.platform(),
         "machine": platform.machine(),
         "python": platform.python_version(),

@@ -10,8 +10,11 @@
   Rust worker 現在保留錯誤，close 有有界等待、完成 footer 並 join；逾時保留 worker 供重試。
   Python 不再吞掉錄製／關閉／佇列溢位錯誤，公開 SDK 保留分類與 cause；新 session 可恢復。
 - 診斷、callback timeout、solver fault、磁碟寫入失敗、recording close timeout 與恢復均有測試。
-  全套非硬體 Python **1332 passed in 25.10s**。Rust workspace 測試通過；既有忽略項目不算通過。
+  全套非硬體 Python **1333 passed in 25.63s**。Rust workspace 測試通過；既有忽略項目不算通過。
 - 本輪修正後使用明確的 `.venv` interpreter 安裝 Rust wheel，避免 shell 的 Conda 設定選錯環境。
+
+Processor 摘要亦修正只有 FAULT 卻顯示全部通過，以及以 guard 事件數計算週期比例造成超過 100%
+的錯誤；補上 fault-only／多 guard 同輪回歸。正式長測尚未開始前已修正。
 
 ## 固定量測方式與待驗收項目
 

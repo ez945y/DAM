@@ -53,6 +53,7 @@ class _RecordingStats:
         self.clamps: int = 0
         self.rejects: int = 0
         self.faults: int = 0
+        self.intervened_cycles: int = 0
         self.boundary_counts: dict[str, int] = {}
         self._first_cycle_time: float | None = None
 
@@ -73,7 +74,10 @@ class _RecordingStats:
                 notable.append(r)
             elif r.decision.name == "FAULT":
                 self.faults += 1
+                self.boundary_counts[r.guard_name] = self.boundary_counts.get(r.guard_name, 0) + 1
                 notable.append(r)
+        if notable:
+            self.intervened_cycles += 1
         return notable
 
     def summary_lines(self) -> list[str]:
@@ -86,11 +90,11 @@ class _RecordingStats:
         lines = []
         lines.append(f"  {self.total_cycles} cycles in {minutes:.1f}min")
 
-        if self.clamps == 0 and self.rejects == 0:
+        if self.intervened_cycles == 0:
             lines.append("  No guard interventions — all actions passed cleanly")
             return lines
 
-        pct = (self.clamps + self.rejects) / max(self.total_cycles, 1) * 100
+        pct = self.intervened_cycles / max(self.total_cycles, 1) * 100
         parts = []
         if self.clamps:
             parts.append(f"{self.clamps} clamps")
@@ -98,7 +102,7 @@ class _RecordingStats:
             parts.append(f"{self.rejects} rejects")
         if self.faults:
             parts.append(f"{self.faults} faults")
-        lines.append(f"  {', '.join(parts)} ({pct:.1f}% of cycles)")
+        lines.append(f"  {', '.join(parts)} ({pct:.1f}% of cycles had interventions)")
 
         if self.boundary_counts:
             ranked = sorted(self.boundary_counts.items(), key=lambda x: -x[1])

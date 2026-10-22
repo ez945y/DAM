@@ -168,3 +168,22 @@ def test_recording_close_timeout_retains_worker_for_retry(config, tmp_path, monk
     rail.close()
     assert len(calls) == 2 and calls[0] is calls[1]
     assert rail.session_status.state == "closed"
+
+
+def test_processor_summary_never_calls_fault_only_session_clean():
+    from dam.processor import _RecordingStats
+
+    stats = _RecordingStats()
+    fault = dam.GuardResult(
+        guard_name="broken",
+        layer=dam.GuardLayer.L2,
+        decision=dam.GuardDecision.FAULT,
+        reason="solver failed",
+    )
+    stats.record_cycle([fault, fault])
+    stats.record_cycle([])
+    text = "\n".join(stats.summary_lines())
+    assert "all actions passed" not in text
+    assert "2 faults" in text
+    assert "50.0% of cycles" in text
+    assert "broken (2)" in text
