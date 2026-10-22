@@ -1,5 +1,11 @@
 # session-handoff.md — 會話交接摘要
 
+## 2026-10-22 — L4 accepted; L5 diagnostics and stability next
+
+- Candidate 1c48e89: locked native CI 39768887284 passed all four macOS arm64/Ubuntu x86_64 Python 3.11/3.12 jobs; Sonar Code Analysis passed. Full artifacts: logs/acceptance-l4/native-ci-locked. Clean local locked macOS Python 3.12 install, pip check and installed smoke passed; source preset tests 16 passed and commit hooks/docs-check passed.
+- Hash-generation defect was fixed without bypassing hash checking. Dependency/build locks and allowed source builds are explicit. L4 report and plan updated to completed; unsupported/experimental targets remain unchanged.
+- Continue L5: diagnostics, 10,000 cycles per 50 Hz scenario, 1,000 lifecycle iterations, real 8-hour soak and callback/solver/recording/storage fault recovery. Inspection found recorder errors currently swallowed and asynchronous close lacks completion evidence; reproduce and fix before soak. L5/L6/final are incomplete. No hardware/release/automation.
+
 ## 2026-10-22 — L4 native matrix passed; reproducible installation hardening
 
 - Draft PR https://github.com/ez945y/DAM/pull/4 created and attached. Native CI run 39766957720 passed all four Ubuntu x86_64/macOS arm64 Python 3.11/3.12 jobs; existing DAM CI passed. Artifacts downloaded to logs/acceptance-l4/native-ci.
