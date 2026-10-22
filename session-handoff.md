@@ -4,6 +4,7 @@
 
 - Draft PR https://github.com/ez945y/DAM/pull/4 created and attached. Native CI run 39766957720 passed all four Ubuntu x86_64/macOS arm64 Python 3.11/3.12 jobs; existing DAM CI passed. Artifacts downloaded to logs/acceptance-l4/native-ci.
 - Sonar quality gate identified unpinned install dependencies and root container execution. Added per-platform version/hash locks and build-tool locks, restricted source builds to evdev/feetech-servo-sdk, and non-root container runtime. Candidate wheels install separately after complete dependencies; pip check remains mandatory.
+- First locked Linux CI rejected a missing Jinja2 hash generated via a broad alternate index; regenerated Linux locks with package-specific CPU torch routing. Hash completeness checked for every lock entry. No hashes bypassed.
 - Preset filename deduplicated; 16 focused preset tests passed. Hardening validation in progress; L4 is not yet finally accepted. L5/L6 and final candidate remain pending; no release/hardware/automation.
 
 ## 2026-10-22 — L4 local install matrix passed; native CI pending

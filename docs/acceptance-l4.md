@@ -30,7 +30,8 @@
 鎖定清單與建置工具鎖定清單；只有 evdev、feetech-servo-sdk 可從核對雜湊的來源建置，
 其他套件只允許 wheel。完整相依先安裝，候選 wheels 再以 `--no-deps --no-build` 安裝，
 最後 `pip check` 確認相依完整。容器執行改為 uid 10001。強化後原生 CI 待重跑，
-完成前 L4 保持待驗收。程式複雜度等其餘 Sonar 建議另列審閱，不當作執行測試失敗。
+首次鎖定版 Linux CI 因 Jinja2 缺少雜湊被拒絕；改用僅針對 torch 的 CPU 來源重建清單，
+逐筆檢查雜湊完整性後再重跑，未停用雜湊驗證。完成前 L4 保持待驗收。程式複雜度等其餘 Sonar 建議另列審閱，不當作執行測試失敗。
 Linux 模擬結果不作為效能證據。Windows、Linux arm64、Python 3.13+、CUDA 本輪
 沒有執行證據，依 [支援矩陣](installation-matrix.md) 明確列為實驗性／未驗證。
 沒有發布套件或連接硬體。
