@@ -66,3 +66,21 @@ DAM Python worker 最後為空；RSS 71,172,096 → 77,529,088 bytes。這不是
 重現測試先以 0 != 1 失敗，修正取值時機後完整 1337 測試通過，且跨 reset、慢速 verdict、
 session／diagnostics 與錄製的週期 ID 一致。舊 soak 目錄 `logs/acceptance-l5/run-65t1g_2s/`
 保留 interrupted 記錄；這些 benchmark／lifecycle 為前一候選基線，最終量測將全數重跑。
+
+## 修正週期 ID 後的最終候選量測
+
+候選 `019552a`，來源指紋 `82f9dae0d1beeceeae84f74b29a24e15a8586ca10c99154cb026b8836987a1de`。
+
+| 場景 | 次數 | p99 | 20 ms 超期率 | 結果 |
+| --- | --- | --- | --- | --- |
+| fast | 10,000 | 2.469 ms | 0.01% | 通過 |
+| hybrid | 10,000 | 3.070 ms | 0% | 通過 |
+| recorded lifecycle | 1,000 | 不適用 | 不適用 | 通過；FD 3→3，threads 1→1，無殘留 DAM worker |
+
+benchmark：`logs/acceptance-l5/run-vz2fwb4w/`；lifecycle：`logs/acceptance-l5/run-6hbxpf_g/`。
+fast 最大呼叫時間 24.487 ms、最大排定完成時間 28.814 ms；hybrid 分別為 6.403／13.993 ms。
+生命週期 RSS 70,221,824→77,512,704 bytes，兩個 MCAP／次均完成。
+
+本次 8 小時 soak 於 **2026-10-22 12:20:31 UTC** 啟動，PID 54437，
+`logs/acceptance-l5/run-o_jl6zg_/`。最早約 20:20:34 UTC 完成；目前仍待驗收，
+每分鐘樣本不是完成報告，不能用前一候選結果代替。

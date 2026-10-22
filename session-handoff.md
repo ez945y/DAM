@@ -1,5 +1,14 @@
 # session-handoff.md — 會話交接摘要
 
+## 2026-10-22 — Final candidate native checks passed; current 8-hour run active
+
+- Candidate 019552a fixed cross-surface cycle identity. Full Python 1337 passed; Rust, pre-commit, Console 167 tests, production build and docs-check passed. Native installed CI 39775873326 passed all four macOS arm64/Linux x86_64 Python 3.11/3.12 environments, each with 11 offline examples. DAM CI and Sonar passed. Evidence: docs/acceptance-final.md and logs/acceptance-final-native-ci.
+- Current benchmark logs/acceptance-l5/run-vz2fwb4w passed 10,000 fast and 10,000 hybrid cycles: p99 2.469/3.070 ms, deadline violation rates 0.01%/0%. Lifecycle logs/acceptance-l5/run-6hbxpf_g passed 1,000 recorded iterations; FD 3->3, threads 1->1, no remaining DAM Python workers.
+- ACTIVE qualifying soak: exec session 6035, PID 54437, logs/acceptance-l5/run-o_jl6zg_/soak.json and soak.samples.jsonl. Started 2026-10-22 12:20:31 UTC (05:20:31 PDT); earliest finish approximately 20:20:34 UTC (13:20:34 PDT), including warmup. Caffeinate holds system awake. Do not mistake prior interrupted run-65t1g_2s for this run.
+- Source fingerprint 82f9dae0d1beeceeae84f74b29a24e15a8586ca10c99154cb026b8836987a1de. Do not edit dam Python source, loaded Rust extension or runtime_stability.py during this run. Documentation-only edits do not affect this fingerprint.
+- L5, L6 sign-off and final closure remain pending actual 8-hour results. Verify final exit, duration, cycles, hourly RSS, deadline rates, resource cleanup and source_unchanged before marking complete. No hardware, package release or merge.
+- Created scoped hourly heartbeat dam-2 (DAM 最終耐久驗收接續) in this chat to continue actual soak acceptance, fixes and final delivery; it must disable itself after completion. The historical broad DAM automation remains paused. Unchanged/non-actionable runs stay quiet.
+
 ## 2026-10-22 — Cycle identity correction; long run must restart
 
 - STOPPED previous soak exec session 41544 / PID 52122 with SIGINT (exit 130) after about 5 minutes. It is not running and did not pass 8 hours. Interrupted evidence retained in logs/acceptance-l5/run-65t1g_2s/interrupted.json.

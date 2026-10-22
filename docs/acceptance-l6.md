@@ -1,6 +1,6 @@
 # L6／R10 可執行範例與交付指南
 
-日期：2026-10-22。狀態：實作與本機驗證完成，原生範例 CI、L5 長測及最終同候選驗收待完成。
+日期：2026-10-22。狀態：實作與本機驗證完成，四格原生範例 CI 通過，等待 L5 實際長測完成後正式結案。
 此階段在等待 L5 外部檢查／長測時準備，沒有改動正在量測的核心或量測工具。
 
 ## 交付內容
@@ -21,7 +21,9 @@
 本機 macOS arm64／Python 3.12 乾淨鎖定環境，11 個離線程式皆退出 0，包含七個 SDK 案例；
 原始輸出保存 `logs/acceptance-l6-installed-examples.log`。Jetbot 的最後 CLAMP 回報修正另行
 重跑。Python 3.11 乾淨安裝亦完成全部 11 個程式，紀錄 `logs/acceptance-l6-installed-py311.log`；
-四格原生 CI 的範例步驟待執行。技能格式驗證通過。
+[四格原生 CI 39775873326](https://github.com/ez945y/DAM/actions/runs/39775873326)
+已在候選 `019552a` 全數通過：每格均完成 11 個離線程式。
+下載證據 `logs/acceptance-final-native-ci/` 保留 installed smoke、全部範例輸出與相依清單。技能格式驗證通過。
 
 `isaac_jetbot_lane_demo.py` 需要外部模擬器，不列為已通過。MCAP／A/B 僅使用臨時資料，
 沒有安裝到 Console library 或接觸使用者錄製檔。沒有 PyPI 發布或實機操作。
