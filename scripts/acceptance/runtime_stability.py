@@ -271,37 +271,29 @@ def lifecycle(output: Path, iterations: int, probe: bool) -> dict[str, Any]:
     return info
 
 
-def output_directory(value: str) -> Path:
-    """Confine CLI writes to this checkout's acceptance evidence directory."""
+def create_evidence_directory() -> Path:
+    """Create an exclusive run folder beneath the fixed repository evidence root."""
     root = Path(__file__).resolve().parents[2] / "logs" / "acceptance-l5"
-    candidate = Path(value).resolve()
-    if not candidate.is_relative_to(root):
-        raise argparse.ArgumentTypeError(f"Output must be inside {root}")
-    return candidate
+    if root.resolve() != root:
+        raise ValueError("Acceptance evidence root must not traverse symlinks")
+    root.mkdir(parents=True, exist_ok=True)
+    return Path(tempfile.mkdtemp(prefix="run-", dir=root))
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("benchmark", "lifecycle", "soak"))
-    parser.add_argument("--output", type=output_directory, required=True)
     parser.add_argument("--probe", action="store_true")
     args = parser.parse_args()
-    names = ("fast", "hybrid") if args.mode == "benchmark" else (args.mode,)
-    for name in names:
-        if any(args.output.glob(f"{name}.*")):
-            parser.error(
-                f"Existing {name} evidence must not be overwritten; choose a fresh output folder"
-            )
-    args.output.mkdir(parents=True, exist_ok=True)
+    output = create_evidence_directory()
+    print(json.dumps({"mode": args.mode, "output": str(output)}), flush=True)
     if args.mode == "lifecycle":
-        reports = [lifecycle(args.output / "lifecycle", 10 if args.probe else 1000, args.probe)]
+        reports = [lifecycle(output / "lifecycle", 10 if args.probe else 1000, args.probe)]
     elif args.mode == "soak":
-        reports = [
-            measure(args.output / "soak", True, 200 if args.probe else 1440000, True, args.probe)
-        ]
+        reports = [measure(output / "soak", True, 200 if args.probe else 1440000, True, args.probe)]
     else:
         reports = [
-            measure(args.output / name, hybrid, 100 if args.probe else 10000, False, args.probe)
+            measure(output / name, hybrid, 100 if args.probe else 10000, False, args.probe)
             for name, hybrid in (("fast", False), ("hybrid", True))
         ]
     print(json.dumps([{k: r[k] for k in ("status",)} for r in reports]), flush=True)
