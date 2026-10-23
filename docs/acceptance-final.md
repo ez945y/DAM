@@ -26,9 +26,9 @@
 無殘留 DAM worker。證據：`logs/acceptance-l5/run-vz2fwb4w/`、`run-6hbxpf_g/`。
 
 當前指紋為 `82f9dae0d1beeceeae84f74b29a24e15a8586ca10c99154cb026b8836987a1de`。
-實際 8 小時 soak 於 2026-10-22 12:20:31 UTC 開始，PID 54437；
-證據 `logs/acceptance-l5/run-o_jl6zg_/`，最早約 20:20:34 UTC 完成。
-目前仍在執行，不能以 probe／先前中斷／其他候選結果代替。
+舊 `run-o_jl6zg_` 已中斷，不能計入驗收。當前完整重跑為 `run-xcuuwqcp`，
+於 2026-10-23 09:08:33 UTC 開始，最早約 17:08:36 UTC 完成；詳見下方重跑紀錄。
+目前仍待驗收，不能以 probe／先前中斷／其他候選結果代替。
 本聊天已設定每小時接續驗收（`dam-2`），完成後停用；既有廣泛自主改進排程維持暫停。
 
 ## 已知限制與警告
@@ -50,3 +50,12 @@
 
 回復時以先前 checkpoint 的 Python 與 Rust 同時配對建置，或在獨立環境檢出先前 commit；
 不要只降一半 binary／Python 套件。使用者錄製檔與 Console library 沒有被本輪驗收覆寫。
+
+## 2026-10-23 耐久重跑
+
+舊 `run-o_jl6zg_` 最後樣本為 3,780 秒，程序已不存在且沒有完成報告；
+中斷原因與退出碼不明，保留 `interrupted.json`，不算通過。核心指紋未變。
+完整 8 小時重跑於 2026-10-23 09:08:33 UTC 啟動，目錄 `logs/acceptance-l5/run-xcuuwqcp/`，
+最早約 17:08:36 UTC（洛杉磯 10:08:36）完成。獨立背景 supervisor 32301 的紀錄位於
+`logs/acceptance-l5/detached-20261023/`，結束時寫入 `exit.json`，需與最終 soak 報告交叉驗證。
+本次仍待驗收，沒有調寬門檻。

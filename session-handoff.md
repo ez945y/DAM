@@ -1,5 +1,12 @@
 # session-handoff.md — 會話交接摘要
 
+## 2026-10-23 — Interrupted soak preserved; detached full rerun active
+
+- Old run-o_jl6zg_ stopped after its last 3,780-second sample: process 54437 absent, exec session 6035 unavailable, no completion report. Cause/exit code unknown; interrupted.json records observation. Do not count this as an eight-hour pass.
+- Core fingerprint remains 82f9dae0d1beeceeae84f74b29a24e15a8586ca10c99154cb026b8836987a1de. Benchmark/lifecycle and all other candidate checks remain applicable; no source changed. Latest docs-only 33c1716 CI also passed all jobs.
+- Complete eight-hour soak restarted at 2026-10-23 09:08:33 UTC (02:08:33 PDT), earliest completion ~17:08:36 UTC (10:08:36 PDT), output logs/acceptance-l5/run-xcuuwqcp/. Supervisor PID 32301 is detached with nohup/new session and caffeinate; logs/acceptance-l5/detached-20261023 contains launch.json/process.log and will receive exit.json. Verify final status and all gates; no exit record means no proven completion.
+- Updated scoped heartbeat dam-2 to follow this new run. Old broad automation remains paused. No core changes during measurement. L5/L6/final remain pending; next validate full-duration evidence and close delivery only on actual pass.
+
 ## 2026-10-22 — Final candidate native checks passed; current 8-hour run active
 
 - Candidate 019552a fixed cross-surface cycle identity. Full Python 1337 passed; Rust, pre-commit, Console 167 tests, production build and docs-check passed. Native installed CI 39775873326 passed all four macOS arm64/Linux x86_64 Python 3.11/3.12 environments, each with 11 offline examples. DAM CI and Sonar passed. Evidence: docs/acceptance-final.md and logs/acceptance-final-native-ci.
