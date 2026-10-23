@@ -1,5 +1,11 @@
 # session-handoff.md — 會話交接摘要
 
+## 2026-10-23 — User shortened acceptance; long run stopped and delivery closed with deferral
+
+- User said the wait was too long and did not want it. Removed the actual 8-hour soak from this delivery gate; it remains deferred/unverified, never passed. No new shorter soak or repeat suite is required. Previously passed functional, native-install, benchmark and 1,000 recorded lifecycle evidence remains applicable to unchanged core 019552a.
+- Sent SIGINT only to verified current soak PID 32302. Detached supervisor preserves exit evidence in logs/acceptance-l5/detached-20261023/exit.json; run-xcuuwqcp is user-interrupted. Old run-o_jl6zg_ remains interrupted for unknown cause. Partial samples are observations, not long-duration acceptance.
+- Paused scoped heartbeat dam-2 so no automatic restart/long wait occurs. Historical broad automation unchanged. L5 delivered with 8-hour stability explicitly deferred; L6 and revised offline delivery accepted. No claim of original full-duration acceptance, hardware validation or package release.
+
 ## 2026-10-23 — Interrupted soak preserved; detached full rerun active
 
 - Old run-o_jl6zg_ stopped after its last 3,780-second sample: process 54437 absent, exec session 6035 unavailable, no completion report. Cause/exit code unknown; interrupted.json records observation. Do not count this as an eight-hour pass.
