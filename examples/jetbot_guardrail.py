@@ -20,11 +20,13 @@ Run:  python examples/jetbot_guardrail.py
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import torch
 
 import dam
+from dam.guard.pipeline import CallbackResult
 
 try:  # QP is optional; without it, an unsafe command is rejected (stop).
     import osqp
@@ -102,8 +104,11 @@ def jetbot_clamp_inside_band(
     safe = _qp_correct(solver, base_pose, command, x_min, x_max, y_abs_max, dt)
     if safe is None:
         return False  # no QP → reject; the guard returns safe_action (stop)
-    action.target_joint_positions[0], action.target_joint_positions[1] = safe
-    return True
+    return CallbackResult.clamp(
+        "jetbot_clamp_inside_band",
+        dam.ValidatedAction(target_joint_positions=np.asarray(safe, dtype=np.float64)),
+        reason="Corrected base command to remain inside the predicted pose bounds",
+    )
 
 
 def _qp_correct(solver, pose, command, x_min, x_max, y_abs_max, dt):
@@ -185,23 +190,33 @@ class JetbotGuardrail:
 
 def main() -> None:
     rail = JetbotGuardrail(
-        "examples/stackfiles/jetbot_clamp_safety.yaml",
+        str(Path(__file__).parent / "stackfiles" / "jetbot_clamp_safety.yaml"),
         solver=AckermannSolver(track_width=0.12, wheel_radius=0.03),
         quiet=False,  # print the obs/action contract on startup
     )
-    # Start near the x_min edge so a reverse command would leave the safe box.
-    # With osqp installed the unsafe command is QP-corrected (PASS); without it
-    # the command is rejected and the base stops (REJECT -> [0, 0]).
-    state = torch.tensor([-0.20, 0.0, 0.0])  # [x, y, yaw], facing +x
-    for cmd in ([0.4, 0.0], [-1.0, 0.0], [1.4, 0.2], [0.2, 0.5]):
-        safe = rail.filter(torch.tensor(cmd), state)
-        wheels = rail.command_to_wheels(safe.unsqueeze(0))[0]
-        decision = rail.last_results[0].decision.name if rail.last_results else "PASS"
-        print(
-            f"cmd={cmd} -> safe={[round(s, 3) for s in safe.tolist()]} "
-            f"wheels={[round(w, 2) for w in wheels.tolist()]} [{decision}]"
-        )
-    rail.close()
+    try:
+        # Start near the x_min edge so a reverse command would leave the safe box.
+        # With osqp installed the unsafe command is QP-corrected (CLAMP); without it
+        # the command is rejected and the base stops (REJECT -> [0, 0]).
+        state = torch.tensor([-0.20, 0.0, 0.0])  # [x, y, yaw], facing +x
+        for cmd in ([0.4, 0.0], [-1.0, 0.0], [1.4, 0.2], [0.2, 0.5]):
+            safe = rail.filter(torch.tensor(cmd), state)
+            assert torch.isfinite(safe).all()
+            decision = max(result.decision for result in rail.last_results)
+            if not torch.allclose(safe, torch.tensor(cmd)):
+                assert decision in (dam.GuardDecision.CLAMP, dam.GuardDecision.REJECT)
+            assert all(result.decision != dam.GuardDecision.FAULT for result in rail.last_results)
+            predicted = rail.solver.rollout(state, safe, 0.12)
+            assert -0.28 - 1e-5 <= float(predicted[0]) <= 1.20 + 1e-5
+            assert abs(float(predicted[1])) <= 0.24 + 1e-5
+            wheels = rail.command_to_wheels(safe.unsqueeze(0))[0]
+            decision = rail.last_results[0].decision.name if rail.last_results else "PASS"
+            print(
+                f"cmd={cmd} -> safe={[round(s, 3) for s in safe.tolist()]} "
+                f"wheels={[round(w, 2) for w in wheels.tolist()]} [{decision}]"
+            )
+    finally:
+        rail.close()
 
 
 if __name__ == "__main__":

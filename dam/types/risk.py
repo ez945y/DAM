@@ -34,3 +34,4 @@ class CycleResult:
     mcap_filename: str | None = None
     hardware_snapshot: dict[str, Any] | None = None
     observation: Observation | None = None
+    output_status: str = "not_attempted"

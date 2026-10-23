@@ -26,6 +26,14 @@ Save the plan to keep an editable draft in `data/safety-plans/`. Saving a plan d
 not modify the running configuration. Export the compiled configuration to the
 Stackfile library to use it in an A/B comparison.
 
+Edits are also saved in this browser's local storage, including unfinished
+boundary JSON and declaration text. Refreshing restores this local draft, but
+not compile results, switch previews, or coordinate-frame confirmation: review
+and check again before applying. Local draft status is separate from saving a
+plan to the library. Storage errors are shown with a retry action; keep the page
+open while unsaved edits remain. A damaged draft is not overwritten on load or
+retry; making a new edit replaces it with the current editor contents.
+
 `examples/safety_plans/precision.json` is a complete, hardware-free authoring
 example: one joint, a roomy base limit, and an additional precision-mode limit.
 It declares its radians and joint observation explicitly. The local demo plan
@@ -38,6 +46,8 @@ inactive definitions, missing observations, unknown callbacks, unsuitable action
 semantics, dimensions, units, and missing FK declarations. Optional input
 contract fields make explicit the observation groups, joint ordering, native
 action units, and solver coordinate frame used by an embedded integration.
+Checks also reject non-finite values, malformed declarations, degenerate regions,
+and detectable conflicts after converting degree-based limits to radians.
 
 A `declaration-only` result establishes static completeness. It is not a live
 sensor measurement, solver initialization result, or hardware readiness check.
@@ -65,6 +75,8 @@ invent thresholds from words such as "slower" or "nearby".
 Review the generated parameters, add the components to the plan, and run the
 requirement checks. Conditional, ambiguous, or unsupported clauses must be
 resolved explicitly. Generating a draft never applies a configuration.
+If any clause remains unresolved, the response contains no components to add;
+clarify the request and generate it again.
 
 ## Preview and switch
 
@@ -102,6 +114,9 @@ until repaired. A storage failure does not hide an acknowledged runtime change:
 it remains `applied` with `persisted: false`. If another runtime or configuration
 has already replaced that change, its historical receipt is retained without
 writing the superseded configuration back to disk.
+The history label **Applied change was not saved** describes that receipt; it
+does not establish that the configuration is still active. Check **Active hash**
+for the currently reported configuration.
 
 History provides a rollback preview using the previous configuration snapshot.
 Rollback goes through the same validation, baseline checks, diff, and application

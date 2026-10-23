@@ -1,9 +1,63 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field, replace
 from typing import Any
 
 import numpy as np
+
+
+def action_segment_size(segment: dict[str, Any]) -> int | None:
+    """Resolve the same declared segment width for SDK and runtime."""
+    keys = segment.get("keys")
+    if isinstance(keys, (list, tuple)):
+        return len(keys)
+    declared = segment.get("size") or segment.get("dim") or segment.get("dimensions")
+    if declared is not None:
+        return int(declared)
+    return {"ee_pose": 7, "scalar": 1}.get(str(segment.get("type", "")).lower())
+
+
+def declared_command_shape(pool: dict[str, Any] | None) -> tuple[int, ...] | None:
+    """Prefer command layout over observation joint count; never infer units."""
+    pool = pool or {}
+    layout = pool.get("action_layout")
+    if layout:
+        widths = [action_segment_size(segment) for segment in layout]
+        if any(width is None or width <= 0 for width in widths):
+            raise ValueError("Action layout must declare positive segment widths")
+        return (sum(width for width in widths if width is not None),)
+    names = pool.get("joint_names")
+    return (len(names),) if names else None
+
+
+def _validate_command_payload(
+    positions: np.ndarray,
+    velocities: np.ndarray | None,
+    timestamp: float,
+    gripper: float | None,
+    expected_shape: tuple[int, ...] | None,
+) -> None:
+    if positions.ndim != 1 or not positions.size or not np.all(np.isfinite(positions)):
+        raise ValueError("Command positions must be a nonempty finite one-dimensional vector")
+    if expected_shape is not None and positions.shape != expected_shape:
+        raise ValueError("Command positions do not match the declared command shape")
+    if velocities is not None and (
+        velocities.shape != positions.shape or not np.all(np.isfinite(velocities))
+    ):
+        raise ValueError("Command velocities must be finite and match positions")
+
+    def finite_scalar(value: Any) -> bool:
+        return (
+            isinstance(value, (int, float, np.integer, np.floating))
+            and not isinstance(value, (bool, np.bool_))
+            and math.isfinite(float(value))
+        )
+
+    if not finite_scalar(timestamp) or float(timestamp) < 0:
+        raise ValueError("Command timestamp must be finite and nonnegative")
+    if gripper is not None and (not finite_scalar(gripper) or not 0 <= float(gripper) <= 1):
+        raise ValueError("Command gripper action must be finite and in [0, 1]")
 
 
 @dataclass(frozen=True)
@@ -54,6 +108,19 @@ class ActionProposal:
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError(f"confidence must be in [0, 1], got {self.confidence}")
 
+    def validate_payload(self, expected_shape: tuple[int, ...] | None = None) -> None:
+        _validate_command_payload(
+            self.target_joint_positions,
+            self.target_joint_velocities,
+            self.timestamp,
+            self.gripper_action,
+            expected_shape,
+        )
+        if self.target_ee_pose is not None and (
+            self.target_ee_pose.shape != (7,) or not np.all(np.isfinite(self.target_ee_pose))
+        ):
+            raise ValueError("Command EE pose must contain seven finite values")
+
     # A proposal duck-types as its command vector so a callback can write
     # ``v, omega = action`` / ``np.asarray(action)`` while builtins keep using
     # ``action.target_joint_positions``.
@@ -73,7 +140,10 @@ class ActionProposal:
 
 @dataclass(frozen=True)
 class ValidatedAction:
-    """Action that has passed all guard checks and is safe to send to hardware.
+    """Candidate command returned by validation or a fallback context.
+
+    Construction alone does not validate the payload or establish physical
+    safety. Runtime dispatch checks payload validity immediately before sending.
 
     Fields
     ------
@@ -107,22 +177,19 @@ class ValidatedAction:
 
     def validate_payload(self, expected_shape: tuple[int, ...] | None = None) -> None:
         """Reject malformed corrections before aggregation or hardware output."""
-        positions = self.target_joint_positions
-        if positions.ndim != 1 or not np.all(np.isfinite(positions)):
-            raise ValueError("Clamped positions must be a finite one-dimensional vector")
-        if expected_shape is not None and positions.shape != expected_shape:
-            raise ValueError("Clamped positions do not match the command shape")
+        _validate_command_payload(
+            self.target_joint_positions,
+            self.target_joint_velocities,
+            self.timestamp,
+            self.gripper_action,
+            expected_shape,
+        )
         if self.original_proposal is not None:
             original = self.original_proposal.target_joint_positions
-            if original.shape != positions.shape or not np.all(np.isfinite(original)):
-                raise ValueError("Clamped positions do not match a finite original proposal")
-        velocities = self.target_joint_velocities
-        if velocities is not None and (
-            velocities.shape != positions.shape or not np.all(np.isfinite(velocities))
-        ):
-            raise ValueError("Clamped velocities must be finite and match positions")
-        if self.gripper_action is not None and not 0.0 <= self.gripper_action <= 1.0:
-            raise ValueError("Clamped gripper action must be in [0, 1]")
+            if original.shape != self.target_joint_positions.shape or not np.all(
+                np.isfinite(original)
+            ):
+                raise ValueError("Command positions do not match a finite original proposal")
 
     def merge_restrictive(self, other: ValidatedAction) -> ValidatedAction:
         """Combine two validated actions, taking the most conservative value for each joint.

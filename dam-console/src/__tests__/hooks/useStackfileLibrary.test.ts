@@ -36,7 +36,7 @@ describe('useStackfileLibrary', () => {
     let pending!: Promise<void>
     act(() => { pending = result.current.bootstrap(loaded) })
     expect(result.current.busy).toBe(true)
-    await expect(result.current.save('defaults')).rejects.toThrow('finish loading')
+    await act(async () => { await expect(result.current.save('defaults')).rejects.toThrow('finish loading') })
     expect(mockApi.saveConfig).not.toHaveBeenCalled()
     await act(async () => { resolve(response('original')); await pending })
     expect(loaded).toHaveBeenCalledWith('original')

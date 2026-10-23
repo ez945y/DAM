@@ -101,12 +101,14 @@ import dam
 safe_action = dam.guardrail({"joints": obs, "action": action}, stackfile="safety.yaml")
 
 # Level 2: stateful guard (recording loops + Isaac Sim)
-guard = dam.Guardrail("safety.yaml", task="record")   # prints the obs/action contract
-safe_action = guard({"joints": obs, "action": action})  # mirrors the action's type
+with dam.Guardrail("safety.yaml", task="record") as guard:
+    safe_action = guard({"joints": obs, "action": action})  # mirrors the action's type
 
 # Level 3: lerobot pipeline (one line addition)
 from dam import GuardrailProcessorStep
-robot_action_processor.steps.insert(0, GuardrailProcessorStep("safety.yaml"))
+processor_step = GuardrailProcessorStep("safety.yaml")
+robot_action_processor.steps.insert(0, processor_step)
+# In your recording teardown/finally block: processor_step.close()
 ```
 
 <img src="docs/diagrams/diagram2_runtime_workflow.png" alt="Runtime Workflow" width="600" />

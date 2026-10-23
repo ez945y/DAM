@@ -17,9 +17,9 @@ export interface SafetyComponent {
 }
 export interface SafetyContract {
   observation_keys: string[]
-  frame?: string
-  action_units?: string[]
-  joint_names?: string[]
+  frame?: string | null
+  action_units?: string[] | null
+  joint_names?: string[] | null
 }
 export interface SafetyPlan {
   name: string

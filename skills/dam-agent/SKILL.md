@@ -45,7 +45,8 @@ description: "Configure, integrate, diagnose, and extend DAM (Detachable Action 
 - 建立 instance 時明確指定目標 task；提供可解析的 joint names / preset、action layout 與單位。閱讀 `rail.describe()` 契約；callback 依參數名稱取得觀測群組，不能與保留 runtime keys 衝突。
 - 缺失觀測、錯誤維度、NaN/Inf、缺少 action dictionary keys 應修正輸入來源，不能補零或捕捉錯誤後把原始 action 直接送出。
 - 控制迴圈只送出 Guardrail 回傳值，並讀 `rail.last_results` 的 decision、guard name 與 reason。回傳型別會對應 action 輸入；修正值可能不同，不能忽略它。
-- 明確選擇符合 action 語意的 `safe_action`：位置控制 arm 可保持目前 joints；速度 base 可使用零速度。不要把全零向量假定為任意 EE pose / torque controller 的安全停止方式。現行 command-space 的預設 hold 會轉成零命令，整合前必須確認此語意是否適用。
+- 明確選擇符合 action 語意的 `safe_action`：位置控制 arm 可保持目前 joints；速度 base 可使用零速度。不要把全零向量假定為任意 EE pose / torque controller 的安全停止方式。非 joint command-space 的預設 hold 會拒絕建構；必須明確提供 fallback 向量或 `"zero"`，不能推定零向量適合所有控制器。
+- 需要詳細結果時使用 `rail.evaluate(inputs)`；`preflight` 做不啟動資源的靜態檢查，`request_reload`／`reload_receipt` 區分 pending 與 applied，`reset`／`diagnostics` 支援恢復與診斷。細節與限制讀 `docs/library-api.md`；可執行案例見 `examples/sdk_offline.py`。
 - 多次呼叫重用 instance 以保留歷史；使用 context manager 或 `close()` 釋放背景 worker / recording。不要每個 cycle 重建 one-shot guard。
 - Slow lane 的 ready 只代表有 verdict，可能含 REJECT，也可能對應較舊 snapshot。涉及等待、時效或 stale 行為時讀 `docs/library-api.md` 與 `dam/runtime/guard_runtime.py`，確認 `wait_for_slow`、首次 verdict、timeout 與 enforcement mode 的交互作用。
 

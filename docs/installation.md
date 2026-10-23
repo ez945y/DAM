@@ -1,5 +1,9 @@
 # Installation
 
+Wheel installation and execution evidence are tracked separately in the
+[installation matrix](installation-matrix.md), including platform limits, packaged
+assets and Linux system prerequisites.
+
 DAM is set up from source using `make setup`. The setup script handles the Python environment, Rust extension build, and frontend dependencies in one step.
 
 ---

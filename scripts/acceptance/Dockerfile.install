@@ -1,0 +1,27 @@
+ARG PYTHON_VERSION=3.11
+FROM rust:1.93-slim-bookworm AS rust-wheel
+RUN apt-get update && apt-get install -y --no-install-recommends python3-venv python3-dev build-essential && rm -rf /var/lib/apt/lists/*
+COPY locks/build.txt /build-tools.txt
+RUN python3 -m venv /build-env && /build-env/bin/pip install --require-hashes --only-binary :all: -r /build-tools.txt
+COPY dam-rust /src
+WORKDIR /src/dam-py
+RUN /build-env/bin/maturin build --release --out /wheels -i /build-env/bin/python
+
+FROM scratch AS wheels
+COPY --from=rust-wheel /wheels/ /
+
+FROM python:${PYTHON_VERSION}-slim-bookworm AS installed
+RUN apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 build-essential linux-libc-dev && rm -rf /var/lib/apt/lists/*
+ARG PYTHON_VERSION
+COPY locks/ /locks/
+RUN pip install --require-hashes --only-binary :all: -r /locks/build.txt
+COPY --from=rust-wheel /wheels/ /wheels/
+COPY robot_dam-*.whl /wheels/
+# Only evdev/feetech-servo-sdk source builds are allowed; hashes and build tools are pinned.
+RUN uv pip install --system --require-hashes --only-binary :all: --no-binary evdev,feetech-servo-sdk --build-constraint /locks/build.txt --torch-backend cpu -r /locks/ubuntu-24.04-${PYTHON_VERSION}.txt
+RUN uv pip install --system --no-deps --no-build /wheels/*.whl
+RUN useradd --create-home --uid 10001 acceptance
+USER acceptance
+COPY installed_smoke.py /checks/installed_smoke.py
+WORKDIR /tmp
+CMD ["python", "-I", "/checks/installed_smoke.py"]

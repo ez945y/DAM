@@ -1,5 +1,8 @@
 # DAM 後續功能與穩定性規劃
 
+2026-10-22 補充：[分階段驗收與交付計畫](acceptance-plan.md) 定義 Safety Studio
+收尾、R04–R10 的交付內容、驗收門檻與最終完成條件；功能狀態仍以下列證據為準。
+
 更新日期：2026-10-16。規劃以 `8b99129` 的 SDK 與 runtime 為基準；R01 已於 `caba57b`、R02 已於 `a18ce9c`、R03 已於 `6effe45` 完成，其餘項目維持待辦。
 
 下一階段優先補齊安全判定從輸入、非同步評估到輸出的完整流程，再改善 SDK 的設定、診斷與部署體驗。除明確標示完成者外，下列項目都是待辦建議，不代表已實作功能或發行承諾。先完成 P0 的可重現測試與修正，再擴充 API，避免新功能建立在不明確的執行語意上。
@@ -126,6 +129,9 @@
 
 ### R04 Runtime 輸出與 fallback 契約
 
+2026-10-22：已完成 [S2 行為驗收](acceptance-s2.md)，Python 非硬體全套 1276 通過；
+S3 同候選版完整檢查進行中。以下原始範圍由該報告逐路徑對應。
+
 SDK 已有輸入檢查，但直接使用 runtime、自訂 guard、fallback context 與 sink 的路徑仍需一致的端到端契約。應盤點原始 action、修正 action、hold、retreat 與 emergency-stop 的輸出路徑。
 
 建議在送往 sink 前統一驗證尺寸、有限值、可選速度與夾爪欄位，並明確定義 MONITOR／LOG_ONLY 對格式錯誤的行為。格式錯誤與一般安全限制違反應分開處理，避免觀測模式意外放行無法執行的資料。
@@ -138,7 +144,7 @@ SDK 已有輸入檢查，但直接使用 runtime、自訂 guard、fallback conte
 
 ### R05 結構化結果與錯誤分類
 
-保留目前 callable 回傳命令的介面，另設計 opt-in 詳細結果 API。結果可包含命令、PASS／CLAMP／REJECT／FAULT、fallback、boundary、原因、設定版本與判定資料年齡。此 API 尚未實作，名稱需在設計時確認。
+2026-10-22 已交付 `Guardrail.evaluate()` 與公開 `GuardrailEvaluation`，包含命令、PASS／CLAMP／REJECT／FAULT、fallback、boundary、原因、設定版本與實際消費判定年齡；callable 保留回傳命令。見 [L1 驗收](acceptance-l1.md)。
 
 錯誤分類至少區分設定錯誤、輸入契約錯誤、已關閉 session、背景 worker 逾時與執行失敗；保留原始例外鏈。
 
@@ -146,11 +152,15 @@ SDK 已有輸入檢查，但直接使用 runtime、自訂 guard、fallback conte
 
 ### R06 公開設定建構與預檢
 
+2026-10-22 已交付 mapping／StackfileConfig 建構與 `dam.preflight()`，通過 [L2 驗收](acceptance-l2.md)。
+
 提供公開的設定物件或 mapping 建構入口，避免 SDK 使用者依賴 `_from_config` 等私有方法。提供不建立硬體連線的預檢，回報 callback／solver 缺失、action layout、必要觀測欄位、單位與 fallback 契約。
 
 驗收條件：檔案與設定物件建構結果一致；預檢不啟動 worker、不寫錄製檔、不移動機器人；錯誤能指出設定欄位及可用選項。
 
 ### R07 重載回報與 session 切換
+
+2026-10-22 已交付公開 reload receipt、SessionStatus、reset／switch_task，通過 [L3 驗收](acceptance-l3.md)。
 
 目前只支援節點 `params` 重載；結構變更，以及 slow lane 運行中的重載，會被拒絕。先提供公開的 accepted／applied／rejected 狀態、原因與版本，再考慮擴充可重載範圍。
 

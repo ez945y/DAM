@@ -178,13 +178,15 @@ sessions use cached slow evidence after startup unless `wait_for_slow=True` is
 selected. Cached PASS does not establish that the current action was checked:
 inspect `basis_cycle_id` and `current_cycle_checked` on slow results. Public
 `slow_lane_status` reports availability and age, not safety. MONITOR records
-violations without blocking commands, and LOG_ONLY bypasses checks.
+safety violations without blocking well-formed commands, and LOG_ONLY bypasses
+safety checks. Invalid command payloads are blocked in every mode.
 
 A slow CLAMP is still escalated to REJECT; no asynchronous correction is applied
 to the fast candidate. Waiting alone does not certify the final output: constraint
-fusion and snapshot isolation have their own checks, and fallback-output
-validation remains pending in the [roadmap](../roadmap.md). In particular, fallback contexts retain their existing
-validation behavior; this change gates the normal proposal path. Evaluation
+fusion and snapshot isolation have their own checks. The runtime now validates
+all final command payloads before dispatch, including fallback contexts; see the
+[output contract](../library-api.md#runtime-output-and-fallback-contract). This
+checks executable data, not arbitrary fallback geometry or physical stopping. Evaluation
 deadlines cannot forcibly stop Python callbacks, so shutdown may separately
 time out and raise rather than report successful cleanup.
 

@@ -52,9 +52,10 @@ def create_demo(directory: Path) -> tuple[Path, Path, Path]:
         schema = writer.register_schema("json", "jsonschema", b"{}")
         channel = writer.register_channel("/dam/cycle", "json", schema)
         for cid, target in enumerate([0.0, 0.5, 1.5, -1.5, 0.75]):
+            obs_timestamp = 10 + cid / 30
             payload = {
                 "cycle_id": cid,
-                "obs_timestamp": 10 + cid / 30,
+                "obs_timestamp": obs_timestamp,
                 "active_task": "comparison_demo",
                 "obs_joint_positions": [0.0],
                 "obs_channels": {},
@@ -63,9 +64,9 @@ def create_demo(directory: Path) -> tuple[Path, Path, Path]:
                 "has_violation": False,
                 "has_clamp": False,
             }
-            timestamp = int(payload["obs_timestamp"] * 1_000_000_000)
+            timestamp = int(obs_timestamp * 1_000_000_000)
             writer.add_message(channel, timestamp, json.dumps(payload).encode(), timestamp)
-        writer.finish()
+        writer.finish()  # type: ignore[no-untyped-call]  # MCAP exposes no return annotation.
     return recording, configs[0], configs[1]
 
 

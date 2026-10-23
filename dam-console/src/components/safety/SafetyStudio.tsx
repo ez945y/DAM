@@ -111,7 +111,7 @@ export function SafetyStudio() {
       {status?.pending && <p className="text-dam-orange text-xs">{labels[status.pending.status]}: {status.pending.message}</p>}
       {!status && <p className="text-dam-orange text-xs">Runtime status unavailable. Saved plans and previews do not confirm active protection.</p>}
       <details><summary className="text-xs text-dam-muted cursor-pointer">Switch history ({status?.history.length ?? 0})</summary><ul className="space-y-2 mt-2">{status?.history.map(item => <li key={item.id} className="text-xs"><strong>{labels[item.status]}</strong> · {item.message}
-        {item.persisted === false && item.status === 'applied' && <span className="text-dam-orange"> · Active but not saved</span>}
+        {item.persisted === false && item.status === 'applied' && <span className="text-dam-orange"> · Applied change was not saved</span>}
         {['applied', 'saved_restart_required'].includes(item.status) && <button className={`${safetyButton} ml-2`} type="button" disabled={working || hasPending} onClick={() => void run('Previewing rollback', async isCurrent => { setPreview(null); setResult(null); const response = await safetyApi.rollbackPreview(item.id, plan.contract); if (isCurrent()) setPreview(response) })}>Preview rollback</button>}</li>)}</ul></details>
     </section>
     {error && <div role="alert" className="rounded border border-dam-red/40 bg-dam-red/10 p-3 text-sm text-dam-red">{error}</div>}
@@ -158,13 +158,13 @@ export function SafetyStudio() {
         <div className="space-y-2"><select aria-label="Reusable components" className={`${safetyInput} max-w-sm`} value="" onChange={event => { const name = event.target.value; if (name) void run('Loading reusable components', async isCurrent => { const loaded = await safetyApi.load(name); if (isCurrent()) setReusable(loaded.components) }) }}><option value="">Reuse components from a saved plan…</option>{plans.map(item => <option key={item.name}>{item.name}</option>)}</select>
           <div className="flex gap-2 flex-wrap">{reusable.map((component, index) => <button key={index} className={safetyButton} type="button" onClick={() => { setFrameConfirmed(false); update({ ...plan, components: [...plan.components, component] }) }}>Add {component.name} ({component.kind})</button>)}</div>
         </div>
-        <div className="grid xl:grid-cols-2 gap-4">{plan.components.map((component, index) => <ComponentEditor key={`${generation}-${index}`} component={component} frame={plan.contract?.frame} onChange={next => update({ ...plan, components: plan.components.map((item, i) => i === index ? next : item) })} raw={boundaryEdits[index] ?? null} onRawChange={text => editBoundaryJson(index, text)} onRemove={() => removeComponent(index)} />)}</div>
+        <div className="grid xl:grid-cols-2 gap-4">{plan.components.map((component, index) => <ComponentEditor key={`${generation}-${index}`} component={component} frame={plan.contract?.frame ?? undefined} onChange={next => update({ ...plan, components: plan.components.map((item, i) => i === index ? next : item) })} raw={boundaryEdits[index] ?? null} onRawChange={text => editBoundaryJson(index, text)} onRemove={() => removeComponent(index)} />)}</div>
       </section>
       <section className="rounded-lg border border-dam-border p-4 space-y-3">
         <h2 className="font-semibold text-sm">Draft rules from a description</h2>
         <p className="text-xs text-dam-muted">Use explicit values and units. Unsupported or ambiguous requests are listed for review.</p>
         <textarea aria-label="Rule description" className={safetyInput} rows={3} value={draftText} placeholder="Joint velocity limit 0.5 rad/s" onChange={event => { invalidate(); local.edit({ description: event.target.value, generatedDraft: null }) }} />
-        <button className={safetyButton} disabled={!draftText.trim()} type="button" onClick={() => void run('Drafting rules', async isCurrent => { const generated = await safetyApi.draft(draftText, plan.contract?.frame); if (isCurrent()) local.edit({ generatedDraft: generated }) })}>Generate draft</button>
+        <button className={safetyButton} disabled={!draftText.trim()} type="button" onClick={() => void run('Drafting rules', async isCurrent => { const generated = await safetyApi.draft(draftText, plan.contract?.frame ?? undefined); if (isCurrent()) local.edit({ generatedDraft: generated }) })}>Generate draft</button>
         {draft && <div className="space-y-3">
           <p className="text-xs text-dam-muted">{draft.explanation}</p>
           {draft.unresolved.length > 0 && <div className="border border-dam-orange/40 p-3 rounded"><p className="text-xs font-semibold text-dam-orange">Unresolved — these requests are not implemented by the draft</p><ul className="list-disc pl-5 text-xs mt-2">{draft.unresolved.map((item, index) => <li key={index}>{item}</li>)}</ul></div>}

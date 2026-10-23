@@ -196,7 +196,7 @@ class TestGuardrail:
 
     def test_missing_action_key_raises(self, stackfile: str) -> None:
         guard = Guardrail(stackfile, joint_names=_JOINT_NAMES, degrees_mode=False, quiet=True)
-        with pytest.raises(KeyError, match="action"):
+        with pytest.raises(dam.InputContractError, match="action"):
             guard({"joints": np.zeros(6)})
 
     def test_stateful_velocity_estimation(self, stackfile: str) -> None:
@@ -231,7 +231,13 @@ class TestGuardrail:
                 boundaries: []
             """)
         )
-        guard = Guardrail(str(path), joint_names=_JOINT_NAMES, degrees_mode=False, quiet=True)
+        guard = Guardrail(
+            str(path),
+            joint_names=_JOINT_NAMES,
+            degrees_mode=False,
+            safe_action=[0.5, 0, 0, 0, 0, 0, 1],
+            quiet=True,
+        )
         assert guard.action_layout == [{"name": "arm", "type": "ee_pose", "solver": "kinematics"}]
 
 
@@ -321,7 +327,13 @@ class TestEEActionLayout:
             """)
         )
 
-        guard = Guardrail(str(path), joint_names=_JOINT_NAMES, degrees_mode=False, quiet=True)
+        guard = Guardrail(
+            str(path),
+            joint_names=_JOINT_NAMES,
+            degrees_mode=False,
+            safe_action=[0.5, 0, 0, 0, 0, 0, 1],
+            quiet=True,
+        )
         action = np.array([0.5, 0, 0, 0, 0, 0, 1.0])
         result = _call(guard, action, np.zeros(6))
         np.testing.assert_allclose(result, action)
@@ -372,7 +384,13 @@ class TestEEActionLayout:
             """)
         )
 
-        guard = Guardrail(str(path), joint_names=_JOINT_NAMES, degrees_mode=False, quiet=True)
+        guard = Guardrail(
+            str(path),
+            joint_names=_JOINT_NAMES,
+            degrees_mode=False,
+            safe_action=[0.5, 0, 0, 0, 0, 0, 1, 0.25],
+            quiet=True,
+        )
         action = np.array([0.5, 0, 0, 0, 0, 0, 1.0, 0.25])
         result = _call(guard, action, np.zeros(6))
         np.testing.assert_allclose(result, action)
@@ -445,7 +463,7 @@ class TestGuardrailOneLiner:
         assert result.shape == action.shape
 
     def test_missing_stackfile_raises(self) -> None:
-        with pytest.raises((FileNotFoundError, OSError)):
+        with pytest.raises(dam.ConfigurationError):
             guardrail(
                 {"joints": np.zeros(6), "action": np.zeros(6)},
                 "/nonexistent/safety.yaml",
@@ -754,6 +772,11 @@ class TestDecoupledMobileBase:
         guard = self._guard(tmp_path)
         assert guard.required_obs_keys == {"base_pose"}
 
+    def test_command_space_requires_explicit_fallback(self, tmp_path: Path) -> None:
+        self._register_callback()
+        with pytest.raises(ValueError, match="explicit safe_action"):
+            Guardrail(self._stackfile(tmp_path), quiet=True)
+
     def test_safe_command_passes_through(self, tmp_path: Path) -> None:
         guard = self._guard(tmp_path)
         out = guard({"base_pose": [0.2, 0.0, 0.0], "action": np.array([0.5, 0.1])})
@@ -767,7 +790,7 @@ class TestDecoupledMobileBase:
 
     def test_missing_base_pose_fails_fast(self, tmp_path: Path) -> None:
         guard = self._guard(tmp_path)
-        with pytest.raises(KeyError, match="base_pose"):
+        with pytest.raises(dam.InputContractError, match="base_pose"):
             guard({"action": np.array([0.5, 0.1])})
 
     def test_command_is_not_degree_scaled(self, tmp_path: Path) -> None:
@@ -834,7 +857,7 @@ def test_invalid_validated_output_is_not_returned(stackfile, monkeypatch, positi
             "validate",
             lambda *args, **kw: (ValidatedAction(target_joint_positions=np.array(positions)), []),
         )
-        with pytest.raises(ValueError, match="Validated command must contain"):
+        with pytest.raises(dam.ExecutionError, match="Validated command must contain"):
             guard({"action": np.zeros(6), "joints": np.zeros(6)})
 
 
@@ -874,7 +897,7 @@ def test_one_liner_closes_on_bad_input(stackfile, monkeypatch):
         closed.append(runtime)
 
     monkeypatch.setattr(GuardRuntime, "shutdown", shutdown)
-    with pytest.raises(KeyError, match="action"):
+    with pytest.raises(dam.InputContractError, match="action"):
         guardrail({}, stackfile, joint_names=_JOINT_NAMES)
     assert len(closed) == 1
     assert closed[0]._shutdown_complete
@@ -890,7 +913,7 @@ def test_constructor_start_failure_cleans_runtime(stackfile, monkeypatch):
         raise RuntimeError("recording failed")
 
     monkeypatch.setattr(GuardRuntime, "start_recording", fail)
-    with pytest.raises(RuntimeError, match="recording failed"):
+    with pytest.raises(dam.ConfigurationError, match="recording failed"):
         Guardrail(stackfile, joint_names=_JOINT_NAMES, quiet=True)
     assert runtimes[0]._shutdown_complete
 
@@ -979,7 +1002,7 @@ def test_list_input_returns_list(stackfile):
 def test_integer_tensor_is_rejected_before_validation(stackfile):
     torch = pytest.importorskip("torch")
     with Guardrail(stackfile, joint_names=_JOINT_NAMES, quiet=True) as rail:
-        with pytest.raises(TypeError, match="floating-point"):
+        with pytest.raises(dam.InputContractError, match="floating-point"):
             rail({"action": torch.zeros(6, dtype=torch.int64), "joints": np.zeros(6)})
         assert rail._prev_time is None
 
@@ -1014,7 +1037,7 @@ def test_always_active_observations_are_in_sdk_contract(stackfile):
     Path(stackfile).write_text(yaml.safe_dump(data))
     with Guardrail(stackfile, joint_names=_JOINT_NAMES, quiet=True) as rail:
         assert "extra_sensor" in rail.required_obs_keys
-        with pytest.raises(KeyError, match="extra_sensor"):
+        with pytest.raises(dam.InputContractError, match="extra_sensor"):
             rail({"action": np.zeros(6), "joints": np.zeros(6)})
 
 

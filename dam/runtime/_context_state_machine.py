@@ -146,7 +146,18 @@ class ContextStateMachine:
     ) -> None:
         """Push a new Context on top of the stack and fire on_enter."""
         from_ctx = self.active_context
-        new_ctx.on_enter(runtime, trigger=trigger)
+        try:
+            new_ctx.on_enter(runtime, trigger=trigger)
+        except Exception:
+            # A failed physical stop still requires a terminal don't-send
+            # state. Preserve the error for the cycle, without retrying entry.
+            if new_ctx.name == "emergency_stop":
+                self._context_stack.append(new_ctx)
+                self._active_context_since = time.monotonic()
+                self._record_transition(
+                    event=event, ctx=new_ctx, from_ctx=from_ctx, trigger=trigger
+                )
+            raise
         self._context_stack.append(new_ctx)
         self._active_context_since = time.monotonic()
         self._record_transition(event=event, ctx=new_ctx, from_ctx=from_ctx, trigger=trigger)

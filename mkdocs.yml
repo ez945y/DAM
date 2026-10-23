@@ -59,6 +59,7 @@ nav:
     - Console Walkthrough: getting-started/console-walkthrough.md
     - Hardware Readiness: getting-started/hardware-readiness.md
     - Installation: installation.md
+    - Installation Matrix: installation-matrix.md
     - Troubleshooting: getting-started/troubleshooting.md
     - Stackfile Guide: quick-stack.md
     - CLI: cli.md
@@ -97,6 +98,18 @@ nav:
     - Guide: contributing.md
     - Documentation Workplan: documentation-workplan.md
     - Roadmap: roadmap.md
+    - Acceptance and Delivery: acceptance-plan.md
+    - S1 Acceptance Report: acceptance-s1.md
+    - S2 Acceptance Report: acceptance-s2.md
+    - S3 Acceptance Report: acceptance-s3.md
+    - L1 Acceptance Report: acceptance-l1.md
+    - L2 Acceptance Report: acceptance-l2.md
+    - L3 Acceptance Report: acceptance-l3.md
+    - L4 Acceptance Report: acceptance-l4.md
+    - L5 Acceptance Report: acceptance-l5.md
+    - L6 Acceptance Report: acceptance-l6.md
+    - Final Acceptance: acceptance-final.md
+    - SDK Examples: sdk-examples.md
 
 plugins:
   - search:

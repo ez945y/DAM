@@ -146,6 +146,28 @@ class HotReloadManager:
         with self._lock:
             return self._pending_config is not None or self._inflight_id is not None
 
+    def cancel_all(self, message: str) -> None:
+        """Invalidate management requests when their runtime is shutting down."""
+        with self._lock:
+            self._task_epoch += 1
+            for request_id in (self._pending_id, self._inflight_id):
+                receipt = self._receipts.get(request_id or "")
+                if receipt is not None:
+                    receipt.update(status="rejected", message=message)
+            self._pending_config = None
+            self._pending_id = None
+
+    def inherit_history(self, previous: HotReloadManager) -> None:
+        """Keep bounded receipts and version continuity after SDK reconstruction."""
+        with previous.lock:
+            receipts = {key: dict(value) for key, value in previous._receipts.items()}
+            version = previous._config_version
+            epoch = previous._task_epoch
+        with self._lock:
+            self._receipts = receipts
+            self._config_version = version
+            self._task_epoch = epoch + 1
+
     def cancel_pending(self, request_id: str, message: str) -> bool:
         """Cancel only requests that have not entered the control cycle."""
         with self._lock:
@@ -185,7 +207,9 @@ class HotReloadManager:
         # (which owns the physical description). Used to align the observation
         # vector with the URDF dynamics model by name during FK.
         preset = _resolve_preset(new_config)
-        if preset and preset.joint_names:
+        if new_config.hardware and new_config.hardware.joint_names:
+            pool["joint_names"] = list(new_config.hardware.joint_names)
+        elif preset and preset.joint_names:
             pool["joint_names"] = list(preset.joint_names)
         if new_config.hardware and new_config.hardware.action_layout:
             pool["action_layout"] = [dict(item) for item in new_config.hardware.action_layout]
@@ -193,6 +217,8 @@ class HotReloadManager:
             pool["action_layout"] = [dict(item) for item in preset.action_layout]
 
         _STRUCTURAL = {
+            "joint_names",
+            "action_layout",
             "layer",
             "type",
             "callback",

@@ -40,19 +40,31 @@ def _action_safe(pos: float = 0.0) -> ActionProposal:
     return ActionProposal(target_joint_positions=np.full(6, pos))
 
 
-def _action_nan() -> ActionProposal:
-    """NaN action triggers VIOLATE (→ REJECT) in joint_velocity_limit."""
-    return ActionProposal(target_joint_positions=np.full(6, float("nan")))
+def _action_violation() -> ActionProposal:
+    """Finite but disallowed command separates policy violations from invalid data."""
+    return ActionProposal(target_joint_positions=np.full(6, 2.0))
+
+
+def _register_finite_limit():
+    from dam.decorators import callback
+    from dam.registry.callback import get_global_registry
+
+    if "_test_monitor_finite_limit" not in get_global_registry().list_all():
+
+        @callback("_test_monitor_finite_limit", layer="L1")
+        def finite_limit(action):
+            return bool(np.all(np.abs(np.asarray(action)) <= 0.5))
 
 
 def _make_runtime(
     *,
     enforcement_mode: str = "monitor",
 ) -> GuardRuntime:
-    """Runtime with MotionGuard + joint_velocity_limit. NaN actions → REJECT."""
+    """Runtime with a deterministic finite-command rejection callback."""
     from dam.boundary.builtin_callbacks import register_all
 
     register_all()
+    _register_finite_limit()
     KG = guard_decorator("L1")(MotionGuard)
     g = KG()
     g.set_name("main")
@@ -60,8 +72,8 @@ def _make_runtime(
     node = BoundaryNode(
         "n0",
         BoundaryConstraint(
-            callback="joint_velocity_limit",
-            params={"max_velocities": np.full(6, 1.5)},
+            callback="_test_monitor_finite_limit",
+            params={},
         ),
         fallback="emergency_stop",
     )
@@ -86,7 +98,7 @@ def test_monitor_mode_passes_action_on_guard_violation():
     runtime.start_task("task")
 
     obs = _obs()
-    action = _action_nan()
+    action = _action_violation()
     validated, _ = runtime.validate(obs, action, "trace-001")
 
     assert validated is not None, "monitor mode must pass the action through"
@@ -98,7 +110,7 @@ def test_monitor_mode_records_violation():
     runtime.start_task("task")
 
     obs = _obs()
-    action = _action_nan()
+    action = _action_violation()
     _validated, results = runtime.validate(obs, action, "trace-002")
 
     decisions = [r.decision for r in results]
@@ -112,7 +124,7 @@ def test_monitor_mode_passes_original_positions():
     runtime = _make_runtime(enforcement_mode="monitor")
     runtime.start_task("task")
 
-    target = np.full(6, float("nan"))
+    target = np.full(6, 2.0)
     obs = _obs()
     action = ActionProposal(target_joint_positions=target)
     validated, _results = runtime.validate(obs, action, "trace-003")
@@ -130,6 +142,7 @@ def test_monitor_mode_does_not_apply_clamp():
     from dam.boundary.callbacks._registry import register_all
 
     register_all()
+    _register_finite_limit()
     KG = guard_decorator("L1")(MotionGuard)
     g = KG()
     g.set_name("main")
@@ -167,6 +180,7 @@ def test_monitor_mode_does_not_call_violation_hooks():
     from dam.boundary.builtin_callbacks import register_all
 
     register_all()
+    _register_finite_limit()
 
     class SpyMotionGuard(MotionGuard):
         violation_count = 0
@@ -183,8 +197,8 @@ def test_monitor_mode_does_not_call_violation_hooks():
     node = BoundaryNode(
         "n0",
         BoundaryConstraint(
-            callback="joint_velocity_limit",
-            params={"max_velocities": np.full(6, 1.5)},
+            callback="_test_monitor_finite_limit",
+            params={},
         ),
         fallback="emergency_stop",
     )
@@ -198,7 +212,7 @@ def test_monitor_mode_does_not_call_violation_hooks():
     )
     runtime.start_task("task")
 
-    _validated, results = runtime.validate(_obs(), _action_nan(), "trace-hook")
+    _validated, results = runtime.validate(_obs(), _action_violation(), "trace-hook")
 
     assert GuardDecision.REJECT in [r.decision for r in results]
     assert SpyMotionGuard.violation_count == 0
@@ -208,7 +222,7 @@ def test_log_only_skips_guard_checks():
     runtime = _make_runtime(enforcement_mode="log_only")
     runtime.start_task("task")
 
-    validated, results = runtime.validate(_obs(), _action_nan(), "trace-log")
+    validated, results = runtime.validate(_obs(), _action_violation(), "trace-log")
 
     assert validated is not None
     assert results == []
@@ -239,7 +253,7 @@ def test_full_step_cycle_monitor_records_decisions():
     runtime.start_task("task")
 
     obs = _obs()
-    action = _action_nan()
+    action = _action_violation()
 
     source = MockSourceAdapter([obs] * 5)
     policy = MockPolicyAdapter([action] * 5)
@@ -265,7 +279,7 @@ def test_enforce_mode_blocks_sink_on_violation():
     runtime.start_task("task")
 
     obs = _obs()
-    action = _action_nan()
+    action = _action_violation()
 
     source = MockSourceAdapter([obs] * 3)
     policy = MockPolicyAdapter([action] * 3)

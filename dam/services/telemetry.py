@@ -93,6 +93,7 @@ def _serialise_cycle(
         "trace_id": result.trace_id,
         "was_clamped": result.was_clamped,
         "was_rejected": result.was_rejected,
+        "output_status": result.output_status,
         "risk_level": result.risk_level.name
         if hasattr(result.risk_level, "name")
         else str(result.risk_level),

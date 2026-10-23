@@ -1,5 +1,149 @@
 # session-handoff.md — 會話交接摘要
 
+## 2026-10-23 — User shortened acceptance; long run stopped and delivery closed with deferral
+
+- User said the wait was too long and did not want it. Removed the actual 8-hour soak from this delivery gate; it remains deferred/unverified, never passed. No new shorter soak or repeat suite is required. Previously passed functional, native-install, benchmark and 1,000 recorded lifecycle evidence remains applicable to unchanged core 019552a.
+- Sent SIGINT only to verified current soak PID 32302. Detached supervisor preserves exit evidence in logs/acceptance-l5/detached-20261023/exit.json; run-xcuuwqcp is user-interrupted. Old run-o_jl6zg_ remains interrupted for unknown cause. Partial samples are observations, not long-duration acceptance.
+- Paused scoped heartbeat dam-2 so no automatic restart/long wait occurs. Historical broad automation unchanged. L5 delivered with 8-hour stability explicitly deferred; L6 and revised offline delivery accepted. No claim of original full-duration acceptance, hardware validation or package release.
+
+## 2026-10-23 — Interrupted soak preserved; detached full rerun active
+
+- Old run-o_jl6zg_ stopped after its last 3,780-second sample: process 54437 absent, exec session 6035 unavailable, no completion report. Cause/exit code unknown; interrupted.json records observation. Do not count this as an eight-hour pass.
+- Core fingerprint remains 82f9dae0d1beeceeae84f74b29a24e15a8586ca10c99154cb026b8836987a1de. Benchmark/lifecycle and all other candidate checks remain applicable; no source changed. Latest docs-only 33c1716 CI also passed all jobs.
+- Complete eight-hour soak restarted at 2026-10-23 09:08:33 UTC (02:08:33 PDT), earliest completion ~17:08:36 UTC (10:08:36 PDT), output logs/acceptance-l5/run-xcuuwqcp/. Supervisor PID 32301 is detached with nohup/new session and caffeinate; logs/acceptance-l5/detached-20261023 contains launch.json/process.log and will receive exit.json. Verify final status and all gates; no exit record means no proven completion.
+- Updated scoped heartbeat dam-2 to follow this new run. Old broad automation remains paused. No core changes during measurement. L5/L6/final remain pending; next validate full-duration evidence and close delivery only on actual pass.
+
+## 2026-10-22 — Final candidate native checks passed; current 8-hour run active
+
+- Candidate 019552a fixed cross-surface cycle identity. Full Python 1337 passed; Rust, pre-commit, Console 167 tests, production build and docs-check passed. Native installed CI 39775873326 passed all four macOS arm64/Linux x86_64 Python 3.11/3.12 environments, each with 11 offline examples. DAM CI and Sonar passed. Evidence: docs/acceptance-final.md and logs/acceptance-final-native-ci.
+- Current benchmark logs/acceptance-l5/run-vz2fwb4w passed 10,000 fast and 10,000 hybrid cycles: p99 2.469/3.070 ms, deadline violation rates 0.01%/0%. Lifecycle logs/acceptance-l5/run-6hbxpf_g passed 1,000 recorded iterations; FD 3->3, threads 1->1, no remaining DAM Python workers.
+- ACTIVE qualifying soak: exec session 6035, PID 54437, logs/acceptance-l5/run-o_jl6zg_/soak.json and soak.samples.jsonl. Started 2026-10-22 12:20:31 UTC (05:20:31 PDT); earliest finish approximately 20:20:34 UTC (13:20:34 PDT), including warmup. Caffeinate holds system awake. Do not mistake prior interrupted run-65t1g_2s for this run.
+- Source fingerprint 82f9dae0d1beeceeae84f74b29a24e15a8586ca10c99154cb026b8836987a1de. Do not edit dam Python source, loaded Rust extension or runtime_stability.py during this run. Documentation-only edits do not affect this fingerprint.
+- L5, L6 sign-off and final closure remain pending actual 8-hour results. Verify final exit, duration, cycles, hourly RSS, deadline rates, resource cleanup and source_unchanged before marking complete. No hardware, package release or merge.
+- Created scoped hourly heartbeat dam-2 (DAM 最終耐久驗收接續) in this chat to continue actual soak acceptance, fixes and final delivery; it must disable itself after completion. The historical broad DAM automation remains paused. Unchanged/non-actionable runs stay quiet.
+
+## 2026-10-22 — Cycle identity correction; long run must restart
+
+- STOPPED previous soak exec session 41544 / PID 52122 with SIGINT (exit 130) after about 5 minutes. It is not running and did not pass 8 hours. Interrupted evidence retained in logs/acceptance-l5/run-65t1g_2s/interrupted.json.
+- Found SDK evaluation cycle_id sampled before runtime increment; first SDK result 0 disagreed with session/slow verdict/MCAP 1. Added public cross-surface regression (failed before fix), then sample the completed runtime cycle. Full Python now 1337 passed in 25.31s. No deadlines/guards relaxed.
+- L6 preparation committed as da520bc: 11 clean-install offline examples locally passed on macOS Python 3.11/3.12; final Jetbot correction additionally passed. Native example CI awaits next push. Skill validator and docs-check passed.
+- Next commit/push this correction, rerun all benchmark/lifecycle/actual 8h gates into new automatic folders. Old 3fbd303 measurements remain prior-candidate baseline only. After core freeze, only docs/examples may change; final whole-project checks remain required. No hardware/release/automation.
+
+## 2026-10-22 — L5 benchmark/lifecycle passed; actual 8-hour soak running
+
+- Tool fix 3fbd303 passed Sonar. CLI no longer accepts output paths; it creates exclusive folders below fixed logs/acceptance-l5. Core+tool source fingerprint is 48ade239b7e55a15cb2cbc9bae1ea6aa759f0b8a0be0b93e875bd6a44f6f3b98. Do not modify dam/**/*.py, the loaded Rust extension, or runtime_stability.py while measuring.
+- 10,000 fast and 10,000 hybrid cycles passed: p99 2.414/3.085 ms, both deadline violation rates 0.0001 (0.01%). Evidence logs/acceptance-l5/run-9z4hnses. 1,000 lifecycle iterations with two MCAP files each passed; FD 3->3, process threads 1->1, no DAM Python workers. Evidence run-5xvq20az.
+- ACTUAL SOAK RUNNING: exec session 41544, Python PID 52122, started 2026-10-22 11:58:33 UTC (04:58:33 PDT), expected complete after 19:58:36 UTC (12:58:36 PDT). Folder logs/acceptance-l5/run-65t1g_2s; raw .bin + minute .samples.jsonl; final .json still running. Logs acceptance-l5-soak-qualified.log. caffeinate keeps host awake for this process only. Do not mark L5 complete before actual output/exit status and RSS/FD gates.
+- L6 independent preparation: 11 reviewed offline programs passed in clean macOS Python 3.11 and 3.12; seven public SDK cases included. Fixed private API/cleanup/false demonstration claims, truthful Jetbot CLAMP reporting, and skill fallback guidance. New examples smoke CI step ready; awaiting commit/native CI. No core changes since measurements began. No hardware/release/automation.
+
+## 2026-10-22 — Measurement tool confinement; first run interrupted
+
+- 938d119 started benchmark in logs/acceptance-l5/candidate (exec session 87698, Python PID 50913). Sonar identified unrestricted output paths, so this process was intentionally interrupted before lifecycle/soak. Preserve it as interrupted evidence, not qualifying acceptance.
+- Output now must resolve inside this checkout's logs/acceptance-l5; traversal/symlink escapes and overwriting existing results are rejected. Five tool regressions passed. Await fresh Sonar check before restarting into a new evidence folder.
+- L6 independent preparation: seven public SDK cases run locally, older examples being updated to public API and explicit cleanup; uncommitted example changes are not yet accepted. Core remains 938d119; the measurement tool changed, so old measurement evidence will not be reused.
+
+## 2026-10-22 — L5 candidate ready for measured acceptance (not complete)
+
+- Added public diagnostics with detached guard/layer timings, call duration, slow evidence, risk rates, process resources and errors. Reproduced 3 recording defects before fixing Rust worker error propagation, bounded drain/footer/join, timeout retry, and Python/SDK recording exceptions. Partial close now blocks evaluation until recovery.
+- Final Python suite 1332 passed in 25.10s; Rust workspace tests and full pre-commit passed (final close guard checked again by commit hooks). Diagnostic/recording probes passed; short probes explicitly report incomplete. L4 locked non-root Linux container smoke also passed.
+- New scripts/acceptance/runtime_stability.py provides fixed 50 Hz fast/hybrid 10,000-cycle runs, 1,000 lifecycle iterations including two actual recordings each, and 8-hour hybrid soak with raw timing triples and minute RSS/FD/thread samples. Probes cannot count as acceptance. Host Apple M4 / macOS arm64 / Python 3.12.
+- Before launching measurements, fixed another diagnostic false-success: processor fault-only summaries said all passed and counted guard events as cycle percentages. Added regression; 82 focused processor/diagnostic tests passed. Full suite rerun: 1333 passed in 25.63s.
+- Next run benchmark, lifecycle, then actual 8-hour soak. Do not edit core or the measurement script during qualifying runs; fingerprints are recorded. L5 is NOT complete; L6 and final candidate remain. No hardware/release/automation.
+- Environment note: first maturin develop selected inherited Conda base rather than project venv; that installed the candidate Rust extension into base. Verification initially loaded old project binary and failed as expected; fixed by building a wheel and explicitly installing via uv --python .venv/bin/python. Final suite uses verified new project extension. Do not count earlier mixed-environment runs.
+
+## 2026-10-22 — L4 accepted; L5 diagnostics and stability next
+
+- Candidate 1c48e89: locked native CI 39768887284 passed all four macOS arm64/Ubuntu x86_64 Python 3.11/3.12 jobs; Sonar Code Analysis passed. Full artifacts: logs/acceptance-l4/native-ci-locked. Clean local locked macOS Python 3.12 install, pip check and installed smoke passed; source preset tests 16 passed and commit hooks/docs-check passed.
+- Hash-generation defect was fixed without bypassing hash checking. Dependency/build locks and allowed source builds are explicit. L4 report and plan updated to completed; unsupported/experimental targets remain unchanged.
+- Continue L5: diagnostics, 10,000 cycles per 50 Hz scenario, 1,000 lifecycle iterations, real 8-hour soak and callback/solver/recording/storage fault recovery. Inspection found recorder errors currently swallowed and asynchronous close lacks completion evidence; reproduce and fix before soak. L5/L6/final are incomplete. No hardware/release/automation.
+
+## 2026-10-22 — L4 native matrix passed; reproducible installation hardening
+
+- Draft PR https://github.com/ez945y/DAM/pull/4 created and attached. Native CI run 39766957720 passed all four Ubuntu x86_64/macOS arm64 Python 3.11/3.12 jobs; existing DAM CI passed. Artifacts downloaded to logs/acceptance-l4/native-ci.
+- Sonar quality gate identified unpinned install dependencies and root container execution. Added per-platform version/hash locks and build-tool locks, restricted source builds to evdev/feetech-servo-sdk, and non-root container runtime. Candidate wheels install separately after complete dependencies; pip check remains mandatory.
+- First locked Linux CI rejected a missing Jinja2 hash generated via a broad alternate index; regenerated Linux locks with package-specific CPU torch routing. Hash completeness checked for every lock entry. No hashes bypassed.
+- Preset filename deduplicated; 16 focused preset tests passed. Hardening validation in progress; L4 is not yet finally accepted. L5/L6 and final candidate remain pending; no release/hardware/automation.
+
+## 2026-10-22 — L4 local install matrix passed; native CI pending
+
+- L3 committed as 468830a. Found and fixed missing preset/URDF wheel resources and cwd-dependent seed asset paths; installed overrides now default outside package files.
+- Clean wheel installs passed on macOS arm64 Python 3.11.14 and 3.12.12 (CPU and MPS), and Linux x86_64 Python 3.11.17/3.12.15 under Docker amd64 emulation (CPU, offline run). Tested origin isolation, Rust, packaged URDF FK, dtype/device/requires-grad, overflow and public SDK lifecycle. All dependencies installed; native uv pip check passed.
+- Linux first failed because LeRobot/evdev needed input headers; Dockerfile now declares build-essential/linux-libc-dev plus OpenCV system libs. Windows/Linux arm64/CUDA/newer Python remain explicit experimental/unverified targets.
+- Full Python 1319 passed in 31.55s; full pre-commit and docs-check passed. Evidence: docs/acceptance-l4.md, docs/installation-matrix.md, logs/acceptance-l4-*.
+- New installed.yml CI covers native Ubuntu/macOS Python 3.11/3.12. L4 remains pending until CI executes. Next create draft PR for these checks; no release, hardware or automations.
+
+## 2026-10-22 — L3/R07 accepted; L4 environment audit
+
+- L2 committed as c20955e. L3 exposes reload receipts backed by the same manager as Console, session status, reset and task switch. Pending is not applied; structural/stale updates reject without changing the active configuration.
+- Reset closes old resources before replacement, clears per-session state, preserves last applied version, monotonic cycle ordering and bounded receipts, and cancels pending updates. Cleanup/rebuild failure blocks evaluation until recovery; retries preserve configuration and receipt evidence.
+- Verification: full non-hardware Python 1317 passed in 29.14s; focused session 11 passed; mypy/Ruff/format passed; offline session example and docs-check passed. Full pre-commit rerun before commit (prior hook detected concurrent documentation edits despite no mypy errors).
+- L4 audit: host macOS arm64 with Python 3.12, uv and Docker available; Docker daemon Linux aarch64. Python 3.11 and Linux x86_64 execution remain to verify. No hardware/automations. L4–L6 incomplete.
+
+## 2026-10-22 — L2/R06 accepted; L3 next
+
+- L1 committed as e31e837. L2 adds mapping/Path/StackfileConfig construction and public static preflight reports with field-level issues, callback requirements, solver reference/factory, command layout/units and fallback checks.
+- Preflight tests prove no runtime, solver, user callback/fallback constructor, worker or recorder creation. It reads configuration/presets only; unspecified command units are explicit warnings, not inferred. Construction copies caller configuration.
+- Verification: 1306 full non-hardware Python passed in 39.47s; final focused preflight 19 passed after a mypy-only variable rename; full pre-commit and docs-check passed; offline public example passed. Evidence: docs/acceptance-l2.md and logs/acceptance-l2-*.
+- Continue L3 public reload receipts, task switching and reset semantics. L3–L6 incomplete; no hardware or automations activated.
+
+## 2026-10-22 — L1/R05 accepted; L2 next
+
+- S1–S3 committed as 03e3e16. L1 adds public Guardrail.evaluate / GuardrailEvaluation, detached per-call evidence, decision/fallback/config version/cycle/consumed verdict age, and JSON serialization. SDK reports returned, never device-sent.
+- Public DamError categories distinguish configuration, input, closed session, timeout and execution failures with original cause chains. Guard rejection/FAULT remain results with fallback. Callable retains command-only return.
+- L1 verification: Python full non-hardware suite 1287 passed in 34.69s; targeted earlier 86 passed; full pre-commit passed; docs-check passed; executable offline example passed. Reports: docs/acceptance-l1.md; logs/acceptance-l1-*.
+- No Console/Rust changes in L1, no hardware/automation. Continue L2 mapping/config construction and static no-resource preflight. L2–L6 incomplete.
+
+## 2026-10-22 — S1–S3 short-term acceptance complete
+
+- S1, S2 and S3 accepted; reports in docs/acceptance-s1.md, docs/acceptance-s2.md and docs/acceptance-s3.md. Full plan remains incomplete: L1–L6 next.
+- Same candidate: Python 1276 passed; Rust workspace exit 0 (one existing ignored doc-test explicitly excluded); frontend 20 suites/167 passed; production build and TypeScript passed; full pre-commit including mypy and Rust clippy passed; new untracked Python Ruff/format passed; docs-check and diff whitespace passed. 384 source SHA-256 fingerprints unchanged across final verification.
+- Jest async/duplicate-package warnings fixed. Remaining build warnings: stale Browserslist data and dynamic upload-asset NFT tracing; standalone packaging/platform matrix remains L4 scope.
+- No services or hardware running from acceptance work, no automations resumed. Evidence logs under logs/acceptance-s*. Next: L1/R05 structured public results and classified errors.
+
+## 2026-10-22 — S2 accepted; S3 candidate verification in progress
+
+- Final fixed-source Python suite: 1276 passed in 71.08s, exit 0; logs/acceptance-s2-python-final.log. Source hashes: logs/acceptance-candidate-source.json. Earlier failing/intermediate runs are not final evidence.
+- Completed R04 output/fallback paths, including explicit SDK command-space fallback; Hold/Retreat/SlowDown reject non-joint layouts; Retreat missing/invalid prerequisites fault instead of returning to normal or inventing zero targets; SlowDown without history suppresses output and rejects invalid scale.
+- S1 and S2 reports: docs/acceptance-s1.md, docs/acceptance-s2.md. Plan marks S1/S2 complete, S3 in progress. Rust workspace tests passed; docs-check passed before final report update. Full pre-commit rerun is active, frontend full tests/build follow sequentially.
+- Prior full-suite Watchdog and frontend timeout failures occurred under heavy host load. Deadlines/assertions were not relaxed; fixed-source Python suite now passes all tests.
+- No hardware connected, no automation resumed. Changes remain uncommitted. L1–L6 are not complete; continue S3 then L1 per plan.
+
+## 2026-10-22 — S2 R04 implementation, full acceptance in progress
+
+- Reproduced NaN commands reaching fake sinks in enforce/monitor/log_only. Implemented shared proposal/final payload validation and declared command dimension checks; layout takes priority over observation joints. Moved existing segment-size resolver to shared action types.
+- Final fallback output is checked before dispatch. Policy/context/fallback/sink errors are retained in cycle results; sink failure does not commit command history. Added output_status to CycleResult and telemetry. Physical emergency-stop errors remain visible with a terminal no-send context.
+- Context entry runs immediately but new context step is deferred until next cycle to prevent callback duplication. SlowDown preserves timestamp and gripper. Documentation updated with data validity versus safety-enforcement semantics and transport acceptance limits.
+- Added 52 R04 tests (latest count pending final verification). Targeted earlier runs: 40, then 48 R04 cases passed; 87 focused monitor/guard/R04/watchdog tests passed; 62 engine/output cases passed before final shape-snapshot refinement. Do not sum repeated runs.
+- Initial full run: 1146 passed / 5 failed before maxfail. Three old monitor tests used NaN to represent a safety violation; changed them to finite disallowed commands, preserving monitor pass-through assertions. Fixed an over-broad audit-original validation that rejected legitimate standalone gripper corrections. Watchdog ping timing failed under heavy host load but passed isolated; deadline unchanged.
+- Full Python validation and pre-commit are running; Rust workspace build/test is running. No S2/S3 completion claim yet. Evidence logs: logs/acceptance-s2-python.log, logs/acceptance-s3-precommit.log. Redundant standalone full mypy was cancelled; pre-commit runs the same check. No changes committed.
+
+## 2026-10-22 — S1 completed; continuing to S2
+
+- Executed isolated browser/API acceptance using disposable files and offline runtime, with no sink or host-control routes. Added reproducible `tests/acceptance/safety_server.py`.
+- Browser found nullable API declarations rejected by local-draft restore. Aligned TypeScript/validator with backend null fields; added regression. Browser refresh now restores the original pending JSON correctly.
+- Browser verified saved plan, compile/export, duplicate refusal, hot reload and rollback receipts, real MCAP A/B (5 cycles / 2 differences), regression PASS and deliberate FAIL (2 mismatches). See `docs/acceptance-s1.md` for item-by-item evidence and local screenshots.
+- Verification: baseline 1102 unit; targeted backend/helper 180; frontend 167 / 20 suites; production build and TypeScript passed. Temporary servers stopped and temporary data removed; evidence retained in logs/acceptance-s1.
+- S1 accepted using combined browser, API and component/fault-injection tests. S2 R04 begins next; overall plan remains incomplete. Changes are not yet committed.
+
+## 2026-10-22 — Acceptance and delivery plan established
+
+- User requested short- and long-term acceptance criteria and deliverables through completion. Added `docs/acceptance-plan.md` and linked it from roadmap and documentation navigation.
+- Short term: S1 isolated browser/API workflow acceptance, S2 R04 final-output/fallback contract, S3 complete candidate validation. Long term: L1–L6 map to R05–R10 with public SDK, preflight, lifecycle, install matrix, diagnostics/soak and executable examples.
+- Defined evidence requirements, defect gates, platform and numerical performance/resource targets, and distinct offline-software versus device-deployment completion. Targets are prospective, not achieved claims; untested platforms remain unverified.
+- Planning artifact is complete; implementation milestones remain pending as shown in the plan. Next execution item is S1 browser/API acceptance using temporary data and fake runtime/sink. Automation remains paused; no hardware actuation is authorized by this plan.
+- Validation: docs-check (strict documentation build) passed. No runtime code changed in this planning unit; prior test counts are retained only as dated baseline evidence.
+
+## 2026-10-22 — Safety Studio offline acceptance follow-up
+
+- User lifted the execution restriction and authorized choosing the next work item. Resumed Safety Studio hardening follow-up; hourly automation remains paused.
+- Checkout started clean at `b238cff`; the previous checkpoint changes were already committed. This round changes only the historical switch label and documentation, with no runtime behavior changes.
+- Replaced misleading historical "Active but not saved" with "Applied change was not saved". Reviewed receipt retention and superseded-configuration persistence paths against existing storage/lifecycle regressions.
+- Documented local draft restoration, incomplete edits, storage failure/retry and damaged-draft replacement behavior; fresh compile/preview/frame confirmation requirements; all-or-nothing language drafting; strict regression range coverage and malformed-case isolation.
+- Fresh verification: Python unit suite 1102 passed; integration/safety/property suite 91 passed (hardware excluded); frontend 166 tests / 20 suites passed, including previously unrun replay and editor tests. Production build (after label edit) and its TypeScript check passed. Targeted mypy on six safety service/router files, targeted Ruff, docs-check and git diff --check passed. Frontend tests preceded the text-only label edit; no behavior was changed afterward.
+- Offline demo: 5 cycles, 2 differences, regression pass (2 assertions). No sample installation or library overwrite.
+- Remaining limits: no new browser end-to-end or real-hardware verification, no Rust verification this round. Build retains upload-asset/NFT tracing and outdated Browserslist warnings; Jest reports generated standalone package-name collision and an existing async act warning despite passing. No claim of hardware safety or complete end-to-end acceptance.
+- Changes remain uncommitted. R04 final-output/fallback contract remains a separate next work item.
+
 ## 2026-10-16 — Safety Studio hardening checkpoint (stopped at user request)
 
 - User requested staged wrap-up and stop. All three delegated agents have stopped; no further feature work or new validation is running. Changes remain uncommitted in the shared workspace; unrelated work is preserved.

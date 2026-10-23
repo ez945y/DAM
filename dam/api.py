@@ -16,6 +16,7 @@ the functions so ``import dam`` stays cheap.
 from __future__ import annotations
 
 import contextlib
+import copy
 import logging
 import time
 import uuid
@@ -25,6 +26,19 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, overload
 
 import numpy as np
+
+from dam.config.preflight import ConfigurationSource, load_configuration
+from dam.errors import (
+    ConfigurationError,
+    ExecutionError,
+    InputContractError,
+    SessionClosedError,
+    _classify,
+)
+from dam.types.action import action_segment_size
+from dam.types.evaluation import GuardrailEvaluation, _json_value
+from dam.types.result import GuardDecision
+from dam.types.session import ReloadReceipt, SessionStatus
 
 if TYPE_CHECKING:
     from dam.runner.base import BaseRunner
@@ -419,9 +433,10 @@ class Guardrail:
     the latest verdict; inspect ``last_results`` and ``slow_lane_status``.
     """
 
+    @_classify(ConfigurationError)
     def __init__(
         self,
-        stackfile: str,
+        stackfile: ConfigurationSource,
         *,
         task: str | None = None,
         joint_names: list[str] | None = None,
@@ -433,13 +448,13 @@ class Guardrail:
     ) -> None:
         _register_builtins()
 
-        from dam.config.loader import StackfileLoader
         from dam.preset.registry import get_preset
         from dam.runtime.guard_runtime import GuardRuntime
 
         self._closed = True
+        self._recovery_required = False
         self._wait_for_slow = wait_for_slow
-        config = StackfileLoader.load(stackfile)
+        config = load_configuration(stackfile)
         if not config.tasks:
             raise ValueError("Guardrail requires at least one task in the Stackfile")
         if task is None:
@@ -470,11 +485,12 @@ class Guardrail:
         self._degrees_mode: bool = degrees_mode
         self._action_layout: list[dict[str, Any]] = _resolve_action_layout(config)
         self._solvers: dict[str, Any] = dict(solvers or {})
+        self._provided_solvers: dict[str, Any] = dict(solvers or {})
         self._n_joints: int = len(joint_names)
 
         # Action space derived from action_layout (or the joints when no layout
         # is given). "command space" = the action is not the joint vector →
-        # never deg<->rad scaled, reject falls back to a stop command.
+        # never deg<->rad scaled, requires an explicit reject command.
         self._action_keys: list[str] | None = None
         self._n_actions: int = self._n_joints
         self._command_space: bool = False
@@ -509,69 +525,95 @@ class Guardrail:
         self._prev_positions: np.ndarray | None = None
         self._prev_time: float | None = None
         self._last_results: list[GuardResult] = []
+        self._last_evaluation_ms: float | None = None
+        self._last_error: dict[str, str] | None = None
         self._last_ee_pose: np.ndarray | None = None
 
         if not quiet:
-            print(self.describe(stackfile))
+            print(self.describe(str(stackfile) if isinstance(stackfile, (str, Path)) else ""))
 
     # -- public interface ---------------------------------------------------
 
     def __call__(self, inputs: dict[str, Any]) -> Any:
-        """Validate ``inputs["action"]`` against the observation groups in
-        ``inputs``; return the safe command in the same form it arrived."""
-        if self._closed:
-            raise RuntimeError("Guardrail is closed; create a new instance for another session")
-        if not isinstance(inputs, dict):
-            raise TypeError(
-                "Guardrail expects a dict with an 'action' key plus observation "
-                f"groups, got {type(inputs).__name__}."
+        """Evaluate once; return the command in the input's representation."""
+        return self.evaluate(inputs).command
+
+    @_classify(ExecutionError)
+    def evaluate(self, inputs: dict[str, Any]) -> GuardrailEvaluation:
+        """Evaluate once and return command, decision and captured evidence."""
+        started = time.perf_counter()
+        try:
+            result = self._evaluate(inputs)
+            self._last_error = None
+            return result
+        except Exception as exc:
+            self._last_error = {"type": type(exc).__name__, "message": str(exc)}
+            raise
+        finally:
+            self._last_evaluation_ms = (time.perf_counter() - started) * 1000.0
+
+    def _evaluate(self, inputs: dict[str, Any]) -> GuardrailEvaluation:
+        if self._closed or self._recovery_required:
+            raise SessionClosedError(
+                "Guardrail is closed or awaiting recovery; call reset() to open a fresh session"
             )
-        if any(not isinstance(key, str) for key in inputs):
-            raise TypeError("Guardrail input keys must be strings")
-        if "action" not in inputs:
-            raise KeyError("Guardrail input is missing the required 'action' key.")
+        try:
+            if not isinstance(inputs, dict):
+                raise TypeError(
+                    "Guardrail expects a dict with an 'action' key plus observation "
+                    f"groups, got {type(inputs).__name__}."
+                )
+            if any(not isinstance(key, str) for key in inputs):
+                raise TypeError("Guardrail input keys must be strings")
+            if "action" not in inputs:
+                raise KeyError("Guardrail input is missing the required 'action' key.")
 
-        # Fail fast on a missing required observation group or a reserved-key
-        # collision — silent fallbacks hide safety-relevant mistakes.
-        provided = set(inputs) - {"action"}
-        missing = self._required_obs - provided
-        if missing:
-            raise KeyError(
-                f"Guardrail missing observation group(s) {sorted(missing)}; "
-                f"received {sorted(provided)}. Required: {sorted(self._required_obs)}."
-            )
-        clashes = provided & _RESERVED_POOL_KEYS
-        if clashes:
-            raise KeyError(
-                f"Observation key(s) {sorted(clashes)} collide with reserved runtime "
-                "keys — rename them."
-            )
+            # Fail fast on a missing required observation group or a reserved-key
+            # collision — silent fallbacks hide safety-relevant mistakes.
+            provided = set(inputs) - {"action"}
+            missing = self._required_obs - provided
+            if missing:
+                raise KeyError(
+                    f"Guardrail missing observation group(s) {sorted(missing)}; "
+                    f"received {sorted(provided)}. Required: {sorted(self._required_obs)}."
+                )
+            clashes = provided & _RESERVED_POOL_KEYS
+            if clashes:
+                raise KeyError(
+                    f"Observation key(s) {sorted(clashes)} collide with reserved runtime "
+                    "keys — rename them."
+                )
 
-        raw_action = inputs["action"]
-        action_is_dict = isinstance(raw_action, dict)
-        action_is_tensor = not action_is_dict and hasattr(raw_action, "detach")
-        tensor_device = raw_action.device if action_is_tensor else None
-        tensor_dtype = raw_action.dtype if action_is_tensor else None
-        if action_is_tensor and not raw_action.is_floating_point():
-            raise TypeError("Action tensors must use a floating-point dtype")
-        # lerobot dicts key the command as ``<joint>.pos``; bare ``<key>`` else.
-        pos_style = action_is_dict and any(str(k).endswith(".pos") for k in raw_action)
+            raw_action = inputs["action"]
+            action_is_dict = isinstance(raw_action, dict)
+            action_is_tensor = not action_is_dict and hasattr(raw_action, "detach")
+            tensor_device = raw_action.device if action_is_tensor else None
+            tensor_dtype = raw_action.dtype if action_is_tensor else None
+            if action_is_tensor and not raw_action.is_floating_point():
+                raise TypeError("Action tensors must use a floating-point dtype")
+            # lerobot dicts key the command as ``<joint>.pos``; bare ``<key>`` else.
+            pos_style = action_is_dict and any(str(k).endswith(".pos") for k in raw_action)
 
-        now = time.monotonic()
-        if self._prev_time is not None:
-            actual_dt = max(now - self._prev_time, 1e-6)
-            self._runtime._hot_reload.config_pool["dt"] = actual_dt
+            now = time.monotonic()
+            if self._prev_time is not None:
+                actual_dt = max(now - self._prev_time, 1e-6)
+                self._runtime._hot_reload.config_pool["dt"] = actual_dt
 
-        mappable = self._action_mappable(raw_action, action_is_dict, pos_style)
-        if not mappable:
-            raise ValueError("Action dict must contain every key in a fully keyed action_layout")
-        obs = self._build_observation(inputs, now)
-        action = self._build_action(raw_action, action_is_dict, pos_style, mappable)
-        trace_id = str(uuid.uuid4())
+            mappable = self._action_mappable(raw_action, action_is_dict, pos_style)
+            if not mappable:
+                raise ValueError(
+                    "Action dict must contain every key in a fully keyed action_layout"
+                )
+            obs = self._build_observation(inputs, now)
+            action = self._build_action(raw_action, action_is_dict, pos_style, mappable)
+            trace_id = str(uuid.uuid4())
+        except Exception as exc:
+            raise InputContractError(str(exc)) from exc
 
         validated, results = self._runtime.validate(
             obs, action, trace_id, now=now, wait_for_slow=self._wait_for_slow
         )
+        cycle_id = self._runtime._cycle_id
         self._last_results = results
 
         if validated is not None:
@@ -594,7 +636,82 @@ class Guardrail:
             out = out.tolist()
         self._prev_positions = obs.joint_positions.copy()
         self._prev_time = now
-        return out
+        decision = max((r.decision for r in results), default=GuardDecision.PASS)
+        if validated is not None and validated.was_clamped:
+            decision = max(decision, GuardDecision.CLAMP)
+        ages = [
+            float(r.metadata["verdict_age_ms"])
+            for r in results
+            if r.metadata.get("slow_lane") and r.metadata.get("verdict_age_ms") is not None
+        ]
+        return GuardrailEvaluation(
+            command=out,
+            decision=decision,
+            guard_results=tuple(copy.deepcopy(results)),
+            fallback=self._safe_action_mode if validated is None else None,
+            config_version=self._runtime._hot_reload.config_version,
+            task=self._task,
+            cycle_id=cycle_id,
+            verdict_age_ms=max(ages) if ages else None,
+        )
+
+    def diagnostics(self) -> dict[str, Any]:
+        """Detached JSON-compatible evidence; call outside the control deadline.
+
+        Resource counts cover the entire process, not just this session. Slow
+        guard timings describe the consumed verdict's basis cycle. This does
+        not make Guardrail safe for concurrent evaluate/reset/close calls.
+        """
+        import threading
+
+        import psutil  # type: ignore[import-untyped]
+
+        runtime = getattr(self, "_reset_origin", self._runtime)
+        process = psutil.Process()
+        resources = {
+            "rss_bytes": process.memory_info().rss,
+            "process_threads": process.num_threads(),
+            "file_descriptors": process.num_fds() if hasattr(process, "num_fds") else None,
+            "dam_python_workers": [
+                thread.name for thread in threading.enumerate() if thread.name.startswith("dam-")
+            ],
+        }
+        risk = dict(runtime._risk_controller.stats())
+        window = risk["window_size"]
+        risk["reject_rate"] = risk["reject_count"] / window if window else 0.0
+        risk["clamp_rate"] = risk["clamp_count"] / window if window else 0.0
+        guards = []
+        layers: dict[str, float] = {}
+        for result in self._last_results:
+            latency = float(result.metadata.get("_latency_ms", 0.0))
+            layer = result.layer.name
+            layers[layer] = layers.get(layer, 0.0) + latency
+            guards.append(
+                {
+                    "name": result.guard_name,
+                    "layer": layer,
+                    "decision": result.decision.name,
+                    "reason": result.reason,
+                    "latency_ms": latency,
+                    "metadata": copy.deepcopy(result.metadata),
+                }
+            )
+        snapshot = {
+            "captured_at_monotonic": time.monotonic(),
+            "session": self.session_status.to_dict(),
+            "slow_lane": copy.deepcopy(runtime.slow_lane_status),
+            "timings_ms": {"evaluate": self._last_evaluation_ms, "layers": layers},
+            "guards": guards,
+            "risk": risk,
+            "resources": resources,
+            "last_error": copy.deepcopy(self._last_error),
+            "recording": (
+                copy.deepcopy(runtime._telemetry.loopback.status)
+                if runtime._telemetry.loopback is not None
+                else None
+            ),
+        }
+        return dict(_json_value(snapshot))
 
     def describe(self, stackfile: str = "") -> str:
         """Human-readable contract: which obs keys and action this guard expects."""
@@ -615,6 +732,7 @@ class Guardrail:
             ]
         )
 
+    @_classify(InputContractError)
     def set_ee_pose(self, ee_pose: Any) -> None:
         """Set the end-effector pose for the next cycle so EE-space guards
         (workspace_bounds, keep_out_zone, ee_velocity_limit) can run.
@@ -660,16 +778,111 @@ class Guardrail:
         """The underlying :class:`GuardRuntime` (advanced use)."""
         return self._runtime
 
+    @property
+    def session_status(self) -> SessionStatus:
+        state = (
+            "recovery_required"
+            if self._recovery_required
+            else ("closed" if self._closed else "open")
+        )
+        runtime = getattr(self, "_reset_origin", self._runtime)
+        return SessionStatus(
+            state,
+            self._task,
+            runtime._hot_reload.config_version,
+            runtime._slow_state_generation,
+            runtime._cycle_id,
+        )
+
+    @_classify(ExecutionError)
+    def request_reload(
+        self, configuration: ConfigurationSource, *, expected_version: int | None = None
+    ) -> ReloadReceipt:
+        """Queue a parameter-only update; evaluate() applies it at a cycle boundary."""
+        if self._closed or self._recovery_required:
+            raise SessionClosedError("Cannot reload a closed or recovering Guardrail")
+        try:
+            config = load_configuration(configuration)
+        except Exception as exc:
+            raise ConfigurationError(str(exc)) from exc
+        manager = self._runtime._hot_reload
+        request_id = self._runtime.apply_pending_reload(
+            config,
+            expected_version=manager.config_version
+            if expected_version is None
+            else expected_version,
+            expected_task=self._task,
+            expected_epoch=manager.task_epoch,
+        )
+        return self.reload_receipt(request_id)
+
+    def reload_receipt(self, request_id: str) -> ReloadReceipt:
+        """Read a detached receipt, including after close/reset; last 100 are retained."""
+        runtime = getattr(self, "_reset_origin", self._runtime)
+        row = runtime._hot_reload.reload_receipt(request_id)
+        if row is None:
+            raise InputContractError(f"Unknown or expired reload receipt {request_id!r}")
+        return ReloadReceipt(row["id"], row["status"], row["message"], row.get("config_version"))
+
+    @_classify(ExecutionError)
+    def reset(self, *, task: str | None = None) -> SessionStatus:
+        """Rebuild from the last applied config, clearing all per-session history.
+
+        Close old resources before constructing new ones. On failure, evaluation
+        remains unavailable until reset succeeds. Completed recordings and
+        bounded reload receipts are retained; pending reloads are rejected.
+        """
+        old_runtime = getattr(self, "_reset_origin", self._runtime)
+        old_task = self._task
+        config = old_runtime._reload_config.model_copy(deep=True)
+        target = self._task if task is None else task
+        if target not in config.tasks:
+            raise ConfigurationError(f"Unknown task {target!r}; available: {sorted(config.tasks)}")
+        options: dict[str, Any] = {
+            "task": target,
+            "joint_names": list(self._joint_names),
+            "degrees_mode": self._degrees_mode,
+            "solvers": dict(self._provided_solvers),
+            "safe_action": "hold"
+            if self._safe_action_mode == "hold"
+            else self._safe_action_value.copy(),
+            "quiet": True,
+            "wait_for_slow": self._wait_for_slow,
+        }
+        self._recovery_required = True
+        self._reset_origin = old_runtime
+        try:
+            self.close()
+            Guardrail.__init__(self, config, **options)
+            self._runtime._hot_reload.inherit_history(old_runtime._hot_reload)
+            self._runtime._cycle_id = old_runtime._cycle_id
+            self._runtime._slow_state_generation = old_runtime._slow_state_generation + 1
+        except Exception:
+            self._recovery_required = True
+            self._task = old_task
+            raise
+        del self._reset_origin
+        return self.session_status
+
+    def switch_task(self, task: str) -> SessionStatus:
+        """Start a fresh session for task, using reset's cleanup/history contract."""
+        return self.reset(task=task)
+
+    @_classify(ExecutionError)
     def close(self) -> None:
         """Release recording, worker threads, and runtime resources; safe to repeat."""
         if self._closed:
             return
+        # Cleanup can stop only some resources before failing. Never allow
+        # another evaluation against that partially closed runtime.
+        self._recovery_required = True
         self._runtime.shutdown()
         self._closed = True
+        self._recovery_required = False
 
     def __enter__(self) -> Guardrail:
-        if self._closed:
-            raise RuntimeError("Cannot enter a closed Guardrail")
+        if self._closed or self._recovery_required:
+            raise SessionClosedError("Cannot enter a closed Guardrail")
         return self
 
     def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
@@ -686,10 +899,11 @@ class Guardrail:
     def _resolve_safe_action(self, safe_action: Any) -> tuple[str, np.ndarray]:
         if isinstance(safe_action, str):
             if safe_action == "hold":
-                # Holding the last command is unsafe for a velocity base, so a
-                # command-space guard stops instead.
                 if self._command_space:
-                    return "fixed", np.zeros(self._n_actions, dtype=np.float64)
+                    raise ValueError(
+                        "command-space actions require an explicit safe_action vector or 'zero'; "
+                        "'hold' requires joint-position commands"
+                    )
                 return "hold", np.zeros(self._n_actions, dtype=np.float64)
             if safe_action == "zero":
                 return "fixed", np.zeros(self._n_actions, dtype=np.float64)
@@ -806,7 +1020,7 @@ class Guardrail:
                 keys.extend(str(k) for k in seg_keys)
             else:
                 fully_keyed = False
-            size += _segment_size(segment) or 0
+            size += action_segment_size(segment) or 0
         if not self._action_layout or size == 0:
             self._n_actions = self._n_joints
             self._action_keys = list(self._joint_names)
@@ -857,7 +1071,7 @@ class Guardrail:
         cursor = 0
         for index, segment in enumerate(self._action_layout):
             name = str(segment.get("name") or f"segment_{index}")
-            size = _segment_size(segment)
+            size = action_segment_size(segment)
             if size is None:
                 continue
             segments[name] = arr[cursor : cursor + size].copy()
@@ -899,21 +1113,9 @@ def _command_array(value: Any) -> np.ndarray:
     return np.asarray(value, dtype=np.float64)
 
 
-def _segment_size(segment: dict[str, Any]) -> int | None:
-    """Resolve one action_layout segment's width: ``keys`` length, an explicit
-    ``size``, or a typed default (``ee_pose`` → 7, ``scalar`` → 1)."""
-    seg_keys = segment.get("keys")
-    if isinstance(seg_keys, (list, tuple)):
-        return len(seg_keys)
-    declared = segment.get("size") or segment.get("dim") or segment.get("dimensions")
-    if declared is not None:
-        return int(declared)
-    return {"ee_pose": 7, "scalar": 1}.get(str(segment.get("type", "")).lower())
-
-
 def guardrail(
     inputs: dict[str, Any],
-    stackfile: str = "safety.yaml",
+    stackfile: ConfigurationSource = "safety.yaml",
     *,
     task: str | None = None,
     joint_names: list[str] | None = None,

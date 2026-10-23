@@ -12,6 +12,7 @@ dam.build_runner(stack, *, ros2_node)       -> Runner
 # Guardrail (no hardware loop needed) — dict in, validated command out
 dam.guardrail(inputs, stackfile, *, ...)        -> ndarray | dict
 dam.Guardrail(stackfile, *, task, safe_action)  -> callable guard
+rail.evaluate(inputs)                         -> GuardrailEvaluation
 dam.GuardrailProcessorStep(stackfile, *, ...)   -> LeRobot processor step
 
 # Registration decorators
@@ -32,7 +33,8 @@ dam.RunnerStatus    # IDLE / STARTING / RUNNING / PAUSED / STOPPING / STOPPED / 
 dam.SensorAdapter   # optional base class for read interfaces
 dam.ActionAdapter   # optional base class for write interfaces
 dam.GuardResult     # per-guard evaluation outcome
-dam.GuardDecision   # PASS / CLAMP / REJECT
+dam.GuardDecision   # PASS / CLAMP / REJECT / FAULT
+dam.GuardrailEvaluation  # returned command + captured decision evidence
 dam.Observation     # sensor state snapshot
 dam.ActionProposal  # proposed action from policy
 dam.ValidatedAction # action after guard processing
@@ -89,17 +91,11 @@ keys are also folded into the `obs` object for builtin guards (`joints` /
 ### `dam.Guardrail` — stateful
 
 ```python
-rail = dam.Guardrail("jetbot.yaml", safe_action=[0.0, 0.0])
-# Prints its contract on construction:
-#   [Guardrail] jetbot.yaml · task=default
-#     requires obs: base_pose
-#     action:       [v, omega]  (command space)
-#     on reject:    [0. 0.]
-
-safe_cmd = rail({"base_pose": [x, y, yaw], "action": [v, omega]})
-
-for r in rail.last_results:           # inspect what happened
-    print(r.decision, r.guard_name, r.reason)
+with dam.Guardrail("jetbot.yaml", safe_action=[0.0, 0.0]) as rail:
+    result = rail.evaluate({"base_pose": [x, y, yaw], "action": [v, omega]})
+    safe_cmd = result.command
+    for guard_result in result.guard_results:
+        print(guard_result.decision, guard_result.guard_name, guard_result.reason)
 ```
 
 A callback declares the observation groups it needs by name — the runtime
@@ -126,6 +122,8 @@ def forward_only(*, base_pose, action, solvers, dt=0.1):
 - `safe_action` on reject: an explicit vector (e.g. `[0, 0]` to stop a base),
   `"hold"` (default — re-issue the current joint positions, safe for a
   position-controlled arm), or `"zero"`.
+  Non-joint command layouts require an explicit vector or `"zero"`; the default
+  `"hold"` raises instead of inventing an all-zero fallback for an unknown command.
 - The return value mirrors the `action` you passed (list/ndarray/tensor, or a
   `{key: value}` dict). Pass `quiet=True` to suppress the contract print.
 
@@ -139,7 +137,7 @@ with dam.Guardrail("jetbot.yaml", safe_action=[0.0, 0.0]) as rail:
 ```
 
 `close()` is idempotent. A closed instance cannot validate more actions; create a
-new instance for the next session. The one-shot `dam.guardrail()` helper closes
+new instance or call `reset()` for the next session. The one-shot `dam.guardrail()` helper closes
 its instance on success or failure. `GuardrailProcessorStep.reset()` and
 `close()` release the current session; the next action starts a new one lazily.
 A processor transition without an observation raises `ValueError`.
@@ -203,13 +201,180 @@ Completed slow results include `basis_cycle_id`, `verdict_age_ms`, and
 from a cached result. Status is a live snapshot and can change after a call;
 `last_results` records what that call used. Task restart resets readiness.
 
-MONITOR still returns the original command while recording rejection/fault;
-LOG_ONLY skips checks. Neither mode claims enforced safety. The wait deadline
+For well-formed commands, MONITOR returns the original command while recording
+safety rejection/fault; LOG_ONLY skips safety checks. Both still enforce command
+payload validity. Neither mode claims enforced safety. The wait deadline
 covers slow scheduling and evaluation, not construction, fast checks, or
 cleanup. Python cannot cancel a running callback: `close()` may additionally
 wait up to the worker stop timeout (currently two seconds) and raises
 `TimeoutError` if it is still running. A session can retry close after the
 callback exits; a one-shot call propagates that cleanup error.
+
+### Runtime output and fallback contract
+
+`GuardRuntime.validate()` rejects malformed proposals with an `input_contract`
+FAULT in every mode, including MONITOR and LOG_ONLY. Before dispatch, `step()`
+checks every final action, including custom contexts and fallback outputs:
+nonempty finite 1-D positions, the declared command width, matching finite
+optional velocities, finite nonnegative timestamp, and optional gripper in [0, 1].
+Command layout takes priority over observation joint count. With no declared
+width, the final command must match the proposal when one exists; direct runtimes
+without a proposal or declared width can only check intrinsic payload validity.
+
+`CycleResult.output_status` is `sent` only after the sink method returns normally;
+this is transport acceptance, not physical motion feedback. Other values are
+`suppressed`, `failed`, `not_configured`, and the default `not_attempted` for
+externally constructed results. A sink exception clears the returned validated
+action and records a sink FAULT; command history is committed only after accepted
+dispatch. Policy, context lifecycle, fallback and final-output failures are
+reported in cycle guard results. ENFORCE enters a terminal emergency-stop context
+on execution faults; MONITOR/LOG_ONLY suppress malformed output without adding
+safety fallback actuation. Failure of the physical stop hook is recorded and the
+runtime remains in a terminal don't-send state; this does not prove hardware stopped.
+
+On a fallback transition, entry hooks run immediately, while the new context's
+step begins next cycle. The transition cycle sends no command, avoiding duplicate
+callback evaluation. Hold without a prior valid command remains suppressed;
+Retreat requires a prior accepted position and explicit finite `target_positions`
+of the same shape. Missing or invalid prerequisites produce a fallback FAULT and
+terminal suppression; no implicit zero target or return to normal operation is used.
+HoldPosition, Retreat and SlowDown reject non-joint command layouts. SlowDown
+suppresses output without a previous accepted position, requires a finite scale
+in `[0, 1]`, and preserves the validated timestamp and gripper command.
+Payload validation does not establish
+that an arbitrary custom fallback is physically safe or satisfies every geometric
+constraint; deployment still needs a suitable action and fallback contract.
+
+### Reload receipts and session lifecycle
+
+`rail.request_reload(configuration, expected_version=...)` queues a parameter-only
+change and returns `ReloadReceipt(status="pending")`. `accepted` means pending or
+applied; it does not mean applied. The next `evaluate()`/call reaches the runtime
+cycle boundary. Read `rail.reload_receipt(receipt.id)` for `applied` or `rejected`,
+the reason, and applied configuration version. These are the same runtime receipts
+used by Console. No evaluation means the request stays pending; no background
+thread is created to apply it.
+
+Structural changes and reload while a slow worker is active are rejected by the
+existing runtime contract, preserving the previous configuration. Expected version,
+task and lifecycle generation are bound at submission. A second pending request
+is refused, not substituted. Invalid schema raises ConfigurationError. Unknown or
+evicted receipt IDs raise InputContractError; the latest 100 receipts are retained.
+
+`rail.session_status` returns a detached SessionStatus with state, task, configuration
+version, state generation and monotonic cycle ID. `reset(task=...)` and
+`switch_task(name)` rebuild from the last **applied** configuration. Their contract is:
+
+| State | Reset/task switch behavior |
+| --- | --- |
+| Open | Close old resources, reject pending updates, then build a fresh session |
+| Closed | Explicit reset reopens a fresh session; repeated close remains harmless |
+| Worker cleanup timeout or rebuild failure | State becomes recovery_required; evaluation is blocked until reset succeeds |
+| Unknown task | Reject before closing; current session remains usable |
+
+Reset clears guard/container state, risk history, command/velocity history,
+observation timing, EE pose override and last results. It retains applied configuration
+version, completed recording files and bounded reload receipts; cycle IDs remain
+monotonic and state generation increases. Recording starts a new session if configured.
+Configured solver instances are rebuilt; caller-provided solver objects remain caller-owned
+and are reused. No replacement worker is created until old cleanup succeeds.
+
+Reset failure retains the last applied configuration/version and receipts for retry.
+Methods are not thread-safe: serialize evaluation, reload, reset and close on one
+control thread. The offline example `python -m examples.guardrail_session` demonstrates
+pending/applied receipts and reset without hardware.
+
+### Configuration objects and static preflight
+
+`Guardrail` and `guardrail` accept a string/Path filename, a mapping, or a public
+`dam.StackfileConfig`. Mapping/model inputs are validated and copied; subsequent
+caller mutation does not change the session. File construction keeps the same
+behavior. Use `dam.preflight(source, task=..., safe_action=...)` before construction
+when you need a static report without allocating runtime resources.
+
+```python
+configuration = {
+    "hardware": {"joint_names": ["a", "b"], "degrees_mode": False},
+    "guards": [],
+    "tasks": {"default": {"boundaries": []}},
+}
+report = dam.preflight(configuration)
+report.raise_for_errors()
+with dam.Guardrail(configuration, quiet=True) as rail:
+    command = rail({"joints": [0, 0], "action": [0.1, 0.2]})
+```
+
+This minimal example demonstrates construction, not a safety envelope. The
+executable version is `python -m examples.guardrail_preflight`.
+
+`PreflightReport.valid` means no static errors were found. `issues` contains
+`PreflightIssue(field, message, severity)`; `to_dict()` exposes the report.
+The report includes the selected task, required callback observation groups,
+joint names, command size/layout, command-space flag and joint units. A joint
+command still requires complete joint observations, supplied as `joints` or
+per-joint position keys, even if no callback declares a `joints` parameter.
+
+Preflight checks schema fields, active callback names, solver factory/reference
+availability, layout keys/dimensions, declared units, explicit SDK fallback and
+configured/referenced fallback contexts. Non-joint segment `units` can list one
+unit per coordinate. Missing command units produce a visible warning; they are
+not inferred from names and a valid report does not establish their semantics.
+Joint degree/radian defaults match construction.
+
+Preflight may read configuration/preset files and register builtins, but never
+constructs a runtime or solver, invokes a user callback/fallback constructor,
+connects hardware, starts workers, or writes recordings. It cannot establish
+whether a solver will initialize, an asset/dependency is available at deployment,
+a callback is correct, or a fallback is physically safe. Callers should review
+warnings as well as `valid`; `raise_for_errors()` raises ConfigurationError with
+field locations. Ordinary construction does not silently invoke this extra check.
+
+### Detailed evaluation and classified errors
+
+`rail.evaluate(inputs)` executes the same validation once and returns a
+`dam.GuardrailEvaluation`. `rail(inputs)` continues to return only the command.
+The detailed result includes `command`, `decision`, `guard_results`, `fallback`,
+`config_version`, `task`, `cycle_id`, `verdict_age_ms` and `output_status`.
+The cycle ID is the completed runtime cycle, matching session status, current-cycle slow evidence
+and the MCAP cycle record; it is not a separate zero-based SDK call counter.
+`output_status="returned"` means a command was returned to the caller; the SDK
+has no sink and does not report device delivery. REJECT/FAULT can include a valid
+fallback command. MONITOR may report REJECT while returning the original finite
+command; `fallback` then remains None.
+
+The result's guard evidence is copied from this evaluation. `verdict_age_ms` is
+the oldest slow verdict actually used, not a later worker snapshot; individual
+basis cycles and versions remain in guard-result metadata. It is None when no
+aged verdict was used. `to_dict()` / `to_json()` serialize command arrays/tensors,
+decisions, reasons and metadata. Non-finite diagnostic metadata is represented as
+text; returned commands must already satisfy the finite-value contract.
+
+```python
+with dam.Guardrail("safety.yaml", quiet=True) as rail:
+    result = rail.evaluate({"joints": measured, "action": proposed})
+    print(result.decision.name, result.fallback, result.config_version)
+    print(result.to_json())
+    command = result.command
+```
+
+Public exception categories all derive from `dam.DamError`:
+
+| Exception | Meaning |
+| --- | --- |
+| `ConfigurationError` | Construction/configuration failed |
+| `InputContractError` | Missing, malformed or incompatible call inputs |
+| `SessionClosedError` | Evaluation/entry attempted after close |
+| `OperationTimeoutError` | An operation or worker cleanup exceeded its deadline |
+| `ExecutionError` | Runtime execution or output conversion failed outside a guard result |
+
+Wrapped failures preserve the original exception in `__cause__`. Guard rejection,
+guard FAULT and a bounded slow-verdict wait that selects fallback remain evaluation
+results; they are not converted into thrown execution errors. `close()` remains
+retryable after a worker timeout. Input errors leave the session usable.
+Applications should catch these categories instead of relying on underlying
+file-loader, KeyError or dtype exceptions. The executable offline example is
+`python -m examples.guardrail_evaluation`; it creates only temporary configuration
+and does not connect to hardware.
 
 ### Slow-lane data ownership
 
@@ -453,6 +618,8 @@ hardware:
 Register a boundary callback function:
 
 ```python
+from dam.guard.pipeline import CallbackResult
+
 @dam.callback("my_check")
 def my_check(*, obs, action, my_param=1.0):
     if obs.joint_positions[0] > my_param:
@@ -490,3 +657,22 @@ Then reference `fallback: my_recovery` on boundary nodes.
 ## CLI
 
 The `dam run` CLI subcommand is a thin shell over `dam.run()` — same behaviour, exit 1 on `EMERGENCY`.
+
+
+## Diagnostic snapshots and recording failures
+
+`rail.diagnostics()` returns a detached, JSON-compatible mapping containing the session/version,
+latest consumed guard decisions and per-layer latencies, complete SDK-call latency, slow verdict
+age/readiness, rolling clamp/reject rates, process RSS/thread/file-descriptor counts, last evaluation
+exception and recording status. Read it outside the control deadline: resource inspection performs
+OS queries. Counts cover the entire process. Slow-guard timings belong to the consumed verdict's
+basis cycle, not necessarily the current cycle. `last_error` describes an exception; a guard FAULT
+is instead visible in `guards`. Reset clears per-session diagnostic history.
+
+Recording submissions acknowledge queue acceptance, not durable storage. Background open/write/
+flush failures become visible through recording diagnostics, the next submission, or `close()`.
+Queue overflow raises instead of silently losing a cycle. Successful close drains queued records,
+writes the MCAP footer and joins the writer; it does not claim an OS-level fsync/power-loss guarantee.
+A close timeout preserves the writer for cleanup retry. A completed I/O failure releases its worker
+and remains an error; retry cleanup/reset after correcting storage before resuming the session.
+The writer is terminal after close; a new session constructs a new writer.

@@ -44,6 +44,9 @@ outputs**, or choose an explicit **Must be PASS/CLAMP/REJECT/FAULT** requirement
 An explicit requirement applies to every cycle in that range. A regression is
 saved with the MCAP SHA-256 fingerprint, the full configuration snapshot and hash,
 and expected outcomes. Only fully evaluated ranges may be saved.
+Every cycle ID in the requested interval must be present, with one ordered,
+unique assertion per cycle. A partial interval or incomplete output assertion is
+rejected instead of silently reducing coverage.
 
 **Rerun case** verifies both fingerprints and reruns the saved candidate. It replays
 all preceding cycles before checking the selected range, preserving command history.
@@ -51,6 +54,9 @@ It returns `pass`, `fail` with expected/actual differences, or `error` for missi
 inputs, a changed recording or an unsupported evaluation. Output matching uses
 absolute tolerance `1e-8` in the recorded action units, with no relative tolerance.
 Files are saved under `data/safety_regressions/` and survive service restarts.
+Malformed saved cases and filename/ID mismatches are reported individually;
+other valid cases remain available. Invalid cases cannot be rerun as passing
+regressions.
 
 ## Runnable example
 

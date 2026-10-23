@@ -619,6 +619,7 @@ class LoopbackWriter:
 
         self._mcap_writer: Any = None
         self._started = False
+        self._last_error: str | None = None
         self._session_path: Path | None = None
         self._pending_session_path: Path | None = None
         self._recording_start_cursor = 0
@@ -631,13 +632,14 @@ class LoopbackWriter:
     def start(self, session_path: str | None = None) -> None:
         if self._started:
             return
-        self._started = True
         self._recording_start_cursor = (
             int(self._frame_hub.current_sequence())
             if self._frame_hub is not None and hasattr(self._frame_hub, "current_sequence")
             else 0
         )
         self._output_dir.mkdir(parents=True, exist_ok=True)
+        self._started = True
+        self._last_error = None
         self._session_id = uuid.uuid4().hex[:8]
         self._session_path = None
         # Store the requested path override (if any); actual file creation is
@@ -685,49 +687,57 @@ class LoopbackWriter:
         """
         if not self._started:
             return
-        self._ensure_writer()
-        # Capture reference to avoid NoneType during shutdown
-        writer = self._mcap_writer
-        if writer is not None:
-            try:
+        try:
+            self._ensure_writer()
+            writer = self._mcap_writer
+            if writer is not None:
                 record_dict = _record_to_dict(rec, images)
                 writer.write_cycle(_json(record_dict).decode("utf-8"))
-            except Exception as exc:
-                if "queue full" in str(exc).lower():
-                    logger.debug(
-                        "LoopbackWriter: dropped cycle %d because MCAP queue is full", rec.cycle_id
-                    )
-                else:
-                    logger.exception("LoopbackWriter: Rust write failed for cycle %d", rec.cycle_id)
+        except Exception as exc:
+            self._last_error = str(exc)
+            raise
+
+    @property
+    def status(self) -> dict[str, Any]:
+        error = self._last_error
+        if self._mcap_writer is not None:
+            error = self._mcap_writer.last_error() or error
+        return {"started": self._started, "filename": self.current_filename, "error": error}
 
     def shutdown(self, timeout: float = 15.0) -> None:
-        """Signal stop, close file."""
+        """Drain and close the file, join the worker, and report I/O failures.
+
+        A timeout preserves the writer for a later cleanup retry. Completed
+        failures release its resources but remain visible in status.
+        """
         if not self._started:
             return
-        self._started = False
-        if self._mcap_writer is not None:
-            with contextlib.suppress(Exception):
-                self._mcap_writer.stop(time.monotonic())
+        try:
+            if self._mcap_writer is not None:
+                self._mcap_writer.stop(time.monotonic(), timeout=timeout)
+        except TimeoutError as exc:
+            self._last_error = str(exc)
+            raise
+        except Exception as exc:
+            self._last_error = str(exc)
             self._mcap_writer = None
-            logger.info("LoopbackWriter: closed")
+            self._started = False
+            self._pending_session_path = None
+            raise
+        self._mcap_writer = None
+        self._started = False
         self._pending_session_path = None
+        logger.info("LoopbackWriter: closed")
 
     def __del__(self) -> None:
-        if self._started:
+        with contextlib.suppress(Exception):
             self.shutdown()
 
     def force_rotate(self) -> None:
-        """Force the Rust writer to close the current file so its footer is written.
-
-        CPython's reference counting immediately invokes Rust's Drop when the last
-        reference is cleared, which finalises the MCAP footer synchronously.
-        The next submit() call will open a new session file via _ensure_writer().
-        """
+        """Finish the current file before opening a fresh file on next submit."""
         if self._started and self._mcap_writer is not None:
-            logger.info("LoopbackWriter: forced rotation triggered")
-            with contextlib.suppress(Exception):
-                self._mcap_writer.stop(time.monotonic())
-            self._mcap_writer = None
+            self.shutdown()
+            self.start()
 
     # ── Worker thread ──────────────────────────────────────────────────────
     # Thread-safe: runs in dedicated daemon thread, never blocks the control loop.

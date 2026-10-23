@@ -81,14 +81,13 @@ Stateless. Good for notebooks and quick scripts.
 ### Level 2: `dam.Guardrail` -- stateful guard
 
 ```python
-guard = dam.Guardrail("safety.yaml", task="record")  # prints its obs/action contract
-
-for action, obs in teleop_stream:
-    safe_action = guard({**obs, "action": action})
-    # mirrors the action you passed; rejected actions return hold-position
+with dam.Guardrail("safety.yaml", task="record") as guard:
+    for action, obs in teleop_stream:
+        safe_action = guard({**obs, "action": action})
+        # Joint-position rejection returns the configured hold-position fallback.
 ```
 
-Auto-detects `joint_names` and `degrees_mode` from the preset. Keeps state across calls for velocity/acceleration checks.
+Resolves `joint_names` from the hardware configuration or preset. Declare `degrees_mode` in the motor interface/hardware configuration or constructor; presets do not define units. Keeps state across calls for velocity/acceleration checks.
 
 ### Level 3: `GuardrailProcessorStep` -- LeRobot pipeline
 
@@ -96,7 +95,9 @@ Auto-detects `joint_names` and `degrees_mode` from the preset. Keeps state acros
 from dam import GuardrailProcessorStep
 
 # Add one line to your existing pipeline
-robot_action_processor.steps.insert(0, GuardrailProcessorStep("safety.yaml"))
+step = GuardrailProcessorStep("safety.yaml")
+robot_action_processor.steps.insert(0, step)
+# In your recording teardown/finally block: step.close()
 ```
 
 Lazy initialization -- the guard is created on the first call, not at import time.

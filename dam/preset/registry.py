@@ -2,13 +2,13 @@
 
 The registry is read from two YAML files and merged at lookup time:
 
-  - ``BUNDLED_PATH`` — ``assets/presets.yaml`` shipped in-git. Seed presets
-    (e.g. so101_follower). Treated as read-only by this module — never
-    written to so the repo working tree stays clean.
+  - ``BUNDLED_PATH`` — source ``assets/presets.yaml`` or the wheel's
+    ``dam/_data/assets/presets.yaml``. The installed seed is read-only.
 
-  - ``USER_PATH`` — by default the same ``assets/presets.yaml`` file. Tests
-    and deployments can override it with ``DAM_DATA_ROOT``. CRUD writes land
-    here so presets remain YAML-managed.
+  - User overrides — ``DAM_DATA_ROOT/presets.yaml`` when configured;
+    otherwise source checkouts edit assets/presets.yaml and installed wheels
+    use ~/.local/share/dam/presets.yaml. Package files are never the installed
+    writable default.
 
 Both writes are atomic (write to ``.tmp``, then rename) and guarded by an
 fcntl advisory lock so multi-worker Uvicorn doesn't race on the user file.
@@ -42,14 +42,22 @@ logger = logging.getLogger(__name__)
 
 # dam/preset/registry.py → parents[2] is the repo root.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-BUNDLED_PATH = _REPO_ROOT / "assets" / "presets.yaml"
+_PRESETS_FILENAME = "presets.yaml"
+_PACKAGED_ASSETS = Path(__file__).resolve().parents[1] / "_data" / "assets"
+BUNDLED_PATH = (
+    _PACKAGED_ASSETS / _PRESETS_FILENAME
+    if (_PACKAGED_ASSETS / _PRESETS_FILENAME).is_file()
+    else _REPO_ROOT / "assets" / _PRESETS_FILENAME
+)
 
 
 def _user_path() -> Path:
     """Preset registry path — re-resolved so tests can override it."""
     data_root = os.environ.get("DAM_DATA_ROOT")
     if data_root:
-        return Path(data_root) / "presets.yaml"
+        return Path(data_root) / _PRESETS_FILENAME
+    if BUNDLED_PATH.parent == _PACKAGED_ASSETS:
+        return Path.home() / ".local" / "share" / "dam" / _PRESETS_FILENAME
     return BUNDLED_PATH
 
 
@@ -139,7 +147,14 @@ def get_preset(name: str) -> RobotPreset:
         merged = _load_merged()
         if key not in merged:
             raise KeyError(f"Unknown robot preset '{name}'. Available: {sorted(merged)}")
-        return _to_preset(key, merged[key])
+        preset = _to_preset(key, merged[key])
+        user_path = _user_path()
+        is_seed = user_path == BUNDLED_PATH or key not in _load_one(user_path)
+        if is_seed and preset.asset and isinstance(preset.asset.get("path"), str):
+            relative = Path(preset.asset["path"])
+            if not relative.is_absolute():
+                preset.asset["path"] = str((BUNDLED_PATH.parent.parent / relative).resolve())
+        return preset
 
 
 def list_presets() -> list[str]:
